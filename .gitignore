@@ -1,0 +1,11 @@
+# Personal config, secrets and notes: never published
+local/
+.env
+*.env
+!config.example/*.env
+
+# Kandu runtime
+state/
+logs/
+*.lock
+__pycache__/

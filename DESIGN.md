@@ -1,0 +1,155 @@
+# Kandu — design
+
+Status: **design only, nothing built yet.** This file is the full specification. The overview is in [README.md](README.md), the build roadmap in [TASKS.md](TASKS.md).
+
+Everything that belongs to one person's setup (machines, paths, accounts, projects, limits) lives in config files under `local/`, which is gitignored. Examples: [config.example/](config.example/).
+
+## Contents
+1. Setup and configuration by conversation
+2. Task intake
+3. Boards
+4. Project registry
+5. Supervisor, workers, reviewer
+6. Rhythm
+7. Dashboard
+8. Notifications
+9. Isolation
+10. GitHub identity
+11. Safety rules
+12. Config and updates
+
+## 1. Setup and configuration — by conversation, no forms
+
+Everything is configured by talking to an LLM in a Claude Code session. There are no forms. The LLM **first inspects the system itself** and only asks what it cannot find out. For example, given a project path it reads the git remote, looks for existing boards, finds the test command in the project's files and works out how the project deploys, then asks the user to confirm. The result is plain YAML files in `local/` that can also be edited by hand. Each step ends with a real check that everything works.
+
+### A. Initial setup — once per install (`/kandu-setup`)
+1. Where does Kandu's brain (the supervisor) run: this machine or another one? Is that machine always on?
+2. Which other machines are on the network, how are they reached (SSH alias), and which of them are always on?
+3. Claude access: subscription or API key? Usage limits: 5-hour window %, weekly %.
+4. GitHub account, and the owners (users / orgs) Kandu may work in.
+5. Where notifications go (Telegram or nowhere), and in which language.
+6. Defaults: number of parallel workers, wake interval, auto-merge on or off.
+7. Prerequisites: `claude`, `gh`, `git`, `python` installed and logged in. Kandu says what is missing.
+
+The dashboard is not a setup question: it is always Kandu's own (§7).
+
+### B. Adding a project — each time (`/kandu-add`)
+1. Name, one line on what it is, which family it belongs to.
+2. Which repos, and who owns them.
+3. Where exactly it is: which machine, which path.
+4. Permission to run: may Kandu clone it into its own work folder and run it there (`clone`), or must it work on that machine, in a separate `git worktree` (`in-place`)? **Always asked, never inferred.**
+5. Does it have a board? Which one, and how do its columns map to Kandu's standard columns? If none, should one be created?
+6. How is it tested and run locally? (The LLM proposes, the user confirms.)
+7. How is it deployed: `direct` or `preview`? Which live URL is used for the final check?
+8. Which secrets does it need and where are they? Kandu only stores the location, never copies or logs secret values.
+9. Forbidden areas: e.g. migrations, payments, files that must never be touched.
+10. Existing repo rules: CI, PR bots, other people working on the repo. Kandu respects them.
+11. Merge in this project: automatic or with approval?
+12. Priority relative to the other projects.
+
+### C. Other conversational commands
+- `/kandu-task` — define a task; writes the issue with the standard template onto the right board (§2).
+- `/kandu-config` — change config: "pause project X for a week", "set the weekly limit to 50%", "remove this project".
+- `/kandu-doctor` — health check: access, machines, `gh`, `claude`, each project's test command.
+
+## 2. Task intake
+- The user describes a task in a Claude session (`/kandu-task`). Claude writes it as a GitHub **issue** with a fixed template:
+  - Goal
+  - Acceptance criteria
+  - How to test
+  - `Blocked by` (if any)
+- Claude adds the issue to the right board with status `Ready` and label `agent`. Only `agent`-labelled issues enter the loop.
+- A precise task (clear acceptance criteria) and real tests in the project matter more for the result than the loop itself. That is why defining tasks is a conversation, not a form.
+
+## 3. Boards
+- **One GitHub Project board per project family**, owned by the GitHub user or org the repos live in. One family can hold many repos; the built-in `Repository` field tells the supervisor which repo an issue is in.
+- Standard columns on every board, so the supervisor handles them all the same way: `Ready`, `In progress`, `In review`, `Needs info`, `Blocked`, `Done`. An existing board with other columns is mapped onto these during `/kandu-add`.
+- Kandu creates a board only when the user says so.
+
+## 4. Project registry
+One entry per project in `local/projects.yaml`, written by `/kandu-add`. **A project not in the registry is never touched.** Fields (see [config.example/projects.example.yaml](config.example/projects.example.yaml)):
+- repos and board
+- **run location**, set by the user per project, never inferred:
+  - `clone` — Kandu may clone it into its own work folder on the brain's machine and run it there;
+  - `in-place` — must run on a named machine, in a separate `git worktree`, never in the user's own working copy.
+- machine, path, test command, local run command, deploy command, live URL
+- `deploy: direct` or `deploy: preview`
+- where its secrets are, forbidden areas, repo rules, merge mode, priority, max parallel workers, paused
+
+**Machines that are not always on** (e.g. a laptop): at the start of each cycle the supervisor checks the machine over SSH. Reachable → run the worker there. Not reachable → skip that project's tasks; they show as "waiting for machine" and are picked up the next cycle it is reachable. Leaving the machine on is enough to let Kandu work on it.
+
+## 5. Supervisor, workers, reviewer
+
+```
+supervisor ─┬─ worker 1  →  reviewer
+            ├─ worker 2  →  reviewer
+            └─ ...
+                 ↓
+   supervisor: final check → merge → deploy → check in the live software
+```
+
+- **Supervisor:** runs on the always-on machine as a headless `claude -p` session. It **does not write code**. It picks tasks, hands them to workers, judges results and decides. It never grades its own work.
+- **Workers:** separate subagents, each in its own `git worktree`, so they never write over each other. Independent tasks (by `Blocked by`) run in parallel, up to `max_parallel_workers`; dependent ones run in order.
+- **Reviewer:** a fresh-context reviewer for every PR checks the diff against the issue's acceptance criteria. Findings go back to the same worker. After `max_review_rounds` (default 2) the task goes to `Blocked`.
+- **Merge:** if `auto_merge` is on and the supervisor concludes the PR is right (tests pass, reviewer approves, acceptance criteria met), it merges and moves on to the next task. The user supervises the supervisor and corrects it when it is wrong. Default in this template: **off**.
+- **Deploy:** after merge, per the project's `deploy` setting.
+- **"Done" means seen in the live software:** after deploy the supervisor opens the live version (screenshot or test) and checks that what the issue asked for is really there. Green tests alone are not enough.
+- **End-of-cycle check:** after several merges, rerun all tests and a smoke test on the whole project.
+- **No automatic revert** (`auto_revert: false`). If something breaks in the live software, the supervisor only reports it. The user decides.
+- **Vague task:** no guessing. The task moves to `Needs info` and the user gets a question.
+- **No hidden memory:** all state lives on the board and in issue comments. A cycle that is cut off resumes where it stopped, and progress is visible on the board at any time.
+
+## 6. Rhythm — usage-based, not a fixed number of tasks
+- A `systemd timer` wakes the supervisor every `wake_every_minutes` (default 60). A lock file prevents two supervisors running at once.
+- No `Ready` task, or usage over a limit → sleep immediately, at no cost.
+- Otherwise work until the tasks run out, or `max_cycle_minutes` (default 50) pass, or usage hits a limit, whichever comes first.
+- **Limits** (`claude.limits`): 5-hour window % and weekly %. With a subscription shared with your own interactive sessions, leave a margin (example values: 70% and 60%). On a subscription, usage is read at no cost with `claude -p "/usage"`.
+- Usage is reported per project, so it is clear how much of the limit each project used.
+
+## 7. Dashboard — Kandu's own
+The user must be able to see exactly what is happening: the supervisor and every worker. The dashboard is part of Kandu, standalone, and **interactive**.
+- **Supervisor state:** awake or asleep, next wake time, why the last cycle stopped; two usage bars (5-hour, weekly) with the limit lines.
+- **Active workers:** task number, project, machine, phase (implement / test / review round N / merge / deploy / live check), elapsed time.
+- **Live stream:** workers run with `--output-format stream-json`, so every file read, command and edit is logged and shown live, along with the reviewer's notes and the supervisor's decisions ("sent back because…").
+- **Queue per project:** `Ready`, waiting for machine, `Needs info`, `Blocked`.
+- **Done:** PR link, live link, screenshot of the final check.
+- **Controls from day one:** stop / resume the supervisor, stop one worker.
+- **Integration interface (documented):** state files in a fixed format plus a small HTTP API (read state, event stream, stop / resume), so Kandu can be plugged into any other system or dashboard.
+- Binds to `127.0.0.1` by default. Exposing it beyond the machine (tunnel, reverse proxy, access control) is the user's choice.
+
+## 8. Notifications
+- Only the important things: the supervisor stopped, something broke, a task is stuck and needs a decision, a usage limit was hit, and things of similar weight. Everything else only on the dashboard.
+- The notifier is pluggable; Telegram is the first adapter. Messages are sent in the language chosen at setup.
+
+## 9. Isolation — none in this version
+Considered and deliberately left out of v1.
+
+Note on the trade-off: a container does not by itself use more tokens, since token use depends on what the agent reads and does. The real cost is setup and upkeep: every tool has to be passed into the container (`gh`, SSH to other machines, deploy tools such as `wrangler`, a browser for screenshots, each project's secrets).
+
+v1:
+- No container, no separate OS user. Kandu runs as the user.
+- A separate work folder for Kandu's clones, never mixed with the user's own working copies.
+- Free guards: a per-project command allowlist in Claude's settings, a list of forbidden paths (e.g. `~/.ssh`, other projects' private data), and never `--dangerously-skip-permissions`.
+- In the code, running a worker sits behind its own layer, so isolation can be added later by swapping only that layer.
+
+If you want isolation now, two options:
+- **Separate Linux user:** a `kandu` user that owns the work folder and only has access to the registered repos and their secrets. Simple, little overhead; isolation is only as good as file permissions.
+- **Docker (or a devcontainer):** each worker in a container with only its project mounted. Strongest isolation; you must provide every tool and credential inside the container and keep the image up to date.
+
+## 10. GitHub identity — the user's own account
+- v1 pushes, opens PRs and merges with the user's own GitHub account (through `gh`).
+- Everything Kandu does is marked: branch `kandu/<issue>-<slug>`, label `kandu`, and a `Kandu-Run:` line in the commit message, so Kandu's work is easy to tell apart in the history.
+- If you want Kandu's work separated from your own: create a bot account or a GitHub App, give it a fine-grained token limited to the registered repos, and point `gh` for Kandu at that token. Repo rules that count PRs per author then stay unaffected by Kandu.
+
+## 11. Safety rules
+- Never `--dangerously-skip-permissions`.
+- Never touch an unregistered project, and never touch a user's own working copy.
+- Never copy or log secret values.
+- Never take external actions (sending email or messages, payments, paid services) without the user's approval.
+- Never revert, force-push or delete branches other than its own `kandu/` branches.
+- Respect each repo's own rules (CI, PR bots, protected branches).
+
+## 12. Config and updates
+- `local/` (gitignored) holds everything personal: `kandu.yaml`, `projects.yaml`, `.env` (secrets) and any personal notes.
+- [config.example/](config.example/) has complete examples. `/kandu-setup` and `/kandu-add` write `local/` for you.
+- Updating Kandu is `git pull`; nothing in `local/` is ever touched by an update.

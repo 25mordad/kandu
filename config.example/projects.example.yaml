@@ -1,0 +1,45 @@
+# Kandu project registry — example.
+# /kandu-add writes entries to local/projects.yaml (gitignored) by asking you questions.
+# A project that is not in local/projects.yaml is never touched.
+
+projects:
+  # A project Kandu may clone and run in its own work folder on the brain's machine.
+  - name: website
+    description: Public website of Acme
+    family: acme                       # one board per family
+    repos: [acme-org/website]
+    board: { owner: acme-org, number: 1 }
+    run: clone                         # clone | in-place — always set by you, never inferred
+    machine: server
+    path: ~/kandu-work/website
+    test: npm test
+    run_local: npm run dev
+    deploy:
+      mode: direct                     # direct | preview
+      command: npx wrangler deploy
+      live_url: https://www.example.com
+    secrets_from: ~/projects/website/.env   # location only; values are never copied or logged
+    forbidden: ["migrations/", "src/payments/"]
+    repo_rules: "CI must be green before merge"
+    auto_merge: false                  # overrides supervisor.auto_merge for this project
+    priority: 1                        # 1 = highest
+    max_parallel_workers: 2
+    paused: false
+
+  # A project that must run on a specific machine (in a separate git worktree there).
+  - name: internal-tool
+    description: Internal tool that needs a local database on the laptop
+    family: acme
+    repos: [acme-org/internal-tool]
+    board: { owner: acme-org, number: 1 }
+    run: in-place
+    machine: laptop                    # if the laptop is off, its tasks wait for the next cycle
+    path: ~/code/internal-tool
+    test: make test
+    deploy:
+      mode: preview
+      command: make deploy-preview
+      live_url: https://preview.example.com
+    priority: 2
+    max_parallel_workers: 1
+    paused: false

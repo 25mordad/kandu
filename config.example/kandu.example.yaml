@@ -1,0 +1,46 @@
+# Kandu main config — example.
+# /kandu-setup writes the real one to local/kandu.yaml (gitignored) by asking you questions.
+# You can also copy this file there and edit it by hand.
+
+brain:
+  machine: server              # name of a machine below; the supervisor runs here (should be always on)
+  work_dir: ~/kandu-work       # where Kandu clones projects that have run: clone
+
+machines:
+  - name: server
+    reach: local               # local = the machine Kandu runs on
+    always_on: true
+  - name: laptop
+    reach: ssh laptop          # SSH alias from ~/.ssh/config
+    always_on: false           # checked at the start of each cycle; skipped when unreachable
+
+claude:
+  auth: subscription           # subscription | api_key (api_key: set ANTHROPIC_API_KEY in local/.env)
+  limits:
+    session_5h_percent: 70     # stop when the 5-hour usage window reaches this
+    weekly_percent: 60         # stop when weekly usage reaches this
+
+github:
+  account: your-github-login
+  owners:                      # users / orgs Kandu may work in
+    - your-github-login
+    - your-org
+
+notify:
+  adapter: telegram            # telegram | none
+  language: en                 # language of notification messages
+  telegram:
+    bot_token_env: KANDU_TELEGRAM_BOT_TOKEN   # names of variables in local/.env, not the values
+    chat_id_env: KANDU_TELEGRAM_CHAT_ID
+
+supervisor:
+  wake_every_minutes: 60
+  max_cycle_minutes: 50
+  max_parallel_workers: 2
+  max_review_rounds: 2
+  auto_merge: false            # true = the supervisor merges on its own when it judges a PR right
+  auto_revert: false           # the supervisor only reports breakage; it never reverts
+
+dashboard:
+  bind: 127.0.0.1
+  port: 8790
