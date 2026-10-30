@@ -34,4 +34,4 @@ Every task is designed and checked against harness, context and memory (§14).
 23. [ ] Integration PR check: blockers of a PR still open must not reach `main` through a branch that merges it (§5)
 24. [x] Hive design for the dashboard: the meadow, with bees for agents and flowers for tasks, all from real state (§7)
 25. [ ] Show the dashboard inside another private app in a frame, through that app's server, opening no new port
-26. [ ] A short film of the dashboard for the README, recorded from the page with generic sample data, at no cost
+26. [ ] A film of the dashboard for the README with a voice explaining what Kandu does, only after the first real round works
