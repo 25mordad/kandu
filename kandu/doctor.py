@@ -1,6 +1,7 @@
 """Checks that a Kandu install can work (DESIGN §1C). Uses no tokens and changes nothing."""
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,14 @@ def check_guard(hooks_path, local_dir):
     has_words = (Path(local_dir) / "private-words.txt").exists()
     results.append((OK if has_words else WARN, "private guard: local/private-words.txt exists"))
     return results
+
+
+def check_dashboard_token(local_dir):
+    env_file = Path(local_dir) / ".env"
+    lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
+    if os.environ.get(TOKEN_ENV) or any(re.fullmatch(rf"{TOKEN_ENV}=\S+", line) for line in lines):
+        return OK, f"{TOKEN_ENV} is set"
+    return WARN, f"{TOKEN_ENV} is not set; the dashboard's controls are refused"
 
 
 def check_usage(auth, reader=read_usage):
@@ -90,7 +99,7 @@ def run_checks(config, local_dir, runner, github):
     hooks = subprocess.run(["git", "config", "core.hooksPath"], capture_output=True, text=True, cwd=REPO_DIR)
     results += check_guard(hooks.stdout.strip(), local_dir)
     results.append(check_usage(settings.claude.auth))
-    results.append((OK if os.environ.get(TOKEN_ENV) else WARN, f"{TOKEN_ENV} is set, for dashboard controls"))
+    results.append(check_dashboard_token(local_dir))
     results += [check_machine(m, runner) for m in settings.machines]
     for project in config.projects:
         if runner.reachable(project.machine):
@@ -99,6 +108,7 @@ def run_checks(config, local_dir, runner, github):
 
 
 def main():
+    os.environ["PATH"] = f"{Path.home() / '.local' / 'bin'}:{os.environ['PATH']}"  # As the timer and the runner do.
     parser = argparse.ArgumentParser(description="Check a Kandu install.")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
     args = parser.parse_args()

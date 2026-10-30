@@ -120,6 +120,14 @@ class DoctorTest(unittest.TestCase):
             results = doctor.check_guard("", local)
         self.assertEqual([r[0] for r in results], [doctor.FAIL, doctor.WARN])
 
+    def test_dashboard_token(self):
+        with tempfile.TemporaryDirectory() as local, mock.patch.dict("os.environ", clear=True):
+            self.assertEqual(doctor.check_dashboard_token(local)[0], doctor.WARN)
+            (Path(local) / ".env").write_text("KANDU_DASHBOARD_TOKEN=\n", encoding="utf-8")
+            self.assertEqual(doctor.check_dashboard_token(local)[0], doctor.WARN)
+            (Path(local) / ".env").write_text("KANDU_DASHBOARD_TOKEN=abc\n", encoding="utf-8")
+            self.assertEqual(doctor.check_dashboard_token(local)[0], doctor.OK)
+
     def test_usage(self):
         self.assertEqual(doctor.check_usage("subscription", lambda: Usage(1, 2))[0], doctor.OK)
 
