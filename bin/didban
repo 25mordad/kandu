@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Opens Claude Code in the Didban role. Symlink this into your PATH.
+set -euo pipefail
+
+repo="$(dirname "$(dirname "$(readlink -f "$0")")")"
+export PATH="$HOME/.local/bin:$PATH"
+cd "$repo"
+exec .venv/bin/python -m kandu.didban "$@"

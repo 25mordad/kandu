@@ -79,6 +79,13 @@ The state files and a small HTTP API are documented, so you can connect Kandu to
 
 The supervisor runs on an always-on machine, which is usually not the one you sit at. **Didban** (Persian for "lookout") is how you talk to Kandu from your own machine: one command opens a Claude Code session in the control role. From there you define tasks, see state and stop or resume the supervisor. Didban is a role, not a service, and it does not write code. Details in [DESIGN.md](DESIGN.md#13-didban--control-from-your-own-machine).
 
+On the machine you sit at, in a clone of Kandu with its `.venv`:
+
+```
+cp config.example/didban.example.yaml local/didban.yaml   # then edit it
+ln -s "$PWD/bin/didban" ~/.local/bin/didban
+```
+
 ## Notifications
 
 Only the important things, for example the supervisor stopped, something broke, a task needs your decision, a usage limit was reached. Everything else stays on the dashboard. Telegram is the first adapter; the notifier is pluggable.

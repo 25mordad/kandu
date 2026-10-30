@@ -147,6 +147,17 @@ class Registry:
 
 
 @dataclass
+class DidbanBrain:
+    reach: str
+    install_dir: str
+
+
+@dataclass
+class DidbanConfig:
+    brain: DidbanBrain
+
+
+@dataclass
 class Config:
     settings: Settings
     projects: list[Project]
@@ -304,6 +315,20 @@ def load_config(local_dir=DEFAULT_LOCAL_DIR):
     if problems:
         raise ConfigError(problems)
     return Config(settings=settings, projects=registry.projects)
+
+
+def load_didban(local_dir=DEFAULT_LOCAL_DIR):
+    """Returns the validated local/didban.yaml, or raises ConfigError."""
+    problems = []
+    raw = _load_yaml(Path(local_dir) / "didban.yaml", problems)
+    if problems:
+        raise ConfigError(problems)
+    didban = _build(DidbanConfig, raw, "", problems)
+    if not problems and not (didban.brain.reach.startswith("ssh ") and didban.brain.reach[4:].strip()):
+        problems.append(f"brain.reach: must be 'ssh <alias>', got {didban.brain.reach!r}")
+    if problems:
+        raise ConfigError(problems)
+    return didban
 
 
 def main():
