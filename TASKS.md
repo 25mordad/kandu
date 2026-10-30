@@ -11,7 +11,7 @@ Every task is designed and checked against harness, context and memory (§14).
 4. [ ] `/kandu-doctor` — health check (§1C)
 5. [ ] `/kandu-task` — define a task by conversation; issue template; standard board columns (§2, §3)
 6. [x] Didban: one command from the user's own machine, control role, reads `local/` over SSH (§13)
-7. [ ] State files + event log in a documented format, including tokens per task and model (§7)
+7. [x] State files + event log in a documented format, including tokens per task and model (§7)
 8. [ ] Dashboard with live stream, by-day view with tokens per task, stop / resume controls; versioned HTTP API documented in `docs/API.md` (§7)
 9. [ ] Supervisor: usage check, lock file, task selection, `systemd timer` (§5, §6)
 10. [ ] Workers in `git worktree`s, local and over SSH, behind a swappable runner layer (§4, §5, §9)
