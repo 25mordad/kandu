@@ -27,8 +27,8 @@ def _command(text):
 def worker_tools(project, branch):
     """Returns (allowed, denied) for a worker on `branch`."""
     allowed = ["Read", "Glob", "Grep", "Edit", "Write"]
-    for command in ("git add", "git status", "git diff", "git log", "git commit", "gh pr create", "gh pr view",
-                    "gh pr comment", "gh issue view", project.test):
+    for command in ("git add", "git rm", "rm", "git status", "git diff", "git log", "git commit", "gh pr create",
+                    "gh pr view", "gh pr comment", "gh issue view", project.test):
         allowed += _command(command)
     allowed += [f"Bash(git push origin {branch})", f"Bash(git push -u origin {branch})"]
     allowed += project.allowed_tools

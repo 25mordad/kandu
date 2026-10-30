@@ -20,6 +20,8 @@ class ToolsTest(unittest.TestCase):
 
     def test_worker_runs_the_projects_tests(self):
         allowed, _ = agents.worker_tools(project(), "kandu/1-a")
+        self.assertIn("Bash(git rm *)", allowed)
+        self.assertIn("Bash(rm *)", allowed)
         self.assertIn("Bash(npm test)", allowed)
         self.assertIn("Bash(npm test *)", allowed)
 
