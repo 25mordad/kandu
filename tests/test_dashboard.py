@@ -152,12 +152,15 @@ class ReviewPageTest(Base):
                 "comments": [{"author": {"login": ACCOUNT}, "body": b} for b in comments]}
 
     def test_rounds_in_plain_words(self):
-        report = {"head_sha": "abc", "criteria": [], "brief": "کوتاه", "door": "two-way", "blast_radius": "b", "wait_for_user": [],
+        report = {"head_sha": "abc", "criteria": [], "brief": "Short.", "door": "two-way", "blast_radius": "b", "wait_for_user": [],
                   "summary": "s"}
+        self.store.record("review_finished", task=f"{REPO}#1", project="site", run_id="r", round=1, head_sha="abc",
+                          findings=0, blockers=0, door="two-way", criteria_met=True, wait_for_user=[], user_brief="کوتاه")
         self.github.find_pr.return_value = self.pr(review.comment_for(report, 1, []))
         body = self.get(f"/api/v1/reviews/{REPO}/1")[1]
         self.assertEqual(body["pr"]["number"], 7)
-        self.assertEqual(body["rounds"][0]["brief"], "کوتاه")
+        self.assertEqual(body["rounds"][0]["brief"], "Short.")
+        self.assertEqual(body["rounds"][0]["user_brief"], "کوتاه")
         self.assertEqual(body["rounds"][0]["recommendation"], "ready to merge")
 
     def test_no_pr_yet(self):

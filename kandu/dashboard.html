@@ -474,7 +474,7 @@ async function showReviews(task) {
   if (!r.pr) { $("pr").innerHTML = `<div class="muted">${t("no_pr")}</div>`; return; }
   $("pr").innerHTML = `<p><a href="${esc(r.pr.url)}"><bdi>#${r.pr.number} ${esc(r.pr.title)}</bdi></a> <span class="muted">${esc(tr(r.pr.state))}</span></p>` +
     r.rounds.map(round => `<h3>${t("round")} ${num(round.round)}: ${esc(tr(round.recommendation))}</h3>
-      <p dir="auto">${esc(round.brief)}</p>
+      <p dir="auto">${esc(lang === "fa" && round.user_brief || round.brief)}</p>
       <p class="muted" dir="auto">${esc(tr(round.door))} · ${esc(round.blast_radius)}</p>
       ${(round.wait_for_user || []).map(q => `<div class="finding blocker" dir="auto">${esc(q)}</div>`).join("")}
       ${round.open.map(f => `<div class="finding ${f.blocker ? "blocker" : ""}" dir="auto">${t(f.blocker ? "blocker" : "note")} · ${bdi(f.path)}<br>${esc(f.body)}</div>`).join("")}`).join("");

@@ -34,7 +34,7 @@ NOTE = {"n": 1, "path": "a.py", "line": 3, "blocker": False, "body": "Confusing.
 def report(head, findings=(), earlier=(), door="two-way", wait=()):
     return json.dumps({
         "head_sha": head, "summary": "s", "criteria": [{"criterion": "c", "result": "met"}], "earlier": list(earlier),
-        "findings": list(findings), "checked_ok": [], "door": door, "blast_radius": "b", "brief": "b",
+        "findings": list(findings), "checked_ok": [], "door": door, "blast_radius": "b", "brief": "b", "user_brief": "ب",
         "wait_for_user": list(wait),
     })
 

@@ -285,7 +285,7 @@ class Supervisor:
                           round=round_number, head_sha=head, findings=len(findings),
                           blockers=len(review.blockers(findings)), door=report["door"],
                           criteria_met=all(c["result"] == "met" for c in report["criteria"]),
-                          wait_for_user=report["wait_for_user"])
+                          wait_for_user=report["wait_for_user"], user_brief=report["user_brief"])
 
     def _settle(self, task, pr, findings, reason):
         """No more fix rounds: a blocker stops the task, a note stays on the PR for the user."""

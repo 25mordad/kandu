@@ -22,7 +22,7 @@ EVENT_FIELDS = {
     "decision": TASK_FIELDS + ("decision", "reason"),
     "run_finished": TASK_FIELDS + ("run_id", "role", "models", "duration_ms", "is_error"),
     "review_finished": TASK_FIELDS + ("run_id", "round", "head_sha", "findings", "blockers", "door", "criteria_met",
-                                      "wait_for_user"),
+                                      "wait_for_user", "user_brief"),
     "deployed": TASK_FIELDS + ("run_id",),
     "task_finished": TASK_FIELDS + ("outcome",),
     "project_checked": ("project", "passed", "detail"),

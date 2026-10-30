@@ -156,7 +156,13 @@ class Api:
         rounds = review.reviews_on(pr, self.config.settings.github.account)
         return {"task": f"{full}#{number}", "pr": {"number": pr["number"], "title": pr["title"], "url": pr["url"],
                                                    "state": pr["state"], "head_sha": pr["headRefOid"]},
-                "rounds": [r | {"recommendation": recommendation(r)} for r in rounds]}
+                "rounds": [r | {"recommendation": recommendation(r), "user_brief": self._user_brief(full, number, r)}
+                           for r in rounds]}
+
+    def _user_brief(self, repo, number, round_):
+        """It stays in the local log: a PR comment holds only English."""
+        seen = self.store.last_event("review_finished", task=f"{repo}#{number}", round=round_["round"])
+        return (seen or {}).get("user_brief")
 
     def stop(self, query):
         self.store.request_stop()

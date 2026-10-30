@@ -59,7 +59,7 @@ class StateTest(unittest.TestCase):
     def test_review_round_is_logged_even_with_no_findings(self):
         self.store.record("review_finished", now=NOW, task="o/r#1", project="site", run_id="r2", round=1,
                           head_sha="abc123", findings=0, blockers=0, door="two-way", criteria_met=True,
-                          wait_for_user=[])
+                          wait_for_user=[], user_brief="b")
         event = self.store.events(DAY)[0]
         self.assertEqual((event["head_sha"], event["findings"]), ("abc123", 0))
 

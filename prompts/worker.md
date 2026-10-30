@@ -24,6 +24,7 @@ Fix every finding, blockers and notes alike. If you think a finding is wrong, sa
 4. Keep the command as a regression test. Finish when it passes and the full test suite still passes.
 
 ## Stay inside the task
+- Write commits, PRs and comments in English.
 - Change only what the issue asks. Anything else you notice goes in your report, not in the diff.
 - Never touch a forbidden area of the project.
 - Never show a secret. Write `<REDACTED>` in commands, output and PR text.

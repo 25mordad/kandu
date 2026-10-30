@@ -8,7 +8,7 @@ import json
 import re
 
 REPORT_KEYS = {"head_sha", "summary", "criteria", "earlier", "findings", "checked_ok", "door",
-               "blast_radius", "brief", "wait_for_user"}
+               "blast_radius", "brief", "user_brief", "wait_for_user"}
 FINDING_KEYS = {"n", "path", "line", "blocker", "body"}
 DOORS = ("two-way", "one-way")
 CRITERION_RESULTS = ("met", "not_met", "not_shown")
@@ -55,6 +55,8 @@ def validate_report(report, still_open):
         raise ReportError("report has no head_sha")
     if report["door"] not in DOORS:
         raise ReportError("door must be two-way or one-way")
+    if not isinstance(report["user_brief"], str) or not report["user_brief"].strip():
+        raise ReportError("report has no user_brief")
     if not isinstance(report["wait_for_user"], list) or not all(isinstance(q, str) for q in report["wait_for_user"]):
         raise ReportError("wait_for_user must be a list of questions")
     for name in ("criteria", "earlier", "findings"):
