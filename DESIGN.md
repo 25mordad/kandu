@@ -156,6 +156,7 @@ If you want isolation now, two options:
 - `local/` (gitignored) holds everything personal: `kandu.yaml`, `projects.yaml`, `.env` (secrets) and any personal notes.
 - [config.example/](config.example/) has complete examples. `/kandu-setup` and `/kandu-add` write `local/` for you.
 - Updating Kandu is `git pull`; nothing in `local/` is ever touched by an update.
+- **Recommended install:** a private repo of your own with this public repo as `upstream` and pushes to `upstream` disabled, so issues, PRs and mistakes stay private. A GitHub fork of a public repo cannot be private. Steps are in [README.md](README.md#recommended-run-kandu-from-your-own-private-copy).
 
 ## 13. Didban — control from your own machine
 The brain runs on an always-on machine, which is usually not the machine the user sits at. **Didban** (Persian for "lookout", the one at the top of the tower) is how the user talks to Kandu from their own machine: one command opens a Claude Code session in a clone of this repo, in the control role. It is a role, not a service: no daemon, no new connection, nothing to keep running.

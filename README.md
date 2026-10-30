@@ -83,6 +83,21 @@ The supervisor runs on an always-on machine, which is usually not the one you si
 
 Only the important things, for example the supervisor stopped, something broke, a task needs your decision, a usage limit was reached. Everything else stays on the dashboard. Telegram is the first adapter; the notifier is pluggable.
 
+## Recommended: run Kandu from your own private copy
+
+This repo is the public template. The best way to use Kandu is to keep your own private repo and use this one as `upstream`. Your tasks, issues and PRs on Kandu itself stay private, and a push by mistake goes to a private repo. (A GitHub fork of a public repo cannot be private, so this is a new repo, not a fork.)
+
+```
+git clone https://github.com/25mordad/kandu.git kandu
+cd kandu
+git remote rename origin upstream
+git remote set-url --push upstream DISABLED
+gh repo create your-login/kandu-private --private --source=. --remote=origin --push
+git config core.hooksPath .githooks
+```
+
+To update: `git fetch upstream && git merge upstream/main`, then `git push origin main`.
+
 ## Setup — by conversation
 
 There are no forms. You configure Kandu by talking to it in Claude Code. It first looks at your system itself and only asks what it cannot find out, then asks you to confirm.

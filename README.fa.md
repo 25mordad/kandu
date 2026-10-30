@@ -89,6 +89,25 @@
 
 فقط چیزهای مهم: ناظر متوقف شد، چیزی خراب شد، یک تسک تصمیم شما را لازم دارد، یا مصرف به سقف رسید. بقیه‌ی چیزها روی داشبورد می‌مانند. `Telegram` اولین گزینه است و می‌شود گزینه‌های دیگر هم اضافه کرد.
 
+## روش پیشنهادی: کندو را از نسخه‌ی خصوصی خودتان اجرا کنید
+
+این ریپو قالب عمومی کندو است. بهترین راه استفاده این است که یک ریپوی خصوصی برای خودتان داشته باشید و همین ریپو را `upstream` آن کنید. این‌طوری تسک‌ها، `issue`ها و `PR`های کندوی شما خصوصی می‌مانند و `push` اشتباهی هم به یک ریپوی خصوصی می‌رود. `fork` یک ریپوی عمومی در `GitHub` نمی‌تواند خصوصی باشد، پس این یک ریپوی جدید است، نه `fork`.
+
+<div dir="ltr">
+
+```
+git clone https://github.com/25mordad/kandu.git kandu
+cd kandu
+git remote rename origin upstream
+git remote set-url --push upstream DISABLED
+gh repo create your-login/kandu-private --private --source=. --remote=origin --push
+git config core.hooksPath .githooks
+```
+
+</div>
+
+برای آپدیت: `git fetch upstream && git merge upstream/main` و بعد `git push origin main`.
+
 ## راه‌اندازی — با گفتگو
 
 فرم ندارد. کندو را با حرف زدن با خودش در `Claude Code` تنظیم می‌کنید. اول خودش سیستمتان را می‌گردد، فقط چیزهایی را می‌پرسد که نمی‌تواند بفهمد، و بعد از شما تأیید می‌گیرد.
