@@ -150,6 +150,8 @@ Everything personal goes into `local/`, which is gitignored: your config, projec
 
 [Jadu](https://github.com/25mordad/Jadu) is a workflow for sessions where you work together with the agent. Kandu is the autonomous layer that continues after them.
 
+Kandu's practices for review, task slicing, PR bodies, debugging, testing and prompt writing are adapted from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT).
+
 ## License
 
 [MIT](LICENSE)

@@ -164,6 +164,8 @@ python3 -m venv .venv
 
 [Jadu](https://github.com/25mordad/Jadu) یک روش کار برای سشن‌هایی است که شما همراه ایجنت کار می‌کنید. کندو لایه‌ی خودکاری است که بعد از آن‌ها کار را ادامه می‌دهد.
 
+روش‌های ریویو، تقسیم تسک، متن `PR`، دیباگ، تست و نوشتن پرامپت در کندو از [mattpocock/skills](https://github.com/mattpocock/skills) با مجوز `MIT` اقتباس شده‌اند.
+
 ## لایسنس
 
 [MIT](LICENSE)
