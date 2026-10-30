@@ -4,6 +4,7 @@ import shutil
 import socket
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -310,8 +311,10 @@ class ServerTest(Base):
                 self.assertIn(b"text/event-stream", sock.recv(1024))
                 self.store.record("supervisor_woke")
                 data = b""
-                while b"supervisor_woke" not in data:
+                deadline = time.monotonic() + 5
+                while b"supervisor_woke" not in data and time.monotonic() < deadline:
                     data += sock.recv(4096)
+                self.assertIn(b"supervisor_woke", data)
         self.assertIn(b"data: {", data)
 
 

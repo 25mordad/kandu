@@ -64,6 +64,8 @@ Machines that are not always on are checked at the start of every cycle. If a ma
 
 ## Dashboard
 
+![Kandu's dashboard, with sample data: bees working on the flowers of two projects](docs/media/dashboard-en.png)
+
 Kandu has its own interactive dashboard:
 
 - supervisor state, next wake time, why the last cycle stopped, usage bars with the limit lines

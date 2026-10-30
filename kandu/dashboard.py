@@ -255,11 +255,11 @@ def make_handler(api):
                        "application/json; charset=utf-8")
 
         def _stream(self):
+            position = _start_position(api.store)  # before the headers, so no event can fall between
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
-            position = _start_position(api.store)
             try:
                 while True:
                     events, position = new_events(api.store, position)
