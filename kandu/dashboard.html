@@ -67,9 +67,15 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
 @keyframes flap { from { transform:scaleY(1); } to { transform:scaleY(.45); } }
 .body { fill:#f5b301; stroke:#3a2608; stroke-width:1; } .stripe { fill:#3a2608; } .head { fill:#3a2608; }
 .reviewer .body { fill:#9f7be0; } .scout .body { fill:#4fb6c9; }
+.lens { fill:#ffffff88; stroke:#3a2608; stroke-width:2; }
+.halo { fill:none; stroke:#f5b301; stroke-width:4; transform-box:fill-box; transform-origin:center; animation:halo 1.8s ease-out infinite; }
+@keyframes halo { from { opacity:.9; transform:scale(.6); } to { opacity:0; transform:scale(1.5); } }
+.speech rect, .speech path { fill:#fffdf5; stroke:#3a2608; stroke-width:1.2; }
+.speech text { fill:#3a2608; font:600 13px system-ui, sans-serif; text-anchor:middle; direction:ltr; unicode-bidi:plaintext; }
+.speech.back rect, .speech.back path { fill:#fde2c4; stroke:#b4580f; }
 .drop { fill:#f5b301; stroke:#d98a00; }
 .paused * { animation-play-state:paused !important; }
-@media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz { animation:none; } }
+@media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz, .halo { animation:none; } }
 
 .jars { display:flex; gap:16px; flex-wrap:wrap; justify-content:center; }
 .jar-box { text-align:center; }
@@ -110,7 +116,7 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
 {
   "en": {
     "brand": "Kandu", "hive": "The hive", "empty_meadow": "The meadow is empty: no task is on a board yet.", "bee_worker": "Worker bee", "bee_reviewer": "Reviewer bee", "bee_scout": "Scout bee", "other_language": "فارسی", "loading": "loading", "control_token": "control token", "stop": "Stop", "resume": "Resume",
-    "usage": "Usage", "queen": "The queen", "queen_asks": "She asks you", "queen_cost": "This look / today / limit", "active_workers": "Bees at work", "queue": "The meadow", "by_day": "Honeycomb by day", "day": "day",
+    "usage": "Usage", "queen": "The queen", "queen_asks": "She asks you", "queen_cost": "This look / today / limit", "queen_deciding": "Deciding", "sent_back": "Back from review", "bee_queen": "Queen", "active_workers": "Bees at work", "queue": "The meadow", "by_day": "Honeycomb by day", "day": "day",
     "live_stream": "Live stream", "run": "Run", "pr_page": "PR page", "token_required": "A valid token is required.",
     "request_failed": "The request failed.", "api_unreachable": "The dashboard API cannot be reached.",
     "not_read_yet": "not read yet", "limit": "limit", "session": "5-hour", "week": "Week", "next_wake": "next wake",
@@ -122,7 +128,7 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
   },
   "fa": {
     "brand": "کندو", "hive": "کندو", "empty_meadow": "مرغزار خالی است: هنوز تسکی روی هیچ بوردی نیست.", "bee_worker": "زنبور کارگر", "bee_reviewer": "زنبور بازبین", "bee_scout": "زنبور پیشاهنگ", "other_language": "English", "loading": "در حال بارگذاری", "control_token": "توکن کنترل", "stop": "توقف", "resume": "ادامه",
-    "usage": "مصرف", "queen": "ملکه", "queen_asks": "از تو می‌پرسد", "queen_cost": "این بار / امروز / سقف", "active_workers": "زنبورهای در حال کار", "queue": "مرغزار", "by_day": "شانهٔ عسل روز", "day": "روز",
+    "usage": "مصرف", "queen": "ملکه", "queen_asks": "از تو می‌پرسد", "queen_cost": "این بار / امروز / سقف", "queen_deciding": "در حال تصمیم", "sent_back": "برگشت از بازبینی", "bee_queen": "ملکه", "active_workers": "زنبورهای در حال کار", "queue": "مرغزار", "by_day": "شانهٔ عسل روز", "day": "روز",
     "live_stream": "جریان زنده", "run": "اجرا", "pr_page": "صفحه PR", "token_required": "توکن معتبر لازم است.",
     "request_failed": "درخواست انجام نشد.", "api_unreachable": "به API داشبورد دسترسی نیست.",
     "not_read_yet": "هنوز خوانده نشده", "limit": "سقف", "session": "پنج‌ساعته", "week": "هفته", "next_wake": "بیداری بعدی",
@@ -257,8 +263,17 @@ function bee(kind, size = 1) {
   return `<g class="${kind}" transform="scale(${size})">
     <ellipse class="wing" cx="-2" cy="-8" rx="6" ry="8"/><ellipse class="wing low" cx="-2" cy="8" rx="6" ry="8"/>
     <ellipse class="body" rx="12" ry="7"/><rect class="stripe" x="-6" y="-6.6" width="3.4" height="13.2"/><rect class="stripe" x="0" y="-7" width="3.4" height="14"/>
-    <circle class="head" cx="11" r="4.5"/></g>`;
+    <circle class="head" cx="11" r="4.5"/>${kind === "reviewer" ? '<path class="lens" d="M21 5 l6 7"/><circle class="lens" cx="18" cy="1" r="6"/>' : ""}</g>`;
 }
+
+// A small speech bubble that does not move with the bee, so it can be read.
+function speech(x, y, text, back = false) {
+  const width = text.length * 7.4 + 20;
+  return `<g class="speech${back ? " back" : ""}" transform="translate(${x} ${y})"><rect x="${-width / 2}" y="-24" width="${width}" height="24" rx="8"/>
+    <path d="M-6 0 l6 8 l6 -8z"/><text y="-7">${esc(text)}</text></g>`;
+}
+
+function isFix(phase) { return /^fix round/.test(phase || ""); }
 
 function beeKind(phase) {
   if (/^review/.test(phase)) return "reviewer";
@@ -280,13 +295,13 @@ function flight(worker, kind, spot, hive, index) {
     keyTimes="0;0.4;0.65;1" keyPoints="0;0.5;0.5;1" path="${path}"/></g>`;
 }
 
-function hive(x, y, asleep) {
+function hive(x, y, asleep, queenRun) {
   const widths = [52, 88, 112, 124, 124];
   const bands = widths.map((w, i) => `<rect class="band" x="${-w / 2}" y="${-96 + i * 25}" width="${w}" height="27" rx="13"/>`).join("");
   const naps = asleep ? `<text class="zzz" x="56" y="-92">z</text><text class="zzz two" x="70" y="-108">z</text><text class="zzz three" x="84" y="-124">z</text>` : "";
   return `<g class="${asleep ? "asleep" : ""}" transform="translate(${x} ${y})"><title>${t("hive")}</title>${bands}<path class="door" d="M-16 29 a16 16 0 0 1 32 0z"/>
-    <g transform="translate(0 -44) rotate(-90)">${bee("queen", 1.5)}</g>
-    <path d="M-10 -80 l5 8 5 -8 5 8 5 -8 v12 h-20z" fill="#f5b301" stroke="#3a2608"/>${naps}</g>`;
+    <g${queenRun ? ` class="clickable" data-run="${esc(queenRun)}"` : ""} transform="translate(0 -44) rotate(-90)">${queenRun ? '<circle class="halo" r="38"/><circle class="halo" r="38" style="animation-delay:.9s"/>' : ""}${bee("queen", 1.5)}</g>
+    <path d="M-10 -80 l5 8 5 -8 5 8 5 -8 v12 h-20z" fill="#f5b301" stroke="#3a2608"/>${naps}${queenRun ? speech(0, -112, t("queen_deciding")) : ""}</g>`;
 }
 
 function fields(state, queue) {
@@ -325,7 +340,7 @@ function renderScene(state, queue) {
   const projects = fields(state, queue);
   const stopped = state.stop_requested;
   const asleep = stopped || state.supervisor !== "awake";
-  const key = JSON.stringify([narrow, lang, stopped, asleep, projects, state.workers]);
+  const key = JSON.stringify([narrow, lang, stopped, asleep, projects, state.workers, state.queen_run]);
   if (key === sceneKey) return;
   sceneKey = key;
   const width = narrow ? 420 : 1200;
@@ -346,19 +361,26 @@ function renderScene(state, queue) {
       <text class="patch-name" x="${middle}" y="${patch.y + 6}">${esc(patch.name)}</text>${flowers}`;
   }).join("");
   const bees = (state.workers || []).map((worker, i) => spots[worker.task] ? flight(worker, beeKind(worker.phase), spots[worker.task], {x: home.x, y: home.y + 20}, i) : "").join("");
+  // Neighbouring flowers take turns on two rows, so their labels do not cover each other.
+  const talking = (state.workers || []).filter(worker => spots[worker.task] && worker.phase)
+    .sort((a, b) => spots[a.task].x - spots[b.task].x);
+  const talk = talking.map((worker, i) => {
+    const spot = spots[worker.task];
+    return speech(spot.x, spot.y - 38 - (i % 2) * 28, `${isFix(worker.phase) ? "↩ " : ""}${tr(worker.phase)}`, isFix(worker.phase));
+  }).join("");
   const note = projects.some(p => p.tasks.length) ? "" : `<text class="meadow-note" x="${width / 2}" y="${height - 30}">${t("empty_meadow")}</text>`;
   box.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${t("hive")}" class="${stopped ? "paused" : ""}">
     <defs><linearGradient id="sky" x2="0" y2="1"><stop class="sky-top" offset="0"/><stop class="sky-low" offset="1"/></linearGradient></defs>
     <rect width="${width}" height="${height}" fill="url(#sky)"/>
     <path class="hill far" d="M0 90 Q${width * .3} 40 ${width * .6} 85 T${width} 70 V${height} H0z"/>
     <path class="hill" d="M0 125 Q${width * .4} 75 ${width} 120 V${height} H0z"/>
-    ${hive(home.x, home.y, asleep)}${patches}${bees}${note}</svg>`;
+    ${hive(home.x, home.y, asleep, state.queen_run)}${patches}${bees}${talk}${note}</svg>`;
   if (stopped) box.firstElementChild.pauseAnimations();
 }
 
 function renderLegend() {
   const kinds = [["Backlog", "Backlog"], ["Ready", "Ready"], ["In progress", "In progress"], ["In review", "In review"], ["Needs info", "Needs info"], ["Blocked", "Blocked"], ["waiting", "waiting for machine"]];
-  const bees = [["#f5b301", "bee_worker"], ["#9f7be0", "bee_reviewer"], ["#4fb6c9", "bee_scout"]];
+  const bees = [["#d98a00", "bee_queen"], ["#f5b301", "bee_worker"], ["#9f7be0", "bee_reviewer"], ["#4fb6c9", "bee_scout"], ["#fde2c4", "sent_back"]];
   $("legend").innerHTML = kinds.map(([kind, label]) => `<span style="--swatch:${FLOWERS[kind].swatch}"><i></i>${esc(tr(label))}</span>`).join("") +
     bees.map(([color, key]) => `<span style="--swatch:${color}"><i></i>${t(key)}</span>`).join("");
 }

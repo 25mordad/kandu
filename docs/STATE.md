@@ -65,6 +65,7 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 | `next_wake` | expected time of the next cycle |
 | `usage` | `{"session": percent, "week": percent}`, or `null` if not read |
 | `workers` | one object per active task: `task`, `project`, `machine`, `phase`, `started` |
+| `queen_run` | the run id of the queen while she is awake, otherwise null |
 | `waiting_for_machine` | tasks whose machine was off in the last cycle |
 
 `phase` is `implement`, `review round N` or `fix round N`.

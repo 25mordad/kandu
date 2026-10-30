@@ -30,7 +30,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
  "usage": {"session": 28, "week": 41}, "limits": {"session": 70, "week": 60},
  "workers": [{"task": "acme-org/website#12", "project": "website", "machine": "server",
               "started": "2026-10-30T12:00:00+01:00", "phase": "implement", "run_id": "r-20261030120000-a1b2c3"}],
- "waiting_for_machine": [], "stop_requested": false}
+ "waiting_for_machine": [], "queen_run": null, "stop_requested": false}
 ```
 
 `GET /api/v1/queue`

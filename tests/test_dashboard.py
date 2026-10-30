@@ -234,6 +234,12 @@ class HiveTest(unittest.TestCase):
         for column in dashboard.QUEUE_COLUMNS:
             self.assertIn(f'"{column}":', flowers)
 
+    def test_the_page_shows_the_queen_and_a_task_sent_back(self):
+        self.assertIn("state.queen_run", self.page)
+        self.assertIn("isFix(worker.phase)", self.page)
+        self.assertIn('"sent_back"', self.page)
+        self.assertIn("bee_queen", self.page)
+
     def test_the_page_loads_nothing_from_outside(self):
         self.assertEqual(re.findall(r'(?:src|href)="https?://', self.page), [])
         self.assertNotIn("@import", self.page)

@@ -517,6 +517,17 @@ class QueenPacesTest(Base):
         self.cycle()
         self.assertEqual(len(self.runner.runs), 1)
 
+    def test_the_page_can_see_her_awake_and_asleep(self):
+        seen = []
+        self.github.add(1, "Backlog")
+        def watch():
+            seen.append(self.store.read_current()["queen_run"])
+            return self.reply()
+        self.runner.steps = [watch]
+        self.cycle()
+        self.assertTrue(seen[0].startswith("r-"))
+        self.assertIsNone(self.store.read_current()["queen_run"])
+
     def test_each_look_shows_what_it_cost(self):
         self.github.add(1, "Backlog")
         self.runner.steps = [self.reply()]
