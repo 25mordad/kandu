@@ -76,6 +76,8 @@ main { max-width:1240px; margin:auto; padding:16px; display:grid; gap:14px; }
 
 .project summary { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:11px 16px; cursor:pointer; list-style:none; border-radius:14px; }
 .project summary::-webkit-details-marker { display:none; }
+.project-pause { margin-inline-start:auto; }
+.slice-body { white-space:pre-wrap; overflow-wrap:anywhere; }
 .project summary::before { content:""; width:7px; height:7px; border-inline-end:2px solid var(--muted); border-block-end:2px solid var(--muted); transform:rotate(-45deg); transition:transform .15s; flex:none; }
 [dir="rtl"] .project summary::before { transform:rotate(45deg); }
 .project[open] summary::before { transform:rotate(45deg); }
@@ -233,6 +235,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "control_token": "control token",
   "stop": "Stop",
   "resume": "Resume",
+  "pause_project": "Pause project",
+  "resume_project": "Resume project",
+  "project_on_pause": "Paused",
   "queen": "The queen",
   "queen_asks": "She asks you",
   "queen_cost": "This look / today / limit",
@@ -248,6 +253,11 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "open_github": "Open on GitHub",
   "approve": "Approve and merge",
   "approve_sure": "Merge this PR? Kandu runs the tests first, then merges and deploys.",
+  "approve_split": "Accept this split",
+  "approve_split_sure": "Create these slices as tasks on the board? Each one runs after the one before it.",
+  "split_approved": "The slices are on the board.",
+  "split_decline_hint": "To decline or change it, go to Didban.",
+  "files_touched": "files",
   "approved_waits": "You approved this. Kandu merges it in its next cycle.",
   "token_required": "A valid token is required.",
   "request_failed": "The request failed.",
@@ -298,6 +308,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "control_token": "توکن کنترل",
   "stop": "توقف",
   "resume": "ادامه",
+  "pause_project": "توقف پروژه",
+  "resume_project": "ادامه‌ی پروژه",
+  "project_on_pause": "متوقف",
   "queen": "ملکه",
   "queen_asks": "از تو می‌پرسد",
   "queen_cost": "این بار / امروز / سقف",
@@ -313,6 +326,11 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "open_github": "باز کردن در GitHub",
   "approve": "تأیید و ادغام",
   "approve_sure": "این PR ادغام شود؟ کندو اول تست‌ها را اجرا می‌کند و بعد ادغام و مستقر می‌کند.",
+  "approve_split": "قبول این شکستن",
+  "approve_split_sure": "این تکه‌ها به‌صورت تسک روی برد ساخته شوند؟ هر کدام بعد از قبلی اجرا می‌شود.",
+  "split_approved": "تکه‌ها روی برد ساخته شدند.",
+  "split_decline_hint": "برای رد یا تغییر آن، به دیدبان برو.",
+  "files_touched": "فایل",
   "approved_waits": "تأیید کردی. کندو در چرخه‌ی بعدی ادغامش می‌کند.",
   "token_required": "توکن معتبر لازم است.",
   "request_failed": "درخواست انجام نشد.",
@@ -386,6 +404,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "live_check_failed": "بررسی زنده رد شد",
   "wait: a blocker is open": "صبر کن: یک مانع باز است",
   "your decision: this is hard to undo": "تصمیم با توست: برگرداندن این کار سخت است",
+  "your decision: the review has a question": "تصمیم با توست: ریویو از تو سؤالی دارد",
   "ready to merge, with notes": "آماده ادغام، با یادداشت",
   "ready to merge": "آماده ادغام",
   "stopped by the user": "کاربر متوقف کرد",
@@ -423,6 +442,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "task_split": "تسک شکسته شد",
   "slice_created": "تکه ساخته شد",
   "split_declined": "پیشنهاد شکستن رد شد",
+  "question_answered": "به سؤال جواب داده شد",
+  "project_paused": "پروژه متوقف شد",
+  "project_resumed": "پروژه ادامه یافت",
   "group_closed": "گروه بسته شد",
   "group_not_closed": "گروه بسته نشد",
   "queen": "ملکه",
@@ -563,7 +585,7 @@ async function post(path) {
   if (!token && !await askToken()) return false;
   const r = await fetch("/api/v1" + path, {method: "POST", headers: {Authorization: "Bearer " + token}});
   if (r.status === 403) token = "";
-  if (!r.ok) toast(t(r.status === 403 ? "token_required" : "request_failed"));
+  if (!r.ok) toast(r.status === 403 ? t("token_required") : (await r.json().catch(() => ({}))).error || t("request_failed"));
   refresh();
   return r.ok;
 }
@@ -801,15 +823,18 @@ function projectCard(project, shown, total, searching) {
   const table = rows ? `<table class="rows"><thead><tr><th class="fit">${t("number")}</th><th>${t("title")}</th><th class="fit">${t("status")}</th></tr></thead><tbody>${rows}</tbody></table>`
     : `<div class="empty">${t("empty")}</div>`;
   const open = searching || !closed.has(project.name);
+  const paused = lastState.paused_projects.includes(project.name);
+  const inConfig = lastState.paused_in_config.includes(project.name);  // Only a change of config resumes this one.
+  const pause = `${paused ? `<span class="badge" style="--c:#d9604f">${t("project_on_pause")}</span>` : ""}${inConfig ? "" : `<button class="btn small project-pause" data-pause="${esc(project.name)}" data-paused="${paused}">${t(paused ? "resume_project" : "pause_project")}</button>`}`;
   return `<details class="card project" data-project="${esc(project.name)}"${open ? " open" : ""}><summary><span class="project-name">${bdi(project.name)}</span><span class="number">${num(total)}</span>
-    <span class="counts">${counts.map(([column, count]) => `<span class="badge" style="--c:${FLOWERS[column].swatch}" title="${esc(tr(column === "waiting" ? "waiting for machine" : column))}">${num(count)}</span>`).join("")}</span></summary>${table}</details>`;
+    <span class="counts">${counts.map(([column, count]) => `<span class="badge" style="--c:${FLOWERS[column].swatch}" title="${esc(tr(column === "waiting" ? "waiting for machine" : column))}">${num(count)}</span>`).join("")}</span>${pause}</summary>${table}</details>`;
 }
 
 function renderProjects() {
   if (!lastState) return;
   const words = $("search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const projects = fields(lastState, lastQueue);
-  const key = JSON.stringify([lang, words, projects]);
+  const key = JSON.stringify([lang, words, projects, lastState.paused_projects]);
   if (key === listKey) return;
   listKey = key;
   const cards = projects.map(project => ({project, total: project.tasks.length, shown: project.tasks.filter(item => matches(project.name, item, words))}))
@@ -902,32 +927,61 @@ function approval(task, pr) {
   return `<div class="confirm"><div>${t("approve_sure")}</div><div class="actions"><button class="btn primary" data-approve="${esc(task)}" data-head="${esc(pr.head_sha)}">${t("approve")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`;
 }
 
+function splitBox(task, proposal) {
+  const slices = proposal.slices.map((slice, i) => `<details class="round"${i === 0 ? " open" : ""}><summary>${num(i + 1)}. <span dir="auto">${esc(slice.title)}</span></summary><div class="round-body">
+    <div class="chips"><span class="chip">${esc(tr(slice.size))}</span><span class="chip">${num(slice.files)} ${t("files_touched")}</span><span class="chip">${esc(tr(slice.door))}</span></div>
+    <div class="slice-body" dir="auto">${esc(slice.body)}</div>
+  </div></details>`).join("");
+  const accept = confirming
+    ? `<div class="confirm"><div>${t("approve_split_sure")}</div><div class="actions"><button class="btn primary" data-split="${esc(task)}" data-fingerprint="${esc(proposal.fingerprint)}">${t("approve_split")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`
+    : `<button class="btn primary" data-sure>${t("approve_split")}</button>`;
+  return `<div dir="auto">${esc(proposal.reason)}</div>${slices}<div class="actions">${accept}</div><p class="muted">${t("split_decline_hint")}</p>`;
+}
+
+async function approveSplit(button) {
+  button.disabled = true;
+  const task = button.dataset.split;
+  const [repo, number] = task.split("#");
+  const done = await post(`/splits/${repo}/${number}/approve?proposal=${encodeURIComponent(button.dataset.fingerprint)}`);
+  confirming = false;
+  if (done) toast(t("split_approved"));
+  showReviews(task);
+}
+
 async function showReviews(task) {
   shownTask = task;
   shownRun = null;
   const [repo, number] = task.split("#");
-  const r = await get(`/reviews/${repo}/${number}`);
-  if (shownTask !== task) return;
   const item = queued(task);
+  const [r, proposal] = await Promise.all([get(`/reviews/${repo}/${number}`),
+    item?.column === "Needs split" ? get(`/splits/${repo}/${number}`).then(s => s.split) : null]);
+  if (shownTask !== task) return;
   const link = (url, label) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${label} ↗</a>`;
   if (!r.pr) {
     openModal(`${numberOf(task)} ${bdi(item?.title || repoOf(task))}`);
-    $("modalbody").innerHTML = `<div class="actions">${item ? badge(item.column) : ""}<span class="muted">${t("no_pr")}</span></div>${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}`;
+    $("modalbody").innerHTML = `<div class="actions">${item ? badge(item.column) : ""}<span class="muted">${t("no_pr")}</span></div>${proposal ? splitBox(task, proposal) : ""}${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}`;
     return;
   }
   openModal(`${numberOf(task)} ${bdi(r.pr.title)}`);
   $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? badge(item.column) : ""}</div>
+    ${proposal ? splitBox(task, proposal) : ""}
     <div class="actions">${approval(task, r.pr)}${link(r.pr.url, t("open_github"))}</div>
     ${r.rounds.slice().reverse().map((round, i) => roundBox(round, i === 0)).join("")}`;
 }
 
 document.addEventListener("click", e => {
   const hit = name => e.target.closest(`[data-${name}]`);
-  const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab");
+  const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
   if (hit("close")) { $("modal").close(); return; }
   if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); showReviews(shownTask); return; }
   if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
+  if (pause) {  // It sits in the project's summary, which would fold.
+    e.preventDefault();
+    post(`/projects/${encodeURIComponent(pause.dataset.pause)}/${pause.dataset.paused === "true" ? "resume" : "pause"}`);
+    return;
+  }
   if (yes) { approve(yes); return; }
+  if (acceptSplit) { approveSplit(acceptSplit); return; }
   if (tabButton) { showTab(tabButton.dataset.tab); return; }
   if (stop) { post(`/workers/${encodeURIComponent(stop.dataset.stop)}/stop`); return; }
   if (run) { showRun(run.dataset.run); return; }

@@ -10,7 +10,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested` and `limits` |
+| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config` and `limits` |
 | GET | `/api/v1/queue` | each project's board columns; cached for 60 seconds |
 | GET | `/api/v1/days` | dates that have events |
 | GET | `/api/v1/days/{day}` | one day's tokens by task, model and role, and its finished tasks |
@@ -19,9 +19,13 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | GET | `/api/v1/runs/{run_id}` | what one agent run did: files read, commands, edits |
 | GET | `/api/v1/reviews/{owner}/{repo}/{number}` | the PR of a task and each review round |
 | POST | `/api/v1/reviews/{owner}/{repo}/{number}/approve` | the user's yes to merge the PR's head, given as `?head=SHA`; a cycle starts |
+| GET | `/api/v1/splits/{owner}/{repo}/{number}` | the proposal to split a task that waits for the user, or `null` |
+| POST | `/api/v1/splits/{owner}/{repo}/{number}/approve` | the user's yes to that proposal; its slices become issues |
 | POST | `/api/v1/stop` | stop the supervisor; running agents are killed |
 | POST | `/api/v1/resume` | allow the next cycle to run |
 | POST | `/api/v1/workers/{run_id}/stop` | stop one running agent; its task moves to `Blocked` |
+| POST | `/api/v1/projects/{name}/pause` | pause one project: no new work on it, across cycles, until it is resumed |
+| POST | `/api/v1/projects/{name}/resume` | resume a paused project |
 
 ## Examples
 
@@ -77,3 +81,7 @@ The `pr` object also has `approved`, true once the user said yes to this head, a
 `POST /api/v1/reviews/acme-org/website/12/approve?head=abc123` answers `{"approved": "abc123", "cycle_started": true}`. `cycle_started` is `null` if a cycle is already running, and `false` if `systemd` refused. Either way the yes is saved, and the next cycle uses it. The answer is `409` if `head` is no longer the PR's head, if the local log shows no review of it, an open blocker or an unmet criterion, or if no cycle would pick the task up: its project is paused, or its column is not `Ready`, `In progress` or `In review`. The yes answers the review's questions and a one-way door. Every other merge condition still applies, including the tests.
 
 `POST /api/v1/stop` answers `{"stop_requested": true}`, `POST /api/v1/resume` answers `{"stop_requested": false}`, and `POST /api/v1/workers/{run_id}/stop` answers `{"stopping": "<run_id>"}`.
+
+`GET /api/v1/splits/acme-org/website/12` answers `{"task": "acme-org/website#12", "split": {"title": "...", "reason": "...", "fingerprint": "ab12cd34ef56", "slices": [{"title": "...", "size": "Medium", "files": 3, "door": "two-way", "body": "..."}]}}`. `POST .../approve?proposal=ab12cd34ef56` must name that fingerprint, and answers `{"children": ["acme-org/website#13", "acme-org/website#14"]}`, or `409` if `proposal` no longer names the proposal, the task is not waiting for a split or a slice fails its checks. It starts no cycle. Declining or changing a proposal happens in Didban.
+
+`POST /api/v1/projects/{name}/pause` answers `{"paused": true}` and `resume` answers `{"paused": false}`. A step already running finishes, and nothing after it starts. Resume answers `409` if the project is paused by `paused: true` in its config, which only a config change lifts.

@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, merge, queen, review, sizing, split
+from . import agents, merge, queen, questions, review, sizing, split
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import AGENT_LABEL, GitHub, GitHubError, blockers_in, branch_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
@@ -73,11 +73,14 @@ def new_run_id(now):
     return f"r-{now:%Y%m%d%H%M%S}-{secrets.token_hex(3)}"
 
 
-def board_items(config, github):
-    """Yields (project, item) for each `agent` issue of a registered project that is not paused."""
+def board_items(config, github, paused=()):
+    """Yields (project, item) for each `agent` issue of a registered project that is not paused.
+
+    `paused` names the projects the user paused on the dashboard.
+    """
     by_board = {}
     for project in config.projects:
-        if project.board is not None and not project.paused:
+        if project.board is not None and not project.paused and project.name not in paused:
             by_board.setdefault((project.board.owner, project.board.number), []).append(project)
     for projects in by_board.values():
         by_repo = {repo: project for project in projects for repo in project.repos}
@@ -87,10 +90,10 @@ def board_items(config, github):
                 yield project, item
 
 
-def read_tasks(config, github):
+def read_tasks(config, github, paused=()):
     """Returns the tasks the loop may work on: registered, not paused, and not waiting on a blocker."""
     tasks = []
-    for project, item in board_items(config, github):
+    for project, item in board_items(config, github, paused):
         if item.status not in (READY, *RESUMED):
             continue
         if item.status == READY and not _can_start(github, item):
@@ -125,6 +128,15 @@ class Supervisor:
         self.merged = Counter()
         self._lock = threading.Lock()
         self._deploy_locks = defaultdict(threading.Lock)
+
+    def _is_paused(self, project):
+        return project.paused or project.name in self.store.paused_projects()
+
+    def _board_items(self):
+        return board_items(self.config, self.github, self.store.paused_projects())
+
+    def _read_tasks(self):
+        return read_tasks(self.config, self.github, self.store.paused_projects())
 
     # Limits. Each of these is checked in code before any agent starts.
 
@@ -198,6 +210,8 @@ class Supervisor:
         reason = self._gate()
         if reason is not None:
             self._halt(reason)
+        if self._is_paused(task.project):
+            raise CycleStop
         allowed, denied = tools
         with self._lock:
             self.workers[task.key]["run_id"] = run_id
@@ -346,8 +360,9 @@ class Supervisor:
         head = pr["headRefOid"]
         reviewed = self.store.last_event("review_finished", task=task.key, head_sha=head)
         threads = self.github.review_threads(task.repo, pr["number"])
+        asked = [q["question"] for q in questions.open_questions(self.store) if q["task"] == task.key]
         reasons = merge.merge_waits(task.project, pr, reviewed, threads, self._unreviewed_companions(task, pr),
-                                    self._approved(task, pr))
+                                    self._approved(task, pr), asked)
         if reasons:
             return reasons
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
@@ -365,6 +380,8 @@ class Supervisor:
         reasons = self._merge_waits(task, pr)
         if reasons:
             self._decide(task, "merge_waits", "; ".join(reasons))
+            return False
+        if self._is_paused(task.project):  # The tests take minutes, and a pause may have come in meanwhile.
             return False
         self.github.merge_pr(task.repo, pr["number"], pr["headRefOid"])
         return True
@@ -428,7 +445,7 @@ class Supervisor:
         closed = {e["task"] for e in events if e["type"] == "group_closed"}
         for group in (e for e in events if e["type"] == "task_split" and e["task"] not in closed):
             project = next((p for p in self.config.projects if p.name == group["project"]), None)
-            if project is None or any(self._is_open(child) for child in group["children"]):
+            if project is None or self._is_paused(project) or any(self._is_open(child) for child in group["children"]):
                 continue
             repo, number = group["task"].split("#")
             self.github.close_issue(repo, int(number))
@@ -487,9 +504,9 @@ class Supervisor:
         """Runs before the queen looks, so a task is sized before she can see it."""
         today = self.store.today()
         sized = 0
-        for project, item in board_items(self.config, self.github):
+        for project, item in self._board_items():
             key = f"{item.repo}#{item.number}"
-            if item.status != BACKLOG or split.current_size(self.store, key) is not None:
+            if self._is_paused(project) or item.status != BACKLOG or split.current_size(self.store, key) is not None:
                 continue
             if sized == SIZED_PER_CYCLE:
                 return
@@ -520,7 +537,7 @@ class Supervisor:
 
     def _end_checks(self):
         for project in self.config.projects:
-            if self.merged[project.name] < END_CHECK_MERGES:
+            if self.merged[project.name] < END_CHECK_MERGES or self._is_paused(project):
                 continue
             try:
                 problems = self._check_project(project)
@@ -530,6 +547,8 @@ class Supervisor:
 
     def _drive(self, task):
         """Moves one task as far as it can go now. Every step is read back from GitHub first."""
+        if self._is_paused(task.project):
+            return
         pr = self.github.find_pr(task.repo, task.number)
         if pr is None:
             pr = self._implement(task)
@@ -539,6 +558,8 @@ class Supervisor:
         task.branch = pr["headRefName"]  # Worked out from the title, which may have changed since.
         worked = False
         while True:
+            if self._is_paused(task.project):
+                return  # The step that was running has finished. The next cycle after a resume picks it up here.
             if pr["state"] == "MERGED":
                 self._land(task)
                 return
@@ -597,6 +618,8 @@ class Supervisor:
         today = self.store.today()
         view = []
         for project in self.config.projects:
+            if self._is_paused(project):
+                continue
             ours = [item for owner, item in items if owner is project]
             view.append({
                 "project": project.name, "rules": project.queen_rules,
@@ -615,12 +638,15 @@ class Supervisor:
         settings = self.config.settings.supervisor
         if not settings.queen or self.halt_reason is not None:
             return False
-        items = list(board_items(self.config, self.github))
+        items = list(self._board_items())
         backlog = [(project, item) for project, item in items if item.status == BACKLOG and _can_start(self.github, item)
                    and self.store.last_event("task_sized", task=f"{item.repo}#{item.number}") is not None]
         keys = [f"{item.repo}#{item.number}" for _, item in backlog]
         before, news = queen.since_last_look(self.store)
-        if not queen.worth_a_look(before, news, keys, self.store.today()):
+        paused = [p for p in self.config.projects if self._is_paused(p)]
+        news = [e for e in news if e.get("project") not in {p.name for p in paused}]
+        hidden = {repo for p in paused for repo in p.repos}
+        if not queen.worth_a_look(before, news, keys, self.store.today(), hidden):
             return False
         if self._gate() is not None or self._queen_limit() is not None:
             return False
@@ -664,7 +690,7 @@ class Supervisor:
         Returns why each refused one was refused, and what she released.
         """
         limit = self.config.settings.supervisor.queen_max_retries
-        items = {f"{item.repo}#{item.number}": (project, item) for project, item in board_items(self.config, self.github)}
+        items = {f"{item.repo}#{item.number}": (project, item) for project, item in self._board_items()}
         refused, released = [], []
         today = self.store.today()
         for decision in decisions:
@@ -716,7 +742,7 @@ class Supervisor:
         try:
             if not self._queen():
                 return []
-            tasks = self._reachable_tasks([t for t in read_tasks(self.config, self.github)
+            tasks = self._reachable_tasks([t for t in self._read_tasks()
                                            if t.status == READY and t.key not in seen])
         except (GitHubError, RunnerError) as e:
             self.queen_trouble = type(e).__name__
@@ -779,7 +805,7 @@ class Supervisor:
 
     def _work_through_board(self):
         try:
-            tasks = read_tasks(self.config, self.github)
+            tasks = self._read_tasks()
         except GitHubError as e:
             return f"could not read the boards: {e}"
         if not tasks:
@@ -796,7 +822,7 @@ class Supervisor:
         reason = self._gate()
         if reason is not None:
             return [f"would sleep: {reason}"]
-        tasks = read_tasks(self.config, self.github)
+        tasks = self._read_tasks()
         return [f"{t.key} [{t.status}] on {t.project.machine}: reachable={self.runner.reachable(t.project.machine)}"
                 for t in tasks] or ["would sleep: nothing ready"]
 

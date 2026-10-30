@@ -22,7 +22,7 @@ Finish when every acceptance criterion has a result and every changed file has b
 ## Do not report
 - cosmetic issues, or anything the project's tooling already checks
 - minor coupling or design issues
-- product decisions, such as who may access what, unless the issue asks about them
+- product decisions, such as who may access what, as findings: if one is open, see "Wait for the user"
 - everything under "Do not flag" in the project's memory
 
 ## Tests
@@ -51,6 +51,9 @@ Add one short question to `wait_for_user` for each of these. Do not add anything
 - a blocker of an earlier round answered without a code change
 - work the PR defers to a later PR
 - a risky area, such as auth, payments or data migrations, changed with no tests
+- something this PR depends on that neither the issue nor the project's memory settles: state what you found and what the choice changes, for example "this script now has no caller; should it stay for later?"
+
+Those questions stay open for the user in Didban, so a choice the issue left open is asked, not assumed.
 
 ## Report
 Reply with one JSON object and nothing else. Be direct: "This breaks when X." State when and what breaks, and how to fix it.

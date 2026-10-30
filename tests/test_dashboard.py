@@ -13,11 +13,12 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from kandu import dashboard, review
+from kandu import dashboard, review, split
 from kandu.config import load_config
 from kandu.dashboard import Api, actions_in, dispatch, make_handler, new_events, recommendation
 from kandu.github import BoardItem, GitHubError
 from kandu.state import EVENT_FIELDS, StateStore
+from kandu.tasks import TaskError
 
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "acme-org/website"
@@ -177,6 +178,8 @@ class ReviewPageTest(Base):
         note = {"blocker": False}
         self.assertIn("blocker", recommendation({"open": [blocker], "door": "one-way"}))
         self.assertIn("hard to undo", recommendation({"open": [], "door": "one-way"}))
+        self.assertEqual(recommendation({"open": [], "door": "two-way", "wait_for_user": ["Keep it?"]}),
+                         "your decision: the review has a question")
         self.assertIn("notes", recommendation({"open": [note], "door": "two-way"}))
         self.assertEqual(recommendation({"open": [], "door": "two-way"}), "ready to merge")
 
@@ -231,6 +234,67 @@ class ControlTest(Base):
 
     def test_approve_of_an_unregistered_repo(self):
         self.assertEqual(self.post("/api/v1/reviews/other/repo/1/approve?head=abc")[0], 404)
+
+    def test_pause_and_resume_a_project(self):
+        self.assertEqual(self.post("/api/v1/projects/website/pause")[0], 200)
+        self.assertEqual(self.get("/api/v1/state")[1]["paused_projects"], ["website"])
+        self.assertEqual(self.store.last_event("project_paused")["project"], "website")
+        self.assertEqual(self.post("/api/v1/projects/website/resume")[0], 200)
+        self.assertEqual(self.get("/api/v1/state")[1]["paused_projects"], [])
+        self.assertEqual(self.store.last_event("project_resumed")["project"], "website")
+
+    def test_pausing_needs_the_token_and_a_real_project(self):
+        self.assertEqual(self.post("/api/v1/projects/website/pause", "")[0], 403)
+        self.assertEqual(self.store.paused_projects(), set())
+        self.assertEqual(self.post("/api/v1/projects/ghost/pause")[0], 404)
+
+    def test_a_pause_in_the_config_cannot_be_lifted_here(self):
+        self.api.config.projects[0].paused = True
+        self.assertEqual(self.post("/api/v1/projects/website/resume")[0], 409)
+        self.assertEqual(self.get("/api/v1/state")[1]["paused_projects"], ["website"])
+
+    def proposal(self):
+        self.store.write_split(f"{REPO}#1", {"title": "t", "reason": "Too big.", "slices": []})
+
+    def test_a_proposal_is_shown_until_it_is_approved(self):
+        self.assertIsNone(self.get(f"/api/v1/splits/{REPO}/1")[1]["split"])
+        self.proposal()
+        self.assertEqual(self.get(f"/api/v1/splits/{REPO}/1")[1]["split"]["reason"], "Too big.")
+        self.store.record("task_split", task=f"{REPO}#1", project="website", children=[])
+        self.assertIsNone(self.get(f"/api/v1/splits/{REPO}/1")[1]["split"])
+
+    def test_accepting_a_proposal_needs_the_token(self):
+        self.proposal()
+        with mock.patch("kandu.dashboard.split.approve", return_value=[f"{REPO}#2"]) as approve:
+            self.assertEqual(self.post(f"/api/v1/splits/{REPO}/1/approve", "")[0], 403)
+            approve.assert_not_called()
+            seen = self.get(f"/api/v1/splits/{REPO}/1")[1]["split"]["fingerprint"]
+            status, body = self.post(f"/api/v1/splits/{REPO}/1/approve?proposal={seen}")
+        self.assertEqual((status, body["children"]), (200, [f"{REPO}#2"]))
+        self.assertEqual(approve.call_args.kwargs["seen"], seen)
+
+    def test_a_proposal_tells_its_versions_apart(self):
+        self.proposal()
+        first = self.get(f"/api/v1/splits/{REPO}/1")[1]["split"]["fingerprint"]
+        self.store.write_split(f"{REPO}#1", {"title": "t", "reason": "Changed.", "slices": []})
+        self.assertNotEqual(self.get(f"/api/v1/splits/{REPO}/1")[1]["split"]["fingerprint"], first)
+
+    def test_a_refused_split_says_so(self):
+        with mock.patch("kandu.dashboard.split.approve", side_effect=TaskError("not waiting")):
+            self.assertEqual(self.post(f"/api/v1/splits/{REPO}/1/approve")[0], 409)
+
+    def test_a_proposal_that_fails_its_checks_says_so(self):
+        with mock.patch("kandu.dashboard.split.approve", side_effect=split.ReportError("too few slices")):
+            self.assertEqual(self.post(f"/api/v1/splits/{REPO}/1/approve")[0], 409)
+
+    def test_a_project_name_may_need_encoding(self):
+        self.api.config.projects[0].name = "my site"
+        self.assertEqual(self.post("/api/v1/projects/my%20site/pause")[0], 200)
+        self.assertEqual(self.store.paused_projects(), {"my site"})
+
+    def test_an_unregistered_repo_has_no_split(self):
+        self.assertEqual(self.get("/api/v1/splits/other/repo/1")[0], 404)
+        self.assertEqual(self.post("/api/v1/splits/other/repo/1/approve")[0], 404)
 
     def test_stop_and_resume(self):
         self.assertEqual(self.post("/api/v1/stop")[0], 200)
@@ -337,7 +401,8 @@ class LanguageTest(unittest.TestCase):
 
     def test_what_the_api_says_has_a_persian_form(self):
         door = {"open": [], "door": "one-way"}
-        values = [recommendation(door), recommendation({"open": [], "door": "two-way"}), *dashboard.QUEUE_COLUMNS,
+        values = [recommendation(door), recommendation({"open": [], "door": "two-way"}),
+                  recommendation({"open": [], "door": "two-way", "wait_for_user": ["q"]}), *dashboard.QUEUE_COLUMNS,
                   "review round 2", "fix round 1", "weekly usage at 93%, limit 60%", "5-hour usage at 9%, limit 8%",
                   *EVENT_FIELDS, *review.DOORS]
         source = (ROOT / "kandu" / "supervisor.py").read_text(encoding="utf-8")

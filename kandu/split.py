@@ -4,6 +4,7 @@ The splitter proposes; only the user's approval creates issues. They form a grou
 each slice is blocked by the one before it, and the parent closes with the last.
 """
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -112,14 +113,30 @@ def find_item(config, github, key):
     raise TaskError(f"{key} is not on its board")
 
 
-def approve(config, github, store, key, local_dir, slices=None):
-    """Creates the group. `slices` is the user's edited version of the proposal, if any."""
+def fingerprint(proposal):
+    """Names one version of a proposal, so a yes reaches only the version the user read."""
+    return hashlib.sha256(json.dumps(proposal, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
+def approve(config, github, store, key, local_dir, slices=None, seen=None):
+    """Creates the group, once however many doors say yes.
+
+    `slices` is the user's edited version of the proposal, if any. `seen` is the
+    fingerprint of the proposal the user read.
+    """
+    with store.split_lock():
+        return _approve(config, github, store, key, local_dir, slices, seen)
+
+
+def _approve(config, github, store, key, local_dir, slices, seen):
     project, item = find_item(config, github, key)
     if item.status != NEEDS_SPLIT or store.last_event("task_split", task=key) is not None:
         raise TaskError(f"{key} is not waiting for a split")
     proposal = store.read_split(key)
     if proposal is None and slices is None:
         raise TaskError(f"{key} has no proposal")
+    if seen is not None and (proposal is None or fingerprint(proposal) != seen):
+        raise TaskError("the proposal has changed since you saw it")
     slices = slices if slices is not None else proposal["slices"]
     check_slices(slices)
     check_fields(item.priority, item.kind, sizing.MEDIUM, item.deadline or None)

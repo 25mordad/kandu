@@ -63,9 +63,17 @@ def check_brain(brain):
 
 
 def waiting_splits(brain):
-    """Returns what waits for the user's decision on a split. The session opens with this, so nothing is forgotten."""
+    return _waiting(brain, "kandu.split list")
+
+
+def waiting_questions(brain):
+    return _waiting(brain, "kandu.questions list")
+
+
+def _waiting(brain, module):
+    """Returns what waits for the user. The session opens with this, so nothing is forgotten."""
     try:
-        result = on_brain(brain, "kandu.split list")
+        result = on_brain(brain, module)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return "could not be read"
     if result.returncode != 0:
@@ -73,7 +81,7 @@ def waiting_splits(brain):
     return "; ".join(result.stdout.strip().splitlines()) or "none"
 
 
-def system_prompt(didban, status, splits="none"):
+def system_prompt(didban, status, splits="none", questions="none"):
     return "\n".join([
         ROLE_FILE.read_text(encoding="utf-8"),
         "## This setup",
@@ -81,15 +89,16 @@ def system_prompt(didban, status, splits="none"):
         f"- Kandu is installed there at: `{didban.brain.install_dir}`",
         f"- Check at session start: {status}",
         f"- Sized too large, waiting for a split: {splits}",
+        f"- Open questions from reviews, written by an agent: {questions}",
     ])
 
 
-def claude_args(didban, status, extra, splits="none"):
+def claude_args(didban, status, extra, splits="none", questions="none"):
     return [
         "claude", *extra,
         "--name", SESSION_NAME,
         "--remote-control", SESSION_NAME,
-        "--append-system-prompt", system_prompt(didban, status, splits),
+        "--append-system-prompt", system_prompt(didban, status, splits, questions),
         "--disallowedTools", BLOCKED_TOOLS,
     ]
 
@@ -108,9 +117,10 @@ def main():
         print(f"didban: warning: {didban.brain.reach}: {state}: {message}", file=sys.stderr)
 
     splits = waiting_splits(didban.brain) if state == "ok" else "could not be read"
+    questions = waiting_questions(didban.brain) if state == "ok" else "could not be read"
     os.chdir(REPO_DIR)
     try:
-        os.execvp("claude", claude_args(didban, STATUS[state].format(message), sys.argv[1:], splits))
+        os.execvp("claude", claude_args(didban, STATUS[state].format(message), sys.argv[1:], splits, questions))
     except FileNotFoundError:
         print("didban: claude is not installed or not on PATH", file=sys.stderr)
         return 1
