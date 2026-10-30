@@ -16,7 +16,7 @@ from kandu import dashboard, review
 from kandu.config import load_config
 from kandu.dashboard import Api, actions_in, dispatch, make_handler, new_events, recommendation
 from kandu.github import BoardItem, GitHubError
-from kandu.state import StateStore
+from kandu.state import EVENT_FIELDS, StateStore
 
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "acme-org/website"
@@ -211,6 +211,41 @@ class DocsTest(unittest.TestCase):
         page = dashboard.PAGE.read_text(encoding="utf-8")
         self.assertNotIn("state/", page)
         self.assertIn('fetch("/api/v1"', page)
+
+
+class LanguageTest(unittest.TestCase):
+    def setUp(self):
+        self.page = dashboard.PAGE.read_text(encoding="utf-8")
+        text = re.search(r'<script type="application/json" id="text">(.*?)</script>', self.page, re.DOTALL)
+        self.text = json.loads(text.group(1))
+
+    def translate(self, value):
+        if value in self.text["values_fa"]:
+            return True
+        return any(re.search(pattern, value) for pattern, _ in self.text["patterns_fa"])
+
+    def test_both_languages_have_the_same_keys(self):
+        self.assertEqual(set(self.text["en"]), set(self.text["fa"]))
+
+    def test_every_key_the_page_uses_exists(self):
+        used = set(re.findall(r'data-t="(\w+)"', self.page)) | set(re.findall(r'\bt\("(\w+)"\)', self.page))
+        for pair in re.findall(r'\bt\([^()]*\? "(\w+)" : "(\w+)"\)', self.page):
+            used |= set(pair)
+        self.assertEqual(used - set(self.text["en"]), set())
+
+    def test_english_is_the_default(self):
+        self.assertIn('let lang = "en"', self.page)
+
+    def test_what_the_api_says_has_a_persian_form(self):
+        door = {"open": [], "door": "one-way"}
+        values = [recommendation(door), recommendation({"open": [], "door": "two-way"}), *dashboard.QUEUE_COLUMNS,
+                  "review round 2", "fix round 1", "weekly usage at 93%, limit 60%", "5-hour usage at 9%, limit 8%",
+                  *EVENT_FIELDS, *review.DOORS]
+        source = (ROOT / "kandu" / "supervisor.py").read_text(encoding="utf-8")
+        values += re.findall(r'(?:self\._finish\(task, \w+, |self\._decide\(task, )"(\w+)"', source)
+        values += re.findall(r'return "([a-z][^"]*)"', source)
+        missing = [v for v in values if not self.translate(v)]
+        self.assertEqual(missing, [])
 
 
 class StreamTest(Base):

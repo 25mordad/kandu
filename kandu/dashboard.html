@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kandu</title>
 <style>
-:root { --bg:#f6f5f1; --panel:#fff; --ink:#23211d; --muted:#6f6a60; --line:#e2dfd6; --accent:#a8650c; --bad:#b3362b; --good:#2f7d4f; }
+:root { color-scheme:light dark; --bg:#f6f5f1; --panel:#fff; --ink:#23211d; --muted:#6f6a60; --line:#e2dfd6; --accent:#a8650c; --bad:#b3362b; --good:#2f7d4f; }
 @media (prefers-color-scheme: dark) { :root { --bg:#171614; --panel:#201f1c; --ink:#ece9e1; --muted:#a09a8d; --line:#35322c; --accent:#e0a040; --bad:#ec7468; --good:#6cc08e; } }
 * { box-sizing: border-box; }
 body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; }
@@ -18,7 +18,7 @@ button { font:inherit; padding:4px 10px; border:1px solid var(--line); border-ra
 input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink); max-width:100%; }
 a { color:var(--accent); }
 table { border-collapse:collapse; width:100%; }
-td, th { text-align:left; padding:3px 8px 3px 0; border-bottom:1px solid var(--line); }
+td, th { text-align:start; padding-block:3px; padding-inline:0 8px; border-bottom:1px solid var(--line); }
 td { overflow-wrap:break-word; }
 th { color:var(--muted); font-weight:500; white-space:nowrap; }
 .muted { color:var(--muted); }
@@ -29,58 +29,160 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
 .bar b { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--ink); }
 .log { font:12px/1.5 ui-monospace, monospace; max-height:320px; overflow:auto; overflow-wrap:anywhere; }
 .wide { grid-column:1/-1; }
-.finding { border-left:3px solid var(--line); padding-left:10px; margin:8px 0; }
+.finding { border-inline-start:3px solid var(--line); padding-inline-start:10px; margin:8px 0; }
 .finding.blocker { border-color:var(--bad); }
+:lang(fa) body { font-family:system-ui, "Noto Sans Arabic", sans-serif; }
+:lang(fa) h2 { letter-spacing:0; font-size:14px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Kandu</h1>
-  <span id="state" class="muted">loading</span>
+  <h1 data-t="brand"></h1>
+  <span id="state" class="muted" dir="auto" data-t="loading"></span>
   <span class="spacer"></span>
-  <input id="token" type="password" placeholder="control token" aria-label="control token">
-  <button id="stop">Stop</button>
-  <button id="resume">Resume</button>
+  <input id="token" type="password" data-t-attr="placeholder aria-label" data-t="control_token">
+  <button id="stop" data-t="stop"></button>
+  <button id="resume" data-t="resume"></button>
+  <button id="lang" lang="" data-t="other_language"></button>
 </header>
 <main>
-  <section><h2>Usage</h2><div id="usage"></div><div id="nextwake" class="muted"></div></section>
-  <section><h2>Active workers</h2><div id="workers"></div></section>
-  <section><h2>Queue</h2><div id="queue"></div></section>
-  <section class="wide"><h2>By day <select id="day" aria-label="day"></select></h2><div id="byday"></div></section>
-  <section class="wide"><h2 id="detailtitle">Live stream</h2><div id="detail" class="log"></div></section>
-  <section class="wide" id="prpage" hidden><h2>PR page</h2><div id="pr"></div></section>
+  <section><h2 data-t="usage"></h2><div id="usage"></div><div id="nextwake" class="muted"></div></section>
+  <section><h2 data-t="active_workers"></h2><div id="workers"></div></section>
+  <section><h2 data-t="queue"></h2><div id="queue"></div></section>
+  <section class="wide"><h2><span data-t="by_day"></span> <select id="day" data-t-attr="aria-label" data-t="day"></select></h2><div id="byday"></div></section>
+  <section class="wide"><h2 id="detailtitle"></h2><div id="detail" class="log"></div></section>
+  <section class="wide" id="prpage" hidden><h2 data-t="pr_page"></h2><div id="pr"></div></section>
 </main>
+<script type="application/json" id="text">
+{
+  "en": {
+    "brand": "Kandu", "other_language": "فارسی", "loading": "loading", "control_token": "control token", "stop": "Stop", "resume": "Resume",
+    "usage": "Usage", "active_workers": "Active workers", "queue": "Queue", "by_day": "By day", "day": "day",
+    "live_stream": "Live stream", "run": "Run", "pr_page": "PR page", "token_required": "A valid token is required.",
+    "request_failed": "The request failed.", "api_unreachable": "The dashboard API cannot be reached.",
+    "not_read_yet": "not read yet", "limit": "limit", "session": "5-hour", "week": "Week", "next_wake": "next wake",
+    "task": "Task", "machine": "Machine", "phase": "Phase", "started": "Started", "watch": "Watch", "none": "None",
+    "project": "Project", "column": "Column", "title": "Title", "waiting_for_machine": "waiting for machine",
+    "empty": "Empty", "github_unreadable": "GitHub could not be read", "no_activity": "No activity yet",
+    "outcome": "Outcome", "tokens": "Tokens", "total": "Total", "nothing_yet": "Nothing yet", "no_pr": "No PR yet",
+    "round": "Round", "blocker": "Blocker", "note": "Note"
+  },
+  "fa": {
+    "brand": "کندو", "other_language": "English", "loading": "در حال بارگذاری", "control_token": "توکن کنترل", "stop": "توقف", "resume": "ادامه",
+    "usage": "مصرف", "active_workers": "کارگرهای فعال", "queue": "صف", "by_day": "به تفکیک روز", "day": "روز",
+    "live_stream": "جریان زنده", "run": "اجرا", "pr_page": "صفحه PR", "token_required": "توکن معتبر لازم است.",
+    "request_failed": "درخواست انجام نشد.", "api_unreachable": "به API داشبورد دسترسی نیست.",
+    "not_read_yet": "هنوز خوانده نشده", "limit": "سقف", "session": "پنج‌ساعته", "week": "هفته", "next_wake": "بیداری بعدی",
+    "task": "تسک", "machine": "ماشین", "phase": "مرحله", "started": "شروع", "watch": "تماشا", "none": "هیچ",
+    "project": "پروژه", "column": "ستون", "title": "عنوان", "waiting_for_machine": "در انتظار ماشین",
+    "empty": "خالی", "github_unreadable": "GitHub خوانده نشد", "no_activity": "هنوز فعالیتی نیست",
+    "outcome": "نتیجه", "tokens": "توکن", "total": "جمع", "nothing_yet": "هنوز چیزی نیست", "no_pr": "هنوز PR نیست",
+    "round": "دور", "blocker": "مانع", "note": "یادداشت"
+  },
+  "values_fa": {
+    "awake": "بیدار", "asleep": "خواب", "stopped": "متوقف", "never ran": "هنوز اجرا نشده",
+    "Ready": "آماده", "In progress": "در حال انجام", "In review": "در بازبینی", "Needs info": "نیازمند اطلاعات",
+    "Blocked": "مسدود", "Done": "انجام‌شده", "OPEN": "باز", "MERGED": "ادغام‌شده", "CLOSED": "بسته",
+    "implement": "پیاده‌سازی", "two-way": "برگشت‌پذیر", "one-way": "برگشت‌ناپذیر",
+    "merged": "ادغام شد", "needs_info": "نیازمند اطلاعات", "blocked": "مسدود", "pr_closed": "PR بسته شد", "failed": "شکست خورد",
+    "approved": "تأیید شد", "approved_with_notes": "تأیید با یادداشت", "review_voided": "بازبینی باطل شد",
+    "wait: a blocker is open": "صبر کن: یک مانع باز است",
+    "your decision: this is hard to undo": "تصمیم با توست: برگرداندن این کار سخت است",
+    "ready to merge, with notes": "آماده ادغام، با یادداشت", "ready to merge": "آماده ادغام",
+    "stopped by the user": "کاربر متوقف کرد", "cycle time is up": "زمان چرخه تمام شد",
+    "stopped while an agent was running": "در میانه کار یک ایجنت متوقف شد", "nothing ready": "چیزی آماده نیست",
+    "waiting for a machine": "در انتظار یک ماشین", "tasks ran out": "تسک‌ها تمام شد",
+    "the user decides next": "تصمیم بعدی با کاربر است", "the head moved during the review": "در میانه بازبینی کد عوض شد",
+    "supervisor_woke": "ناظر بیدار شد", "supervisor_slept": "ناظر خوابید", "task_picked": "تسک برداشته شد",
+    "phase_changed": "تغییر مرحله", "decision": "تصمیم", "run_finished": "اجرا تمام شد",
+    "review_finished": "بازبینی تمام شد", "task_finished": "تسک تمام شد"
+  },
+  "patterns_fa": [
+    ["^review round (\\d+)$", "دور بازبینی $1"],
+    ["^fix round (\\d+)$", "دور اصلاح $1"],
+    ["^5-hour usage at (\\d+)%, limit (\\d+)%$", "مصرف پنج‌ساعته $1٪، سقف $2٪"],
+    ["^weekly usage at (\\d+)%, limit (\\d+)%$", "مصرف هفتگی $1٪، سقف $2٪"],
+    ["^usage unknown, not starting: (.*)$", "مصرف نامعلوم است، شروع نمی‌شود: $1"],
+    ["^could not read the boards: (.*)$", "بوردها خوانده نشدند: $1"]
+  ]
+}
+</script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = text => String(text ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const get = path => fetch("/api/v1" + path).then(r => r.ok ? r.json() : Promise.reject(r.status));
-const taskLink = task => `<a href="#" data-review="${esc(task)}">${esc(task)}</a>`;
+const taskLink = task => `<a href="#" data-review="${esc(task)}"><bdi>${esc(task)}</bdi></a>`;
+const LANGUAGE_KEY = "kandu-language";
+const TEXT = JSON.parse($("text").textContent);
+const LIVE_LINES = 200;
+let lang = "en", shownRun = null, shownTask = null, live = [];
+try { if (localStorage.getItem(LANGUAGE_KEY) === "fa") lang = "fa"; } catch {}
+
+const t = key => TEXT[lang][key];
+const num = value => value.toLocaleString(lang === "fa" ? "fa-IR" : "en-US");
+const pct = value => lang === "fa" ? num(value) + "٪" : value + "%";
+const faDigits = text => text.replace(/\d/g, d => num(Number(d)));
+const when = iso => new Date(iso).toLocaleString(lang === "fa" ? "fa-IR" : "en-GB", {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"});
+const bdi = text => `<bdi>${esc(text)}</bdi>`;
+
+// What the API says stays in English; the page translates the values it knows.
+function tr(value) {
+  if (lang === "en" || !value) return value;
+  const known = TEXT.values_fa[value];
+  if (known) return known;
+  for (const [pattern, replacement] of TEXT.patterns_fa) {
+    const regex = new RegExp(pattern);
+    if (regex.test(value)) return faDigits(value.replace(regex, replacement));
+  }
+  return value;
+}
+
+function applyLanguage() {
+  document.documentElement.lang = lang;
+  document.documentElement.dir = lang === "fa" ? "rtl" : "ltr";
+  document.title = t("brand");
+  $("lang").lang = lang === "fa" ? "en" : "fa";
+  for (const el of document.querySelectorAll("[data-t]")) {
+    const attrs = el.dataset.tAttr;
+    if (attrs) attrs.split(" ").forEach(attr => el.setAttribute(attr, t(el.dataset.t)));
+    else el.textContent = t(el.dataset.t);
+  }
+}
+
+async function setLanguage(chosen) {
+  lang = chosen;
+  try { localStorage.setItem(LANGUAGE_KEY, lang); } catch {}
+  applyLanguage();
+  renderDetail();
+  if (shownTask) showReviews(shownTask);
+  refresh();
+}
 
 async function post(path) {
   const r = await fetch("/api/v1" + path, {method: "POST", headers: {Authorization: "Bearer " + $("token").value}});
-  if (!r.ok) alertLine(r.status === 403 ? "A valid token is required." : "The request failed.");
+  if (!r.ok) alertLine(t(r.status === 403 ? "token_required" : "request_failed"));
   refresh();
 }
 function alertLine(text) { $("state").textContent = text; }
 
 function bar(label, value, limit) {
-  if (value === undefined || value === null) return `<div class="muted">${label}: not read yet</div>`;
+  if (value === undefined || value === null) return `<div class="muted">${label}: ${t("not_read_yet")}</div>`;
   const over = value >= limit ? " over" : "";
-  return `<div>${label}: ${value}% <span class="muted">limit ${limit}%</span></div>
-    <div class="bar${over}"><i style="width:${Math.min(value, 100)}%"></i><b style="left:${limit}%"></b></div>`;
+  return `<div>${label}: ${pct(value)} <span class="muted">${t("limit")} ${pct(limit)}</span></div>
+    <div class="bar${over}"><i style="width:${Math.min(value, 100)}%"></i><b style="inset-inline-start:${limit}%"></b></div>`;
 }
 
 async function refreshState() {
   const s = await get("/state");
-  const name = s.stop_requested ? "stopped" : (s.supervisor || "never ran");
-  $("state").textContent = name + (s.last_reason ? " · " + s.last_reason : "");
-  $("usage").innerHTML = bar("5-hour", s.usage?.session, s.limits.session) + bar("Week", s.usage?.week, s.limits.week);
-  $("nextwake").textContent = s.next_wake ? "next wake: " + s.next_wake : "";
+  const name = tr(s.stop_requested ? "stopped" : (s.supervisor || "never ran"));
+  $("state").textContent = name + (s.last_reason ? " · " + tr(s.last_reason) : "");
+  $("usage").innerHTML = bar(t("session"), s.usage?.session, s.limits.session) + bar(t("week"), s.usage?.week, s.limits.week);
+  $("nextwake").innerHTML = s.next_wake ? `${t("next_wake")}: ${bdi(when(s.next_wake))}` : "";
   const workers = s.workers || [];
-  $("workers").innerHTML = workers.length ? `<table><tr><th>Task</th><th>Machine</th><th>Phase</th><th>Started</th><th></th></tr>` +
-    workers.map(w => `<tr><td>${taskLink(w.task)}</td><td>${esc(w.machine)}</td><td>${esc(w.phase)}</td><td>${esc(w.started)}</td>
-      <td>${w.run_id ? `<button data-run="${esc(w.run_id)}">Watch</button> <button data-stop="${esc(w.run_id)}">Stop</button>` : ""}</td></tr>`).join("") + "</table>"
-    : '<div class="muted">None</div>';
+  $("workers").innerHTML = workers.length ? `<table><tr><th>${t("task")}</th><th>${t("machine")}</th><th>${t("phase")}</th><th>${t("started")}</th><th></th></tr>` +
+    workers.map(w => `<tr><td>${taskLink(w.task)}</td><td>${bdi(w.machine)}</td><td>${esc(tr(w.phase))}</td><td>${bdi(when(w.started))}</td>
+      <td>${w.run_id ? `<button data-run="${esc(w.run_id)}">${t("watch")}</button> <button data-stop="${esc(w.run_id)}">${t("stop")}</button>` : ""}</td></tr>`).join("") + "</table>"
+    : `<div class="muted">${t("none")}</div>`;
   return s;
 }
 
@@ -90,10 +192,10 @@ async function refreshQueue(state) {
     const rows = [];
     for (const [project, columns] of Object.entries(q.projects))
       for (const [column, tasks] of Object.entries(columns))
-        for (const t of tasks) rows.push(`<tr><td>${esc(project)}</td><td>${esc(column)}</td><td>${taskLink(t.task)}</td><td>${esc(t.title)}</td></tr>`);
-    for (const task of state.waiting_for_machine || []) rows.push(`<tr><td></td><td>waiting for machine</td><td>${taskLink(task)}</td><td></td></tr>`);
-    $("queue").innerHTML = rows.length ? `<table><tr><th>Project</th><th>Column</th><th>Task</th><th>Title</th></tr>${rows.join("")}</table>` : '<div class="muted">Empty</div>';
-  } catch { $("queue").innerHTML = '<div class="muted">GitHub could not be read</div>'; }
+        for (const task of tasks) rows.push(`<tr><td>${bdi(project)}</td><td>${esc(tr(column))}</td><td>${taskLink(task.task)}</td><td>${bdi(task.title)}</td></tr>`);
+    for (const task of state.waiting_for_machine || []) rows.push(`<tr><td></td><td>${t("waiting_for_machine")}</td><td>${taskLink(task)}</td><td></td></tr>`);
+    $("queue").innerHTML = rows.length ? `<table><tr><th>${t("project")}</th><th>${t("column")}</th><th>${t("task")}</th><th>${t("title")}</th></tr>${rows.join("")}</table>` : `<div class="muted">${t("empty")}</div>`;
+  } catch { $("queue").innerHTML = `<div class="muted">${t("github_unreadable")}</div>`; }
 }
 
 async function refreshDays() {
@@ -101,31 +203,40 @@ async function refreshDays() {
   const select = $("day"), chosen = select.value;
   select.innerHTML = days.slice().reverse().map(d => `<option>${esc(d)}</option>`).join("");
   if (days.includes(chosen)) select.value = chosen;
-  if (!days.length) { $("byday").innerHTML = '<div class="muted">No activity yet</div>'; return; }
+  if (!days.length) { $("byday").innerHTML = `<div class="muted">${t("no_activity")}</div>`; return; }
   const day = await get("/days/" + select.value);
   const finished = Object.fromEntries(day.finished.map(f => [f.task, f.outcome]));
-  const tasks = Object.entries(day.tasks).map(([task, t]) => `<tr><td>${taskLink(task)}</td><td>${esc(finished[task] || "")}</td><td>${t.total.toLocaleString()}</td></tr>`);
-  const split = obj => Object.entries(obj).map(([k, v]) => `${esc(k)}: ${v.total.toLocaleString()}`).join(" · ");
-  $("byday").innerHTML = `<table><tr><th>Task</th><th>Outcome</th><th>Tokens</th></tr>${tasks.join("")}</table>
-    <p class="muted">Total ${day.total.total.toLocaleString()} · ${split(day.models)} · ${split(day.roles)}</p>`;
+  const tasks = Object.entries(day.tasks).map(([task, spent]) => `<tr><td>${taskLink(task)}</td><td>${esc(tr(finished[task]) || "")}</td><td>${num(spent.total)}</td></tr>`);
+  const split = obj => Object.entries(obj).map(([k, v]) => `${bdi(k)}: ${num(v.total)}`).join(" · ");
+  $("byday").innerHTML = `<table><tr><th>${t("task")}</th><th>${t("outcome")}</th><th>${t("tokens")}</th></tr>${tasks.join("")}</table>
+    <p class="muted">${t("total")} ${num(day.total.total)} · ${split(day.models)} · ${split(day.roles)}</p>`;
+}
+
+function renderLive() {
+  $("detailtitle").textContent = t("live_stream");
+  $("detail").innerHTML = live.map(e => `<div dir="auto">${esc([e.ts, tr(e.type), e.task, tr(e.phase), tr(e.decision), tr(e.reason), tr(e.outcome)].filter(Boolean).join(" · "))}</div>`).join("");
 }
 
 async function showRun(runId) {
+  shownRun = runId;
   const {actions} = await get("/runs/" + encodeURIComponent(runId));
-  $("detailtitle").textContent = "Run " + runId;
-  $("detail").innerHTML = actions.map(a => `<div>${esc(a.tool)} <span class="muted">${esc(a.detail)}</span></div>`).join("") || '<div class="muted">Nothing yet</div>';
+  $("detailtitle").innerHTML = `${t("run")} ${bdi(runId)}`;
+  $("detail").innerHTML = actions.map(a => `<div dir="ltr">${esc(a.tool)} <span class="muted">${esc(a.detail)}</span></div>`).join("") || `<div class="muted">${t("nothing_yet")}</div>`;
 }
 
+const renderDetail = () => shownRun ? showRun(shownRun) : renderLive();
+
 async function showReviews(task) {
+  shownTask = task;
   const [repo, number] = task.split("#");
   const r = await get(`/reviews/${repo}/${number}`);
   $("prpage").hidden = false;
-  if (!r.pr) { $("pr").innerHTML = '<div class="muted">No PR yet</div>'; return; }
-  $("pr").innerHTML = `<p><a href="${esc(r.pr.url)}">#${r.pr.number} ${esc(r.pr.title)}</a> <span class="muted">${esc(r.pr.state)}</span></p>` +
-    r.rounds.map(round => `<h3>Round ${round.round}: ${esc(round.recommendation)}</h3>
+  if (!r.pr) { $("pr").innerHTML = `<div class="muted">${t("no_pr")}</div>`; return; }
+  $("pr").innerHTML = `<p><a href="${esc(r.pr.url)}"><bdi>#${r.pr.number} ${esc(r.pr.title)}</bdi></a> <span class="muted">${esc(tr(r.pr.state))}</span></p>` +
+    r.rounds.map(round => `<h3>${t("round")} ${num(round.round)}: ${esc(tr(round.recommendation))}</h3>
       <p dir="auto">${esc(round.brief)}</p>
-      <p class="muted" dir="auto">${esc(round.door)} · ${esc(round.blast_radius)}</p>
-      ${round.open.map(f => `<div class="finding ${f.blocker ? "blocker" : ""}" dir="auto">${f.blocker ? "Blocker" : "Note"} · ${esc(f.path)}<br>${esc(f.body)}</div>`).join("")}`).join("");
+      <p class="muted" dir="auto">${esc(tr(round.door))} · ${esc(round.blast_radius)}</p>
+      ${round.open.map(f => `<div class="finding ${f.blocker ? "blocker" : ""}" dir="auto">${t(f.blocker ? "blocker" : "note")} · ${bdi(f.path)}<br>${esc(f.body)}</div>`).join("")}`).join("");
   $("prpage").scrollIntoView();
 }
 
@@ -138,18 +249,19 @@ document.addEventListener("click", e => {
 $("stop").onclick = () => post("/stop");
 $("resume").onclick = () => post("/resume");
 $("day").onchange = refreshDays;
+$("lang").onclick = () => setLanguage(lang === "fa" ? "en" : "fa");
 
 async function refresh() {
   try { const s = await refreshState(); await refreshQueue(s); await refreshDays(); }
-  catch { alertLine("The dashboard API cannot be reached."); }
+  catch { alertLine(t("api_unreachable")); }
 }
 new EventSource("/api/v1/stream").onmessage = m => {
-  const e = JSON.parse(m.data);
-  const line = document.createElement("div");
-  line.textContent = [e.ts, e.type, e.task, e.phase, e.decision, e.reason, e.outcome].filter(Boolean).join(" · ");
-  if ($("detailtitle").textContent === "Live stream") $("detail").prepend(line);
+  live = [JSON.parse(m.data), ...live].slice(0, LIVE_LINES);
+  if (!shownRun) renderLive();
   refreshState();
 };
+applyLanguage();
+renderLive();
 refresh();
 setInterval(refresh, 30000);
 </script>
