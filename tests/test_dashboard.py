@@ -13,7 +13,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from kandu import dashboard, review
+from kandu import dashboard, review, split
 from kandu.config import load_config
 from kandu.dashboard import Api, actions_in, dispatch, make_handler, new_events, recommendation
 from kandu.github import BoardItem, GitHubError
@@ -178,6 +178,8 @@ class ReviewPageTest(Base):
         note = {"blocker": False}
         self.assertIn("blocker", recommendation({"open": [blocker], "door": "one-way"}))
         self.assertIn("hard to undo", recommendation({"open": [], "door": "one-way"}))
+        self.assertEqual(recommendation({"open": [], "door": "two-way", "wait_for_user": ["Keep it?"]}),
+                         "your decision: the review has a question")
         self.assertIn("notes", recommendation({"open": [note], "door": "two-way"}))
         self.assertEqual(recommendation({"open": [], "door": "two-way"}), "ready to merge")
 
@@ -272,6 +274,15 @@ class ControlTest(Base):
     def test_a_refused_split_says_so(self):
         with mock.patch("kandu.dashboard.split.approve", side_effect=TaskError("not waiting")):
             self.assertEqual(self.post(f"/api/v1/splits/{REPO}/1/approve")[0], 409)
+
+    def test_a_proposal_that_fails_its_checks_says_so(self):
+        with mock.patch("kandu.dashboard.split.approve", side_effect=split.ReportError("too few slices")):
+            self.assertEqual(self.post(f"/api/v1/splits/{REPO}/1/approve")[0], 409)
+
+    def test_a_project_name_may_need_encoding(self):
+        self.api.config.projects[0].name = "my site"
+        self.assertEqual(self.post("/api/v1/projects/my%20site/pause")[0], 200)
+        self.assertEqual(self.store.paused_projects(), {"my site"})
 
     def test_an_unregistered_repo_has_no_split(self):
         self.assertEqual(self.get("/api/v1/splits/other/repo/1")[0], 404)
@@ -382,7 +393,8 @@ class LanguageTest(unittest.TestCase):
 
     def test_what_the_api_says_has_a_persian_form(self):
         door = {"open": [], "door": "one-way"}
-        values = [recommendation(door), recommendation({"open": [], "door": "two-way"}), *dashboard.QUEUE_COLUMNS,
+        values = [recommendation(door), recommendation({"open": [], "door": "two-way"}),
+                  recommendation({"open": [], "door": "two-way", "wait_for_user": ["q"]}), *dashboard.QUEUE_COLUMNS,
                   "review round 2", "fix round 1", "weekly usage at 93%, limit 60%", "5-hour usage at 9%, limit 8%",
                   *EVENT_FIELDS, *review.DOORS]
         source = (ROOT / "kandu" / "supervisor.py").read_text(encoding="utf-8")

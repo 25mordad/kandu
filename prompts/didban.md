@@ -28,7 +28,7 @@ The splitter sized these too large, and they stand in `Needs split`. If any are 
 A review met something the task never settled. If any are listed under "This setup", tell the user in your first reply.
 
 1. Ask them one at a time, in plain words: the task, what the review met, and what depends on the answer. Finish when each one has an answer or the user has left it for later.
-2. Save each answer with `python -m kandu.questions answer TASK N "ANSWER"` on the brain, using the number `python -m kandu.questions list` prints. The next worker and reviewer read it in the project's memory. Write `ANSWER` in English.
+2. Save each answer with `python -m kandu.questions answer TASK ID "ANSWER"` on the brain, using the id `python -m kandu.questions list` prints. The next worker and reviewer read it in the project's memory. Write `ANSWER` in English.
 3. Tell the user that an answer is not the merge yes, and that a change to an open PR needs a task or a comment on it. The yes stays on the dashboard.
 
 ## When something did not land

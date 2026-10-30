@@ -404,6 +404,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "live_check_failed": "بررسی زنده رد شد",
   "wait: a blocker is open": "صبر کن: یک مانع باز است",
   "your decision: this is hard to undo": "تصمیم با توست: برگرداندن این کار سخت است",
+  "your decision: the review has a question": "تصمیم با توست: ریویو از تو سؤالی دارد",
   "ready to merge, with notes": "آماده ادغام، با یادداشت",
   "ready to merge": "آماده ادغام",
   "stopped by the user": "کاربر متوقف کرد",
@@ -962,6 +963,7 @@ async function showReviews(task) {
   }
   openModal(`${numberOf(task)} ${bdi(r.pr.title)}`);
   $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? badge(item.column) : ""}</div>
+    ${proposal ? splitBox(task, proposal) : ""}
     <div class="actions">${approval(task, r.pr)}${link(r.pr.url, t("open_github"))}</div>
     ${r.rounds.slice().reverse().map((round, i) => roundBox(round, i === 0)).join("")}`;
 }

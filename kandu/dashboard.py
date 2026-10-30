@@ -13,7 +13,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from . import queen, review, split, timer
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
@@ -41,8 +41,10 @@ def recommendation(record):
     """The one-line advice of a review round, worked out in code."""
     if review.blockers(record["open"]):
         return "wait: a blocker is open"
-    if record["door"] == "one-way" or record.get("wait_for_user"):
+    if record["door"] == "one-way":
         return "your decision: this is hard to undo"
+    if record.get("wait_for_user"):
+        return "your decision: the review has a question"
     if record["open"]:
         return "ready to merge, with notes"
     return "ready to merge"
@@ -236,7 +238,7 @@ class Api:
         with self._split_lock:  # A second click must find the group made, not make it twice.
             try:
                 children = split.approve(self.config, self.github, self.store, task, self.local_dir)
-            except TaskError as e:
+            except (TaskError, split.ReportError) as e:
                 raise ApiError(409, str(e))
         self._queue = None
         return {"children": children}
@@ -322,7 +324,7 @@ def dispatch(api, method, target, supplied_token=None):
         if method != "GET" and not _token_ok(api.token, supplied_token):
             return 403, {"error": "a valid token is required"}
         try:
-            return 200, handler(api, parse_qs(url.query), *match.groups())
+            return 200, handler(api, parse_qs(url.query), *map(unquote, match.groups()))
         except ApiError as e:
             return e.status, {"error": e.message}
         except GitHubError:

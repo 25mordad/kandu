@@ -5,6 +5,7 @@ user answers, and the answer goes into the project's memory, so the next worker
 and reviewer know it. An answer is not the merge yes: that stays on the dashboard.
 """
 import argparse
+import hashlib
 import sys
 from pathlib import Path
 
@@ -17,28 +18,39 @@ class QuestionError(Exception):
     pass
 
 
+def question_id(question):
+    """Stays the same while other questions are answered, unlike a place in the list."""
+    return hashlib.sha256(question.encode("utf-8")).hexdigest()[:6]
+
+
 def open_questions(store):
-    """Returns the unanswered questions of each task's newest review, oldest task first."""
+    """Returns the unanswered questions of each task's newest review, oldest task first.
+
+    An answer holds for the head it was given on: the next reviewer reads it in the
+    memory, so a question on a new head is a new one. A task that ended asks nothing.
+    """
     events = all_events(store)
     reviews = {e["task"]: e for e in events if e["type"] == "review_finished"}
-    answered = {(e["task"], e["question"]) for e in events if e["type"] == "question_answered"}
-    settled = {e["task"] for e in events if e["type"] == "task_finished" and e["outcome"] == "merged"}
+    finished = {e["task"]: e for e in events if e["type"] == "task_finished"}
+    answered = {(e["head_sha"], e["question"]) for e in events if e["type"] == "question_answered"}
+    settled = {task for task, e in finished.items() if task in reviews and e["ts"] >= reviews[task]["ts"]}
     settled |= {e["task"] for e in events if e["type"] == "user_approved"
                 and e["task"] in reviews and e["head_sha"] == reviews[e["task"]]["head_sha"]}
-    return [{"task": task, "project": review["project"], "question": question}
+    return [{"task": task, "project": review["project"], "head_sha": review["head_sha"], "question": question,
+             "id": question_id(question)}
             for task, review in reviews.items() if task not in settled
-            for question in review["wait_for_user"] if (task, question) not in answered]
+            for question in review["wait_for_user"] if (review["head_sha"], question) not in answered]
 
 
-def answer(store, task, number, text, local_dir):
-    """`number` counts this task's open questions from 1, as `list` prints them."""
-    waiting = [q for q in open_questions(store) if q["task"] == task]
-    if not 1 <= number <= len(waiting):
-        raise QuestionError(f"{task} has no open question {number}")
+def answer(store, task, question_key, text, local_dir):
+    """`question_key` is the id `list` prints."""
+    question = next((q for q in open_questions(store) if q["task"] == task and q["id"] == question_key), None)
+    if question is None:
+        raise QuestionError(f"{task} has no open question {question_key}")
     if not text.strip():
         raise QuestionError("an answer needs text")
-    question = waiting[number - 1]
-    store.record("question_answered", task=task, project=question["project"], question=question["question"], answer=text)
+    store.record("question_answered", task=task, project=question["project"], head_sha=question["head_sha"],
+                 question=question["question"], answer=text)
     memory = Path(local_dir) / "memory" / f"{question['project']}.md"
     memory.parent.mkdir(parents=True, exist_ok=True)
     with open(memory, "a", encoding="utf-8") as file:
@@ -49,21 +61,19 @@ def main():
     parser = argparse.ArgumentParser(description="See and answer what reviews left for the user.")
     parser.add_argument("command", choices=("list", "answer"))
     parser.add_argument("task", nargs="?", help="owner/repo#number")
-    parser.add_argument("number", nargs="?", type=int, help="which question of this task, from 1")
+    parser.add_argument("id", nargs="?", help="the question's id, from `list`")
     parser.add_argument("text", nargs="?", help="the user's answer")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
     args = parser.parse_args()
     store = StateStore()
     if args.command == "list":
-        counts = {}
         for question in open_questions(store):
-            counts[question["task"]] = counts.get(question["task"], 0) + 1
-            print(f"{question['task']} {counts[question['task']]}: {question['question']}")
+            print(f"{question['task']} {question['id']}: {question['question']}")
         return 0
-    if None in (args.task, args.number, args.text):
-        parser.error("answer needs a task, a question number and the answer")
+    if None in (args.task, args.id, args.text):
+        parser.error("answer needs a task, a question id and the answer")
     try:
-        answer(store, args.task, args.number, args.text, args.local)
+        answer(store, args.task, args.id, args.text, args.local)
     except QuestionError as e:
         print(f"questions: {e}", file=sys.stderr)
         return 1

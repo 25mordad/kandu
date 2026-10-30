@@ -210,6 +210,8 @@ class Supervisor:
         reason = self._gate()
         if reason is not None:
             self._halt(reason)
+        if self._is_paused(task.project):
+            raise CycleStop
         allowed, denied = tools
         with self._lock:
             self.workers[task.key]["run_id"] = run_id
@@ -377,6 +379,8 @@ class Supervisor:
         reasons = self._merge_waits(task, pr)
         if reasons:
             self._decide(task, "merge_waits", "; ".join(reasons))
+            return False
+        if self._is_paused(task.project):  # The tests take minutes, and a pause may have come in meanwhile.
             return False
         self.github.merge_pr(task.repo, pr["number"], pr["headRefOid"])
         return True
@@ -638,6 +642,8 @@ class Supervisor:
                    and self.store.last_event("task_sized", task=f"{item.repo}#{item.number}") is not None]
         keys = [f"{item.repo}#{item.number}" for _, item in backlog]
         before, news = queen.since_last_look(self.store)
+        paused = {p.name for p in self.config.projects if self._is_paused(p)}
+        news = [e for e in news if e.get("project") not in paused]
         if not queen.worth_a_look(before, news, keys, self.store.today()):
             return False
         if self._gate() is not None or self._queen_limit() is not None:

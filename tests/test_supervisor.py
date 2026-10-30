@@ -17,7 +17,7 @@ from kandu.config import load_config
 from kandu.github import BoardItem, GitHubError
 from kandu.runner import AgentResult, RunnerError
 from kandu.state import StateStore
-from kandu.supervisor import Supervisor, read_tasks
+from kandu.supervisor import CycleStop, Supervisor, read_tasks
 from kandu.usage import Usage, UsageError
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "config.example"
@@ -235,6 +235,32 @@ class PausedOnTheDashboardTest(Base):
         self.cycle()
         self.assertEqual(len(self.runner.runs), 1)
         self.assertEqual(self.events("review_finished"), [])
+
+
+    def test_no_new_agent_starts_once_it_is_paused(self):
+        self.github.add(1)
+        task = read_tasks(self.config, self.github)[0]
+        self.sup.workers[task.key] = {}
+        self.store.pause_project("website")
+        with self.assertRaises(CycleStop):
+            self.sup._agent(task, "live_check", "/tmp", "prompt", ((), ()), "r-1")
+        self.assertEqual(self.runner.runs, [])
+
+    def test_a_pause_during_the_tests_stops_the_merge(self):
+        self.github.add(1)
+        task = read_tasks(self.config, self.github)[0]
+        self.sup._merge_waits = lambda *_: self.store.pause_project("website") or []
+        self.github.merge_pr = mock.Mock()
+        self.config.auto_merge_for = lambda project: True
+        self.assertFalse(self.sup._merge(task, {"number": 1, "headRefOid": SHA1}, "approved", True))
+        self.github.merge_pr.assert_not_called()
+
+    def test_its_news_does_not_wake_the_queen(self):
+        self.config.settings.supervisor.queen = True
+        self.store.record("task_finished", task=f"{REPO}#1", project="website", outcome="failed")
+        self.store.pause_project("website")
+        self.assertFalse(self.sup._queen())
+        self.assertEqual(self.runner.runs, [])
 
 
 class SelectionTest(Base):

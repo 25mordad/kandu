@@ -42,7 +42,7 @@ state/
 | `slice_created` | `task`, `project`, `parent` |
 | `task_split` | `task`, `project`, `children` |
 | `split_declined` | `task`, `project` |
-| `question_answered` | `task`, `project`, `question`, `answer` |
+| `question_answered` | `task`, `project`, `head_sha`, `question`, `answer` |
 | `project_paused` | `project` |
 | `project_resumed` | `project` |
 | `group_closed` | `task`, `project` |

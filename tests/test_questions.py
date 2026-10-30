@@ -26,6 +26,9 @@ class QuestionsTest(unittest.TestCase):
     def asked(self):
         return [q["question"] for q in questions.open_questions(self.store)]
 
+    def answer(self, question, text):
+        questions.answer(self.store, TASK, questions.question_id(question), text, self.local)
+
     def test_only_the_newest_review_counts(self):
         self.review("Old?")
         self.review("New?", round=2)
@@ -33,16 +36,29 @@ class QuestionsTest(unittest.TestCase):
 
     def test_an_answer_closes_it_and_goes_into_the_memory(self):
         self.review("Keep it?", "Move it?")
-        questions.answer(self.store, TASK, 2, "Move it to the cron.", self.local)
+        self.answer("Move it?", "Move it to the cron.")
         self.assertEqual(self.asked(), ["Keep it?"])
         memory = (self.local / "memory" / "website.md").read_text(encoding="utf-8")
         self.assertIn("Move it? Answer: Move it to the cron.", memory)
         self.assertEqual(self.store.last_event("question_answered", task=TASK)["answer"], "Move it to the cron.")
 
-    def test_a_new_review_cannot_reopen_an_answered_question(self):
+    def test_answering_one_leaves_the_id_of_the_next(self):
+        self.review("Keep it?", "Move it?", "Name it?")
+        self.answer("Keep it?", "Yes.")
+        self.answer("Move it?", "No.")
+        self.assertEqual(self.asked(), ["Name it?"])
+
+    def test_an_answer_holds_for_its_head(self):
         self.review("Keep it?")
-        questions.answer(self.store, TASK, 1, "Yes.", self.local)
+        self.answer("Keep it?", "Yes.")
         self.review("Keep it?", round=2)
+        self.assertEqual(self.asked(), [])
+        self.review("Keep it?", head="def", round=3)
+        self.assertEqual(self.asked(), ["Keep it?"])
+
+    def test_a_task_that_ended_asks_nothing(self):
+        self.review("Keep it?")
+        self.store.record("task_finished", task=TASK, project="website", outcome="pr_closed")
         self.assertEqual(self.asked(), [])
 
     def test_a_merged_or_approved_task_asks_nothing(self):
@@ -56,9 +72,9 @@ class QuestionsTest(unittest.TestCase):
 
     def test_a_wrong_number_or_empty_answer_changes_nothing(self):
         self.review("Keep it?")
-        for number, text in ((2, "Yes."), (0, "Yes."), (1, "  ")):
+        for key, text in (("nope", "Yes."), (questions.question_id("Keep it?"), "  ")):
             with self.assertRaises(questions.QuestionError):
-                questions.answer(self.store, TASK, number, text, self.local)
+                questions.answer(self.store, TASK, key, text, self.local)
         self.assertEqual(self.asked(), ["Keep it?"])
         self.assertFalse((self.local / "memory").exists())
 
@@ -70,12 +86,13 @@ class QuestionsTest(unittest.TestCase):
             code = questions.main()
         return code, out.getvalue(), err.getvalue()
 
-    def test_the_command_numbers_each_task_and_answers_by_that_number(self):
+    def test_the_command_lists_ids_and_answers_by_them(self):
         self.review("Keep it?", "Move it?")
-        self.assertEqual(self.run_cli("list"), (0, f"{TASK} 1: Keep it?\n{TASK} 2: Move it?\n", ""))
-        self.assertEqual(self.run_cli("answer", TASK, "2", "Yes.")[0], 0)
+        keep, move = questions.question_id("Keep it?"), questions.question_id("Move it?")
+        self.assertEqual(self.run_cli("list"), (0, f"{TASK} {keep}: Keep it?\n{TASK} {move}: Move it?\n", ""))
+        self.assertEqual(self.run_cli("answer", TASK, move, "Yes.")[0], 0)
         self.assertEqual(self.asked(), ["Keep it?"])
-        code, _, err = self.run_cli("answer", TASK, "5", "Yes.")
+        code, _, err = self.run_cli("answer", TASK, "nope", "Yes.")
         self.assertEqual(code, 1)
         self.assertIn("no open question", err)
 
