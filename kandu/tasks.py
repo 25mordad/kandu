@@ -6,6 +6,7 @@ does not depend on the conversation.
 import argparse
 import re
 import sys
+import unicodedata
 from datetime import date
 from pathlib import Path
 
@@ -28,6 +29,12 @@ def check_body(body):
     missing = [s for s in required_sections() if s not in sections]
     if missing:
         raise TaskError(f"the issue misses: {', '.join(missing)}")
+
+
+def check_english(text):
+    """Agents write and read tasks in English, so nobody pays for a translation."""
+    if any(c.isalpha() and not unicodedata.name(c, "").startswith("LATIN") for c in text):
+        raise TaskError("a task is written in English: its title, body and sub-tasks")
 
 
 def private_words(local_dir):
@@ -67,6 +74,7 @@ def create_task(config, github, project_name, repo, title, body, local_dir, prio
     if project.board is None:
         raise TaskError(f"{project_name} has no board")
     check_body(body)
+    check_english(f"{title}\n{body}")
     check_fields(priority, kind, size, deadline)
     if github.repo_is_public(repo):
         check_private(f"{title}\n{body}", private_words(local_dir))

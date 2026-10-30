@@ -54,6 +54,12 @@ class TaskTest(unittest.TestCase):
                 self.create(**bad)
         self.github.create_issue.assert_not_called()
 
+    def test_a_task_not_in_english_is_not_created(self):
+        for bad in ({"title": "کار تازه"}, {"body": BODY + "\nیک خط دیگر"}):
+            with self.assertRaisesRegex(tasks.TaskError, "English"):
+                self.create(**bad)
+        self.github.create_issue.assert_not_called()
+
     def test_the_template_is_required(self):
         with self.assertRaisesRegex(tasks.TaskError, "Acceptance criteria"):
             self.create(body=BODY.replace("## Acceptance criteria", "## Other"))

@@ -76,6 +76,8 @@ The rules shared by these commands are in [docs/COMMANDS.md](docs/COMMANDS.md). 
 - A precise task (clear acceptance criteria) and real tests in the project matter more for the result than the loop itself. That is why defining tasks is a conversation, not a form.
 
 What makes a task good:
+- **English.** The title, body and sub-tasks are in English, whatever language the user speaks, so no agent writes or reads a translation. The user's language is for what they read: the dashboard, briefs and questions. `kandu.tasks` refuses any other text.
+- **Not in `.claude/`.** Claude Code refuses edits there in an unattended run, whatever the allow list says; a worker can only delete those files. A task that must edit them needs that edit made by hand first.
 - **Behavior, not steps.** It says what the software must do, not how to change it. No file paths or line numbers: they go stale before the worker starts.
 - **Each acceptance criterion can be checked on its own**, and "Out of scope" stops the worker from growing the task.
 - **One slice.** A task is sized to one fresh context and delivers a complete path that can be verified alone, not one layer of a feature. Refactoring that makes the work easier comes first, as its own task.
