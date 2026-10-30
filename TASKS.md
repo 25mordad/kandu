@@ -16,12 +16,14 @@ Design: [DESIGN.md](DESIGN.md). Early development; Kandu does not run yet.
 11. [ ] Reviewer + review rounds (§5)
 12. [ ] Merge, deploy, live check, end-of-cycle check (§5)
 13. [ ] Notifier with a Telegram adapter, important events only (§8)
+14. [ ] Claude login watch: expiry per machine on the dashboard, early warning, works when `claude` is down (§7, §8)
+15. [ ] Move the running install to a private copy with pushes to `upstream` disabled, before the first board (§12)
 
 ## [P2] Next
-14. [ ] `/kandu-config` — change config by conversation (§1C)
-15. [ ] Usage report per project (§6)
-16. [ ] Pilot on one real project, then roll out
+16. [ ] `/kandu-config` — change config by conversation (§1C)
+17. [ ] Usage report per project (§6)
+18. [ ] Pilot on one real project, then roll out
 
 ## [P3] Later
-17. [ ] Optional isolation runners: separate Linux user, Docker (§9)
-18. [ ] Guide for a bot account / GitHub App (§10)
+19. [ ] Optional isolation runners: separate Linux user, Docker (§9)
+20. [ ] Guide for a bot account / GitHub App (§10)

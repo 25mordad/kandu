@@ -112,6 +112,7 @@ supervisor ─┬─ worker 1  →  reviewer
 ## 7. Dashboard — Kandu's own
 The user must be able to see exactly what is happening: the supervisor and every worker. The dashboard is part of Kandu, standalone, and **interactive**.
 - **Supervisor state:** awake or asleep, next wake time, why the last cycle stopped; two usage bars (5-hour, weekly) with the limit lines.
+- **Claude login:** when the login expires on each machine Kandu uses, with days left. Read from `refreshTokenExpiresAt` in `~/.claude/.credentials.json` (only that field; tokens are never read into logs or state). The field is internal to Claude Code, so if it is missing the dashboard shows "unknown" instead of guessing.
 - **Active workers:** task number, project, machine, phase (implement / test / review round N / merge / deploy / live check), elapsed time.
 - **Live stream:** workers run with `--output-format stream-json`, so every file read, command and edit is logged and shown live, along with the reviewer's notes and the supervisor's decisions ("sent back because…").
 - **Queue per project:** `Ready`, waiting for machine, `Needs info`, `Blocked`.
@@ -121,7 +122,8 @@ The user must be able to see exactly what is happening: the supervisor and every
 - Binds to `127.0.0.1` by default. Exposing it beyond the machine (tunnel, reverse proxy, access control) is the user's choice.
 
 ## 8. Notifications
-- Only the important things: the supervisor stopped, something broke, a task is stuck and needs a decision, a usage limit was hit, and things of similar weight. Everything else only on the dashboard.
+- Only the important things: the supervisor stopped, something broke, a task is stuck and needs a decision, a usage limit was hit, the Claude login expires soon (`claude.login_warn_days`, default 7) or has stopped working, and things of similar weight. Everything else only on the dashboard.
+- The login check never calls `claude`, so the warning still goes out when Claude itself is down.
 - The notifier is pluggable; Telegram is the first adapter. Messages are sent in the language chosen at setup.
 
 ## 9. Isolation — none in this version
