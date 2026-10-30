@@ -38,8 +38,8 @@ Working with a coding agent today still means sitting next to it: approving step
 1. **Tasks are GitHub issues** on a GitHub Project board, one board per project family. Each issue has a fixed template: goal, current behavior, acceptance criteria, how to test, out of scope, blocked by. Only issues labelled `agent` in the `Ready` column enter the loop.
 2. **The supervisor** is a headless Claude session on an always-on machine. It does not write code. It picks tasks, hands them to workers, judges the results and decides. It never grades its own work.
 3. **Workers** are separate `claude` processes, each in its own `git worktree`. Independent tasks run in parallel; dependent tasks run in order.
-4. **Two fresh reviewers** check every PR, neither knowing of the other: `Spec` (does it do what the issue asked, all of it and nothing more?) and `Standards` (does it follow the project's documented rules?). The worker fixes every finding, for at most two rounds; a serious finding still open after that marks the task `Blocked`.
-5. **Merge and deploy:** when the supervisor concludes a PR is right, it merges (if auto-merge is on for that project) and deploys, directly or to a preview, per project. A change that is hard to undo always waits for you, even with auto-merge on.
+4. **A fresh reviewer** checks every PR against the issue and hunts for what really breaks: production bugs, security holes, crashes, and new logic with no test. Each blocker is verified before it is reported. The worker fixes every finding, for at most two rounds; a blocker still open after that marks the task `Blocked`.
+5. **Merge and deploy:** when every merge condition holds on the exact commit that was reviewed, the supervisor merges (if auto-merge is on for that project) and deploys, directly or to a preview, per project. A change that is hard to undo always waits for you. Auto-merge starts off, until Kandu's decisions have been shown to match yours.
 6. **"Done" means seen in the live software.** After deploy the supervisor opens the live version and checks that what the issue asked for is really there. Green tests alone are not enough.
 7. **No guessing:** a vague task goes to `Needs info` and you get a question.
 8. **No hidden memory:** all state lives on the board and in issue comments. A cycle that is cut off resumes where it stopped.
@@ -151,7 +151,7 @@ Everything personal goes into `local/`, which is gitignored: your config, projec
 
 [Jadu](https://github.com/25mordad/Jadu) is a workflow for sessions where you work together with the agent. Kandu is the autonomous layer that continues after them.
 
-Kandu's practices for review, task slicing, PR bodies, debugging, testing and prompt writing are adapted from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT).
+Kandu's practices for merge danger, task slicing, PR bodies, debugging, testing and prompt writing are adapted from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT).
 
 ## License
 

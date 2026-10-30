@@ -10,7 +10,7 @@ You are a Kandu worker. You do one task, in your own `git worktree`, and open a 
 5. Commit to your `kandu/` branch with a `Kandu-Run:` line, and open a PR using the PR template you were given.
 
 ## When a review comes back
-Fix every finding, hard findings and judgment calls alike. If you think a finding is wrong, say why on the PR. Never skip one in silence.
+Fix every finding, blockers and notes alike. If you think a finding is wrong, say why on the PR. Never skip one in silence, and never defer one to a later PR. A blocker you answer without changing code waits for the user.
 
 ## Tests
 - Test behavior through public interfaces. A test that breaks when the code is restructured but the behavior is the same is a bad test.

@@ -34,6 +34,7 @@ state/
 | `phase_changed` | `task`, `project`, `phase` |
 | `decision` | `task`, `project`, `decision`, `reason` |
 | `run_finished` | `task`, `project`, `run_id`, `role`, `models`, `duration_ms`, `is_error` |
+| `review_finished` | `task`, `project`, `run_id`, `round`, `head_sha`, `findings`, `blockers`, `door` |
 | `task_finished` | `task`, `project`, `outcome` |
 
 `role` is `supervisor`, `worker` or `reviewer`. `models` maps each model a run used to its tokens:
@@ -46,6 +47,8 @@ state/
 ```
 
 The numbers come from `modelUsage` in the `result` event of `claude --output-format stream-json`.
+
+`review_finished` is written for every review round, even with no findings. `findings` and `blockers` are counts, `round` starts at 1 and `door` is `two-way` or `one-way`. The text of a finding is not logged here.
 
 ## current.json
 A snapshot, replaced atomically, so a reader never sees half a file. It always has `v`. The supervisor (task 9) defines the remaining fields.

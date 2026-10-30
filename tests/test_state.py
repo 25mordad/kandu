@@ -56,6 +56,12 @@ class StateTest(unittest.TestCase):
         for fields in EVENT_FIELDS.values():
             self.assertFalse({"prompt", "output", "text", "command", "secret"} & set(fields))
 
+    def test_review_round_is_logged_even_with_no_findings(self):
+        self.store.record("review_finished", now=NOW, task="o/r#1", project="site", run_id="r2", round=1,
+                          head_sha="abc123", findings=0, blockers=0, door="two-way")
+        event = self.store.events(DAY)[0]
+        self.assertEqual((event["head_sha"], event["findings"]), ("abc123", 0))
+
     def test_days_are_sorted(self):
         self.store.record("supervisor_woke", now=NOW)
         self.store.record("supervisor_woke", now=NOW - timedelta(days=1))

@@ -1,3 +1,4 @@
+import json
 import re
 import unittest
 from pathlib import Path
@@ -16,18 +17,23 @@ class TemplatesTest(unittest.TestCase):
             "Goal", "Current behavior", "Acceptance criteria", "How to test", "Out of scope", "Blocked by",
         ])
 
-    def test_pr_template_states_the_merge_danger(self):
-        text = (PROMPTS / "templates" / "pr.md").read_text(encoding="utf-8")
-        self.assertEqual(headings(PROMPTS / "templates" / "pr.md"), ["Summary", "Evidence", "Merge Danger"])
-        self.assertIn("**Door:**", text)
-        self.assertIn("**Blast radius:**", text)
+    def test_pr_template_states_the_blast_radius(self):
+        self.assertEqual(headings(PROMPTS / "templates" / "pr.md"), ["Summary", "Evidence", "Blast radius"])
 
 
 class PromptsTest(unittest.TestCase):
-    def test_reviewer_has_both_axes(self):
+    def test_reviewer_has_the_review_rules(self):
         found = headings(PROMPTS / "reviewer.md")
-        self.assertIn("Axis: Spec", found)
-        self.assertIn("Axis: Standards", found)
+        for heading in ("Blockers", "Do not report", "Tests", "Verify each blocker before you report it",
+                        "Companion PRs", "Later rounds", "Merge danger", "Report"):
+            self.assertIn(heading, found)
+
+    def test_reviewer_report_is_valid_json_with_the_needed_fields(self):
+        text = (PROMPTS / "reviewer.md").read_text(encoding="utf-8")
+        report = json.loads(re.search(r"```json\n(.+?)```", text, re.DOTALL).group(1))
+        self.assertEqual(set(report), {"head_sha", "summary", "criteria", "earlier", "findings",
+                                       "checked_ok", "door", "blast_radius", "brief"})
+        self.assertEqual(set(report["findings"][0]), {"n", "path", "line", "blocker", "body"})
 
     def test_agents_in_other_projects_get_no_path_into_this_repo(self):
         for name in ("worker.md", "reviewer.md"):

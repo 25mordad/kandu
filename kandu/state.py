@@ -21,6 +21,7 @@ EVENT_FIELDS = {
     "phase_changed": TASK_FIELDS + ("phase",),
     "decision": TASK_FIELDS + ("decision", "reason"),
     "run_finished": TASK_FIELDS + ("run_id", "role", "models", "duration_ms", "is_error"),
+    "review_finished": TASK_FIELDS + ("run_id", "round", "head_sha", "findings", "blockers", "door"),
     "task_finished": TASK_FIELDS + ("outcome",),
 }
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")

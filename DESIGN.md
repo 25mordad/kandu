@@ -110,14 +110,23 @@ supervisor ─┬─ worker 1  →  reviewer
 - **Workers:** separate `claude` processes, started by the runner layer (§9) on the project's machine, each in its own `git worktree`, so they never write over each other. Separate processes are what let Kandu stream each worker (§7), stop one alone and record its tokens. Independent tasks (by `Blocked by`) run in parallel, up to `max_parallel_workers`; dependent ones run in order. Their instructions are in [prompts/worker.md](prompts/worker.md):
   - Tests come first, at the project's public interfaces, and they check behavior rather than internals.
   - A bug starts with one fast command that fails on exactly that bug. If no such command can be built, the task goes to `Needs info` instead of a guess.
-  - Every PR uses [prompts/templates/pr.md](prompts/templates/pr.md): a small summary, before and after evidence, and the merge danger. A worker runs inside another project, so the runner puts this template in its prompt.
-- **Reviewer:** every PR gets two reviews, each a fresh `claude` process that knows nothing of the other ([prompts/reviewer.md](prompts/reviewer.md)):
-  - `Spec`: does the diff do what the issue asked, all of it and nothing more?
-  - `Standards`: does it follow the project's documented rules?
+  - Every PR uses [prompts/templates/pr.md](prompts/templates/pr.md): a small summary, before and after evidence, and the blast radius. A worker runs inside another project, so the runner puts this template in its prompt.
+- **Reviewer:** every PR gets one review by a fresh `claude` process ([prompts/reviewer.md](prompts/reviewer.md)). "Fresh" means it knows nothing of how the PR was built; it does get the project's rules and memory. It reads the diff, searches the whole repo and writes a report; it changes no code.
+  - **Blockers:** a bug that breaks production, a security hole, a crash or unhandled error, an unmet or unproven acceptance criterion, a change out of scope or in a forbidden area, and new logic with no test that really runs it. There is no coverage percentage.
+  - **Notes:** smells and broken documented rules that are not blockers. Cosmetics, small design issues and product decisions are not reported at all.
+  - **Verified:** each blocker is pressure-tested before it is reported: the head is checked again, the bug is separated from the stated reason, every caller in the repo is traced, and a path that really reaches the bug is found.
+  - **Companion PRs:** an open PR in the same family is a companion if a PR body names it or its branch has the same slug. The reviewer checks that the two sides really work together, not only that the names match. Nothing else is assumed to be a companion.
+  - **Report:** one JSON object, validated in code. It holds the reviewed `SHA`, each criterion's result, each finding with path, line and kind, what was checked and found sound, the door, and a plain brief for the dashboard in the language chosen at setup. Nothing found is a valid result.
+  - **Rounds:** every finding goes back to the same worker, who fixes all of them, blockers and notes alike. The kind only decides what stops a merge. A later review runs only if a code check sees a new head `SHA`, so waiting costs no tokens. It gives each earlier finding `fixed`, `not fixed` or `partly fixed`, judged from the code. After `max_review_rounds` (default 2), an open blocker sends the task to `Blocked`, and an open note stays on the PR.
+- **Merge danger:** the reviewer decides on its own whether a change is a **two-way door** (easy to undo) or a **one-way door** (hard to undo: data migrations, published APIs, sent messages), and states its blast radius. A one-way door waits for the user, even with `auto_merge` on.
+- **Merge:** enforced in code, on the exact `SHA` that was reviewed. A new commit voids the review. If `auto_merge` is on, the supervisor merges only when all of this holds, then moves on to the next task:
+  - the tests pass on that `SHA`, CI is not failing and the PR is not a draft
+  - no blocker and no review thread is open, and every acceptance criterion is met
+  - it is a two-way door
+  - no companion PR is open and unreviewed, unless neither side is live yet
+  - no freeze is declared in the project's repo rules
 
-  Every finding goes back to the same worker, who fixes all of them, hard findings and judgment calls alike; a finding the worker thinks is wrong gets a stated reason on the PR, never silence. The kind only decides what stops a merge. After `max_review_rounds` (default 2), a hard finding still open sends the task to `Blocked`, and a judgment call still open is noted on the PR.
-- **Merge danger:** every PR states whether its change is a **two-way door** (easy to undo) or a **one-way door** (hard to undo: data migrations, published APIs, sent messages), and its blast radius. The worker states it and the reviewer checks it independently. If either says one-way, the task waits for the user, even with `auto_merge` on.
-- **Merge:** if `auto_merge` is on and the supervisor concludes the PR is right (tests pass, reviewer approves, acceptance criteria met, two-way door), it merges and moves on to the next task. The user supervises the supervisor and corrects it when it is wrong. Default in this template: **off**.
+  These always wait for the user, with a one-line question: a blocker answered without a code change, work deferred to a later PR, a thread resolved by someone other than its author, a risky area (auth, payments, data migrations) with no tests, and a one-way door. Default in this template: `auto_merge` **off**. The user turns it on per project once calibration (§15) shows Kandu decides as they would.
 - **Deploy:** after merge, per the project's `deploy` setting.
 - **"Done" means seen in the live software:** after deploy the supervisor opens the live version (screenshot or test) and checks that what the issue asked for is really there. Green tests alone are not enough.
 - **End-of-cycle check:** after several merges, rerun all tests and a smoke test on the whole project.
@@ -140,6 +149,7 @@ The user must be able to see exactly what is happening: the supervisor and every
 - **Live stream:** workers run with `--output-format stream-json`, so every file read, command and edit is logged and shown live, along with the reviewer's notes and the supervisor's decisions ("sent back because…").
 - **Queue per project:** `Ready`, waiting for machine, `Needs info`, `Blocked`.
 - **Done:** PR link, live link, screenshot of the final check, tokens used.
+- **PR page:** for each review round, in the language chosen at setup and in plain words: the title, what the PR does, the result and a one-line recommendation, then each finding explained. The user can decide in seconds.
 - **By day:** what was done on each day and how many tokens each task used, split by model and by worker, reviewer and supervisor. Tokens come from the `result` event of each run's `stream-json` output and are saved with the task.
 - **Controls from day one:** stop / resume the supervisor, stop one worker.
 - **Integration interface:** Kandu's own dashboard uses only the public HTTP API, so everything it shows is available to any other system. The API is versioned (`/api/v1`) and covers state, tasks, tokens by day, an event stream and stop / resume. `docs/API.md` documents every endpoint and event with real examples, and a change to the API must update it. Tests check the two against each other.
@@ -201,12 +211,13 @@ The brain runs on an always-on machine, which is usually not the machine the use
 Every part of Kandu is designed and reviewed against these three. The result depends on them as much as on the model.
 
 - **Harness:** everything around the model that keeps it safe and on track: gates, lock file, permissions, tests, the fresh reviewer, limits, stop controls. A rule that matters is enforced in code, not only written in a prompt. Checks that need no judgment run without an LLM, so they cost nothing and still work when Claude is down. When an agent makes a mistake a fixed pattern could catch, the fix is an automated check, not a new line in a document; documents are for judgment calls.
-- **Context:** each agent gets the smallest context that lets it do its job, and nothing else. A worker gets its issue and its project's facts, not the history of other tasks. A reviewer starts fresh. Coding standards are enforced at review, because the reviewer has the most room in its context and the worker the least. Prompts live in files, so they can be read, reviewed and improved, and they follow [docs/WRITING-PROMPTS.md](docs/WRITING-PROMPTS.md). Output that is not needed stays in logs, out of the model's context.
+- **Context:** each agent gets the smallest context that lets it do its job, and nothing else. A worker gets its issue and its project's facts, not the history of other tasks. A reviewer starts fresh. Project rules are checked at review, because the reviewer has the most room in its context and the worker the least. Prompts live in files, so they can be read, reviewed and improved, and they follow [docs/WRITING-PROMPTS.md](docs/WRITING-PROMPTS.md). Output that is not needed stays in logs, out of the model's context.
 - **Memory:** nothing important lives only in a session. State is on the board, in issues and in state files. What is learned is saved as plain files per project in `local/`, read by the next worker and open to the user to correct. Memory is private: it never enters the public repo, and it holds facts and lessons, never secrets. An entry that proves wrong is removed. Each project's memory holds:
   - **Lessons:** what the next worker should know.
   - **Glossary:** one word for each project concept, so agents spend fewer tokens and name things the same way. Kandu's own is [GLOSSARY.md](GLOSSARY.md).
   - **Decisions:** one short paragraph for a choice that is hard to reverse, surprising without context and a real trade-off. Nothing else is worth recording.
   - **Rejected requests:** what the user said no to and why, so it is not proposed again.
+  - **Do not flag:** what the reviewer must not report in this project: known contracts, intentional config, product decisions, and every wrong finding the user corrected. It is updated as soon as a correction happens.
 
 ## 15. Model review
 Kandu must be able to show how well the model is doing, from its own records.
@@ -214,8 +225,9 @@ Kandu must be able to show how well the model is doing, from its own records.
 - Periodically (default weekly) a fresh-context reviewer goes through the tasks of that period and writes a report for the dashboard.
 - Measures per model and task type: tokens per task, review rounds, tasks that reached `Blocked`, PRs the user corrected afterwards, and breakage seen after merge.
 - It compares prompts and models over time, so it is clear whether a change helped.
+- **Calibration:** every review round is logged, even with no findings, with what was offered, what the user kept and what they dropped. The target is about 100 PRs per project before full automation, and the measure is plain: the user would have made the same comments and merged without editing. This is the evidence for turning on `auto_merge`.
 - It also looks at the environment, not only the model, and lists what would have prevented the problems it found, most severe first: an automated check that was missing, a rule the reviewer should enforce, a prompt line that changes nothing and can go, a fact the agent could not reach, a tool call that wasted tokens.
 - It recommends; the user decides. It never changes a model, prompt or limit on its own.
 
 ## Sources
-Several practices here (the two-axis review, task slicing, merge danger, the check-over-document rule, the writing rules for prompts) are adapted from [mattpocock/skills](https://github.com/mattpocock/skills), MIT licensed. They are rewritten for Kandu; nothing from that repo is installed or run.
+Several practices here (task slicing, merge danger, the check-over-document rule, the writing rules for prompts) are adapted from [mattpocock/skills](https://github.com/mattpocock/skills), MIT licensed. They are rewritten for Kandu; nothing from that repo is installed or run.
