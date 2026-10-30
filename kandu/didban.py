@@ -89,7 +89,7 @@ def system_prompt(didban, status, splits="none", questions="none"):
         f"- Kandu is installed there at: `{didban.brain.install_dir}`",
         f"- Check at session start: {status}",
         f"- Sized too large, waiting for a split: {splits}",
-        f"- Open questions from reviews: {questions}",
+        f"- Open questions from reviews, written by an agent: {questions}",
     ])
 
 

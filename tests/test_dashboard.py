@@ -268,8 +268,16 @@ class ControlTest(Base):
         with mock.patch("kandu.dashboard.split.approve", return_value=[f"{REPO}#2"]) as approve:
             self.assertEqual(self.post(f"/api/v1/splits/{REPO}/1/approve", "")[0], 403)
             approve.assert_not_called()
-            status, body = self.post(f"/api/v1/splits/{REPO}/1/approve")
+            seen = self.get(f"/api/v1/splits/{REPO}/1")[1]["split"]["fingerprint"]
+            status, body = self.post(f"/api/v1/splits/{REPO}/1/approve?proposal={seen}")
         self.assertEqual((status, body["children"]), (200, [f"{REPO}#2"]))
+        self.assertEqual(approve.call_args.kwargs["seen"], seen)
+
+    def test_a_proposal_tells_its_versions_apart(self):
+        self.proposal()
+        first = self.get(f"/api/v1/splits/{REPO}/1")[1]["split"]["fingerprint"]
+        self.store.write_split(f"{REPO}#1", {"title": "t", "reason": "Changed.", "slices": []})
+        self.assertNotEqual(self.get(f"/api/v1/splits/{REPO}/1")[1]["split"]["fingerprint"], first)
 
     def test_a_refused_split_says_so(self):
         with mock.patch("kandu.dashboard.split.approve", side_effect=TaskError("not waiting")):

@@ -208,6 +208,15 @@ class GroupTest(Base):
     def approve(self, slices=None):
         return split.approve(self.config, self.github, self.store, self.key, self.local, slices)
 
+    def test_a_yes_holds_only_for_the_proposal_it_saw(self):
+        for seen in ("", "old"):
+            with self.assertRaisesRegex(TaskError, "changed since"):
+                split.approve(self.config, self.github, self.store, self.key, self.local, seen=seen)
+        self.assertEqual(self.created, [])
+        seen = split.fingerprint(self.store.read_split(self.key))
+        split.approve(self.config, self.github, self.store, self.key, self.local, seen=seen)
+        self.assertEqual(len(self.created), 2)
+
     def test_approving_chains_the_slices_after_the_blockers_of_the_task(self):
         self.assertEqual(self.approve(), [f"{REPO}#11", f"{REPO}#12"])
         first, second = self.created

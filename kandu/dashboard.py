@@ -9,7 +9,6 @@ import json
 import os
 import re
 import sys
-import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -85,7 +84,6 @@ class Api:
         self.clock = clock
         self.start_cycle = start_cycle
         self.local_dir = local_dir
-        self._split_lock = threading.Lock()
         self._queue = None
         self._queue_time = None
 
@@ -94,6 +92,7 @@ class Api:
         return self.store.read_current() | {
             "stop_requested": self.store.stop_file.exists(),
             "paused_projects": sorted(self._paused()),
+            "paused_in_config": sorted(p.name for p in self.config.projects if p.paused),
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
             "queen": self._queen_report(),
         }
@@ -230,16 +229,17 @@ class Api:
     def split(self, query, owner, repo, number):
         """The proposal that waits for the user, or null. It stays in the local state, as the issue may be public."""
         task = self._split_task(owner, repo, number)
-        return {"task": task, "split": next((s for s in split.pending(self.store) if s["task"] == task), None)}
+        proposal = next((s for s in split.pending(self.store) if s["task"] == task), None)
+        return {"task": task, "split": proposal and proposal | {"fingerprint": split.fingerprint(proposal)}}
 
     def approve_split(self, query, owner, repo, number):
         """The user's yes creates the slices. Declining or changing a proposal happens in Didban."""
         task = self._split_task(owner, repo, number)
-        with self._split_lock:  # A second click must find the group made, not make it twice.
-            try:
-                children = split.approve(self.config, self.github, self.store, task, self.local_dir)
-            except (TaskError, split.ReportError) as e:
-                raise ApiError(409, str(e))
+        try:
+            children = split.approve(self.config, self.github, self.store, task, self.local_dir,
+                                     seen=query.get("proposal", [""])[0])
+        except (TaskError, split.ReportError) as e:
+            raise ApiError(409, str(e))
         self._queue = None
         return {"children": children}
 

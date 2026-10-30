@@ -34,15 +34,19 @@ def _is_news(event, before):
     return False
 
 
-def worth_a_look(before, news, backlog, today):
-    """`backlog` holds the Backlog tasks nothing blocks. She sees the same list only once a day."""
+def worth_a_look(before, news, backlog, today, paused_repos=()):
+    """`backlog` holds the Backlog tasks nothing blocks. She sees the same list only once a day.
+
+    Pausing a project takes its tasks off the list, which is no reason to wake her.
+    """
     if any(_is_news(event, before) for event in news):
         return True
     if not backlog:
         return False
     looks = [e for e in before if e["type"] == "queen_finished"]
+    seen = [key for key in looks[-1]["backlog"] if key.partition("#")[0] not in paused_repos] if looks else []
     return (any(e["type"] == "task_finished" for e in news) or not looks
-            or sorted(looks[-1]["backlog"]) != sorted(backlog) or not looks[-1]["ts"].startswith(today))
+            or sorted(seen) != sorted(backlog) or not looks[-1]["ts"].startswith(today))
 
 
 def prompt_events(news):

@@ -80,4 +80,4 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 `phase` is `implement`, `review round N` or `fix round N`.
 
 ## Other files
-`state/stopped` exists while the user has stopped the supervisor. `state/paused/<project>` exists while the user has paused that project. `state/supervisor.lock` is held during a cycle. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.
+`state/stopped` exists while the user has stopped the supervisor. `state/paused/<project>` exists while the user has paused that project. `state/supervisor.lock` is held during a cycle, `state/split.lock` while a split is accepted. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.

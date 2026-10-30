@@ -585,7 +585,7 @@ async function post(path) {
   if (!token && !await askToken()) return false;
   const r = await fetch("/api/v1" + path, {method: "POST", headers: {Authorization: "Bearer " + token}});
   if (r.status === 403) token = "";
-  if (!r.ok) toast(t(r.status === 403 ? "token_required" : "request_failed"));
+  if (!r.ok) toast(r.status === 403 ? t("token_required") : (await r.json().catch(() => ({}))).error || t("request_failed"));
   refresh();
   return r.ok;
 }
@@ -824,7 +824,8 @@ function projectCard(project, shown, total, searching) {
     : `<div class="empty">${t("empty")}</div>`;
   const open = searching || !closed.has(project.name);
   const paused = lastState.paused_projects.includes(project.name);
-  const pause = `${paused ? `<span class="badge" style="--c:#d9604f">${t("project_on_pause")}</span>` : ""}<button class="btn small project-pause" data-pause="${esc(project.name)}" data-paused="${paused}">${t(paused ? "resume_project" : "pause_project")}</button>`;
+  const inConfig = lastState.paused_in_config.includes(project.name);  // Only a change of config resumes this one.
+  const pause = `${paused ? `<span class="badge" style="--c:#d9604f">${t("project_on_pause")}</span>` : ""}${inConfig ? "" : `<button class="btn small project-pause" data-pause="${esc(project.name)}" data-paused="${paused}">${t(paused ? "resume_project" : "pause_project")}</button>`}`;
   return `<details class="card project" data-project="${esc(project.name)}"${open ? " open" : ""}><summary><span class="project-name">${bdi(project.name)}</span><span class="number">${num(total)}</span>
     <span class="counts">${counts.map(([column, count]) => `<span class="badge" style="--c:${FLOWERS[column].swatch}" title="${esc(tr(column === "waiting" ? "waiting for machine" : column))}">${num(count)}</span>`).join("")}</span>${pause}</summary>${table}</details>`;
 }
@@ -932,7 +933,7 @@ function splitBox(task, proposal) {
     <div class="slice-body" dir="auto">${esc(slice.body)}</div>
   </div></details>`).join("");
   const accept = confirming
-    ? `<div class="confirm"><div>${t("approve_split_sure")}</div><div class="actions"><button class="btn primary" data-split="${esc(task)}">${t("approve_split")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`
+    ? `<div class="confirm"><div>${t("approve_split_sure")}</div><div class="actions"><button class="btn primary" data-split="${esc(task)}" data-fingerprint="${esc(proposal.fingerprint)}">${t("approve_split")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`
     : `<button class="btn primary" data-sure>${t("approve_split")}</button>`;
   return `<div dir="auto">${esc(proposal.reason)}</div>${slices}<div class="actions">${accept}</div><p class="muted">${t("split_decline_hint")}</p>`;
 }
@@ -941,7 +942,7 @@ async function approveSplit(button) {
   button.disabled = true;
   const task = button.dataset.split;
   const [repo, number] = task.split("#");
-  const done = await post(`/splits/${repo}/${number}/approve`);
+  const done = await post(`/splits/${repo}/${number}/approve?proposal=${encodeURIComponent(button.dataset.fingerprint)}`);
   confirming = false;
   if (done) toast(t("split_approved"));
   showReviews(task);

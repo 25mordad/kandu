@@ -29,10 +29,30 @@ class QuestionsTest(unittest.TestCase):
     def answer(self, question, text):
         questions.answer(self.store, TASK, questions.question_id(question), text, self.local)
 
-    def test_only_the_newest_review_counts(self):
+    def test_a_question_stays_open_when_a_new_head_does_not_repeat_it(self):
         self.review("Old?")
-        self.review("New?", round=2)
-        self.assertEqual(self.asked(), ["New?"])
+        self.review("New?", head="def", round=2)
+        self.review(head="ghi", round=3)
+        self.assertEqual(self.asked(), ["Old?", "New?"])
+
+    def test_a_task_that_can_come_back_keeps_its_questions(self):
+        self.review("Keep it?")
+        for outcome in ("failed", "blocked", "needs_info"):
+            self.store.record("task_finished", task=TASK, project="website", outcome=outcome)
+            self.assertEqual(self.asked(), ["Keep it?"])
+
+    def test_a_failed_memory_write_leaves_the_question_open(self):
+        self.review("Keep it?")
+        with mock.patch("builtins.open", side_effect=OSError("disk full")), self.assertRaises(OSError):
+            self.answer("Keep it?", "Yes.")
+        self.assertEqual(self.asked(), ["Keep it?"])
+
+    def test_a_question_on_several_lines_stays_one_line(self):
+        self.review("Keep\nit?")
+        self.assertIn("Keep it?\n", self.run_cli("list")[1])
+        self.answer("Keep\nit?", "Yes,\nkeep it.\n")
+        memory = (self.local / "memory" / "website.md").read_text(encoding="utf-8")
+        self.assertIn("Keep it? Answer: Yes, keep it.\n", memory)
 
     def test_an_answer_closes_it_and_goes_into_the_memory(self):
         self.review("Keep it?", "Move it?")
@@ -78,9 +98,10 @@ class QuestionsTest(unittest.TestCase):
         self.assertEqual(self.asked(), ["Keep it?"])
         self.assertFalse((self.local / "memory").exists())
 
-    def run_cli(self, *args):
+    def run_cli(self, *args, stdin=""):
         out, err = io.StringIO(), io.StringIO()
         with mock.patch("sys.argv", ["questions", *args, "--local", str(self.local)]), \
+                mock.patch("sys.stdin", io.StringIO(stdin)), \
                 mock.patch.object(questions, "StateStore", return_value=self.store), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = questions.main()
@@ -90,9 +111,10 @@ class QuestionsTest(unittest.TestCase):
         self.review("Keep it?", "Move it?")
         keep, move = questions.question_id("Keep it?"), questions.question_id("Move it?")
         self.assertEqual(self.run_cli("list"), (0, f"{TASK} {keep}: Keep it?\n{TASK} {move}: Move it?\n", ""))
-        self.assertEqual(self.run_cli("answer", TASK, move, "Yes.")[0], 0)
+        self.assertEqual(self.run_cli("answer", TASK, move, stdin="Under $HOME/bin\n")[0], 0)
         self.assertEqual(self.asked(), ["Keep it?"])
-        code, _, err = self.run_cli("answer", TASK, "nope", "Yes.")
+        self.assertEqual(self.store.last_event("question_answered", task=TASK)["answer"], "Under $HOME/bin")
+        code, _, err = self.run_cli("answer", TASK, "nope", stdin="Yes.")
         self.assertEqual(code, 1)
         self.assertIn("no open question", err)
 
@@ -104,3 +126,7 @@ class DidbanOpensWithThemTest(unittest.TestCase):
         with mock.patch("kandu.didban.subprocess.run", return_value=result) as run:
             self.assertEqual(didban.waiting_questions(brain), f"{TASK} 1: Keep it?")
         self.assertIn("kandu.questions list", run.call_args.args[0][-1])
+
+    def test_the_prompt_says_who_wrote_them(self):
+        session = mock.Mock(brain=mock.Mock(reach="ssh host", install_dir="~/kandu"))
+        self.assertIn("written by an agent: Keep it?", didban.system_prompt(session, "ok", questions="Keep it?"))

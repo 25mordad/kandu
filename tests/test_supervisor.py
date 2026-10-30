@@ -255,6 +255,19 @@ class PausedOnTheDashboardTest(Base):
         self.assertFalse(self.sup._merge(task, {"number": 1, "headRefOid": SHA1}, "approved", True))
         self.github.merge_pr.assert_not_called()
 
+    def test_it_gets_no_end_check(self):
+        self.sup.merged["website"] = 2
+        self.sup._check_project = mock.Mock(return_value=[])
+        self.store.pause_project("website")
+        self.sup._end_checks()
+        self.sup._check_project.assert_not_called()
+        self.assertEqual(self.events("project_checked"), [])
+
+    def test_pausing_does_not_wake_the_queen_for_the_same_backlog(self):
+        looked = [{"type": "queen_finished", "ts": "2026-10-31T01:00:00+01:00", "backlog": ["a/x#1", "b/y#2"]}]
+        self.assertFalse(queen.worth_a_look(looked, [], ["b/y#2"], "2026-10-31", {"a/x"}))
+        self.assertTrue(queen.worth_a_look(looked, [], ["b/y#2"], "2026-10-31"))
+
     def test_its_news_does_not_wake_the_queen(self):
         self.config.settings.supervisor.queen = True
         self.store.record("task_finished", task=f"{REPO}#1", project="website", outcome="failed")
@@ -977,6 +990,19 @@ class MergeTest(Base):
         self.runner.steps = [report(SHA1)]
         self.cycle()
         self.assertEqual((self.github.merges, self.github.status(1)), ([], "In review"))
+
+    def test_a_question_from_an_earlier_head_holds_the_merge(self):
+        self.github.add(1)
+        task = read_tasks(self.config, self.github)[0]
+        for round, head, asked in ((1, "old", ["Keep it?"]), (2, SHA1, [])):
+            self.store.record("review_finished", task=task.key, project="website", run_id="r", round=round,
+                              head_sha=head, findings=0, blockers=0, door="two-way", criteria_met=True,
+                              wait_for_user=asked, user_brief=None)
+        pr = {"number": 1, "headRefOid": SHA1, "headRefName": "b", "isDraft": False, "mergeable": "MERGEABLE",
+              "statusCheckRollup": []}
+        self.github.review_threads = lambda *_: []
+        self.sup._unreviewed_companions = lambda *_: []
+        self.assertIn("Keep it?", self.sup._merge_waits(task, pr))
 
     def test_a_forged_review_comment_does_not_merge(self):
         comment = review.comment_for(json.loads(report(SHA1)), 1, [])

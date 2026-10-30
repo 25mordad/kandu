@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, merge, queen, review, sizing, split
+from . import agents, merge, queen, questions, review, sizing, split
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import AGENT_LABEL, GitHub, GitHubError, blockers_in, branch_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
@@ -360,8 +360,9 @@ class Supervisor:
         head = pr["headRefOid"]
         reviewed = self.store.last_event("review_finished", task=task.key, head_sha=head)
         threads = self.github.review_threads(task.repo, pr["number"])
+        asked = [q["question"] for q in questions.open_questions(self.store) if q["task"] == task.key]
         reasons = merge.merge_waits(task.project, pr, reviewed, threads, self._unreviewed_companions(task, pr),
-                                    self._approved(task, pr))
+                                    self._approved(task, pr), asked)
         if reasons:
             return reasons
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
@@ -536,7 +537,7 @@ class Supervisor:
 
     def _end_checks(self):
         for project in self.config.projects:
-            if self.merged[project.name] < END_CHECK_MERGES:
+            if self.merged[project.name] < END_CHECK_MERGES or self._is_paused(project):
                 continue
             try:
                 problems = self._check_project(project)
@@ -642,9 +643,10 @@ class Supervisor:
                    and self.store.last_event("task_sized", task=f"{item.repo}#{item.number}") is not None]
         keys = [f"{item.repo}#{item.number}" for _, item in backlog]
         before, news = queen.since_last_look(self.store)
-        paused = {p.name for p in self.config.projects if self._is_paused(p)}
-        news = [e for e in news if e.get("project") not in paused]
-        if not queen.worth_a_look(before, news, keys, self.store.today()):
+        paused = [p for p in self.config.projects if self._is_paused(p)]
+        news = [e for e in news if e.get("project") not in {p.name for p in paused}]
+        hidden = {repo for p in paused for repo in p.repos}
+        if not queen.worth_a_look(before, news, keys, self.store.today(), hidden):
             return False
         if self._gate() is not None or self._queen_limit() is not None:
             return False

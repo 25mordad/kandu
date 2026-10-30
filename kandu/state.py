@@ -5,8 +5,10 @@ reports are always computed from it. Each event type has a fixed set of fields,
 so nothing lands in the log through an extra field. Values are not inspected:
 a caller must never pass a prompt, command output or a secret in one.
 """
+import fcntl
 import json
 import os
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -203,6 +205,14 @@ class StateStore:
 
     def paused_projects(self):
         return {path.name for path in self.paused_dir.iterdir()} if self.paused_dir.exists() else set()
+
+    @contextmanager
+    def split_lock(self):
+        """A split is accepted from the dashboard or from Didban, two processes that must not both make the group."""
+        self._make_dirs()
+        with open(self.root / "split.lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
 
     def worker_stop_file(self, run_id):
         return self.worker_stops_dir / run_id
