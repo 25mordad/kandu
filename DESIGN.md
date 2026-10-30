@@ -18,6 +18,8 @@ Everything that belongs to one person's setup (machines, paths, accounts, projec
 11. Safety rules
 12. Config and updates
 13. Didban — control from your own machine
+14. Harness, context and memory
+15. Model review
 
 ## 1. Setup and configuration — by conversation, no forms
 
@@ -107,7 +109,7 @@ supervisor ─┬─ worker 1  →  reviewer
 - No `Ready` task, or usage over a limit → sleep immediately, at no cost.
 - Otherwise work until the tasks run out, or `max_cycle_minutes` (default 50) pass, or usage hits a limit, whichever comes first.
 - **Limits** (`claude.limits`): 5-hour window % and weekly %. With a subscription shared with your own interactive sessions, leave a margin (example values: 70% and 60%). On a subscription, usage is read at no cost with `claude -p "/usage"`.
-- Usage is reported per project, so it is clear how much of the limit each project used.
+- Usage is recorded per task, and reported per day and per project, so it is clear what each task cost and how much of the limit each project used.
 
 ## 7. Dashboard — Kandu's own
 The user must be able to see exactly what is happening: the supervisor and every worker. The dashboard is part of Kandu, standalone, and **interactive**.
@@ -116,7 +118,8 @@ The user must be able to see exactly what is happening: the supervisor and every
 - **Active workers:** task number, project, machine, phase (implement / test / review round N / merge / deploy / live check), elapsed time.
 - **Live stream:** workers run with `--output-format stream-json`, so every file read, command and edit is logged and shown live, along with the reviewer's notes and the supervisor's decisions ("sent back because…").
 - **Queue per project:** `Ready`, waiting for machine, `Needs info`, `Blocked`.
-- **Done:** PR link, live link, screenshot of the final check.
+- **Done:** PR link, live link, screenshot of the final check, tokens used.
+- **By day:** what was done on each day and how many tokens each task used, split by model and by worker, reviewer and supervisor. Tokens come from the `result` event of each run's `stream-json` output and are saved with the task.
 - **Controls from day one:** stop / resume the supervisor, stop one worker.
 - **Integration interface (documented):** state files in a fixed format plus a small HTTP API (read state, event stream, stop / resume), so Kandu can be plugged into any other system or dashboard.
 - Binds to `127.0.0.1` by default. Exposing it beyond the machine (tunnel, reverse proxy, access control) is the user's choice.
@@ -170,3 +173,18 @@ The brain runs on an always-on machine, which is usually not the machine the use
 - **Source of truth:** `local/` on the brain's machine. Didban reads and writes it over SSH, so there are never two diverging copies. The only local file is `local/didban.yaml`, which says how to reach the brain ([example](config.example/didban.example.yaml)). The list of sources is in `didban:` in the brain's `kandu.yaml`.
 - **Limits:** it does not write code, does not change the knowledge sources it reads and keeps no memory of its own; all state stays on the board. Its sessions count against the same usage limits as the supervisor (§6).
 - **When the brain's machine is off:** tasks can still be defined; live state and commands wait until it is back.
+
+## 14. Harness, context and memory
+Every part of Kandu is designed and reviewed against these three. The result depends on them as much as on the model.
+
+- **Harness:** everything around the model that keeps it safe and on track: gates, lock file, permissions, tests, the fresh reviewer, limits, stop controls. A rule that matters is enforced in code, not only written in a prompt. Checks that need no judgment run without an LLM, so they cost nothing and still work when Claude is down.
+- **Context:** each agent gets the smallest context that lets it do its job, and nothing else. A worker gets its issue and its project's facts, not the history of other tasks. A reviewer starts fresh. Prompts live in files, so they can be read, reviewed and improved. Output that is not needed stays in logs, out of the model's context.
+- **Memory:** nothing important lives only in a session. State is on the board, in issues and in state files. What is learned is saved as plain files per project in `local/`, read by the next worker and open to the user to correct. Memory is private: it never enters the public repo, and it holds facts and lessons, never secrets. An entry that proves wrong is removed.
+
+## 15. Model review
+Kandu must be able to show how well the model is doing, from its own records.
+
+- Periodically (default weekly) a fresh-context reviewer goes through the tasks of that period and writes a report for the dashboard.
+- Measures per model and task type: tokens per task, review rounds, tasks that reached `Blocked`, PRs the user corrected afterwards, and breakage seen after merge.
+- It compares prompts and models over time, so it is clear whether a change helped.
+- It recommends; the user decides. It never changes a model, prompt or limit on its own.

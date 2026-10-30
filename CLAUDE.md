@@ -8,6 +8,9 @@ This repo is public. Read [DESIGN.md](DESIGN.md) for the specification and [TASK
 - The same applies to commit messages and to issues and PRs on this repo: they are public too.
 - Enable the guard once per clone: `git config core.hooksPath .githooks`. It blocks commits containing a term from `local/private-words.txt`. Never bypass it with `--no-verify`.
 
+## Harness, context, memory
+Check every design and every task against these three (DESIGN §14): is the rule enforced in code, does each agent get only the context it needs, and is what matters saved outside the session?
+
 ## Python
 Kandu runs from its own `.venv`, never the system Python: `.venv/bin/python -m kandu.config`, and the same path in timers and services. New dependencies go in `requirements.txt`.
 
