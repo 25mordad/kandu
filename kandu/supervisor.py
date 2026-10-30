@@ -267,9 +267,8 @@ class Supervisor:
         run_id = new_run_id(self.now())
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
         companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
-        prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head,
-                                        self.config.settings.notify.language, companions, still_open, first_n,
-                                        local_dir=self.local_dir)
+        prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head, companions,
+                                        still_open, first_n, local_dir=self.local_dir)
         result = self._agent(task, "reviewer", cwd, prompt, agents.reviewer_tools(), run_id)
         try:
             report = review.parse_report(result.text)

@@ -97,10 +97,10 @@ def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None,
     return "\n".join(parts)
 
 
-def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, still_open, first_n,
+def reviewer_prompt(project, repo, number, pr, head_sha, companions, still_open, first_n,
                     local_dir=DEFAULT_LOCAL_DIR):
     facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- PR: #{pr}", f"- Head SHA: `{head_sha}`",
-             f"- Diff: `gh pr diff {pr} --repo {repo}`", f"- Language of the brief: {language}",
+             f"- Diff: `gh pr diff {pr} --repo {repo}`",
              f"- Number new findings from {first_n}", *_project_facts(project)]
     parts = [_read("reviewer.md"), "## This PR", *facts, *_memory(project, local_dir)]
     if companions:

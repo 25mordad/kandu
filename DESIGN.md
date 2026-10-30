@@ -76,7 +76,7 @@ The rules shared by these commands are in [docs/COMMANDS.md](docs/COMMANDS.md). 
 - A precise task (clear acceptance criteria) and real tests in the project matter more for the result than the loop itself. That is why defining tasks is a conversation, not a form.
 
 What makes a task good:
-- **English.** The title, body and sub-tasks are in English, whatever language the user speaks, so no agent writes or reads a translation. The user's language is for what they read: the dashboard, briefs and questions. `kandu.tasks` refuses any other text.
+- **English.** Everything on GitHub is in English, whatever language the user speaks, so no agent writes or reads a translation: titles, bodies, sub-tasks, PRs, comments and reviews. The user's language is for the dashboard's own text and for what the queen tells them. `kandu.tasks` refuses a task in any other language.
 - **Not in `.claude/`.** Claude Code refuses edits there in an unattended run, whatever the allow list says; a worker can only delete those files. A task that must edit them needs that edit made by hand first.
 - **Behavior, not steps.** It says what the software must do, not how to change it. No file paths or line numbers: they go stale before the worker starts.
 - **Each acceptance criterion can be checked on its own**, and "Out of scope" stops the worker from growing the task.
@@ -139,7 +139,7 @@ supervisor ─┬─ worker 1  →  reviewer
   - **Notes:** smells and broken documented rules that are not blockers. Cosmetics, small design issues and product decisions are not reported at all.
   - **Verified:** each blocker is pressure-tested before it is reported: the head is checked again, the bug is separated from the stated reason, every caller in the repo is traced, and a path that really reaches the bug is found.
   - **Companion PRs:** an open PR in the same family is a companion if a PR body names it or its branch has the same slug. The reviewer checks that the two sides really work together, not only that the names match. Nothing else is assumed to be a companion.
-  - **Report:** one JSON object, validated in code. It holds the reviewed `SHA`, each criterion's result, each finding with path, line and kind, what was checked and found sound, the door, and a plain brief for the dashboard in the language chosen at setup. Nothing found is a valid result.
+  - **Report:** one JSON object, validated in code. It holds the reviewed `SHA`, each criterion's result, each finding with path, line and kind, what was checked and found sound, the door, and a plain brief in English. Nothing found is a valid result.
   - **Rounds:** every finding goes back to a fresh worker process on the same branch and worktree, which fixes all of them, blockers and notes alike. The kind only decides what stops a merge. A later review runs only if a code check sees a new head `SHA`, so waiting costs no tokens. It gives each earlier finding `fixed`, `not fixed` or `partly fixed`, judged from the code. After `max_review_rounds` fix rounds (default 2, so at most three reviews), or a fix round that adds no commit, an open blocker sends the task to `Blocked`, and an open note stays on the PR.
   - **Record:** each review is a PR comment with a hidden marker, and only comments by Kandu's own account count, so a restart loses nothing.
 - **Merge danger:** the reviewer decides on its own whether a change is a **two-way door** (easy to undo) or a **one-way door** (hard to undo: data migrations, published APIs, sent messages), and states its blast radius. A one-way door waits for the user, even with `auto_merge` on.
@@ -174,7 +174,7 @@ The user must be able to see exactly what is happening: the supervisor and every
 - **Live stream:** workers run with `--output-format stream-json`, so every file read, command and edit is logged and shown live, along with the reviewer's notes and the supervisor's decisions ("sent back because…").
 - **Queue per project:** `Ready`, waiting for machine, `Needs info`, `Blocked`.
 - **Done:** PR link, live link, screenshot of the final check, tokens used.
-- **PR page:** for each review round, in the language chosen at setup and in plain words: the title, what the PR does, the result and a one-line recommendation, then each finding explained. The user can decide in seconds.
+- **PR page:** for each review round, in plain English: the title, what the PR does, the result and a one-line recommendation, then each finding explained. The user can decide in seconds.
 - **By day:** what was done on each day and how many tokens each task used, split by model and by worker, reviewer and supervisor. Tokens come from the `result` event of each run's `stream-json` output and are saved with the task.
 - **Controls from day one:** stop / resume the supervisor, stop one worker.
 - **Internal API:** the page reads and acts only through Kandu's own HTTP API (`/api/v1`), which covers state, tasks, tokens by day, an event stream and stop / resume. No outside system depends on it. To show the dashboard inside another app, that app's server proxies the page into a frame, so no new port opens. `docs/API.md` documents every endpoint and event with real examples, and tests check it against the code.
