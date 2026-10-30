@@ -117,6 +117,7 @@ class Supervisor:
         self.usage = None
         self.halt_reason = None
         self.queen_trouble = None
+        self.queen_run = None
         self.workers = {}
         self.waiting = []
         self.merged = Counter()
@@ -160,6 +161,7 @@ class Supervisor:
             self.store.write_current({
                 "supervisor": supervisor, "last_reason": reason, "next_wake": next_wake, "usage": usage,
                 "workers": list(self.workers.values()), "waiting_for_machine": self.waiting,
+                "queen_run": self.queen_run,
             })
 
     def _phase(self, task, phase):
@@ -528,8 +530,14 @@ class Supervisor:
                                      DEFAULT_LOGS_DIR, self.store.today())
         allowed, denied = agents.queen_tools()
         run_id = new_run_id(self.now())
-        result = self.runner.run_agent(self.config.settings.brain.machine, str(ROOT), prompt, allowed, denied, run_id,
-                                       self._hard_stop)
+        self.queen_run = run_id
+        self._snapshot("awake")
+        try:
+            result = self.runner.run_agent(self.config.settings.brain.machine, str(ROOT), prompt, allowed, denied,
+                                           run_id, self._hard_stop)
+        finally:
+            self.queen_run = None
+            self._snapshot("awake")
         self.store.record("run_finished", task=None, project=None, run_id=run_id, role="queen",
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
         if result.stopped:
