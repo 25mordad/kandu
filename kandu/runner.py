@@ -167,14 +167,16 @@ class Runner:
             except subprocess.TimeoutExpired as e:
                 raise RunnerError(f"a project command timed out on {host.name}") from e
 
-    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop):
+    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None):
         """Runs one `claude` process to its end; `should_stop` is polled while it runs.
 
         Over SSH, stopping ends the local `ssh`; the remote process then dies at
-        its next write to the closed connection, not at once.
+        its next write to the closed connection, not at once. With no `model`,
+        `claude` picks its own default.
         """
         command = ["claude", "-p", "--output-format", "stream-json", "--verbose",
                    "--no-session-persistence", "--permission-mode", "dontAsk",
+                   *(["--model", model] if model else []),
                    "--allowedTools", *allowed, "--disallowedTools", *denied]
         self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd = os.open(self.logs_dir / f"{run_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)

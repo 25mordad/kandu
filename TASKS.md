@@ -43,3 +43,7 @@ Every task is designed and checked against harness, context and memory (§14).
 32. [x] What a review could not settle from the task stays an open question, answered through Didban and kept in the project's memory (§13)
 33. [x] Pause one project from the dashboard: its board stays, and no agent, queen or merge touches it until it is resumed (§7)
 34. [x] See a split proposal on the dashboard and accept it there; declining or changing it stays in Didban (§2, §7)
+35. [x] Choose a model per role in `claude.models` (§1A)
+
+## Technical debt
+36. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

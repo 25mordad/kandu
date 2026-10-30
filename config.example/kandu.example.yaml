@@ -27,6 +27,9 @@ claude:
     session_5h_percent: 70     # stop when the 5-hour usage window reaches this
     weekly_percent: 60         # stop when weekly usage reaches this
   login_warn_days: 7           # warn this many days before the Claude login expires
+  models:                      # optional; worker, reviewer, splitter, live_check or queen. A role not named runs on Claude's default
+    splitter: claude-sonnet-5-5
+    live_check: claude-sonnet-5-5
 
 github:
   account: your-github-login

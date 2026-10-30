@@ -35,6 +35,7 @@ Everything is configured by talking to an LLM in a Claude Code session. There ar
 7. Prerequisites: `claude`, `gh`, `git`, `python` installed and logged in; `gh` needs the `project` scope for boards. Kandu says what is missing.
 8. Didban (§13): which other sources may it read, and on which machine? On the machine you sit at, how is the brain reached?
 9. Which port does the dashboard use (default 8790)?
+10. Which model does each role use? A role not named runs on Claude's default.
 
 The dashboard itself is always Kandu's own (§7); only its port is a choice.
 

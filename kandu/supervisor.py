@@ -206,6 +206,9 @@ class Supervisor:
 
     # Running agents.
 
+    def _model(self, role):
+        return self.config.settings.claude.models.get(role)
+
     def _agent(self, task, role, cwd, prompt, tools, run_id):
         reason = self._gate()
         if reason is not None:
@@ -218,7 +221,7 @@ class Supervisor:
         self._snapshot("awake")
         stop_one = self.store.worker_stop_file(run_id)
         result = self.runner.run_agent(task.project.machine, cwd, prompt, allowed, denied, run_id,
-                                       lambda: self._hard_stop() or stop_one.exists())
+                                       lambda: self._hard_stop() or stop_one.exists(), self._model(role))
         self.store.record("run_finished", task=task.key, project=task.project.name, run_id=run_id, role=role,
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
         if stop_one.exists():
@@ -662,7 +665,7 @@ class Supervisor:
         self._snapshot("awake")
         try:
             result = self.runner.run_agent(self.config.settings.brain.machine, str(ROOT), prompt, allowed, denied,
-                                           run_id, self._hard_stop)
+                                           run_id, self._hard_stop, self._model("queen"))
         finally:
             self.queen_run = None
             self._snapshot("awake")
