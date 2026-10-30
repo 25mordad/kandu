@@ -9,16 +9,18 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import queen, review, timer
+from . import queen, review, split, timer
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import AGENT_LABEL, GitHub, GitHubError
 from .runner import DEFAULT_LOGS_DIR
 from .state import StateStore
+from .tasks import TaskError
 
 PAGE = Path(__file__).with_name("dashboard.html")
 FONT = Path(__file__).with_name("vazirmatn.woff2")
@@ -71,7 +73,8 @@ class ApiError(Exception):
 
 
 class Api:
-    def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic, start_cycle=timer.start_cycle):
+    def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic, start_cycle=timer.start_cycle,
+                 local_dir=DEFAULT_LOCAL_DIR):
         self.config = config
         self.store = store
         self.github = github
@@ -79,6 +82,8 @@ class Api:
         self.token = token
         self.clock = clock
         self.start_cycle = start_cycle
+        self.local_dir = local_dir
+        self._split_lock = threading.Lock()
         self._queue = None
         self._queue_time = None
 
@@ -86,9 +91,13 @@ class Api:
         limits = self.config.settings.claude.limits
         return self.store.read_current() | {
             "stop_requested": self.store.stop_file.exists(),
+            "paused_projects": sorted(self._paused()),
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
             "queen": self._queen_report(),
         }
+
+    def _paused(self):
+        return self.store.paused_projects() | {p.name for p in self.config.projects if p.paused}
 
     def _queen_report(self):
         report = queen.last_report(self.store)
@@ -184,7 +193,7 @@ class Api:
             return "an acceptance criterion is not met"
         repo, number = task.split("#")
         project = next(p for p in self.config.projects if repo in p.repos)
-        if project.paused or project.board is None:
+        if project.name in self._paused() or project.board is None:
             return "no cycle looks at its project"
         status = next((i.status for i in self.github.board_items(project.board)
                        if i.repo == repo and i.number == int(number)), None)
@@ -210,6 +219,28 @@ class Api:
         self.store.record("user_approved", task=task, project=project.name, head_sha=pr["headRefOid"])
         return {"approved": pr["headRefOid"], "cycle_started": self.start_cycle()}
 
+    def _split_task(self, owner, repo, number):
+        full = f"{owner}/{repo}"
+        if not number.isdigit() or not any(full in p.repos for p in self.config.projects):
+            raise ApiError(404, "no such task")
+        return f"{full}#{number}"
+
+    def split(self, query, owner, repo, number):
+        """The proposal that waits for the user, or null. It stays in the local state, as the issue may be public."""
+        task = self._split_task(owner, repo, number)
+        return {"task": task, "split": next((s for s in split.pending(self.store) if s["task"] == task), None)}
+
+    def approve_split(self, query, owner, repo, number):
+        """The user's yes creates the slices. Declining or changing a proposal happens in Didban."""
+        task = self._split_task(owner, repo, number)
+        with self._split_lock:  # A second click must find the group made, not make it twice.
+            try:
+                children = split.approve(self.config, self.github, self.store, task, self.local_dir)
+            except TaskError as e:
+                raise ApiError(409, str(e))
+        self._queue = None
+        return {"children": children}
+
     def stop(self, query):
         self.store.request_stop()
         return {"stop_requested": True}
@@ -217,6 +248,29 @@ class Api:
     def resume(self, query):
         self.store.stop_file.unlink(missing_ok=True)
         return {"stop_requested": False}
+
+    def _project(self, name):
+        project = next((p for p in self.config.projects if p.name == name), None)
+        if project is None:
+            raise ApiError(404, "no such project")
+        return project
+
+    def pause_project(self, query, name):
+        """No new work for this project, across cycles. Its board and its tasks stay as they are."""
+        project = self._project(name)
+        if project.name not in self._paused():
+            self.store.pause_project(project.name)
+            self.store.record("project_paused", project=project.name)
+        return {"paused": True}
+
+    def resume_project(self, query, name):
+        project = self._project(name)
+        if project.paused:
+            raise ApiError(409, "this project is paused in its config")
+        if project.name in self._paused():
+            self.store.resume_project(project.name)
+            self.store.record("project_resumed", project=project.name)
+        return {"paused": False}
 
     def stop_worker(self, query, run_id):
         workers = self.store.read_current().get("workers", [])
@@ -237,9 +291,13 @@ ROUTES = [
     ("GET", "/runs/{run_id}", Api.run),
     ("GET", "/reviews/{owner}/{repo}/{number}", Api.reviews),
     ("POST", "/reviews/{owner}/{repo}/{number}/approve", Api.approve),
+    ("GET", "/splits/{owner}/{repo}/{number}", Api.split),
+    ("POST", "/splits/{owner}/{repo}/{number}/approve", Api.approve_split),
     ("POST", "/stop", Api.stop),
     ("POST", "/resume", Api.resume),
     ("POST", "/workers/{run_id}/stop", Api.stop_worker),
+    ("POST", "/projects/{name}/pause", Api.pause_project),
+    ("POST", "/projects/{name}/resume", Api.resume_project),
 ]
 
 
@@ -358,7 +416,7 @@ def main():
     except ConfigError as e:
         print(f"dashboard: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1
-    api = Api(config, StateStore(), GitHub(), DEFAULT_LOGS_DIR, os.environ.get(TOKEN_ENV))
+    api = Api(config, StateStore(), GitHub(), DEFAULT_LOGS_DIR, os.environ.get(TOKEN_ENV), local_dir=args.local)
     bind, port = config.settings.dashboard.bind, config.settings.dashboard.port
     server = ThreadingHTTPServer((bind, port), make_handler(api))
     print(f"dashboard: http://{bind}:{port}")

@@ -20,6 +20,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Slice** | A task that delivers a complete path that can be verified alone |
 | **Blocker** | A review finding that the worker fixes and that stops the merge until it is gone |
 | **Note** | A review finding that the worker also fixes, but that does not stop a merge once the review rounds are used up |
+| **Open question** | Something a review met that the task never settled; it waits for the user's answer in Didban |
 | **Calibration** | Comparing Kandu's review and merge decisions with what the user would have done |
 | **Two-way door** | A change that is easy to undo |
 | **One-way door** | A change that is hard to undo; it always waits for the user |

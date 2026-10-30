@@ -28,10 +28,13 @@ EVENT_FIELDS = {
     "slice_created": TASK_FIELDS + ("parent",),
     "task_split": TASK_FIELDS + ("children",),
     "split_declined": TASK_FIELDS,
+    "question_answered": TASK_FIELDS + ("question", "answer"),
     "group_closed": TASK_FIELDS,
     "deployed": TASK_FIELDS + ("run_id",),
     "task_finished": TASK_FIELDS + ("outcome",),
     "project_checked": ("project", "passed", "detail"),
+    "project_paused": ("project",),
+    "project_resumed": ("project",),
     "queen_decided": TASK_FIELDS + ("action", "note"),
     "queen_finished": ("run_id", "brief", "backlog"),
 }
@@ -77,6 +80,7 @@ class StateStore:
         self.current_file = self.root / "current.json"
         self.stop_file = self.root / "stopped"
         self.worker_stops_dir = self.root / "stop-workers"
+        self.paused_dir = self.root / "paused"
         self.splits_dir = self.root / "splits"
 
     def _make_dirs(self):
@@ -188,6 +192,17 @@ class StateStore:
     def request_stop(self):
         self._make_dirs()
         self.stop_file.touch(mode=0o600)
+
+    def pause_project(self, name):
+        self._make_dirs()
+        self.paused_dir.mkdir(mode=0o700, exist_ok=True)
+        (self.paused_dir / name).touch(mode=0o600)
+
+    def resume_project(self, name):
+        (self.paused_dir / name).unlink(missing_ok=True)
+
+    def paused_projects(self):
+        return {path.name for path in self.paused_dir.iterdir()} if self.paused_dir.exists() else set()
 
     def worker_stop_file(self, run_id):
         return self.worker_stops_dir / run_id

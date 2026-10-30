@@ -42,6 +42,9 @@ state/
 | `slice_created` | `task`, `project`, `parent` |
 | `task_split` | `task`, `project`, `children` |
 | `split_declined` | `task`, `project` |
+| `question_answered` | `task`, `project`, `question`, `answer` |
+| `project_paused` | `project` |
+| `project_resumed` | `project` |
 | `group_closed` | `task`, `project` |
 | `deployed` | `task`, `project`, `run_id` |
 | `project_checked` | `project`, `passed`, `detail` |
@@ -77,4 +80,4 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 `phase` is `implement`, `review round N` or `fix round N`.
 
 ## Other files
-`state/stopped` exists while the user has stopped the supervisor. `state/supervisor.lock` is held during a cycle. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.
+`state/stopped` exists while the user has stopped the supervisor. `state/paused/<project>` exists while the user has paused that project. `state/supervisor.lock` is held during a cycle. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.

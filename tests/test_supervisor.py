@@ -212,6 +212,31 @@ class Base(unittest.TestCase):
         return step
 
 
+class PausedOnTheDashboardTest(Base):
+    def test_no_agent_touches_it_and_a_resume_brings_it_back(self):
+        self.config.settings.supervisor.queen = True
+        self.github.add(1)
+        self.github.add(2, status="Backlog")
+        self.store.pause_project("website")
+        self.cycle()
+        self.assertEqual(self.runner.runs, [])
+        self.assertEqual(self.github.status(1), "Ready")
+        self.store.resume_project("website")
+        self.assertNotEqual(self.sup.dry_run(), ["would sleep: nothing ready"])
+
+    def test_a_running_step_finishes_and_the_next_does_not_start(self):
+        self.github.add(1)
+        worker = self.worker_makes_pr()
+
+        def paused_while_working():
+            self.store.pause_project("website")
+            return worker()
+        self.runner.steps = [paused_while_working]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+        self.assertEqual(self.events("review_finished"), [])
+
+
 class SelectionTest(Base):
     def keys(self):
         return [t.key for t in read_tasks(self.config, self.github)]

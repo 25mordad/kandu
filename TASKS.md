@@ -40,3 +40,6 @@ Every task is designed and checked against harness, context and memory (§14).
 29. [x] A splitter agent that sizes every task against a scale in code and proposes a split for a large one. The user approves it, the slices run as a group, and the queen may not start a task without a size (§2)
 30. [x] Approve a PR from the dashboard, for one `SHA`, with every other merge condition still in code (§5, §7)
 31. [x] A modern dashboard that reads well in Persian: its own font, Persian digits, a folding table per project, details in a dialog (§7)
+32. [x] What a review could not settle from the task stays an open question, answered through Didban and kept in the project's memory (§13)
+33. [x] Pause one project from the dashboard: its board stays, and no agent, queen or merge touches it until it is resumed (§7)
+34. [x] See a split proposal on the dashboard and accept it there; declining or changing it stays in Didban (§2, §7)
