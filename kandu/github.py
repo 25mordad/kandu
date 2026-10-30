@@ -4,6 +4,8 @@ import re
 import subprocess
 from dataclasses import dataclass
 
+from .config import BOARD_FIELDS, DEADLINE_FIELD
+
 KANDU_LABEL = "kandu"
 AGENT_LABEL = "agent"
 FALLBACK_SLUG = "task"
@@ -34,6 +36,10 @@ class BoardItem:
     status: str
     labels: list
     body: str
+    priority: str = ""
+    kind: str = ""
+    size: str = ""
+    deadline: str = ""
 
 
 def run_gh(args):
@@ -101,13 +107,19 @@ class GitHub:
             items.append(BoardItem(
                 repo=content["repository"], number=content["number"], title=content["title"],
                 url=content["url"], status=names.get(item.get("status", ""), item.get("status", "")), labels=item.get("labels") or [],
-                body=content.get("body", ""),
+                body=content.get("body", ""), priority=item.get("priority", ""), kind=item.get("kind", ""),
+                size=item.get("size", ""), deadline=item.get("deadline", ""),
             ))
         return items
 
     def set_status(self, board, url, status):
         self._run(["project", "item-edit", str(board.number), "--owner", board.owner,
                    "--url", url, "--field", "Status", "--value", board.columns.get(status, status)])
+
+    def set_field(self, board, url, field, value):
+        flag = "--date" if field == DEADLINE_FIELD else "--value"
+        self._run(["project", "item-edit", str(board.number), "--owner", board.owner,
+                   "--url", url, "--field", field, flag, value])
 
     def add_to_board(self, board, url):
         self._run(["project", "item-add", str(board.number), "--owner", board.owner, "--url", url])
@@ -118,6 +130,11 @@ class GitHub:
         status = next((f for f in data["fields"] if f["name"] == "Status"), {})
         return [option["name"] for option in status.get("options", [])]
 
+    def board_fields(self, board):
+        """Returns the names of the board's fields."""
+        data = self._json(["project", "field-list", str(board.number), "--owner", board.owner, "--format", "json"])
+        return [field["name"] for field in data["fields"]]
+
     def create_board(self, owner, title, columns):
         """Creates a board and gives its `Status` field exactly these columns."""
         board = self._json(["project", "create", "--owner", owner, "--title", title, "--format", "json"])
@@ -127,6 +144,11 @@ class GitHub:
         query = ("mutation { updateProjectV2Field(input: {fieldId: %s, singleSelectOptions: [%s]}) "
                  "{ clientMutationId } }" % (json.dumps(status["id"]), options))
         self._run(["api", "graphql", "-f", f"query={query}"])
+        for name, values in BOARD_FIELDS.items():
+            self._run(["project", "field-create", str(board["number"]), "--owner", owner, "--name", name,
+                       "--data-type", "SINGLE_SELECT", "--single-select-options", ",".join(values)])
+        self._run(["project", "field-create", str(board["number"]), "--owner", owner, "--name", DEADLINE_FIELD,
+                   "--data-type", "DATE"])
         return board["number"]
 
     def create_issue(self, repo, title, body):

@@ -13,7 +13,7 @@ ALWAYS_DENIED = ["Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)", "Read(*
                  "Bash(git push -f*)"]
 WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
 LIVE_RESULTS = ("pass", "fail")
-QUEEN_ACTIONS = ("retry", "ask_user")
+QUEEN_ACTIONS = ("release", "retry", "ask_user")
 
 
 class ReplyError(Exception):
@@ -111,10 +111,11 @@ def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, s
     return "\n".join(parts)
 
 
-def queen_prompt(events, retries, retry_limit, language, logs_dir):
-    facts = [f"- Language of the brief: {language}", f"- Logs folder: `{logs_dir}`",
+def queen_prompt(events, projects, retries, retry_limit, language, logs_dir, today):
+    facts = [f"- Today: {today}", f"- Language of the brief: {language}", f"- Logs folder: `{logs_dir}`",
              f"- Retries a task may have: {retry_limit}"]
-    parts = [_read("queen.md"), "## This look", *facts, "## Retries used", "```json",
+    parts = [_read("queen.md"), "## This look", *facts, "## Projects", "```json",
+             json.dumps(projects, ensure_ascii=False, indent=2), "```", "## Retries used", "```json",
              json.dumps(retries, ensure_ascii=False), "```", "## Events since your last look", "```json",
              json.dumps(events, ensure_ascii=False, indent=2), "```"]
     return "\n".join(parts)

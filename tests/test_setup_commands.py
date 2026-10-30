@@ -6,7 +6,7 @@ from unittest import mock
 
 from kandu import doctor, tasks
 from kandu.boards import missing_columns
-from kandu.config import BOARD_COLUMNS, Board, Machine
+from kandu.config import BOARD_COLUMNS, BOARD_FIELDS, DEADLINE_FIELD, Board, Machine
 from kandu.github import GitHub, GitHubError
 from kandu.usage import Usage, UsageError
 
@@ -31,13 +31,28 @@ class TaskTest(unittest.TestCase):
         self.config = mock.Mock(projects=[project()])
         self.config.projects[0].name = "site"
 
-    def create(self, name="site", repo=None, title="T", body=BODY):
-        return tasks.create_task(self.config, self.github, name, repo, title, body, self.local)
+    def create(self, name="site", repo=None, title="T", body=BODY, priority="High", kind="Bug", size="Small", deadline=None):
+        return tasks.create_task(self.config, self.github, name, repo, title, body, self.local,
+                                 priority, kind, size, deadline)
 
-    def test_goes_on_the_board_in_ready(self):
+    def test_goes_on_the_board_in_backlog(self):
         self.assertEqual(self.create(), "https://x/1")
         self.github.add_to_board.assert_called_once()
-        self.assertEqual(self.github.set_status.call_args.args[1:], ("https://x/1", "Ready"))
+        self.assertEqual(self.github.set_status.call_args.args[1:], ("https://x/1", "Backlog"))
+
+    def test_fields_are_set_and_a_deadline_only_if_given(self):
+        self.create()
+        self.assertEqual([c.args[2:] for c in self.github.set_field.call_args_list],
+                         [("Priority", "High"), ("Kind", "Bug"), ("Size", "Small")])
+        self.github.set_field.reset_mock()
+        self.create(deadline="2030-01-02")
+        self.assertEqual(self.github.set_field.call_args.args[2:], ("Deadline", "2030-01-02"))
+
+    def test_a_task_without_good_fields_is_not_created(self):
+        for bad in ({"priority": ""}, {"kind": "Other"}, {"size": "Huge"}, {"deadline": "soon"}):
+            with self.assertRaises(tasks.TaskError):
+                self.create(**bad)
+        self.github.create_issue.assert_not_called()
 
     def test_the_template_is_required(self):
         with self.assertRaisesRegex(tasks.TaskError, "Acceptance criteria"):
@@ -89,11 +104,12 @@ class GitHubBoardTest(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][-1], "To do")
 
     def test_create_board_sets_the_columns(self):
-        replies = ['{"number": 4}', '{"fields": [{"id": "F1", "name": "Status"}]}', ""]
+        replies = ['{"number": 4}', '{"fields": [{"id": "F1", "name": "Status"}]}', "", "", "", "", ""]
         run = mock.Mock(side_effect=replies)
         self.assertEqual(GitHub(run).create_board("o", "T", BOARD_COLUMNS), 4)
-        query = run.call_args.args[0][-1]
+        query = run.call_args_list[2].args[0][-1]
         self.assertIn('fieldId: "F1"', query)
+        self.assertEqual(run.call_args.args[0][6], "Deadline")
         self.assertIn('name: "Needs info"', query)
 
     def test_board_columns(self):
@@ -142,13 +158,15 @@ class DoctorTest(unittest.TestCase):
         self.assertEqual(doctor.check_machine(Machine("a", "local", False), runner)[0], doctor.WARN)
         self.assertEqual(doctor.check_machine(Machine("a", "local", True), runner)[0], doctor.FAIL)
 
-    def check_project(self, copy=True, run="clone", tool=True, columns=BOARD_COLUMNS, github_error=False):
+    def check_project(self, copy=True, run="clone", tool=True, columns=BOARD_COLUMNS, github_error=False,
+                      fields=(*BOARD_FIELDS, DEADLINE_FIELD)):
         host = mock.Mock()
         host.absolute.side_effect = lambda p: p
         host.succeeds.side_effect = lambda command, cwd=None: copy if command[0] == "test" else tool
         runner = mock.Mock(hosts={"m": host})
         github = mock.Mock()
         github.board_columns.return_value = list(columns)
+        github.board_fields.return_value = list(fields)
         if github_error:
             github.board_columns.side_effect = GitHubError("x")
         item = mock.Mock(path="~/p", repos=["o/r"], run=run, machine="m", test="npm test", board=Board("o", 1))
@@ -163,6 +181,10 @@ class DoctorTest(unittest.TestCase):
 
     def test_in_place_project_with_no_copy_fails(self):
         self.assertIn(doctor.FAIL, {r[0] for r in self.check_project(copy=False, run="in-place")})
+
+    def test_missing_fields_fail(self):
+        self.assertTrue(any(level == doctor.FAIL and "Size" in text
+                            for level, text in self.check_project(fields=["Priority", "Kind", "Deadline"])))
 
     def test_missing_columns_fail(self):
         results = self.check_project(columns=["Ready"])
@@ -186,7 +208,7 @@ class CommandsTest(unittest.TestCase):
         setup = (COMMANDS / "kandu-setup.md").read_text(encoding="utf-8")
         add = (COMMANDS / "kandu-add.md").read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"^   \d+\. ", setup, re.MULTILINE)), 8)
-        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 13)
+        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 14)
 
     def test_add_never_creates_a_board_unasked(self):
         self.assertIn("only if the user said yes", (COMMANDS / "kandu-add.md").read_text(encoding="utf-8"))

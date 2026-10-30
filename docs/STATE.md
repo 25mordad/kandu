@@ -31,7 +31,7 @@ state/
 | `supervisor_woke` | none |
 | `supervisor_slept` | `reason`, `next_wake` |
 | `queen_decided` | `task`, `project`, `action`, `note` |
-| `queen_finished` | `run_id`, `brief` |
+| `queen_finished` | `run_id`, `brief`, `backlog` |
 | `task_picked` | `task`, `project` |
 | `phase_changed` | `task`, `project`, `phase` |
 | `decision` | `task`, `project`, `decision`, `reason` |

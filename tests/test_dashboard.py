@@ -138,9 +138,9 @@ class ReadTest(Base):
 class QueenReportTest(Base):
     def test_state_holds_her_newest_brief_and_questions(self):
         self.assertIsNone(self.api.state({})["queen"])
-        self.store.record("queen_finished", run_id="r-1", brief="old")
+        self.store.record("queen_finished", run_id="r-1", brief="old", backlog=[])
         self.store.record("queen_decided", task=f"{REPO}#1", project="website", action="ask_user", note="Which?")
-        self.store.record("queen_finished", run_id="r-2", brief="new")
+        self.store.record("queen_finished", run_id="r-2", brief="new", backlog=[])
         queen = self.api.state({})["queen"]
         self.assertEqual(queen["brief"], "new")
         self.assertEqual(queen["questions"], [{"task": f"{REPO}#1", "question": "Which?"}])
