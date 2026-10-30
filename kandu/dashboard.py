@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import review
+from . import queen, review
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import AGENT_LABEL, GitHub, GitHubError
 from .runner import DEFAULT_LOGS_DIR
@@ -84,6 +84,7 @@ class Api:
         return self.store.read_current() | {
             "stop_requested": self.store.stop_file.exists(),
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
+            "queen": queen.last_report(self.store),
         }
 
     def queue(self, query):

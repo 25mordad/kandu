@@ -30,6 +30,8 @@ state/
 |---|---|
 | `supervisor_woke` | none |
 | `supervisor_slept` | `reason`, `next_wake` |
+| `queen_decided` | `task`, `project`, `action`, `note` |
+| `queen_finished` | `run_id`, `brief` |
 | `task_picked` | `task`, `project` |
 | `phase_changed` | `task`, `project`, `phase` |
 | `decision` | `task`, `project`, `decision`, `reason` |
@@ -39,7 +41,7 @@ state/
 | `project_checked` | `project`, `passed`, `detail` |
 | `task_finished` | `task`, `project`, `outcome` |
 
-`role` is `supervisor`, `worker` or `reviewer`. `models` maps each model a run used to its tokens:
+`role` is `supervisor`, `queen`, `worker`, `reviewer` or `live_check`. `models` maps each model a run used to its tokens:
 
 ```json
 {"v": 1, "ts": "2026-10-30T12:00:00+01:00", "type": "run_finished",

@@ -26,7 +26,10 @@ EVENT_FIELDS = {
     "deployed": TASK_FIELDS + ("run_id",),
     "task_finished": TASK_FIELDS + ("outcome",),
     "project_checked": ("project", "passed", "detail"),
+    "queen_decided": TASK_FIELDS + ("action", "note"),
+    "queen_finished": ("run_id", "brief"),
 }
+NO_TASK_ROLES = ("supervisor", "queen")
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
 
 
@@ -80,8 +83,8 @@ class StateStore:
         expected = set(EVENT_FIELDS[event_type])
         if set(fields) != expected:
             raise StateError(f"{event_type}: fields must be {sorted(expected)}, got {sorted(fields)}")
-        if fields.get("role") != "supervisor" and None in (fields.get(name, "") for name in TASK_FIELDS):
-            raise StateError(f"{event_type}: only a supervisor run may have no task")
+        if fields.get("role") not in NO_TASK_ROLES and None in (fields.get(name, "") for name in TASK_FIELDS):
+            raise StateError(f"{event_type}: only a supervisor or queen run may have no task")
         now = now or datetime.now().astimezone()
         event = {"v": FORMAT_VERSION, "ts": now.isoformat(timespec="seconds"), "type": event_type} | fields
         self._make_dirs()

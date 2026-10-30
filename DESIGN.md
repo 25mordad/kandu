@@ -105,6 +105,8 @@ One entry per project in `local/projects.yaml`, written by `/kandu-add`. **A pro
 ## 5. Supervisor, workers, reviewer
 
 ```
+queen (LLM, judges after each cycle)
+  │
 supervisor ─┬─ worker 1  →  reviewer
             ├─ worker 2  →  reviewer
             └─ ...
@@ -113,6 +115,10 @@ supervisor ─┬─ worker 1  →  reviewer
 ```
 
 - **Supervisor:** a code loop on the always-on machine ([kandu/supervisor.py](kandu/supervisor.py)), not an LLM session. Everything that needs no judgment runs there, at no token cost, and still works when Claude is down: gates, task selection, starting agents, review rounds, the `SHA` check. It **writes no code**. A headless `claude -p` session is started only where judgment is needed, such as the final check (task 12). It never grades its own work.
+- **Queen:** the LLM that oversees the workers ([kandu/queen.py](kandu/queen.py), [prompts/queen.md](prompts/queen.md)). A fresh `claude` process on the brain's machine, with read-only tools, who reads the logs, the issue and the PR of what stopped.
+  - **When:** at the end of a cycle, and only if code finds a stopped task, a failed project check or a new reason for a merge to wait. A quiet cycle costs no tokens. `supervisor.queen: false` turns her off.
+  - **What she decides:** `retry` sends a `Blocked` task back to `Ready`, with a note the next worker reads; `ask_user` puts a question on the dashboard. Her brief goes to the dashboard. Her notes stay local, since an issue may be public.
+  - **Locks she cannot pass:** code carries out each decision, and refuses one that breaks a rule. She cannot merge, deploy or edit. A task the user stopped does not go back, and `supervisor.queen_max_retries` (default 2) caps each task. The usage limits, the stop button, the `SHA` check, `wait_for_user` and the denied paths stay in code, so they hold when the model is wrong, or when Claude is down.
 - **Workers:** separate `claude` processes, started by the runner layer (§9) on the project's machine, each in its own `git worktree`, so they never write over each other. Separate processes are what let Kandu stream each worker (§7), stop one alone and record its tokens. Independent tasks (by `Blocked by`) run in parallel, up to `max_parallel_workers`; dependent ones run in order. Their instructions are in [prompts/worker.md](prompts/worker.md):
   - Tests come first, at the project's public interfaces, and they check behavior rather than internals.
   - A bug starts with one fast command that fails on exactly that bug. If no such command can be built, the task goes to `Needs info` instead of a guess.
@@ -162,7 +168,7 @@ The user must be able to see exactly what is happening: the supervisor and every
 - **By day:** what was done on each day and how many tokens each task used, split by model and by worker, reviewer and supervisor. Tokens come from the `result` event of each run's `stream-json` output and are saved with the task.
 - **Controls from day one:** stop / resume the supervisor, stop one worker.
 - **Internal API:** the page reads and acts only through Kandu's own HTTP API (`/api/v1`), which covers state, tasks, tokens by day, an event stream and stop / resume. No outside system depends on it. To show the dashboard inside another app, that app's server proxies the page into a frame, so no new port opens. `docs/API.md` documents every endpoint and event with real examples, and tests check it against the code.
-- **Look:** the page is a hive. The supervisor is the queen, each agent is a bee (worker, reviewer, scout), each task is a flower in its project's patch, usage is honey in two cells, and a day's tokens are a honeycomb. Every bee and flower comes from real state: a bee flies only while a real agent runs, and with reduced motion on nothing flies. It is inline `SVG` and `CSS`, with no library and no outside request.
+- **Look:** the page is a hive. The queen is the oversight agent, each other agent is a bee (worker, reviewer, scout), each task is a flower in its project's patch, usage is honey in two cells, and a day's tokens are a honeycomb. Every bee and flower comes from real state: a bee flies only while a real agent runs, and with reduced motion on nothing flies. It is inline `SVG` and `CSS`, with no library and no outside request.
 - **Languages:** the page is in English by default, with a switch to Persian that goes right to left; each browser remembers its choice. The API stays in English and the page translates the values it knows. Tests check that both languages have every text. Agent-written text, such as a review brief, stays in the language chosen at setup.
 - **Access control:** reading is open on the bound address. Stop and resume need `KANDU_DASHBOARD_TOKEN` from `local/.env`; with none set, controls are refused.
 - **Port:** the dashboard takes `dashboard.port`, default 8790, on the brain's machine; keep it free for Kandu. `python -m kandu.timer --dashboard` starts it as a user service that comes back after a restart, without starting the supervisor's timer. The service needs `loginctl enable-linger` to start at boot.

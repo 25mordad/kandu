@@ -135,6 +135,17 @@ class ReadTest(Base):
         self.assertEqual(len(actions_in(assistant_line(("Bash", {"command": "x" * 999})))[0]["detail"]), 200)
 
 
+class QueenReportTest(Base):
+    def test_state_holds_her_newest_brief_and_questions(self):
+        self.assertIsNone(self.api.state({})["queen"])
+        self.store.record("queen_finished", run_id="r-1", brief="old")
+        self.store.record("queen_decided", task=f"{REPO}#1", project="website", action="ask_user", note="Which?")
+        self.store.record("queen_finished", run_id="r-2", brief="new")
+        queen = self.api.state({})["queen"]
+        self.assertEqual(queen["brief"], "new")
+        self.assertEqual(queen["questions"], [{"task": f"{REPO}#1", "question": "Which?"}])
+
+
 class ReviewPageTest(Base):
     def pr(self, *comments):
         return {"number": 7, "title": "T", "url": "u", "state": "OPEN", "headRefOid": "abc",

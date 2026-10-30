@@ -91,6 +91,8 @@ class Supervisor:
     max_review_rounds: int = 2
     auto_merge: bool = False
     auto_revert: bool = False
+    queen: bool = True
+    queen_max_retries: int = 2
 
 
 @dataclass
@@ -287,7 +289,8 @@ def _check_settings(s, problems):
     if s.notify.adapter == "telegram" and s.notify.telegram is None:
         problems.append("notify.telegram: required when notify.adapter is telegram")
 
-    for name in ("wake_every_minutes", "max_cycle_minutes", "max_parallel_workers", "max_review_rounds"):
+    for name in ("wake_every_minutes", "max_cycle_minutes", "max_parallel_workers", "max_review_rounds",
+                 "queen_max_retries"):
         _check_positive(getattr(s.supervisor, name), f"supervisor.{name}", problems)
     if s.supervisor.auto_revert:
         problems.append("supervisor.auto_revert: must be false; Kandu only reports breakage (DESIGN §5)")

@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from kandu import review, supervisor
+from kandu import agents, queen, review, supervisor
 from kandu.config import load_config
 from kandu.github import BoardItem, GitHubError
 from kandu.runner import AgentResult, RunnerError
@@ -156,6 +156,7 @@ class Base(unittest.TestCase):
         shutil.copy(EXAMPLES / "kandu.example.yaml", self.local / "kandu.yaml")
         shutil.copy(EXAMPLES / "projects.example.yaml", self.local / "projects.yaml")
         self.config = load_config(self.local)
+        self.config.settings.supervisor.queen = False
         self.github = FakeGitHub()
         self.runner = FakeRunner(self.github)
         self.store = StateStore(self.root / "state")
@@ -227,6 +228,162 @@ class SelectionTest(Base):
         self.github.add(3, repo=OTHER_REPO)
         self.github.add(2, repo=REPO)
         self.assertEqual(self.keys(), [f"{REPO}#2", f"{REPO}#9", f"{OTHER_REPO}#3"])
+
+
+class QueenTest(Base):
+    def setUp(self):
+        super().setUp()
+        self.config.settings.supervisor.queen = True
+        self.github.add(1)
+
+    def reply(self, *decisions, brief="What happened."):
+        return json.dumps({"brief": brief, "decisions": list(decisions)})
+
+    def retry(self, note="The test needs a fixture."):
+        return {"task": f"{REPO}#1", "action": "retry", "note": note}
+
+    def test_a_quiet_cycle_never_wakes_her(self):
+        self.github.items.clear()
+        self.cycle()
+        self.assertEqual(self.runner.runs, [])
+
+    def test_a_merged_task_never_wakes_her(self):
+        self.config.projects[0].auto_merge = True
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1), '{"result": "pass", "summary": "seen"}']
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Done")
+        self.assertEqual(len(self.runner.runs), 3)
+
+    def test_she_sends_a_stopped_task_back_and_the_next_worker_reads_why(self):
+        self.runner.steps = ["not json", self.reply(self.retry("The test needs a fixture."))]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Ready")
+        self.assertEqual(self.events("queen_decided")[0]["action"], "retry")
+        self.assertIn("Blocked", self.runner.runs[1].prompt)
+        self.assertNotIn("Edit", self.runner.runs[1].allowed)
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertIn("The test needs a fixture.", self.runner.runs[2].prompt)
+
+    def test_her_run_counts_as_a_queen_run_with_no_task(self):
+        self.runner.steps = ["not json", self.reply()]
+        self.cycle()
+        run = [e for e in self.events("run_finished") if e["role"] == "queen"]
+        self.assertEqual(len(run), 1)
+        self.assertIsNone(run[0]["task"])
+
+    def test_she_cannot_send_back_what_the_user_stopped(self):
+        def user_stops():
+            self.store.request_worker_stop(self.runner_run_id())
+            return "stopped"
+        self.runner.steps = [user_stops]
+        self.runner_run_id = lambda: self.sup.workers[f"{REPO}#1"]["run_id"]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+        self.github.add(2)
+        self.runner.steps = ["not json", self.reply(self.retry())]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(self.events("queen_decided"), [])
+        self.assertIn("Refused", self.events("queen_finished")[0]["brief"])
+
+    def test_she_cannot_send_back_what_is_already_merged(self):
+        self.config.projects[0].auto_merge = True
+        ask = {"task": f"{REPO}#1", "action": "ask_user", "note": "Should this be fixed by hand?"}
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1), '{"result": "fail", "summary": "not there"}',
+                             self.reply(self.retry(), ask)]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual([e["action"] for e in self.events("queen_decided")], ["ask_user"])
+        self.assertIn("already merged", self.events("queen_finished")[0]["brief"])
+
+    def test_a_failure_after_the_merge_cannot_go_back_either(self):
+        self.github.open_pr(REPO, 1, SHA1, state="MERGED")
+        self.runner.steps = ["not json", self.reply(self.retry())]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertIn("already merged", self.events("queen_finished")[0]["brief"])
+
+    def test_retries_stop_at_the_limit(self):
+        self.config.settings.supervisor.queen_max_retries = 1
+        self.runner.steps = ["not json", self.reply(self.retry())]
+        self.cycle()
+        self.runner.steps = ["not json", self.reply(self.retry())]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertIn("retries are used up", self.events("queen_finished")[1]["brief"])
+
+    def test_she_cannot_touch_a_task_outside_the_registry(self):
+        self.runner.steps = ["not json", self.reply({"task": "stranger/repo#1", "action": "retry", "note": "n"})]
+        self.github.add(1, repo="stranger/repo", status="Blocked")
+        self.cycle()
+        self.assertEqual(self.github.status(1, repo="stranger/repo"), "Blocked")
+        self.assertIn("not a task", self.events("queen_finished")[0]["brief"])
+
+    def test_she_only_retries_a_blocked_task(self):
+        self.runner.steps = ["not json", lambda: self.step_done_task()]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Done")
+        self.assertIn("not Blocked", self.events("queen_finished")[0]["brief"])
+
+    def step_done_task(self):
+        self.github.statuses[f"https://github.com/{REPO}/issues/1"] = "Done"
+        return self.reply(self.retry())
+
+    def test_a_question_reaches_the_dashboard_and_changes_nothing(self):
+        ask = {"task": f"{REPO}#1", "action": "ask_user", "note": "Which reading of the task is right?"}
+        self.runner.steps = ["not json", self.reply(ask)]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(queen.last_report(self.store)["questions"],
+                         [{"task": f"{REPO}#1", "question": "Which reading of the task is right?"}])
+
+    def test_over_a_limit_she_waits_for_a_later_cycle(self):
+        def spend():
+            self.usage = Usage(70, 0)
+            return "not json"
+        self.runner.steps = [spend]
+        self.cycle()
+        self.assertEqual(self.events("queen_finished"), [])
+        self.usage = Usage(10, 10)
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.assertEqual(len(self.events("queen_finished")), 1)
+
+    def test_stop_keeps_her_asleep(self):
+        def stop():
+            self.store.request_stop()
+            return "not json"
+        self.runner.steps = [stop]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+
+    def test_a_bad_reply_changes_nothing_and_is_not_paid_for_again(self):
+        self.runner.steps = ["not json", "still not json"]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertIn("could not finish", self.events("queen_finished")[0]["brief"])
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
+
+    def test_the_same_merge_wait_is_judged_once(self):
+        self.config.projects[0].auto_merge = True
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, wait=["Is this right?"]), self.reply()]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 3)
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 3)
+
+    def test_turned_off_she_never_runs(self):
+        self.config.settings.supervisor.queen = False
+        self.runner.steps = ["not json"]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+
+    def test_she_merges_nothing(self):
+        self.assertFalse({"Edit", "Write"} & set(agents.queen_tools()[0]))
+        self.assertFalse(any("merge" in tool or "push" in tool for tool in agents.queen_tools()[0]))
 
 
 class GateTest(Base):
