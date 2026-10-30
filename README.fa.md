@@ -102,6 +102,8 @@ git remote rename origin upstream
 git remote set-url --push upstream DISABLED
 gh repo create your-login/kandu-private --private --source=. --remote=origin --push
 git config core.hooksPath .githooks
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 ```
 
 </div>

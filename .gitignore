@@ -9,3 +9,4 @@ state/
 logs/
 *.lock
 __pycache__/
+.venv/
