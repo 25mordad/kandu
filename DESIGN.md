@@ -50,6 +50,7 @@ The dashboard is not a setup question: it is always Kandu's own (§7).
 10. Existing repo rules: CI, PR bots, other people working on the repo. Kandu respects them.
 11. Merge in this project: automatic or with approval?
 12. Priority relative to the other projects.
+13. Project terms: the LLM proposes a short glossary from what it read, the user corrects it (§14).
 
 ### C. Other conversational commands
 - `/kandu-task` — define a task; writes the issue with the standard template onto the right board (§2).
@@ -57,19 +58,31 @@ The dashboard is not a setup question: it is always Kandu's own (§7).
 - `/kandu-doctor` — health check: access, machines, `gh`, `claude`, each project's test command.
 
 ## 2. Task intake
-- The user describes a task in a Claude session (`/kandu-task`). Claude writes it as a GitHub **issue** with a fixed template:
+- The user describes a task in a Claude session (`/kandu-task`). Claude writes it as a GitHub **issue** with a fixed template ([prompts/templates/issue.md](prompts/templates/issue.md)):
   - Goal
+  - Current behavior
   - Acceptance criteria
   - How to test
+  - Out of scope
   - `Blocked by` (if any)
 - Claude adds the issue to the right board with status `Ready` and label `agent`. Only `agent`-labelled issues enter the loop.
 - On a public repo the issue is public too: no private details in the task text.
 - A precise task (clear acceptance criteria) and real tests in the project matter more for the result than the loop itself. That is why defining tasks is a conversation, not a form.
 
+What makes a task good:
+- **Behavior, not steps.** It says what the software must do, not how to change it. No file paths or line numbers: they go stale before the worker starts.
+- **Each acceptance criterion can be checked on its own**, and "Out of scope" stops the worker from growing the task.
+- **One slice.** A task is sized to one fresh context and delivers a complete path that can be verified alone, not one layer of a feature. Refactoring that makes the work easier comes first, as its own task.
+- **A wide mechanical change** (a rename across the whole codebase) is the exception: add the new form beside the old, move callers over in batches, then delete the old form. Each is a task, and each leaves the tests green.
+- **The order is explicit.** `Blocked by` names real issues, so the supervisor can always see which tasks are ready. A task whose blockers are all done can start.
+
+Before writing the issue, `/kandu-task` checks that the behavior does not already exist and that it was not rejected earlier (§14). For a large or vague task it interviews the user in rounds: numbered questions, each with a recommended answer, asking only what can be decided now. It looks up facts itself and asks the user only for decisions. A small, clear task skips the interview.
+
 ## 3. Boards
 - **One GitHub Project board per project family**, owned by the GitHub user or org the repos live in. One family can hold many repos; the built-in `Repository` field tells the supervisor which repo an issue is in.
 - Standard columns on every board, so the supervisor handles them all the same way: `Ready`, `In progress`, `In review`, `Needs info`, `Blocked`, `Done`. An existing board with other columns is mapped onto these during `/kandu-add`.
 - Kandu creates a board only when the user says so.
+- A task only a person can do stays on the board without the `agent` label, so it is visible and Kandu leaves it alone.
 
 ## 4. Project registry
 One entry per project in `local/projects.yaml`, written by `/kandu-add`. **A project not in the registry is never touched.** Fields (see [config.example/projects.example.yaml](config.example/projects.example.yaml)):
@@ -94,9 +107,17 @@ supervisor ─┬─ worker 1  →  reviewer
 ```
 
 - **Supervisor:** runs on the always-on machine as a headless `claude -p` session. It **does not write code**. It picks tasks, hands them to workers, judges results and decides. It never grades its own work.
-- **Workers:** separate subagents, each in its own `git worktree`, so they never write over each other. Independent tasks (by `Blocked by`) run in parallel, up to `max_parallel_workers`; dependent ones run in order.
-- **Reviewer:** a fresh-context reviewer for every PR checks the diff against the issue's acceptance criteria. Findings go back to the same worker. After `max_review_rounds` (default 2) the task goes to `Blocked`.
-- **Merge:** if `auto_merge` is on and the supervisor concludes the PR is right (tests pass, reviewer approves, acceptance criteria met), it merges and moves on to the next task. The user supervises the supervisor and corrects it when it is wrong. Default in this template: **off**.
+- **Workers:** separate subagents, each in its own `git worktree`, so they never write over each other. Independent tasks (by `Blocked by`) run in parallel, up to `max_parallel_workers`; dependent ones run in order. Their instructions are in [prompts/worker.md](prompts/worker.md):
+  - Tests come first, at the project's public interfaces, and they check behavior rather than internals.
+  - A bug starts with one fast command that fails on exactly that bug. If no such command can be built, the task goes to `Needs info` instead of a guess.
+  - Every PR uses [prompts/templates/pr.md](prompts/templates/pr.md): a small summary, before and after evidence, and the merge danger.
+- **Reviewer:** every PR gets two reviews, each a fresh agent that knows nothing of the other ([prompts/reviewer.md](prompts/reviewer.md)):
+  - `Spec`: does the diff do what the issue asked, all of it and nothing more?
+  - `Standards`: does it follow the project's documented rules?
+
+  Hard findings go back to the same worker. Judgment calls are noted on the PR and do not use a review round. After `max_review_rounds` (default 2) the task goes to `Blocked`.
+- **Merge danger:** every PR states whether its change is a **two-way door** (easy to undo) or a **one-way door** (hard to undo: data migrations, published APIs, sent messages), and its blast radius. The worker states it and the reviewer checks it independently. If either says one-way, the task waits for the user, even with `auto_merge` on.
+- **Merge:** if `auto_merge` is on and the supervisor concludes the PR is right (tests pass, reviewer approves, acceptance criteria met, two-way door), it merges and moves on to the next task. The user supervises the supervisor and corrects it when it is wrong. Default in this template: **off**.
 - **Deploy:** after merge, per the project's `deploy` setting.
 - **"Done" means seen in the live software:** after deploy the supervisor opens the live version (screenshot or test) and checks that what the issue asked for is really there. Green tests alone are not enough.
 - **End-of-cycle check:** after several merges, rerun all tests and a smoke test on the whole project.
@@ -178,9 +199,13 @@ The brain runs on an always-on machine, which is usually not the machine the use
 ## 14. Harness, context and memory
 Every part of Kandu is designed and reviewed against these three. The result depends on them as much as on the model.
 
-- **Harness:** everything around the model that keeps it safe and on track: gates, lock file, permissions, tests, the fresh reviewer, limits, stop controls. A rule that matters is enforced in code, not only written in a prompt. Checks that need no judgment run without an LLM, so they cost nothing and still work when Claude is down.
-- **Context:** each agent gets the smallest context that lets it do its job, and nothing else. A worker gets its issue and its project's facts, not the history of other tasks. A reviewer starts fresh. Prompts live in files, so they can be read, reviewed and improved. Output that is not needed stays in logs, out of the model's context.
-- **Memory:** nothing important lives only in a session. State is on the board, in issues and in state files. What is learned is saved as plain files per project in `local/`, read by the next worker and open to the user to correct. Memory is private: it never enters the public repo, and it holds facts and lessons, never secrets. An entry that proves wrong is removed.
+- **Harness:** everything around the model that keeps it safe and on track: gates, lock file, permissions, tests, the fresh reviewer, limits, stop controls. A rule that matters is enforced in code, not only written in a prompt. Checks that need no judgment run without an LLM, so they cost nothing and still work when Claude is down. When an agent makes a mistake a fixed pattern could catch, the fix is an automated check, not a new line in a document; documents are for judgment calls.
+- **Context:** each agent gets the smallest context that lets it do its job, and nothing else. A worker gets its issue and its project's facts, not the history of other tasks. A reviewer starts fresh. Coding standards are enforced at review, because the reviewer has the most room in its context and the worker the least. Prompts live in files, so they can be read, reviewed and improved, and they follow [docs/WRITING-PROMPTS.md](docs/WRITING-PROMPTS.md). Output that is not needed stays in logs, out of the model's context.
+- **Memory:** nothing important lives only in a session. State is on the board, in issues and in state files. What is learned is saved as plain files per project in `local/`, read by the next worker and open to the user to correct. Memory is private: it never enters the public repo, and it holds facts and lessons, never secrets. An entry that proves wrong is removed. Each project's memory holds:
+  - **Lessons:** what the next worker should know.
+  - **Glossary:** one word for each project concept, so agents spend fewer tokens and name things the same way. Kandu's own is [GLOSSARY.md](GLOSSARY.md).
+  - **Decisions:** one short paragraph for a choice that is hard to reverse, surprising without context and a real trade-off. Nothing else is worth recording.
+  - **Rejected requests:** what the user said no to and why, so it is not proposed again.
 
 ## 15. Model review
 Kandu must be able to show how well the model is doing, from its own records.
@@ -188,4 +213,8 @@ Kandu must be able to show how well the model is doing, from its own records.
 - Periodically (default weekly) a fresh-context reviewer goes through the tasks of that period and writes a report for the dashboard.
 - Measures per model and task type: tokens per task, review rounds, tasks that reached `Blocked`, PRs the user corrected afterwards, and breakage seen after merge.
 - It compares prompts and models over time, so it is clear whether a change helped.
+- It also looks at the environment, not only the model, and lists what would have prevented the problems it found, most severe first: an automated check that was missing, a rule the reviewer should enforce, a prompt line that changes nothing and can go, a fact the agent could not reach, a tool call that wasted tokens.
 - It recommends; the user decides. It never changes a model, prompt or limit on its own.
+
+## Sources
+Several practices here (the two-axis review, task slicing, merge danger, the check-over-document rule, the writing rules for prompts) are adapted from [mattpocock/skills](https://github.com/mattpocock/skills), MIT licensed. They are rewritten for Kandu; nothing from that repo is installed or run.

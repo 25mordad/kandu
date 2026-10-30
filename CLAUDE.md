@@ -1,6 +1,6 @@
 # Kandu — Claude guide
 
-This repo is public. Read [DESIGN.md](DESIGN.md) for the specification and [TASKS.md](TASKS.md) for the roadmap.
+This repo is public. Read [DESIGN.md](DESIGN.md) for the specification and [TASKS.md](TASKS.md) for the roadmap. Use the terms in [GLOSSARY.md](GLOSSARY.md). Before writing or changing a prompt, this file or a `/kandu-*` command, read [docs/WRITING-PROMPTS.md](docs/WRITING-PROMPTS.md).
 
 ## Keep the public repo free of personal data
 - Everything that belongs to one person's setup lives in `local/`, which is gitignored: machines, paths, accounts, projects, notes, secrets.
