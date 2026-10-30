@@ -1,6 +1,6 @@
 # TASKS — build roadmap
 
-Design: [DESIGN.md](DESIGN.md). Early development: the main loop is built, but has not run on a real project yet.
+Design: [DESIGN.md](DESIGN.md). Early development: the queen, workers and review rounds have run on a real project. Merge, deploy and live check have not yet.
 
 Every task is designed and checked against harness, context and memory (§14).
 
