@@ -50,5 +50,5 @@ supervisor:                    # optional; these are the defaults
   auto_revert: false           # must stay false: the supervisor only reports breakage
 
 dashboard:
-  bind: 127.0.0.1
-  port: 8790
+  bind: 127.0.0.1             # stay on this machine; reach it from another through an SSH tunnel
+  port: 8790                 # keep this port free for Kandu on the brain's machine

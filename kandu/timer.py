@@ -76,7 +76,8 @@ def install(config, units_dir=UNITS_DIR):
 def main():
     parser = argparse.ArgumentParser(description="Show or install the supervisor's timer.")
     parser.add_argument("--install", action="store_true", help="write the units; starts nothing")
-    parser.add_argument("--enable", action="store_true", help="also start the timer")
+    parser.add_argument("--enable", action="store_true", help="also start the timer and the dashboard")
+    parser.add_argument("--dashboard", action="store_true", help="also start the dashboard, and only that")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
     args = parser.parse_args()
     try:
@@ -84,13 +85,15 @@ def main():
     except ConfigError as e:
         print(f"timer: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1
-    if not args.install and not args.enable:
+    if not args.install and not args.enable and not args.dashboard:
         print(render_service(config), render_timer(config), render_dashboard(config), sep="\n")
         return 0
     install(config)
     if args.enable:
         subprocess.run(["systemctl", "--user", "enable", "--now", f"{UNIT_NAME}.timer",
                         f"{UNIT_NAME}-dashboard.service"], check=True)
+    elif args.dashboard:
+        subprocess.run(["systemctl", "--user", "enable", "--now", f"{UNIT_NAME}-dashboard.service"], check=True)
     return 0
 
 

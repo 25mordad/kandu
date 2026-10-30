@@ -75,6 +75,18 @@ Kandu has its own interactive dashboard:
 
 The dashboard is one page with no outside requests, so another app can show it in a frame through its own server.
 
+It listens on `127.0.0.1:8790` on the supervisor's machine (`dashboard.port` in `local/kandu.yaml`). To start it and keep it running after a restart:
+
+```
+.venv/bin/python -m kandu.timer --dashboard
+```
+
+This does not start the supervisor. From another machine, open an SSH tunnel and then `http://127.0.0.1:8790`:
+
+```
+ssh -N -L 127.0.0.1:8790:127.0.0.1:8790 server
+```
+
 ## Didban — control from your own machine
 
 The supervisor runs on an always-on machine, which is usually not the one you sit at. **Didban** (Persian for "lookout") is how you talk to Kandu from your own machine: one command opens a Claude Code session in the control role. From there you define tasks, see state and stop or resume the supervisor. Didban is a role, not a service, and it does not write code. Details in [DESIGN.md](DESIGN.md#13-didban--control-from-your-own-machine).
