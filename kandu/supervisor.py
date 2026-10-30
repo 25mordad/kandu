@@ -479,7 +479,8 @@ class Supervisor:
         try:
             base = self.github.default_branch(task.repo)
             cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/size-{task.number}", f"origin/{base}")
-            prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.local_dir)
+            prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.config.settings.notify.language,
+                                            self.local_dir)
             result = self._agent(task, "splitter", cwd, prompt, agents.splitter_tools(), run_id)
             report = split.parse_report(result.text)
             split.validate_report(report, item.body)
@@ -493,7 +494,8 @@ class Supervisor:
             return
         slices = report.get("slices") or []
         if slices:
-            self.store.write_split(task.key, {"title": task.title, "reason": report["reason"], "slices": slices})
+            self.store.write_split(task.key, {"title": task.title, "reason": report["reason"], "slices": slices,
+                                              "user_text": split.user_text(report)})
         self.github.set_field(task.project.board, task.url, "Size", report["size"])
         self.store.record("task_sized", task=task.key, project=task.project.name, run_id=run_id, size=report["size"],
                           files=report["files"], door=report["door"], criteria=sizing.criteria_in(item.body),

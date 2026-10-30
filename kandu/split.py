@@ -85,6 +85,18 @@ def validate_report(report, body):
         raise ReportError("report: only a Large task is split")
 
 
+def user_text(report):
+    """The proposal in the user's language, or None. It is only read, so a bad one costs no more than the English."""
+    text = report.get("user_text")
+    parts = text.get("slices") if isinstance(text, dict) else None
+    if not isinstance(text, dict) or not isinstance(text.get("reason"), str) or not isinstance(parts, list) \
+            or len(parts) != len(report["slices"]) \
+            or not all(isinstance(p, dict) and isinstance(p.get("title"), str) and isinstance(p.get("body"), str)
+                       for p in parts):
+        return None
+    return text
+
+
 def with_blockers(body, references):
     text = "\n".join(references) or "none"
     return BLOCKED_BY.sub(lambda _: f"## Blocked by\n{text}\n\n", body, count=1)

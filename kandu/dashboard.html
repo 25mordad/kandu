@@ -254,6 +254,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "approve": "Approve and merge",
   "approve_sure": "Merge this PR? Kandu runs the tests first, then merges and deploys.",
   "approve_split": "Accept this split",
+  "english_text": "English text",
   "approve_split_sure": "Create these slices as tasks on the board? Each one runs after the one before it.",
   "split_approved": "The slices are on the board.",
   "split_decline_hint": "To decline or change it, go to Didban.",
@@ -327,6 +328,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "approve": "تأیید و ادغام",
   "approve_sure": "این PR ادغام شود؟ کندو اول تست‌ها را اجرا می‌کند و بعد ادغام و مستقر می‌کند.",
   "approve_split": "قبول این شکستن",
+  "english_text": "متن انگلیسی",
   "approve_split_sure": "این تکه‌ها به‌صورت تسک روی برد ساخته شوند؟ هر کدام بعد از قبلی اجرا می‌شود.",
   "split_approved": "تکه‌ها روی برد ساخته شدند.",
   "split_decline_hint": "برای رد یا تغییر آن، به دیدبان برو.",
@@ -928,14 +930,16 @@ function approval(task, pr) {
 }
 
 function splitBox(task, proposal) {
-  const slices = proposal.slices.map((slice, i) => `<details class="round"${i === 0 ? " open" : ""}><summary>${num(i + 1)}. <span dir="auto">${esc(slice.title)}</span></summary><div class="round-body">
+  const own = lang === "en" ? null : proposal.user_text;  // The user's language; the English is what reaches the issue.
+  const original = slice => own ? `<details><summary class="muted">${t("english_text")}</summary><div class="slice-body" dir="auto">${esc(slice.body)}</div></details>` : "";
+  const slices = proposal.slices.map((slice, i) => `<details class="round"${i === 0 ? " open" : ""}><summary>${num(i + 1)}. <span dir="auto">${esc(own?.slices[i].title || slice.title)}</span></summary><div class="round-body">
     <div class="chips"><span class="chip">${esc(tr(slice.size))}</span><span class="chip">${num(slice.files)} ${t("files_touched")}</span><span class="chip">${esc(tr(slice.door))}</span></div>
-    <div class="slice-body" dir="auto">${esc(slice.body)}</div>
+    <div class="slice-body" dir="auto">${esc(own?.slices[i].body || slice.body)}</div>${original(slice)}
   </div></details>`).join("");
   const accept = confirming
     ? `<div class="confirm"><div>${t("approve_split_sure")}</div><div class="actions"><button class="btn primary" data-split="${esc(task)}" data-fingerprint="${esc(proposal.fingerprint)}">${t("approve_split")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`
     : `<button class="btn primary" data-sure>${t("approve_split")}</button>`;
-  return `<div dir="auto">${esc(proposal.reason)}</div>${slices}<div class="actions">${accept}</div><p class="muted">${t("split_decline_hint")}</p>`;
+  return `<div dir="auto">${esc(own?.reason || proposal.reason)}</div>${slices}<div class="actions">${accept}</div><p class="muted">${t("split_decline_hint")}</p>`;
 }
 
 async function approveSplit(button) {
