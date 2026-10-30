@@ -4,7 +4,7 @@
 
 [فارسی](README.fa.md)
 
-> **Status: design phase.** Nothing is built yet. The full specification is in [DESIGN.md](DESIGN.md), the roadmap in [TASKS.md](TASKS.md).
+> **Status: early development.** Kandu does not run yet. The full specification is in [DESIGN.md](DESIGN.md), the roadmap in [TASKS.md](TASKS.md).
 
 *Kandu* is Persian for beehive: many workers, each doing its own job, an order above them, and production that never stops.
 

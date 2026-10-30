@@ -1,9 +1,9 @@
 # TASKS — build roadmap
 
-Design: [DESIGN.md](DESIGN.md). Nothing is built yet.
+Design: [DESIGN.md](DESIGN.md). Early development; Kandu does not run yet.
 
 ## [P1] Core
-1. [ ] Config format + loader for `local/kandu.yaml` and `local/projects.yaml`; examples in `config.example/` (DESIGN §4, §12)
+1. [x] Config format + loader for `local/kandu.yaml` and `local/projects.yaml`; examples in `config.example/` (DESIGN §4, §12)
 2. [ ] `/kandu-setup` — initial setup by conversation, with prerequisites check (§1A)
 3. [ ] `/kandu-add` — add a project by conversation (§1B)
 4. [ ] `/kandu-doctor` — health check (§1C)
