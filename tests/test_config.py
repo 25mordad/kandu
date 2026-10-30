@@ -88,7 +88,7 @@ class ConfigTest(unittest.TestCase):
         self.assertIn("supervisor.auto_merg: unknown key", self.problems())
 
     def test_wrong_type(self):
-        self.edit("kandu.yaml", lambda d: d["dashboard"].update(port="8790"))
+        self.edit("kandu.yaml", lambda d: d["dashboard"].update(port="8080"))
         self.assertIn("dashboard.port: must be int", self.problems())
 
     def test_bool_is_not_an_int(self):

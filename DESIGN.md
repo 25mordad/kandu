@@ -34,7 +34,7 @@ Everything is configured by talking to an LLM in a Claude Code session. There ar
 6. Defaults: number of parallel workers, wake interval, auto-merge on or off.
 7. Prerequisites: `claude`, `gh`, `git`, `python` installed and logged in; `gh` needs the `project` scope for boards. Kandu says what is missing.
 8. Didban (§13): which other sources may it read, and on which machine? On the machine you sit at, how is the brain reached?
-9. Which port does the dashboard use (default 8790)?
+9. Which port does the dashboard use (default 8080)?
 
 The dashboard itself is always Kandu's own (§7); only its port is a choice.
 
@@ -165,8 +165,8 @@ The user must be able to see exactly what is happening: the supervisor and every
 - **Look:** the page is a hive. The supervisor is the queen, each agent is a bee (worker, reviewer, scout), each task is a flower in its project's patch, usage is honey in two cells, and a day's tokens are a honeycomb. Every bee and flower comes from real state: a bee flies only while a real agent runs, and with reduced motion on nothing flies. It is inline `SVG` and `CSS`, with no library and no outside request.
 - **Languages:** the page is in English by default, with a switch to Persian that goes right to left; each browser remembers its choice. The API stays in English and the page translates the values it knows. Tests check that both languages have every text. Agent-written text, such as a review brief, stays in the language chosen at setup.
 - **Access control:** reading is open on the bound address. Stop and resume need `KANDU_DASHBOARD_TOKEN` from `local/.env`; with none set, controls are refused.
-- **Port:** the dashboard takes `dashboard.port`, default 8790, on the brain's machine; keep it free for Kandu. `python -m kandu.timer --dashboard` starts it as a user service that comes back after a restart, without starting the supervisor's timer. The service needs `loginctl enable-linger` to start at boot.
-- Binds to `127.0.0.1` by default. From another machine use an SSH tunnel: `ssh -L 8790:127.0.0.1:8790 server`, then open `http://127.0.0.1:8790`. To keep the tunnel up, run it as a user service on that machine. A system on the same machine calls the API directly. Exposing it further (private network, tunnel, reverse proxy) is the user's choice.
+- **Port:** the dashboard takes `dashboard.port`, default 8080, on the brain's machine; keep it free for Kandu. `python -m kandu.timer --dashboard` starts it as a user service that comes back after a restart, without starting the supervisor's timer. The service needs `loginctl enable-linger` to start at boot.
+- Binds to `127.0.0.1` by default. From another machine use an SSH tunnel: `ssh -L 8080:127.0.0.1:8080 server`, then open `http://127.0.0.1:8080`. To keep the tunnel up, run it as a user service on that machine. A system on the same machine calls the API directly. Exposing it further (private network, tunnel, reverse proxy) is the user's choice.
 
 ## 8. Notifications
 - Only the important things: the supervisor stopped, something broke, a task is stuck and needs a decision, a usage limit was hit, the Claude login expires soon (`claude.login_warn_days`, default 7) or has stopped working, and things of similar weight. Everything else only on the dashboard.
