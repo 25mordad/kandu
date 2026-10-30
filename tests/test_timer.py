@@ -39,6 +39,13 @@ class TimerTest(unittest.TestCase):
         self.config.settings.supervisor.wake_every_minutes = 30
         self.assertIn("OnUnitActiveSec=30min", render_timer(self.config))
 
+    def test_a_cycle_starts_unless_one_is_running(self):
+        for state, expected, calls in (("inactive\n", True, 2), ("activating\n", None, 1)):
+            with mock.patch("kandu.timer.subprocess.run") as run:
+                run.return_value = mock.Mock(stdout=state, returncode=0)
+                self.assertIs(timer.start_cycle(), expected)
+                self.assertEqual(run.call_count, calls)
+
     def test_dashboard_flag_never_starts_the_timer(self):
         with mock.patch.object(timer, "load_config", return_value=self.config), \
                 mock.patch.object(timer, "install") as install, \

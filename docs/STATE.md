@@ -37,11 +37,17 @@ state/
 | `decision` | `task`, `project`, `decision`, `reason` |
 | `run_finished` | `task`, `project`, `run_id`, `role`, `models`, `duration_ms`, `is_error` |
 | `review_finished` | `task`, `project`, `run_id`, `round`, `head_sha`, `findings`, `blockers`, `door`, `criteria_met`, `wait_for_user`, `user_brief` |
+| `user_approved` | `task`, `project`, `head_sha` |
+| `task_sized` | `task`, `project`, `run_id`, `size`, `files`, `door`, `criteria`, `slices` |
+| `slice_created` | `task`, `project`, `parent` |
+| `task_split` | `task`, `project`, `children` |
+| `split_declined` | `task`, `project` |
+| `group_closed` | `task`, `project` |
 | `deployed` | `task`, `project`, `run_id` |
 | `project_checked` | `project`, `passed`, `detail` |
 | `task_finished` | `task`, `project`, `outcome` |
 
-`role` is `supervisor`, `queen`, `worker`, `reviewer` or `live_check`. `models` maps each model a run used to its tokens:
+`role` is `supervisor`, `queen`, `splitter`, `worker`, `reviewer` or `live_check`. `models` maps each model a run used to its tokens:
 
 ```json
 {"v": 1, "ts": "2026-10-30T12:00:00+01:00", "type": "run_finished",

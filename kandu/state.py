@@ -23,6 +23,12 @@ EVENT_FIELDS = {
     "run_finished": TASK_FIELDS + ("run_id", "role", "models", "duration_ms", "is_error"),
     "review_finished": TASK_FIELDS + ("run_id", "round", "head_sha", "findings", "blockers", "door", "criteria_met",
                                       "wait_for_user", "user_brief"),
+    "user_approved": TASK_FIELDS + ("head_sha",),
+    "task_sized": TASK_FIELDS + ("run_id", "size", "files", "door", "criteria", "slices"),
+    "slice_created": TASK_FIELDS + ("parent",),
+    "task_split": TASK_FIELDS + ("children",),
+    "split_declined": TASK_FIELDS,
+    "group_closed": TASK_FIELDS,
     "deployed": TASK_FIELDS + ("run_id",),
     "task_finished": TASK_FIELDS + ("outcome",),
     "project_checked": ("project", "passed", "detail"),
@@ -71,6 +77,7 @@ class StateStore:
         self.current_file = self.root / "current.json"
         self.stop_file = self.root / "stopped"
         self.worker_stops_dir = self.root / "stop-workers"
+        self.splits_dir = self.root / "splits"
 
     def _make_dirs(self):
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -120,6 +127,30 @@ class StateStore:
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
         return events
+
+    def _split_file(self, task):
+        return self.splits_dir / f"{task.replace('/', '__').replace('#', '-')}.json"
+
+    def write_split(self, task, proposal):
+        """A proposal stays here, not on the issue: it is the splitter's text and the repo may be public."""
+        self._make_dirs()
+        self.splits_dir.mkdir(mode=0o700, exist_ok=True)
+        path = self._split_file(task)
+        path.write_text(json.dumps({"task": task} | proposal, ensure_ascii=False), encoding="utf-8")
+        path.chmod(0o600)
+
+    def read_split(self, task):
+        path = self._split_file(task)
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def drop_split(self, task):
+        self._split_file(task).unlink(missing_ok=True)
+
+    def splits(self):
+        if not self.splits_dir.exists():
+            return []
+        paths = sorted(self.splits_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        return [json.loads(path.read_text(encoding="utf-8")) for path in paths]
 
     def last_event(self, event_type, **match):
         """Returns the newest event of this type with these field values, or None."""

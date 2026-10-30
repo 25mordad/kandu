@@ -7,7 +7,7 @@ the user. She cannot merge, deploy or pass a lock.
 """
 RETRYABLE = ("failed", "blocked")
 LARGE = "Large"
-NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed")
+NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed", "sizing_failed")
 PROMPT_EVENTS = ("task_finished", "decision", "project_checked", "review_finished", "deployed", "run_finished")
 
 
@@ -60,12 +60,20 @@ def note_for(events, task):
     return notes[-1] if notes else None
 
 
-def why_no_release(item, startable, spent, limit):
-    """Returns why this task may not leave Backlog, or None."""
+def why_no_release(item, startable, spent, limit, sized, group):
+    """Returns why this task may not leave Backlog, or None.
+
+    `sized` is its `task_sized` event: the local log counts, as a worker can edit a board field.
+    `group` is an unfinished group that comes before this task.
+    """
     if item.status != "Backlog":
         return "it is not in Backlog"
-    if item.size == LARGE:
+    if sized is None:
+        return "the splitter has not sized it"
+    if LARGE in (item.size, sized["size"]):
         return "it is Large and must be split first"
+    if group is not None:
+        return f"the group of {group} comes first"
     if not startable:
         return "another task blocks it"
     if spent >= limit:
@@ -73,12 +81,17 @@ def why_no_release(item, startable, spent, limit):
     return None
 
 
-def why_no_retry(events, task, limit, blocked, merged):
-    """Returns why this task may not go back, or None."""
+def why_no_retry(events, task, limit, blocked, merged, sized=None):
+    """Returns why this task may not go back, or None. A task that reached a worker before sizing existed has no `sized`."""
     if not blocked:
         return "it is not Blocked"
     if merged:
         return "its PR is already merged"
+    if sized is not None and sized["size"] == LARGE:
+        return "it is Large and must be split first"
+    worked = any(e["type"] == "run_finished" and e["task"] == task and e["role"] != "splitter" for e in events)
+    if sized is None and not worked:
+        return "the splitter has not sized it"
     finished = [e for e in events if e["type"] == "task_finished" and e["task"] == task]
     if not finished or finished[-1]["outcome"] not in RETRYABLE:
         return "its last outcome is not one a retry can change"

@@ -6,6 +6,7 @@ needs: the facts of one task, never the history of others.
 import json
 from pathlib import Path
 
+from . import sizing
 from .config import DEFAULT_LOCAL_DIR
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
@@ -50,6 +51,14 @@ def reviewer_tools():
 def live_check_tools(project):
     """Returns (allowed, denied) for a live check, which looks and changes nothing."""
     allowed = ["Read", "Glob", "Grep", "WebFetch"] + _command("curl") + _command("gh issue view") + project.allowed_tools
+    return allowed, ["Edit", "Write", "NotebookEdit"] + ALWAYS_DENIED
+
+
+def splitter_tools():
+    """Returns (allowed, denied) for the splitter, which reads and changes nothing."""
+    allowed = ["Read", "Glob", "Grep"]
+    for command in ("gh issue view", "git log"):
+        allowed += _command(command)
     return allowed, ["Edit", "Write", "NotebookEdit"] + ALWAYS_DENIED
 
 
@@ -109,6 +118,13 @@ def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, s
         parts += ["## Findings of the earlier rounds", "```json",
                   json.dumps(still_open, ensure_ascii=False, indent=2), "```"]
     return "\n".join(parts)
+
+
+def splitter_prompt(project, repo, number, local_dir=DEFAULT_LOCAL_DIR):
+    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- Read it with: `gh issue view {number} --repo {repo}`",
+             *_project_facts(project)]
+    return "\n".join([_read("splitter.md"), "## This task", *facts, "## The size scale", *sizing.describe(),
+                      "## Issue template", _read("templates/issue.md"), *_memory(project, local_dir)])
 
 
 def queen_prompt(events, projects, retries, retry_limit, language, logs_dir, today):

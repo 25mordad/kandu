@@ -73,6 +73,15 @@ def install(config, units_dir=UNITS_DIR):
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
 
 
+def start_cycle():
+    """Asks `systemd` for a cycle now. Returns False if it could not, or None if one is already running."""
+    unit = f"{UNIT_NAME}.service"
+    active = subprocess.run(["systemctl", "--user", "is-active", unit], capture_output=True, text=True)
+    if active.stdout.strip() in ("active", "activating"):
+        return None
+    return subprocess.run(["systemctl", "--user", "start", "--no-block", unit], capture_output=True).returncode == 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="Show or install the supervisor's timer.")
     parser.add_argument("--install", action="store_true", help="write the units; starts nothing")
