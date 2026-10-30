@@ -240,6 +240,9 @@ class HiveTest(unittest.TestCase):
         self.assertIn('"sent_back"', self.page)
         self.assertIn("bee_queen", self.page)
 
+    def test_an_open_run_keeps_updating(self):
+        self.assertIn("if (shownRun) showRun(shownRun)", self.page)
+
     def test_the_page_loads_nothing_from_outside(self):
         self.assertEqual(re.findall(r'(?:src|href)="https?://', self.page), [])
         self.assertNotIn("@import", self.page)
