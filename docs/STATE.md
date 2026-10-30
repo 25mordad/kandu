@@ -36,7 +36,7 @@ state/
 | `phase_changed` | `task`, `project`, `phase` |
 | `decision` | `task`, `project`, `decision`, `reason` |
 | `run_finished` | `task`, `project`, `run_id`, `role`, `models`, `duration_ms`, `is_error` |
-| `review_finished` | `task`, `project`, `run_id`, `round`, `head_sha`, `findings`, `blockers`, `door`, `criteria_met`, `wait_for_user` |
+| `review_finished` | `task`, `project`, `run_id`, `round`, `head_sha`, `findings`, `blockers`, `door`, `criteria_met`, `wait_for_user`, `user_brief` |
 | `deployed` | `task`, `project`, `run_id` |
 | `project_checked` | `project`, `passed`, `detail` |
 | `task_finished` | `task`, `project`, `outcome` |

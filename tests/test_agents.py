@@ -77,9 +77,9 @@ class PromptTest(unittest.TestCase):
         self.assertIn("a lesson", self.worker())
 
     def test_reviewer_gets_the_head_earlier_findings_and_companions(self):
-        text = agents.reviewer_prompt(project(), "o/r", 12, 7, "abc123", [("o/b", 9)],
+        text = agents.reviewer_prompt(project(), "o/r", 12, 7, "abc123", "fa", [("o/b", 9)],
                                       [{"n": 1, "body": "earlier one"}], 2, local_dir=self.local)
-        for part in ("`abc123`", "gh pr diff 7 --repo o/r", "o/b#9", "earlier one", "from 2"):
+        for part in ("`abc123`", "gh pr diff 7 --repo o/r", "fa", "o/b#9", "earlier one", "from 2"):
             self.assertIn(part, text)
 
 

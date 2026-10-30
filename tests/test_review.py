@@ -10,7 +10,7 @@ FINDING = {"n": 1, "path": "a.py", "line": 3, "blocker": True, "body": "This bre
 NOTE = {"n": 2, "path": "b.py", "line": None, "blocker": False, "body": "Confusing name."}
 REPORT = {
     "head_sha": "abc123", "summary": "s", "criteria": [{"criterion": "c", "result": "met"}], "earlier": [],
-    "findings": [], "checked_ok": [], "door": "two-way", "blast_radius": "b", "brief": "خلاصه", "wait_for_user": [],
+    "findings": [], "checked_ok": [], "door": "two-way", "blast_radius": "b", "brief": "Short.", "user_brief": "خلاصه", "wait_for_user": [],
 }
 
 
@@ -76,11 +76,12 @@ class ReportTest(unittest.TestCase):
 class RecordTest(unittest.TestCase):
     def test_comment_round_trip(self):
         body = comment_for(report(findings=[FINDING]), 2, [FINDING])
-        self.assertIn("خلاصه", body)
+        self.assertIn("Short.", body)
+        self.assertNotIn("خلاصه", body)
         self.assertIn("a.py:3", body)
         record = reviews_on(pr_with((ACCOUNT, body)), ACCOUNT)[0]
         self.assertEqual((record["round"], record["head_sha"], record["door"]), (2, "abc123", "two-way"))
-        self.assertEqual((record["open"], record["brief"]), ([FINDING], "خلاصه"))
+        self.assertEqual((record["open"], record["brief"]), ([FINDING], "Short."))
 
     def test_finding_text_cannot_end_the_marker(self):
         tricky = FINDING | {"body": "ends --> here } more"}
