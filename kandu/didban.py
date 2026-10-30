@@ -35,17 +35,22 @@ def last_line(text):
     return lines[-1] if lines else "no output"
 
 
+def on_brain(brain, module):
+    """Runs one Kandu module on the brain's machine."""
+    ssh, target = brain.reach.split()
+    command = f"cd {remote_path(brain.install_dir)} && .venv/bin/python -m {module}"
+    args = [ssh, "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", target, command]
+    return subprocess.run(args, capture_output=True, text=True, timeout=20)
+
+
 def check_brain(brain):
     """Runs Kandu's config check on the brain's machine; returns (state, message).
 
     The state is `ok`, `problem` (the machine answered, but the check failed) or
     `unreachable`. Only ssh itself exits with 255.
     """
-    ssh, target = brain.reach.split()
-    command = f"cd {remote_path(brain.install_dir)} && .venv/bin/python -m kandu.config"
-    args = [ssh, "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", target, command]
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=20)
+        result = on_brain(brain, "kandu.config")
     except subprocess.TimeoutExpired:
         return "unreachable", "no answer in time"
     except FileNotFoundError:
@@ -57,22 +62,34 @@ def check_brain(brain):
     return "problem", " ".join((result.stderr or result.stdout).split()) or "no output"
 
 
-def system_prompt(didban, status):
+def waiting_splits(brain):
+    """Returns what waits for the user's decision on a split. The session opens with this, so nothing is forgotten."""
+    try:
+        result = on_brain(brain, "kandu.split list")
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return "could not be read"
+    if result.returncode != 0:
+        return "could not be read"
+    return "; ".join(result.stdout.strip().splitlines()) or "none"
+
+
+def system_prompt(didban, status, splits="none"):
     return "\n".join([
         ROLE_FILE.read_text(encoding="utf-8"),
         "## This setup",
         f"- Reach the brain's machine with: `{didban.brain.reach}`",
         f"- Kandu is installed there at: `{didban.brain.install_dir}`",
         f"- Check at session start: {status}",
+        f"- Sized too large, waiting for a split: {splits}",
     ])
 
 
-def claude_args(didban, status, extra):
+def claude_args(didban, status, extra, splits="none"):
     return [
         "claude", *extra,
         "--name", SESSION_NAME,
         "--remote-control", SESSION_NAME,
-        "--append-system-prompt", system_prompt(didban, status),
+        "--append-system-prompt", system_prompt(didban, status, splits),
         "--disallowedTools", BLOCKED_TOOLS,
     ]
 
@@ -90,9 +107,10 @@ def main():
     if state != "ok":
         print(f"didban: warning: {didban.brain.reach}: {state}: {message}", file=sys.stderr)
 
+    splits = waiting_splits(didban.brain) if state == "ok" else "could not be read"
     os.chdir(REPO_DIR)
     try:
-        os.execvp("claude", claude_args(didban, STATUS[state].format(message), sys.argv[1:]))
+        os.execvp("claude", claude_args(didban, STATUS[state].format(message), sys.argv[1:], splits))
     except FileNotFoundError:
         print("didban: claude is not installed or not on PATH", file=sys.stderr)
         return 1

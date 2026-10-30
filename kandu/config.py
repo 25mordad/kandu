@@ -16,7 +16,7 @@ import yaml
 
 DEFAULT_LOCAL_DIR = Path(__file__).resolve().parent.parent / "local"
 SSH_REACH = re.compile(r"ssh \w[\w.@-]*")
-BOARD_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Blocked", "Done")
+BOARD_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", "Done")
 BOARD_FIELDS = {"Priority": ("High", "Medium", "Low"), "Kind": ("Bug", "Feature", "Chore"),
                 "Size": ("Small", "Medium", "Large")}
 DEADLINE_FIELD = "Deadline"

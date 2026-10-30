@@ -12,7 +12,7 @@ FALLBACK_SLUG = "task"
 TIMEOUT_SECONDS = 60
 BOARD_ITEM_LIMIT = 500
 PR_SEARCH_LIMIT = 200
-PR_FIELDS = "number,title,state,url,body,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,statusCheckRollup"
+PR_FIELDS = "number,title,state,url,body,changedFiles,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,statusCheckRollup"
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 ISSUE_REFERENCE = re.compile(r"(?:(?<![\w.-])([\w.-]+/[\w.-]+))?#(\d+)")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -151,6 +151,17 @@ class GitHub:
                    "--data-type", "DATE"])
         return board["number"]
 
+    def add_columns(self, board, names):
+        """Adds columns to a board. Each existing option keeps its id, or its items would lose their column."""
+        data = self._json(["project", "field-list", str(board.number), "--owner", board.owner, "--format", "json"])
+        status = next(f for f in data["fields"] if f["name"] == "Status")
+        kept = [f'{{id: {json.dumps(o["id"])}, name: {json.dumps(o["name"])}, color: GRAY, description: ""}}'
+                for o in status["options"]]
+        added = [f'{{name: {json.dumps(name)}, color: GRAY, description: ""}}' for name in names]
+        query = ("mutation { updateProjectV2Field(input: {fieldId: %s, singleSelectOptions: [%s]}) "
+                 "{ clientMutationId } }" % (json.dumps(status["id"]), ", ".join(kept + added)))
+        self._run(["api", "graphql", "-f", f"query={query}"])
+
     def create_issue(self, repo, title, body):
         """Creates an issue labelled `agent` and returns its URL."""
         self._run(["label", "create", AGENT_LABEL, "--repo", repo, "--force",
@@ -164,6 +175,9 @@ class GitHub:
     def issue_is_open(self, repo, number):
         data = self._json(["issue", "view", str(number), "--repo", repo, "--json", "state"])
         return data["state"] == "OPEN"
+
+    def close_issue(self, repo, number):
+        self._run(["issue", "close", str(number), "--repo", repo])
 
     def comment_issue(self, repo, number, body):
         self._run(["issue", "comment", str(number), "--repo", repo, "--body", body])

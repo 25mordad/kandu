@@ -49,6 +49,10 @@ class FakeGitHub:
         self.reads = 0
         self.threads = []
         self.merges = []
+        self.fields = []
+        self.closed = []
+        self.created = []
+        self.on_add = lambda key, size: None
 
     def add(self, number, status="Ready", repo=REPO, labels=("agent",), body="", priority="Medium", size="Small", deadline=""):
         url = f"https://github.com/{repo}/issues/{number}"
@@ -56,6 +60,15 @@ class FakeGitHub:
                                     priority, "Chore", size, deadline))
         self.open_issues.add((repo, number))
         self.statuses[url] = status
+        if status == "Backlog":
+            self.on_add(f"{repo}#{number}", size)
+
+    def set_field(self, board, url, field, value):
+        self.fields.append((url, field, value))
+
+    def close_issue(self, repo, number):
+        self.closed.append((repo, number))
+        self.open_issues.discard((repo, number))
 
     def status(self, number, repo=REPO):
         return self.statuses[f"https://github.com/{repo}/issues/{number}"]
@@ -162,9 +175,14 @@ class Base(unittest.TestCase):
         self.github = FakeGitHub()
         self.runner = FakeRunner(self.github)
         self.store = StateStore(self.root / "state")
+        self.github.on_add = self.sized  # Most tests are about what comes after the splitter.
         self.usage = Usage(10, 10)
         self.clock = [NOW]
         self.sup = self.new_supervisor()
+
+    def sized(self, key, size="Small"):
+        self.store.record("task_sized", task=key, project="website", run_id=None, size=size, files=1,
+                          door="two-way", criteria=1, slices=0)
 
     def new_supervisor(self):
         return Supervisor(self.config, self.store, self.github, self.runner, lambda: self.usage, self.local,
@@ -924,6 +942,38 @@ class MergeTest(Base):
 
     def test_a_question_for_the_user_waits(self):
         self.waits("Deferred work?", report(SHA1, wait=["Deferred work?"]))
+
+    def approve(self, sha=SHA1):
+        self.store.record("user_approved", task=f"{REPO}#1", project="website", head_sha=sha)
+
+    def test_the_users_yes_passes_a_one_way_door_and_her_questions(self):
+        self.waits("one-way", report(SHA1, door="one-way", wait=["Deferred work?"]))
+        self.approve()
+        self.runner.steps = [self.PASS]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+
+    def test_the_users_yes_stands_in_for_auto_merge(self):
+        self.config.projects[0].auto_merge = False
+        self.runner.steps = [report(SHA1, door="one-way")]
+        self.cycle()
+        self.assertEqual(self.github.merges, [])
+        self.approve()
+        self.runner.steps = [self.PASS]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+
+    def test_a_yes_to_another_head_does_not_count(self):
+        self.approve("0" * 40)
+        self.waits("one-way", report(SHA1, door="one-way"))
+
+    def test_the_users_yes_still_needs_the_tests(self):
+        self.waits("one-way", report(SHA1, door="one-way"))
+        self.approve()
+        self.runner.failing = {"npm test"}
+        self.cycle()
+        self.assertEqual(self.github.merges, [])
+        self.assertIn("tests fail", self.events("decision")[-1]["reason"])
 
     def test_failing_ci_waits(self):
         self.github.prs[(REPO, 1)]["statusCheckRollup"] = [{"conclusion": "FAILURE"}]

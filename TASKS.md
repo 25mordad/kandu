@@ -37,4 +37,6 @@ Every task is designed and checked against harness, context and memory (§14).
 26. [ ] A film of the dashboard for the README with a voice explaining what Kandu does, only after the first real round works
 27. [ ] Every project gets a backup of what it cannot rebuild as its first task (`/kandu-add`)
 28. [x] The queen: one LLM that paces work and judges what stopped for all projects, under locks kept in code (§5)
-29. [ ] A splitter agent that breaks a large task into smaller ones. The queen may not start or split a large task
+29. [x] A splitter agent that sizes every task against a scale in code and proposes a split for a large one. The user approves it, the slices run as a group, and the queen may not start a task without a size (§2)
+30. [x] Approve a PR from the dashboard, for one `SHA`, with every other merge condition still in code (§5, §7)
+31. [x] A modern dashboard that reads well in Persian: its own font, Persian digits, a folding table per project, details in a dialog (§7)

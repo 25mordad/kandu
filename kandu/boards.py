@@ -5,7 +5,7 @@ Only run when the user has said so; `/kandu-add` asks first.
 import argparse
 import sys
 
-from .config import BOARD_COLUMNS, BOARD_FIELDS, DEADLINE_FIELD
+from .config import BOARD_COLUMNS, BOARD_FIELDS, DEADLINE_FIELD, Board
 from .github import GitHub, GitHubError
 
 
@@ -20,12 +20,23 @@ def missing_columns(board, found):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Create a board with Kandu's columns.")
+    parser = argparse.ArgumentParser(description="Create a board with Kandu's columns, or add those a board lacks.")
     parser.add_argument("--owner", required=True)
-    parser.add_argument("--title", required=True)
+    parser.add_argument("--title", help="create a board with this title")
+    parser.add_argument("--add-missing", type=int, metavar="NUMBER", help="add the missing columns to this board")
     args = parser.parse_args()
+    if bool(args.title) == bool(args.add_missing):
+        parser.error("give --title or --add-missing")
     try:
-        print(GitHub().create_board(args.owner, args.title, BOARD_COLUMNS))
+        github = GitHub()
+        if args.title:
+            print(github.create_board(args.owner, args.title, BOARD_COLUMNS))
+            return 0
+        board = Board(owner=args.owner, number=args.add_missing)
+        missing = missing_columns(board, github.board_columns(board))
+        if missing:
+            github.add_columns(board, missing)
+        print(", ".join(missing) or "nothing is missing")
     except GitHubError as e:
         print(f"boards: {e}", file=sys.stderr)
         return 1

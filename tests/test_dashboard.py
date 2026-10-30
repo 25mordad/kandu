@@ -184,6 +184,44 @@ class ControlTest(Base):
     def post(self, target, token=TOKEN):
         return dispatch(self.api, "POST", target, token)
 
+    def reviewed(self, head="abc", blockers=0, criteria_met=True):
+        self.store.record("review_finished", task=f"{REPO}#1", project="website", run_id="r", round=1, head_sha=head,
+                          findings=0, blockers=blockers, door="one-way", criteria_met=criteria_met,
+                          wait_for_user=["Merge?"], user_brief=None)
+        self.github.find_pr.return_value = {"number": 7, "title": "T", "url": "u", "state": "OPEN", "headRefOid": "abc",
+                                            "comments": []}
+
+    def test_approve_saves_the_yes_for_that_head_and_starts_a_cycle(self):
+        self.reviewed()
+        self.api.start_cycle = mock.Mock(return_value=True)
+        status, body = self.post(f"/api/v1/reviews/{REPO}/1/approve?head=abc")
+        self.assertEqual((status, body), (200, {"approved": "abc", "cycle_started": True}))
+        self.assertIsNotNone(self.store.last_event("user_approved", task=f"{REPO}#1", head_sha="abc"))
+        pr = self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]
+        self.assertTrue(pr["approved"])
+
+    def test_approve_needs_the_token(self):
+        self.reviewed()
+        self.assertEqual(self.post(f"/api/v1/reviews/{REPO}/1/approve?head=abc", "wrong")[0], 403)
+        self.assertIsNone(self.store.last_event("user_approved"))
+
+    def test_a_head_the_user_did_not_see_is_not_approved(self):
+        self.reviewed()
+        self.assertEqual(self.post(f"/api/v1/reviews/{REPO}/1/approve?head=old")[0], 409)
+        self.assertEqual(self.post(f"/api/v1/reviews/{REPO}/1/approve")[0], 409)
+        self.assertIsNone(self.store.last_event("user_approved"))
+
+    def test_what_would_stop_the_merge_is_refused_now(self):
+        for review_of in ({"head": "other"}, {"blockers": 1}, {"criteria_met": False}):
+            self.store = self.api.store = StateStore(self.root / f"state-{len(str(review_of))}")
+            self.reviewed(**review_of)
+            self.assertEqual(self.post(f"/api/v1/reviews/{REPO}/1/approve?head=abc")[0], 409)
+            self.assertFalse(self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["can_approve"])
+            self.assertIsNone(self.store.last_event("user_approved"))
+
+    def test_approve_of_an_unregistered_repo(self):
+        self.assertEqual(self.post("/api/v1/reviews/other/repo/1/approve?head=abc")[0], 404)
+
     def test_stop_and_resume(self):
         self.assertEqual(self.post("/api/v1/stop")[0], 200)
         self.assertTrue(self.store.stop_file.exists())
@@ -249,6 +287,16 @@ class HiveTest(unittest.TestCase):
     def test_the_page_loads_nothing_from_outside(self):
         self.assertEqual(re.findall(r'(?:src|href)="https?://', self.page), [])
         self.assertNotIn("@import", self.page)
+
+    def test_the_font_ships_with_kandu(self):
+        self.assertIn(f'url("/{dashboard.FONT.name}")', self.page)
+        self.assertTrue(dashboard.FONT.exists())
+
+    def test_a_task_number_stays_whole_in_persian_text(self):
+        self.assertIn("\\u2066#${num(", self.page)
+
+    def test_controls_ask_nothing_through_the_browser(self):
+        self.assertNotRegex(self.page, r"\b(confirm|alert|prompt)\(")
 
     def test_motion_stops_for_those_who_ask(self):
         self.assertIn("prefers-reduced-motion: reduce", self.page)
@@ -317,6 +365,11 @@ class ServerTest(Base):
             self.assertIn(b"<title>Kandu</title>", r.read())
         with urllib.request.urlopen(self.base + "/api/v1/days") as r:
             self.assertEqual(json.load(r), {"days": []})
+
+    def test_the_font_is_served(self):
+        with urllib.request.urlopen(f"{self.base}/{dashboard.FONT.name}") as r:
+            self.assertEqual(r.headers["Content-Type"], "font/woff2")
+            self.assertEqual(r.read(4), b"wOF2")
 
     def test_token_header(self):
         request = urllib.request.Request(self.base + "/api/v1/stop", method="POST")

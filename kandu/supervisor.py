@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, merge, queen, review
+from . import agents, merge, queen, review, sizing, split
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import AGENT_LABEL, GitHub, GitHubError, blockers_in, branch_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
@@ -29,6 +29,7 @@ from .usage import UsageError, over_limit, read_usage
 
 BACKLOG, READY, IN_PROGRESS, IN_REVIEW = "Backlog", "Ready", "In progress", "In review"
 NEEDS_INFO, BLOCKED, DONE = "Needs info", "Blocked", "Done"
+NEEDS_SPLIT = split.NEEDS_SPLIT
 RESUMED = (IN_PROGRESS, IN_REVIEW)
 MERGEABLE = ("approved", "approved_with_notes")
 END_CHECK_MERGES = 2  # This many merges in a project in one cycle earn a check of the whole project.
@@ -250,6 +251,13 @@ class Supervisor:
             raise TaskFailed("worker reported a PR, but its branch has none")
         return pr
 
+    def _warn_if_oversized(self, task, pr):
+        """A warning only: it shows where the scale and the splitter's estimates are wrong."""
+        sized = self.store.last_event("task_sized", task=task.key)
+        files = pr.get("changedFiles", 0)
+        if sized is not None and not sizing.fits(sized["size"], 0, files):
+            self._decide(task, "oversized", f"{files} files changed, sized {sized['size']}")
+
     def _family_repos(self, project):
         return [repo for p in self.config.projects if p.family == project.family for repo in p.repos]
 
@@ -328,12 +336,17 @@ class Supervisor:
                 names.append(f"{repo}#{number}")
         return names
 
+    def _approved(self, task, pr):
+        """Only the local log counts, and only for this head: a new commit voids the user's yes as well."""
+        return self.store.last_event("user_approved", task=task.key, head_sha=pr["headRefOid"]) is not None
+
     def _merge_waits(self, task, pr):
         """Returns why Kandu may not merge. The tests run last: they are the slow check."""
         head = pr["headRefOid"]
         reviewed = self.store.last_event("review_finished", task=task.key, head_sha=head)
         threads = self.github.review_threads(task.repo, pr["number"])
-        reasons = merge.merge_waits(task.project, pr, reviewed, threads, self._unreviewed_companions(task, pr))
+        reasons = merge.merge_waits(task.project, pr, reviewed, threads, self._unreviewed_companions(task, pr),
+                                    self._approved(task, pr))
         if reasons:
             return reasons
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
@@ -342,7 +355,7 @@ class Supervisor:
 
     def _merge(self, task, pr, outcome, worked):
         """Merges a settled PR if every condition holds. Returns True if it did."""
-        if outcome not in MERGEABLE or not self.config.auto_merge_for(task.project):
+        if outcome not in MERGEABLE or not (self.config.auto_merge_for(task.project) or self._approved(task, pr)):
             if worked:
                 self._decide(task, outcome, "the user decides next")
             return False
@@ -403,6 +416,83 @@ class Supervisor:
                 return
         self._finish(task, DONE, "merged")
         self.merged[task.project.name] += 1
+        self._close_group(task)
+
+    def _close_group(self, task):
+        """The parent of a group closes with its last slice."""
+        group = next((e for e in queen.all_events(self.store)
+                      if e["type"] == "task_split" and task.key in e["children"]), None)
+        if group is None or any(self._is_open(c) for c in group["children"] if c != task.key):
+            return
+        repo, number = group["task"].split("#")
+        self.github.close_issue(repo, int(number))
+        url = f"https://github.com/{repo}/issues/{number}"
+        self.github.set_status(task.project.board, url, DONE)
+
+    def _is_open(self, key):
+        repo, number = key.split("#")
+        return self.github.issue_is_open(repo, int(number))
+
+    def _group_ahead(self, project, key):
+        """Returns the parent of the group that must finish before `key` may start, or None."""
+        for event in queen.all_events(self.store):
+            if event["type"] != "task_split" or event["project"] != project.name:
+                continue
+            if key in event["children"]:
+                return None
+            if any(self._is_open(child) for child in event["children"]):
+                return event["task"]
+        return None
+
+    # The splitter. It sees each task once, before the queen may release it.
+
+    def _size(self, task, item):
+        self._pick(task)
+        self._phase(task, "sizing")
+        run_id = new_run_id(self.now())
+        base = self.github.default_branch(task.repo)
+        cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/size-{task.number}", f"origin/{base}")
+        prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.local_dir)
+        try:
+            result = self._agent(task, "splitter", cwd, prompt, agents.splitter_tools(), run_id)
+            report = split.parse_report(result.text)
+            split.validate_report(report, item.body)
+        except StoppedByUser:
+            raise
+        except (TaskFailed, split.ReportError) as e:
+            self._decide(task, "sizing_failed", str(e))
+            self.github.comment_issue(task.repo, task.number, "Kandu could not size this task. "
+                                      "Move it back to Backlog to try again. The details are in its local log.")
+            self._finish(task, NEEDS_INFO, "sizing_failed")
+            return
+        slices = report.get("slices") or []
+        if slices:
+            self.store.write_split(task.key, {"title": task.title, "reason": report["reason"], "slices": slices})
+        self.github.set_field(task.project.board, task.url, "Size", report["size"])
+        self.store.record("task_sized", task=task.key, project=task.project.name, run_id=run_id, size=report["size"],
+                          files=report["files"], door=report["door"], criteria=sizing.criteria_in(item.body),
+                          slices=len(slices))
+        if slices:
+            self.github.comment_issue(task.repo, task.number, f"Kandu sized this {sizing.LARGE}. "
+                                      "A proposal to split it waits for the owner.")
+            self._move(task, NEEDS_SPLIT)
+
+    def _size_backlog(self):
+        """Runs before the queen looks, so a task is sized before she can see it."""
+        today = self.store.today()
+        for project, item in board_items(self.config, self.github):
+            key = f"{item.repo}#{item.number}"
+            if item.status != BACKLOG or self.store.last_event("task_sized", task=key) is not None:
+                continue
+            if self.store.tokens_counted(today, project=project.name) >= project.daily_token_limit:
+                continue
+            if not self.runner.reachable(project.machine):
+                continue
+            task = Task(project, item.repo, item.number, item.title, item.url, item.status,
+                        branch_for(item.number, item.title))
+            self._run_task(task, lambda task=task, item=item: self._size(task, item))
+            if self.halt_reason is not None:
+                return
 
     def _check_project(self, project):
         """No agent and no tokens: the tests on the default branch, and the live URL answering."""
@@ -435,6 +525,7 @@ class Supervisor:
             pr = self._implement(task)
             if pr is None:
                 return
+            self._warn_if_oversized(task, pr)
         task.branch = pr["headRefName"]  # Worked out from the title, which may have changed since.
         worked = False
         while True:
@@ -459,9 +550,9 @@ class Supervisor:
             worked = True
             pr = self.github.pr(task.repo, pr["number"])
 
-    def _run_task(self, task):
+    def _run_task(self, task, drive=None):
         try:
-            self._drive(task)
+            (drive or (lambda: self._drive(task)))()
         except CycleStop:
             pass
         except Exception as e:
@@ -515,7 +606,8 @@ class Supervisor:
         if not settings.queen or self.halt_reason is not None:
             return False
         items = list(board_items(self.config, self.github))
-        backlog = [(project, item) for project, item in items if item.status == BACKLOG and _can_start(self.github, item)]
+        backlog = [(project, item) for project, item in items if item.status == BACKLOG and _can_start(self.github, item)
+                   and self.store.last_event("task_sized", task=f"{item.repo}#{item.number}") is not None]
         keys = [f"{item.repo}#{item.number}" for _, item in backlog]
         before, news = queen.since_last_look(self.store)
         if not queen.worth_a_look(before, news, keys, self.store.today()):
@@ -574,7 +666,8 @@ class Supervisor:
             if action == "release":
                 why = "it was already released" if task in released else queen.why_no_release(
                     item, _can_start(self.github, item), self.store.tokens_counted(today, project=project.name),
-                    project.daily_token_limit)
+                    project.daily_token_limit, self.store.last_event("task_sized", task=task),
+                    self._group_ahead(project, task))
                 if why is not None:
                     refused.append(f"release of {task}: {why}")
                     continue
@@ -661,6 +754,7 @@ class Supervisor:
         reason = self._gate() or self._queen_limit()
         if reason is None:
             try:
+                self._size_backlog()
                 self._queen()
             except (GitHubError, RunnerError) as e:
                 self.queen_trouble = type(e).__name__

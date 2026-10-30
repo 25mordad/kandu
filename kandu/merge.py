@@ -21,16 +21,19 @@ def _thread_reasons(threads):
     return reasons
 
 
-def merge_waits(project, pr, reviewed, threads, unreviewed_companions):
-    """Returns why this head may not merge alone. `reviewed` comes from the local log, never from a comment."""
+def merge_waits(project, pr, reviewed, threads, unreviewed_companions, approved=False):
+    """Returns why this head may not merge alone. `reviewed` comes from the local log, never from a comment.
+
+    `approved` is the user's own yes to this head. It answers the review's questions and the door, nothing else.
+    """
     if reviewed is None:
         return ["this head has no review in the local log"]
-    reasons = list(reviewed["wait_for_user"])
+    reasons = [] if approved else list(reviewed["wait_for_user"])
     if reviewed["blockers"]:
         reasons.append("a blocker is open")
     if not reviewed["criteria_met"]:
         reasons.append("an acceptance criterion is not met")
-    if reviewed["door"] != "two-way":
+    if reviewed["door"] != "two-way" and not approved:
         reasons.append("this is a one-way door")
     if pr["isDraft"]:
         reasons.append("the PR is a draft")

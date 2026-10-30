@@ -18,6 +18,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | GET | `/api/v1/stream` | new events as they happen, as Server-Sent Events |
 | GET | `/api/v1/runs/{run_id}` | what one agent run did: files read, commands, edits |
 | GET | `/api/v1/reviews/{owner}/{repo}/{number}` | the PR of a task and each review round |
+| POST | `/api/v1/reviews/{owner}/{repo}/{number}/approve` | the user's yes to merge the PR's head, given as `?head=SHA`; a cycle starts |
 | POST | `/api/v1/stop` | stop the supervisor; running agents are killed |
 | POST | `/api/v1/resume` | allow the next cycle to run |
 | POST | `/api/v1/workers/{run_id}/stop` | stop one running agent; its task moves to `Blocked` |
@@ -71,5 +72,8 @@ data: {"v": 1, "ts": "2026-10-30T12:00:00+01:00", "type": "supervisor_woke"}
  "rounds": [{"round": 1, "head_sha": "abc123", "door": "two-way", "summary": "...", "brief": "...", "user_brief": "...", "blast_radius": "...",
              "criteria": [{"criterion": "...", "result": "met"}], "open": [], "recommendation": "ready to merge"}]}
 ```
+The `pr` object also has `approved`, true once the user said yes to this head, and `can_approve`, true when the page may offer that.
+
+`POST /api/v1/reviews/acme-org/website/12/approve?head=abc123` answers `{"approved": "abc123", "cycle_started": true}`. `cycle_started` is `null` if a cycle is already running, and `false` if `systemd` refused. Either way the yes is saved, and the next cycle uses it. The answer is `409` if `head` is no longer the PR's head, or if the local log shows no review of it, an open blocker or an unmet criterion. The yes answers the review's questions and a one-way door. Every other merge condition still applies, including the tests.
 
 `POST /api/v1/stop` answers `{"stop_requested": true}`, `POST /api/v1/resume` answers `{"stop_requested": false}`, and `POST /api/v1/workers/{run_id}/stop` answers `{"stopping": "<run_id>"}`.

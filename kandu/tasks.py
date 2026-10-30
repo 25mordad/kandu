@@ -10,6 +10,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
+from . import sizing
 from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR, DEADLINE_FIELD, ConfigError, load_config
 from .github import GitHub, GitHubError
 
@@ -63,6 +64,13 @@ def check_fields(priority, kind, size, deadline):
             raise TaskError("the deadline must be a date, YYYY-MM-DD") from e
 
 
+def check_size(body, size):
+    """Files and the door are the splitter's to judge; the criteria can be counted here."""
+    criteria = sizing.criteria_in(body)
+    if not sizing.fits(size, criteria, 0):
+        raise TaskError(f"{criteria} acceptance criteria do not fit {size}: size it {sizing.LARGE}")
+
+
 def create_task(config, github, project_name, repo, title, body, local_dir, priority, kind, size, deadline=None):
     """Creates the issue, puts it on the board in `Backlog` and returns its URL."""
     project = next((p for p in config.projects if p.name == project_name), None)
@@ -76,6 +84,7 @@ def create_task(config, github, project_name, repo, title, body, local_dir, prio
     check_body(body)
     check_english(f"{title}\n{body}")
     check_fields(priority, kind, size, deadline)
+    check_size(body, size)
     if github.repo_is_public(repo):
         check_private(f"{title}\n{body}", private_words(local_dir))
     url = github.create_issue(repo, title, body)

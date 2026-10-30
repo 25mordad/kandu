@@ -14,13 +14,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import queen, review
+from . import queen, review, timer
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import AGENT_LABEL, GitHub, GitHubError
 from .runner import DEFAULT_LOGS_DIR
 from .state import StateStore
 
 PAGE = Path(__file__).with_name("dashboard.html")
+FONT = Path(__file__).with_name("vazirmatn.woff2")
 TOKEN_ENV = "KANDU_DASHBOARD_TOKEN"
 API = "/api/v1"
 QUEUE_CACHE_SECONDS = 60
@@ -28,7 +29,7 @@ STREAM_POLL_SECONDS = 2
 EVENT_PAGE = 500
 RUN_ID = re.compile(r"r-[\w-]+")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
-QUEUE_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Blocked")
+QUEUE_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked")
 TOOL_DETAIL_KEYS = ("file_path", "path", "pattern", "command")
 MAX_DETAIL = 200
 
@@ -69,13 +70,14 @@ class ApiError(Exception):
 
 
 class Api:
-    def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic):
+    def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic, start_cycle=timer.start_cycle):
         self.config = config
         self.store = store
         self.github = github
         self.logs_dir = Path(logs_dir)
         self.token = token
         self.clock = clock
+        self.start_cycle = start_cycle
         self._queue = None
         self._queue_time = None
 
@@ -153,9 +155,13 @@ class Api:
         pr = self.github.find_pr(full, int(number))
         if pr is None:
             return {"task": f"{full}#{number}", "pr": None, "rounds": []}
+        task, head = f"{full}#{number}", pr["headRefOid"]
         rounds = review.reviews_on(pr, self.config.settings.github.account)
-        return {"task": f"{full}#{number}", "pr": {"number": pr["number"], "title": pr["title"], "url": pr["url"],
-                                                   "state": pr["state"], "head_sha": pr["headRefOid"]},
+        return {"task": task, "pr": {"number": pr["number"], "title": pr["title"], "url": pr["url"],
+                                     "state": pr["state"], "head_sha": head,
+                                     "approved": self.store.last_event("user_approved", task=task,
+                                                                       head_sha=head) is not None,
+                                     "can_approve": self._why_no_approval(task, pr) is None},
                 "rounds": [r | {"recommendation": recommendation(r), "user_brief": self._user_brief(full, number, r)}
                            for r in rounds]}
 
@@ -163,6 +169,37 @@ class Api:
         """It stays in the local log: a PR comment holds only English."""
         seen = self.store.last_event("review_finished", task=f"{repo}#{number}", round=round_["round"])
         return (seen or {}).get("user_brief")
+
+    def _why_no_approval(self, task, pr):
+        """The local log decides, as at the merge gate. These would stop the merge anyway, so the button says so now."""
+        if pr["state"] != "OPEN":
+            return "this PR is not open"
+        seen = self.store.last_event("review_finished", task=task, head_sha=pr["headRefOid"])
+        if seen is None:
+            return "this head has no review"
+        if seen["blockers"]:
+            return "a blocker is open"
+        if not seen["criteria_met"]:
+            return "an acceptance criterion is not met"
+        return None
+
+    def approve(self, query, owner, repo, number):
+        """The user's yes to one head. The supervisor merges it and still checks everything else."""
+        full = f"{owner}/{repo}"
+        project = next((p for p in self.config.projects if full in p.repos), None)
+        if not number.isdigit() or project is None:
+            raise ApiError(404, "no such task")
+        pr = self.github.find_pr(full, int(number))
+        if pr is None:
+            raise ApiError(404, "this task has no PR")
+        if query.get("head", [None])[0] != pr["headRefOid"]:
+            raise ApiError(409, "the PR has changed since you saw it")
+        task = f"{full}#{number}"
+        why = self._why_no_approval(task, pr)
+        if why is not None:
+            raise ApiError(409, why)
+        self.store.record("user_approved", task=task, project=project.name, head_sha=pr["headRefOid"])
+        return {"approved": pr["headRefOid"], "cycle_started": self.start_cycle()}
 
     def stop(self, query):
         self.store.request_stop()
@@ -190,6 +227,7 @@ ROUTES = [
     ("GET", "/stream", None),
     ("GET", "/runs/{run_id}", Api.run),
     ("GET", "/reviews/{owner}/{repo}/{number}", Api.reviews),
+    ("POST", "/reviews/{owner}/{repo}/{number}/approve", Api.approve),
     ("POST", "/stop", Api.stop),
     ("POST", "/resume", Api.resume),
     ("POST", "/workers/{run_id}/stop", Api.stop_worker),
@@ -289,6 +327,8 @@ def make_handler(api):
             path = urlparse(self.path).path
             if path == "/":
                 self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
+            elif path == f"/{FONT.name}":
+                self._send(200, FONT.read_bytes(), "font/woff2")
             elif path == f"{API}/stream":
                 self._stream()
             else:
