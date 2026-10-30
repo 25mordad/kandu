@@ -39,7 +39,10 @@ state/
 | `review_finished` | `task`, `project`, `run_id`, `round`, `head_sha`, `findings`, `blockers`, `door`, `criteria_met`, `wait_for_user`, `user_brief` |
 | `user_approved` | `task`, `project`, `head_sha` |
 | `task_sized` | `task`, `project`, `run_id`, `size`, `files`, `door`, `criteria`, `slices` |
+| `slice_created` | `task`, `project`, `parent` |
 | `task_split` | `task`, `project`, `children` |
+| `split_declined` | `task`, `project` |
+| `group_closed` | `task`, `project` |
 | `deployed` | `task`, `project`, `run_id` |
 | `project_checked` | `project`, `passed`, `detail` |
 | `task_finished` | `task`, `project`, `outcome` |

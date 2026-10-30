@@ -29,6 +29,7 @@ STREAM_POLL_SECONDS = 2
 EVENT_PAGE = 500
 RUN_ID = re.compile(r"r-[\w-]+")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+MERGEABLE_COLUMNS = ("Ready", "In progress", "In review")  # the columns a cycle picks up
 QUEUE_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked")
 TOOL_DETAIL_KEYS = ("file_path", "path", "pattern", "command")
 MAX_DETAIL = 200
@@ -181,6 +182,14 @@ class Api:
             return "a blocker is open"
         if not seen["criteria_met"]:
             return "an acceptance criterion is not met"
+        repo, number = task.split("#")
+        project = next(p for p in self.config.projects if repo in p.repos)
+        if project.paused or project.board is None:
+            return "no cycle looks at its project"
+        status = next((i.status for i in self.github.board_items(project.board)
+                       if i.repo == repo and i.number == int(number)), None)
+        if status not in MERGEABLE_COLUMNS:
+            return f"its task is in {status or 'no column'}, so no cycle would pick it up"
         return None
 
     def approve(self, query, owner, repo, number):

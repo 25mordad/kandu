@@ -81,12 +81,17 @@ def why_no_release(item, startable, spent, limit, sized, group):
     return None
 
 
-def why_no_retry(events, task, limit, blocked, merged):
-    """Returns why this task may not go back, or None."""
+def why_no_retry(events, task, limit, blocked, merged, sized=None):
+    """Returns why this task may not go back, or None. A task that reached a worker before sizing existed has no `sized`."""
     if not blocked:
         return "it is not Blocked"
     if merged:
         return "its PR is already merged"
+    if sized is not None and sized["size"] == LARGE:
+        return "it is Large and must be split first"
+    worked = any(e["type"] == "run_finished" and e["task"] == task and e["role"] != "splitter" for e in events)
+    if sized is None and not worked:
+        return "the splitter has not sized it"
     finished = [e for e in events if e["type"] == "task_finished" and e["task"] == task]
     if not finished or finished[-1]["outcome"] not in RETRYABLE:
         return "its last outcome is not one a retry can change"

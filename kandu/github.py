@@ -155,8 +155,11 @@ class GitHub:
         """Adds columns to a board. Each existing option keeps its id, or its items would lose their column."""
         data = self._json(["project", "field-list", str(board.number), "--owner", board.owner, "--format", "json"])
         status = next(f for f in data["fields"] if f["name"] == "Status")
-        kept = [f'{{id: {json.dumps(o["id"])}, name: {json.dumps(o["name"])}, color: GRAY, description: ""}}'
-                for o in status["options"]]
+        query = ("query { node(id: %s) { ... on ProjectV2SingleSelectField { options { id name color description } } } }"
+                 % json.dumps(status["id"]))
+        options = self._json(["api", "graphql", "-f", f"query={query}"])["data"]["node"]["options"]
+        kept = [f'{{id: {json.dumps(o["id"])}, name: {json.dumps(o["name"])}, color: {o["color"]}, '
+                f'description: {json.dumps(o["description"])}}}' for o in options]
         added = [f'{{name: {json.dumps(name)}, color: GRAY, description: ""}}' for name in names]
         query = ("mutation { updateProjectV2Field(input: {fieldId: %s, singleSelectOptions: [%s]}) "
                  "{ clientMutationId } }" % (json.dumps(status["id"]), ", ".join(kept + added)))

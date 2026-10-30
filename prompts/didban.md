@@ -22,6 +22,7 @@ The splitter sized these too large, and they stand in `Needs split`. If any are 
 1. Read one with `python -m kandu.split show TASK` on the brain and show it in plain words: why it is too big, then each slice with its size and door. Finish when the user has said yes, asked for a change, or left it for later.
 2. For a change, make the edited list of slices as JSON and pass it with `--file -` on stdin. Show the user the new list before you use it.
 3. On a yes for that list, run `python -m kandu.split approve TASK`. Run it only on that yes. It creates the issues and prints them: tell the user which ones. Each one still waits for the queen.
+4. On a no, run `python -m kandu.split decline TASK`. The task returns to `Backlog` and is sized again, so let the user change the issue first.
 
 ## When something did not land
 If the user says they did not understand, explain the same point again in plain words, with the background they are missing. Add no new topics and do not repeat the same wording.

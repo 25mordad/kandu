@@ -1,10 +1,15 @@
+import contextlib
+import dataclasses
+import io
 import json
 import unittest
+from datetime import datetime
+from pathlib import Path
 from unittest import mock
 
 from kandu import agents, boards, didban, queen, sizing, split, supervisor
-from kandu.config import Board
-from kandu.github import GitHub
+from kandu.config import BOARD_COLUMNS, Board
+from kandu.github import GitHub, GitHubError, blockers_in
 from kandu.tasks import TaskError, check_size
 
 from test_supervisor import PR_OPENED, REPO, SHA1, Base, ok, report
@@ -51,6 +56,9 @@ class ReportTest(unittest.TestCase):
     def test_a_fair_report_passes(self):
         split.validate_report(sized(), body())
         split.validate_report(LARGE, body())
+
+    def test_a_report_in_a_code_fence_is_read(self):
+        self.assertEqual(split.parse_report('```json\n{"size": "Small"}\n```'), {"size": "Small"})
 
     def test_only_json_is_a_report(self):
         for text in ("not json", "[1]"):
@@ -161,6 +169,21 @@ class QueenLockTest(unittest.TestCase):
     def test_a_group_comes_first(self):
         self.assertIn("group", self.why(group="acme-org/website#9"))
 
+    def retry(self, sized, role=None):
+        events = [{"type": "task_finished", "task": "a/b#1", "outcome": "failed"}]
+        if role:
+            events.append({"type": "run_finished", "task": "a/b#1", "role": role})
+        return queen.why_no_retry(events, "a/b#1", 2, True, False, sized)
+
+    def test_a_retry_cannot_pass_the_size_lock(self):
+        self.assertIn("Large", self.retry({"size": "Large"}))
+        self.assertIn("not sized", self.retry(None))
+        self.assertIn("not sized", self.retry(None, "splitter"))
+
+    def test_a_task_older_than_the_splitter_may_be_retried(self):
+        self.assertIsNone(self.retry(None, "worker"))
+        self.assertIsNone(self.retry({"size": "Small"}))
+
 
 class GroupTest(Base):
     def setUp(self):
@@ -232,14 +255,95 @@ class GroupTest(Base):
     def test_the_parent_closes_with_the_last_slice(self):
         self.approve()
         sup = self.new_supervisor()
-        task = supervisor.Task(self.config.projects[0], REPO, 11, "t", "u", "In review", "b")
-        sup._close_group(task)
+        sup._close_groups()
         self.assertEqual(self.github.closed, [])
-        self.github.open_issues.discard((REPO, 11))
-        task.number = 12
-        sup._close_group(task)
+        self.github.open_issues -= {(REPO, 11), (REPO, 12)}
+        sup._close_groups()
+        sup._close_groups()
         self.assertEqual(self.github.closed, [(REPO, 10)])
         self.assertEqual(self.github.status(10), "Done")
+
+    def test_a_failure_closing_the_group_does_not_undo_the_slice(self):
+        self.approve()
+        self.github.open_issues -= {(REPO, 11), (REPO, 12)}
+        sup = self.new_supervisor()
+        project = dataclasses.replace(self.config.projects[0], deploy=None)
+        task = supervisor.Task(project, REPO, 12, "t", f"https://github.com/{REPO}/issues/12", "In review", "b")
+        with mock.patch.object(self.github, "close_issue", side_effect=GitHubError("down")):
+            sup._land(task)
+        self.assertEqual(self.github.status(12), "Done")
+        self.assertEqual(self.github.closed, [])
+        sup._close_groups()
+        self.assertEqual(self.github.closed, [(REPO, 10)])
+
+    def test_the_parent_is_not_a_blocker_of_its_slices(self):
+        self.approve()
+        first, second = self.created
+        self.assertEqual(blockers_in(first.body, REPO), [("acme-org/website", 2)])
+        self.assertEqual(blockers_in(second.body, REPO), [(REPO, 11)])
+
+    def test_a_private_word_stops_the_split_before_the_first_issue(self):
+        (Path(self.local) / "private-words.txt").write_text("criterion\n", encoding="utf-8")
+        with mock.patch.object(self.github, "repo_is_public", return_value=True), self.assertRaises(TaskError):
+            self.approve()
+        self.assertEqual(self.created, [])
+
+    def test_a_retry_carries_on_after_the_slices_that_exist(self):
+        real = split.create_task.side_effect
+        def fail_on_second(*args):
+            if len(self.created) == 1:
+                raise TaskError("gh failed")
+            return real(*args)
+        split.create_task.side_effect = fail_on_second
+        with self.assertRaises(TaskError):
+            self.approve()
+        self.assertIsNone(self.store.last_event("task_split", task=self.key))
+        split.create_task.side_effect = real
+        self.assertEqual(self.approve(), [f"{REPO}#11", f"{REPO}#12"])
+        self.assertEqual([c.title for c in self.created], ["First", "Second"])
+        self.assertIn(f"## Blocked by\n{REPO}#11\n", self.created[1].body)
+
+    def test_declining_sends_it_back_to_be_sized_again(self):
+        self.store.record("task_sized", task=self.key, project="website", run_id=None, size="Large", files=40,
+                          door="mixed", criteria=9, slices=2, now=datetime(2026, 1, 1).astimezone())
+        split.decline(self.config, self.github, self.store, self.key)
+        self.assertEqual(self.github.status(10), "Backlog")
+        self.assertIsNone(split.current_size(self.store, self.key))
+        self.assertEqual(split.pending(self.store), [])
+        with self.assertRaises(TaskError):
+            split.decline(self.config, self.github, self.store, self.key)
+
+    def run_cli(self, *args, stdin=""):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch("sys.argv", ["split", *args, "--local", str(self.local)]), \
+                mock.patch.object(split, "StateStore", return_value=self.store), \
+                mock.patch.object(split, "GitHub", return_value=self.github), \
+                mock.patch.object(split, "load_config", return_value=self.config), \
+                mock.patch("sys.stdin", io.StringIO(stdin)), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = split.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_the_command_lists_shows_and_approves(self):
+        code, out, _ = self.run_cli("list")
+        self.assertEqual((code, out), (0, f"{self.key}: Big (2 slices)\n"))
+        code, out, _ = self.run_cli("show", self.key)
+        self.assertEqual((code, json.loads(out)["reason"]), (0, "Too much."))
+        code, out, _ = self.run_cli("approve", self.key)
+        self.assertEqual((code, out), (0, f"{REPO}#11\n{REPO}#12\n"))
+        code, _, err = self.run_cli("approve", self.key)
+        self.assertEqual(code, 1)
+        self.assertIn("not waiting", err)
+
+    def test_the_command_takes_edited_slices_on_stdin(self):
+        code, out, _ = self.run_cli("approve", self.key, "--file", "-", stdin=json.dumps([part("A"), part("B"), part("C")]))
+        self.assertEqual((code, out.count("\n")), (0, 3))
+        self.assertEqual(self.created[2].title, "C")
+
+    def test_the_command_declines(self):
+        self.assertEqual(self.run_cli("decline", self.key)[0], 0)
+        self.assertEqual(self.github.status(10), "Backlog")
+        self.assertEqual(self.run_cli("show", self.key)[0], 1)
 
 
 class SlimIssue:
@@ -289,14 +393,39 @@ class ColumnTest(unittest.TestCase):
     def test_a_new_column_keeps_the_ids_of_the_others(self):
         github = GitHub()
         fields = {"fields": [{"id": "F", "name": "Status", "options": [{"id": "o1", "name": "Backlog"}]}]}
-        with mock.patch.object(github, "_json", return_value=fields), mock.patch.object(github, "_run") as run:
+        options = {"data": {"node": {"options": [{"id": "o1", "name": "Backlog", "color": "BLUE", "description": "Approved"}]}}}
+        with mock.patch.object(github, "_json", side_effect=[fields, options]), mock.patch.object(github, "_run") as run:
             github.add_columns(Board("acme-org", 1), ["Needs split"])
         query = run.call_args.args[0][-1]
-        self.assertIn('{id: "o1", name: "Backlog"', query)
+        self.assertIn('{id: "o1", name: "Backlog", color: BLUE, description: "Approved"}', query)
         self.assertIn('{name: "Needs split"', query)
 
     def test_a_board_without_the_column_is_found(self):
         self.assertIn("Needs split", boards.missing_columns(Board("acme-org", 1), ["Backlog"]))
+
+    def add_missing(self, config, found):
+        github = mock.Mock()
+        github.board_columns.return_value = found
+        out = io.StringIO()
+        with mock.patch("sys.argv", ["boards", "--owner", "acme-org", "--add-missing", "1"]), \
+                mock.patch.object(boards, "GitHub", return_value=github), \
+                mock.patch.object(boards, "load_config", return_value=config), contextlib.redirect_stdout(out):
+            code = boards.main()
+        return code, github, out.getvalue()
+
+    def test_the_command_reads_the_mapping_of_a_board_in_the_config(self):
+        mapped = Board("acme-org", 1, columns={"Backlog": "Todo"})
+        config = mock.Mock(projects=[mock.Mock(board=mapped)])
+        found = ["Todo", *(c for c in BOARD_COLUMNS if c not in ("Backlog", "Needs split"))]
+        code, github, _ = self.add_missing(config, found)
+        self.assertEqual(code, 0)
+        github.add_columns.assert_called_once_with(mapped, ["Needs split"])
+
+    def test_the_command_adds_nothing_to_a_complete_board(self):
+        code, github, out = self.add_missing(mock.Mock(projects=[]), list(BOARD_COLUMNS))
+        self.assertEqual(code, 0)
+        github.add_columns.assert_not_called()
+        self.assertIn("nothing is missing", out)
 
 
 if __name__ == "__main__":

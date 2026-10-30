@@ -11,10 +11,13 @@ from pathlib import Path
 from . import sizing
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import BLOCKED_BY, GitHub, GitHubError, blockers_in
+from .queen import all_events
+from .review import CODE_FENCE
 from .state import StateStore
-from .tasks import TaskError, check_body, check_english, check_fields, create_task
+from .tasks import TaskError, check_body, check_english, check_fields, check_private, create_task, private_words
 
 MIN_SLICES = 2
+BACKLOG = "Backlog"
 NEEDS_SPLIT = "Needs split"
 
 
@@ -24,8 +27,10 @@ class ReportError(Exception):
 
 def parse_report(text):
     """Takes the splitter's last message; returns its report."""
+    text = text.strip()
+    fence = CODE_FENCE.match(text)
     try:
-        report = json.loads(text.strip())
+        report = json.loads(fence.group(1) if fence else text)
     except json.JSONDecodeError as e:
         raise ReportError("splitter reply is not JSON") from e
     if not isinstance(report, dict):
@@ -84,6 +89,13 @@ def with_blockers(body, references):
     return BLOCKED_BY.sub(lambda _: f"## Blocked by\n{text}\n\n", body, count=1)
 
 
+def current_size(store, key):
+    """Returns the task's `task_sized` event, unless the user declined that proposal: then it is sized again."""
+    sized = store.last_event("task_sized", task=key)
+    declined = store.last_event("split_declined", task=key)
+    return None if sized and declined and declined["ts"] >= sized["ts"] else sized
+
+
 def pending(store):
     """Returns the proposals that wait for the user, oldest first."""
     return [s for s in store.splits() if store.last_event("task_split", task=s["task"]) is None]
@@ -111,13 +123,18 @@ def approve(config, github, store, key, local_dir, slices=None):
     slices = slices if slices is not None else proposal["slices"]
     check_slices(slices)
     check_fields(item.priority, item.kind, sizing.MEDIUM, item.deadline or None)
-    references = [f"{repo}#{number}" for repo, number in blockers_in(item.body, item.repo)]
-    children = []
-    for part in slices:
-        body = f"{with_blockers(part['body'], references).rstrip()}\n\nPart of #{item.number}\n"
+    # A retry after a failure carries on after the slices that exist, and copies none of them.
+    children = [e["task"] for e in all_events(store) if e["type"] == "slice_created" and e["parent"] == key]
+    references = children[-1:] or [f"{repo}#{number}" for repo, number in blockers_in(item.body, item.repo)]
+    if github.repo_is_public(item.repo):  # before the first issue, not on the one that holds the word
+        check_private("\n".join(f"{part['title']}\n{part['body']}" for part in slices), private_words(local_dir))
+    for part in slices[len(children):]:
+        # At the top: under `## Blocked by` the parent would block its own slices.
+        body = f"Part of #{item.number}\n\n{with_blockers(part['body'], references).rstrip()}\n"
         url = create_task(config, github, project.name, item.repo, part["title"], body, local_dir,
                           item.priority, item.kind, part["size"], item.deadline or None)
         child = f"{item.repo}#{int(url.rstrip().rsplit('/', 1)[1])}"
+        store.record("slice_created", task=child, project=project.name, parent=key)
         store.record("task_sized", task=child, project=project.name, run_id=None, size=part["size"],
                      files=part["files"], door=part["door"], criteria=sizing.criteria_in(body), slices=0)
         children.append(child)
@@ -126,9 +143,19 @@ def approve(config, github, store, key, local_dir, slices=None):
     return children
 
 
+def decline(config, github, store, key):
+    """The user's no: the proposal goes, the task returns to Backlog and is sized again as it then reads."""
+    project, item = find_item(config, github, key)
+    if item.status != NEEDS_SPLIT or store.last_event("task_split", task=key) is not None:
+        raise TaskError(f"{key} is not waiting for a split")
+    github.set_status(project.board, item.url, BACKLOG)
+    store.record("split_declined", task=key, project=project.name)
+    store.drop_split(key)
+
+
 def main():
-    parser = argparse.ArgumentParser(description="See and approve split proposals.")
-    parser.add_argument("command", choices=("list", "show", "approve"))
+    parser = argparse.ArgumentParser(description="See, approve and decline split proposals.")
+    parser.add_argument("command", choices=("list", "show", "approve", "decline"))
     parser.add_argument("task", nargs="?", help="owner/repo#number")
     parser.add_argument("--file", help="approve this list of slices instead, as JSON; - reads stdin")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
@@ -149,6 +176,9 @@ def main():
         return 0
     try:
         config = load_config(args.local)
+        if args.command == "decline":
+            decline(config, GitHub(), store, args.task)
+            return 0
         slices = None
         if args.file:
             text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")

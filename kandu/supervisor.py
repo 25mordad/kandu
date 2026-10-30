@@ -32,6 +32,7 @@ NEEDS_INFO, BLOCKED, DONE = "Needs info", "Blocked", "Done"
 NEEDS_SPLIT = split.NEEDS_SPLIT
 RESUMED = (IN_PROGRESS, IN_REVIEW)
 MERGEABLE = ("approved", "approved_with_notes")
+SIZED_PER_CYCLE = 3  # A long Backlog must not hold up merges and resumed tasks.
 END_CHECK_MERGES = 2  # This many merges in a project in one cycle earn a check of the whole project.
 ROOT = Path(__file__).resolve().parent.parent
 FAILURE_COMMENT = "Kandu could not finish this step and stopped here. The details are in its local log."
@@ -416,18 +417,23 @@ class Supervisor:
                 return
         self._finish(task, DONE, "merged")
         self.merged[task.project.name] += 1
-        self._close_group(task)
+        try:
+            self._close_groups()
+        except GitHubError as e:  # the slice is done; the next cycle closes its parent
+            self._decide(task, "group_not_closed", str(e))
 
-    def _close_group(self, task):
-        """The parent of a group closes with its last slice."""
-        group = next((e for e in queen.all_events(self.store)
-                      if e["type"] == "task_split" and task.key in e["children"]), None)
-        if group is None or any(self._is_open(c) for c in group["children"] if c != task.key):
-            return
-        repo, number = group["task"].split("#")
-        self.github.close_issue(repo, int(number))
-        url = f"https://github.com/{repo}/issues/{number}"
-        self.github.set_status(task.project.board, url, DONE)
+    def _close_groups(self):
+        """The parent of a group closes with its last slice, however that slice ended."""
+        events = queen.all_events(self.store)
+        closed = {e["task"] for e in events if e["type"] == "group_closed"}
+        for group in (e for e in events if e["type"] == "task_split" and e["task"] not in closed):
+            project = next((p for p in self.config.projects if p.name == group["project"]), None)
+            if project is None or any(self._is_open(child) for child in group["children"]):
+                continue
+            repo, number = group["task"].split("#")
+            self.github.close_issue(repo, int(number))
+            self.github.set_status(project.board, f"https://github.com/{repo}/issues/{number}", DONE)
+            self.store.record("group_closed", task=group["task"], project=project.name)
 
     def _is_open(self, key):
         repo, number = key.split("#")
@@ -450,16 +456,16 @@ class Supervisor:
         self._pick(task)
         self._phase(task, "sizing")
         run_id = new_run_id(self.now())
-        base = self.github.default_branch(task.repo)
-        cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/size-{task.number}", f"origin/{base}")
-        prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.local_dir)
         try:
+            base = self.github.default_branch(task.repo)
+            cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/size-{task.number}", f"origin/{base}")
+            prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.local_dir)
             result = self._agent(task, "splitter", cwd, prompt, agents.splitter_tools(), run_id)
             report = split.parse_report(result.text)
             split.validate_report(report, item.body)
         except StoppedByUser:
             raise
-        except (TaskFailed, split.ReportError) as e:
+        except (TaskFailed, split.ReportError, GitHubError, RunnerError) as e:
             self._decide(task, "sizing_failed", str(e))
             self.github.comment_issue(task.repo, task.number, "Kandu could not size this task. "
                                       "Move it back to Backlog to try again. The details are in its local log.")
@@ -480,10 +486,13 @@ class Supervisor:
     def _size_backlog(self):
         """Runs before the queen looks, so a task is sized before she can see it."""
         today = self.store.today()
+        sized = 0
         for project, item in board_items(self.config, self.github):
             key = f"{item.repo}#{item.number}"
-            if item.status != BACKLOG or self.store.last_event("task_sized", task=key) is not None:
+            if item.status != BACKLOG or split.current_size(self.store, key) is not None:
                 continue
+            if sized == SIZED_PER_CYCLE:
+                return
             if self.store.tokens_counted(today, project=project.name) >= project.daily_token_limit:
                 continue
             if not self.runner.reachable(project.machine):
@@ -491,6 +500,7 @@ class Supervisor:
             task = Task(project, item.repo, item.number, item.title, item.url, item.status,
                         branch_for(item.number, item.title))
             self._run_task(task, lambda task=task, item=item: self._size(task, item))
+            sized += 1
             if self.halt_reason is not None:
                 return
 
@@ -666,7 +676,7 @@ class Supervisor:
             if action == "release":
                 why = "it was already released" if task in released else queen.why_no_release(
                     item, _can_start(self.github, item), self.store.tokens_counted(today, project=project.name),
-                    project.daily_token_limit, self.store.last_event("task_sized", task=task),
+                    project.daily_token_limit, split.current_size(self.store, task),
                     self._group_ahead(project, task))
                 if why is not None:
                     refused.append(f"release of {task}: {why}")
@@ -676,7 +686,7 @@ class Supervisor:
             if action == "retry":
                 pr = self.github.find_pr(item.repo, item.number)
                 why = queen.why_no_retry(events, task, limit, item.status == BLOCKED,
-                                         pr is not None and pr["state"] == "MERGED")
+                                         pr is not None and pr["state"] == "MERGED", split.current_size(self.store, task))
                 if why is not None:
                     refused.append(f"retry of {task}: {why}")
                     continue
@@ -754,6 +764,7 @@ class Supervisor:
         reason = self._gate() or self._queen_limit()
         if reason is None:
             try:
+                self._close_groups()
                 self._size_backlog()
                 self._queen()
             except (GitHubError, RunnerError) as e:

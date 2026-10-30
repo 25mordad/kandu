@@ -156,6 +156,7 @@ class ReviewPageTest(Base):
                   "summary": "s"}
         self.store.record("review_finished", task=f"{REPO}#1", project="site", run_id="r", round=1, head_sha="abc",
                           findings=0, blockers=0, door="two-way", criteria_met=True, wait_for_user=[], user_brief="کوتاه")
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "In review", ["agent"], "")]
         self.github.find_pr.return_value = self.pr(review.comment_for(report, 1, []))
         body = self.get(f"/api/v1/reviews/{REPO}/1")[1]
         self.assertEqual(body["pr"]["number"], 7)
@@ -184,12 +185,21 @@ class ControlTest(Base):
     def post(self, target, token=TOKEN):
         return dispatch(self.api, "POST", target, token)
 
-    def reviewed(self, head="abc", blockers=0, criteria_met=True):
+    def reviewed(self, head="abc", blockers=0, criteria_met=True, status="In review"):
         self.store.record("review_finished", task=f"{REPO}#1", project="website", run_id="r", round=1, head_sha=head,
                           findings=0, blockers=blockers, door="one-way", criteria_met=criteria_met,
                           wait_for_user=["Merge?"], user_brief=None)
         self.github.find_pr.return_value = {"number": 7, "title": "T", "url": "u", "state": "OPEN", "headRefOid": "abc",
                                             "comments": []}
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", status, ["agent"], "")]
+
+    def test_a_task_no_cycle_would_pick_up_is_not_approved(self):
+        self.reviewed(status="Blocked")
+        status, body = self.post(f"/api/v1/reviews/{REPO}/1/approve?head=abc")
+        self.assertEqual(status, 409)
+        self.assertIn("Blocked", body["error"])
+        self.assertFalse(self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["can_approve"])
+        self.assertIsNone(self.store.last_event("user_approved"))
 
     def test_approve_saves_the_yes_for_that_head_and_starts_a_cycle(self):
         self.reviewed()

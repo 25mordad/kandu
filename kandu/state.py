@@ -25,7 +25,10 @@ EVENT_FIELDS = {
                                       "wait_for_user", "user_brief"),
     "user_approved": TASK_FIELDS + ("head_sha",),
     "task_sized": TASK_FIELDS + ("run_id", "size", "files", "door", "criteria", "slices"),
+    "slice_created": TASK_FIELDS + ("parent",),
     "task_split": TASK_FIELDS + ("children",),
+    "split_declined": TASK_FIELDS,
+    "group_closed": TASK_FIELDS,
     "deployed": TASK_FIELDS + ("run_id",),
     "task_finished": TASK_FIELDS + ("outcome",),
     "project_checked": ("project", "passed", "detail"),
@@ -139,6 +142,9 @@ class StateStore:
     def read_split(self, task):
         path = self._split_file(task)
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def drop_split(self, task):
+        self._split_file(task).unlink(missing_ok=True)
 
     def splits(self):
         if not self.splits_dir.exists():

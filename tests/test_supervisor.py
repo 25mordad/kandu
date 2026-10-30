@@ -66,6 +66,9 @@ class FakeGitHub:
     def set_field(self, board, url, field, value):
         self.fields.append((url, field, value))
 
+    def repo_is_public(self, repo):
+        return False
+
     def close_issue(self, repo, number):
         self.closed.append((repo, number))
         self.open_issues.discard((repo, number))
