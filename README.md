@@ -75,16 +75,16 @@ Kandu has its own interactive dashboard:
 
 The dashboard is one page with no outside requests, so another app can show it in a frame through its own server.
 
-It listens on `127.0.0.1:8080` on the supervisor's machine (`dashboard.port` in `local/kandu.yaml`). To start it and keep it running after a restart:
+It listens on `127.0.0.1:8790` on the supervisor's machine (`dashboard.port` in `local/kandu.yaml`). To start it and keep it running after a restart:
 
 ```
 .venv/bin/python -m kandu.timer --dashboard
 ```
 
-This does not start the supervisor. From another machine, open an SSH tunnel and then `http://127.0.0.1:8080`:
+This does not start the supervisor. From another machine, open an SSH tunnel and then `http://127.0.0.1:8790`:
 
 ```
-ssh -N -L 127.0.0.1:8080:127.0.0.1:8080 server
+ssh -N -L 127.0.0.1:8790:127.0.0.1:8790 server
 ```
 
 ## Didban — control from your own machine

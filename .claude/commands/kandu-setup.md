@@ -13,7 +13,7 @@ Read `docs/COMMANDS.md`, then set up this install, once. The result is `local/ka
    5. Notifications: Telegram or none, and in which language?
    6. Parallel workers, wake interval, and auto-merge. Recommend leaving auto-merge off.
    7. Which sources may Didban read, and on which machine? From the user's own machine, how is the brain reached?
-   8. Which port does the dashboard use? The default is 8080; `ss -ltn` on the brain's machine must not show it in use.
+   8. Which port does the dashboard use? The default is 8790; `ss -ltn` on the brain's machine must not show it in use.
 4. Write `local/kandu.yaml`. For Didban, write `local/didban.yaml` on the user's own machine, from `config.example/didban.example.yaml`.
 5. Write `local/.env` from `config.example/example.env`, mode 600. Fill `KANDU_DASHBOARD_TOKEN` with `openssl rand -hex 32`, without showing it. The user fills in the Telegram values themselves.
 6. Ask for the words that must never reach a public repo, and write them to `local/private-words.txt`, one per line.
