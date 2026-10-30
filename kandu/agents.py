@@ -12,6 +12,7 @@ PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 ALWAYS_DENIED = ["Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)", "Read(**/.env)", "Bash(git push --force*)",
                  "Bash(git push -f*)"]
 WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
+LIVE_RESULTS = ("pass", "fail")
 
 
 class ReplyError(Exception):
@@ -42,6 +43,12 @@ def reviewer_tools():
     allowed = ["Read", "Glob", "Grep"]
     for command in ("gh pr diff", "gh pr view", "gh issue view", "git log", "git diff"):
         allowed += _command(command)
+    return allowed, ["Edit", "Write", "NotebookEdit"] + ALWAYS_DENIED
+
+
+def live_check_tools(project):
+    """Returns (allowed, denied) for a live check, which looks and changes nothing."""
+    allowed = ["Read", "Glob", "Grep", "WebFetch"] + _command("curl") + _command("gh issue view") + project.allowed_tools
     return allowed, ["Edit", "Write", "NotebookEdit"] + ALWAYS_DENIED
 
 
@@ -90,6 +97,24 @@ def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, s
         parts += ["## Findings of the earlier rounds", "```json",
                   json.dumps(still_open, ensure_ascii=False, indent=2), "```"]
     return "\n".join(parts)
+
+
+def live_check_prompt(project, repo, number, local_dir=DEFAULT_LOCAL_DIR):
+    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- Live URL: {project.deploy.live_url}"]
+    return "\n".join([_read("live-check.md"), "## This check", *facts, *_memory(project, local_dir)])
+
+
+def parse_live_check(text):
+    """Takes a live check's last message; returns its result object."""
+    try:
+        reply = json.loads(text.strip())
+    except json.JSONDecodeError as e:
+        raise ReplyError("live check reply is not JSON") from e
+    if not isinstance(reply, dict) or reply.get("result") not in LIVE_RESULTS:
+        raise ReplyError("live check reply has no known result")
+    if not isinstance(reply.get("summary"), str) or not reply["summary"].strip():
+        raise ReplyError("live check reply has no summary")
+    return reply
 
 
 def parse_worker_reply(text):

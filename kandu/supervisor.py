@@ -9,23 +9,27 @@ import argparse
 import fcntl
 import json
 import secrets
+import shlex
 import sys
 import threading
 import traceback
+from collections import Counter, defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from . import agents, review
+from . import agents, merge, review
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import AGENT_LABEL, GitHub, GitHubError, blockers_in, branch_for
-from .runner import DEFAULT_LOGS_DIR, Runner
+from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
 from .state import StateStore
 from .usage import UsageError, over_limit, read_usage
 
 READY, IN_PROGRESS, IN_REVIEW = "Ready", "In progress", "In review"
 NEEDS_INFO, BLOCKED, DONE = "Needs info", "Blocked", "Done"
 RESUMED = (IN_PROGRESS, IN_REVIEW)
+MERGEABLE = ("approved", "approved_with_notes")
+END_CHECK_MERGES = 2  # This many merges in a project in one cycle earn a check of the whole project.
 FAILURE_COMMENT = "Kandu could not finish this step and stopped here. The details are in its local log."
 
 
@@ -102,7 +106,9 @@ class Supervisor:
         self.halt_reason = None
         self.workers = {}
         self.waiting = []
+        self.merged = Counter()
         self._lock = threading.Lock()
+        self._deploy_locks = defaultdict(threading.Lock)
 
     # Limits. Each of these is checked in code before any agent starts.
 
@@ -260,7 +266,9 @@ class Supervisor:
         self.github.comment_pr(task.repo, pr["number"], review.comment_for(report, round_number, findings))
         self.store.record("review_finished", task=task.key, project=task.project.name, run_id=run_id,
                           round=round_number, head_sha=head, findings=len(findings),
-                          blockers=len(review.blockers(findings)), door=report["door"])
+                          blockers=len(review.blockers(findings)), door=report["door"],
+                          criteria_met=all(c["result"] == "met" for c in report["criteria"]),
+                          wait_for_user=report["wait_for_user"])
 
     def _settle(self, task, pr, findings, reason):
         """No more fix rounds: a blocker stops the task, a note stays on the PR for the user."""
@@ -292,6 +300,117 @@ class Supervisor:
         if self.github.pr(task.repo, pr["number"])["headRefOid"] == head:
             self.github.comment_pr(task.repo, pr["number"], review.fix_comment(head))
 
+    # Merge, deploy and live check.
+
+    def _unreviewed_companions(self, task, pr):
+        names = []
+        for repo, number in self.github.companions(task.repo, pr, self._family_repos(task.project)):
+            head = self.github.pr(repo, number)["headRefOid"]
+            seen = self.store.last_event("review_finished", head_sha=head)
+            if seen is None or seen["blockers"]:
+                names.append(f"{repo}#{number}")
+        return names
+
+    def _merge_waits(self, task, pr):
+        """Returns why Kandu may not merge. The tests run last: they are the slow check."""
+        head = pr["headRefOid"]
+        reviewed = self.store.last_event("review_finished", task=task.key, head_sha=head)
+        threads = self.github.review_threads(task.repo, pr["number"])
+        reasons = merge.merge_waits(task.project, pr, reviewed, threads, self._unreviewed_companions(task, pr))
+        if reasons:
+            return reasons
+        cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
+        code = self.runner.run_command(task.project, cwd, task.project.test, new_run_id(self.now()))
+        return [] if code == 0 else ["the tests fail on this head"]
+
+    def _merge(self, task, pr, outcome, worked):
+        """Merges a settled PR if every condition holds. Returns True if it did."""
+        if outcome not in MERGEABLE or not self.config.auto_merge_for(task.project):
+            if worked:
+                self._decide(task, outcome, "the user decides next")
+            return False
+        self._pick(task)
+        self._phase(task, "merge")
+        reasons = self._merge_waits(task, pr)
+        if reasons:
+            self._decide(task, "merge_waits", "; ".join(reasons))
+            return False
+        self.github.merge_pr(task.repo, pr["number"], pr["headRefOid"])
+        return True
+
+    def _deploy(self, task):
+        """Returns False if the deploy failed."""
+        project = task.project
+        run_id = new_run_id(self.now())
+        self._phase(task, "deploy")
+        with self._deploy_locks[project.name]:
+            base = self.github.default_branch(task.repo)
+            cwd = self.runner.prepare_review(project, task.repo, "kandu/deploy", f"origin/{base}")
+            code = self.runner.run_command(project, cwd, project.deploy.command, run_id, secrets=True)
+        if code != 0:
+            self.github.comment_issue(task.repo, task.number, "Kandu merged this, but the deploy failed. "
+                                      "Nothing was reverted. The details are in its local log.")
+            self._finish(task, BLOCKED, "deploy_failed")
+            return False
+        self.store.record("deployed", task=task.key, project=project.name, run_id=run_id)
+        return True
+
+    def _live_check(self, task):
+        """Returns False if the live software does not show what the issue asked for."""
+        project = task.project
+        self._phase(task, "live check")
+        run_id = new_run_id(self.now())
+        base = self.github.default_branch(task.repo)
+        cwd = self.runner.prepare_review(project, task.repo, "kandu/live-check", f"origin/{base}")
+        prompt = agents.live_check_prompt(project, task.repo, task.number, self.local_dir)
+        result = self._agent(task, "live_check", cwd, prompt, agents.live_check_tools(project), run_id)
+        try:
+            reply = agents.parse_live_check(result.text)
+        except agents.ReplyError as e:
+            raise TaskFailed(f"live check run {run_id}: {e}") from e
+        if reply["result"] == "pass":
+            return True
+        self.github.comment_issue(task.repo, task.number, f"Kandu's live check failed: {reply['summary']}\n\n"
+                                  "Nothing was reverted.")
+        self._finish(task, BLOCKED, "live_check_failed")
+        return False
+
+    def _land(self, task):
+        """Takes a merged PR to `Done`. A step already done is not repeated after a restart."""
+        self._pick(task)
+        if task.project.deploy is not None:
+            deployed = self.store.last_event("deployed", task=task.key)
+            if deployed is None and not self._deploy(task):
+                return
+            if not self._live_check(task):
+                return
+        self._finish(task, DONE, "merged")
+        self.merged[task.project.name] += 1
+
+    def _check_project(self, project):
+        """No agent and no tokens: the tests on the default branch, and the live URL answering."""
+        problems = []
+        for repo in project.repos:
+            base = self.github.default_branch(repo)
+            cwd = self.runner.prepare_review(project, repo, "kandu/end-check", f"origin/{base}")
+            if self.runner.run_command(project, cwd, project.test, new_run_id(self.now())) != 0:
+                problems.append(f"tests fail in {repo}")
+            if project.deploy is not None:
+                url = shlex.quote(project.deploy.live_url)
+                if self.runner.run_command(project, cwd, f"curl -fsS -o /dev/null {url}", new_run_id(self.now())) != 0:
+                    problems.append("the live URL does not answer")
+        return problems
+
+    def _end_checks(self):
+        for project in self.config.projects:
+            if self.merged[project.name] < END_CHECK_MERGES:
+                continue
+            try:
+                problems = self._check_project(project)
+            except (GitHubError, RunnerError) as e:
+                problems = [f"the check could not run: {type(e).__name__}"]
+            self.store.record("project_checked", project=project.name, passed=not problems, detail="; ".join(problems))
+
     def _drive(self, task):
         """Moves one task as far as it can go now. Every step is read back from GitHub first."""
         pr = self.github.find_pr(task.repo, task.number)
@@ -303,7 +422,7 @@ class Supervisor:
         worked = False
         while True:
             if pr["state"] == "MERGED":
-                self._finish(task, DONE, "merged")
+                self._land(task)
                 return
             if pr["state"] == "CLOSED":
                 self.github.comment_issue(task.repo, task.number, "Kandu stopped: the PR of this task was closed.")
@@ -314,11 +433,12 @@ class Supervisor:
                 self._review(task, pr, reviews)
             else:
                 outcome = self._outcome(task, pr, reviews)
-                if outcome is not None:
-                    if worked:
-                        self._decide(task, outcome, "the user decides next")
+                if outcome is None:
+                    self._fix(task, pr, reviews)
+                elif not self._merge(task, pr, outcome, worked):
                     return
-                self._fix(task, pr, reviews)
+                elif self.github.pr(task.repo, pr["number"])["state"] != "MERGED":
+                    return  # A merge queue took it; a later cycle sees it land.
             worked = True
             pr = self.github.pr(task.repo, pr["number"])
 
@@ -377,6 +497,7 @@ class Supervisor:
     def cycle(self):
         """Runs one cycle and returns why it ended."""
         woke = self.now()
+        self.merged.clear()
         self.store.record("supervisor_woke")
         self._snapshot("awake")
         settings = self.config.settings.supervisor
@@ -400,6 +521,7 @@ class Supervisor:
         if not tasks:
             return "waiting for a machine"
         self._schedule(tasks)
+        self._end_checks()
         return self.halt_reason or "tasks ran out"
 
     def dry_run(self):

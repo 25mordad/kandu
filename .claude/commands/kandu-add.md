@@ -14,7 +14,7 @@ Read `docs/COMMANDS.md`, then add one project to `local/projects.yaml`, in the s
    7. `direct` or `preview` deploy, and the live URL.
    8. Where are its secrets? Store the location only.
    9. Forbidden areas, such as migrations or payments.
-   10. Repo rules: CI, PR bots, other people on the repo.
+   10. Repo rules: CI, PR bots, other people on the repo, and any freeze on merges (`frozen`).
    11. Automatic merge, or approval? Recommend approval until calibration has run.
    12. Priority against the other projects.
    13. A short glossary of project terms: propose it, the user corrects it.

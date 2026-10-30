@@ -37,7 +37,7 @@ def recommendation(record):
     """The one-line advice of a review round, worked out in code."""
     if review.blockers(record["open"]):
         return "wait: a blocker is open"
-    if record["door"] == "one-way":
+    if record["door"] == "one-way" or record.get("wait_for_user"):
         return "your decision: this is hard to undo"
     if record["open"]:
         return "ready to merge, with notes"

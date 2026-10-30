@@ -26,6 +26,7 @@ projects:
     forbidden: ["migrations/", "src/payments/"]
     repo_rules: "CI must be green before merge"
     auto_merge: false                  # overrides supervisor.auto_merge for this project
+    frozen: false                      # true: nothing merges by itself, for example before a release
     priority: 1                        # 1 = highest
     max_parallel_workers: 2
     paused: false

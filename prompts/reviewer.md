@@ -46,6 +46,12 @@ For each earlier finding, read the code and report `fixed`, `not_fixed` or `part
 ## Merge danger
 Decide for yourself whether this is a two-way door or a one-way door (data migrations, published APIs, anything sent to people or outside services), and what its blast radius is. If you are unsure, say one-way.
 
+## Wait for the user
+Add one short question to `wait_for_user` for each of these. Do not add anything else there.
+- a blocker of an earlier round answered without a code change
+- work the PR defers to a later PR
+- a risky area, such as auth, payments or data migrations, changed with no tests
+
 ## Report
 Reply with one JSON object and nothing else. Be direct: "This breaks when X." State when and what breaks, and how to fix it.
 
@@ -58,6 +64,7 @@ Reply with one JSON object and nothing else. Be direct: "This breaks when X." St
   "findings": [{"n": 1, "path": "src/a.py", "line": 12, "blocker": true, "body": "..."}],
   "checked_ok": ["what you examined and found sound"],
   "door": "two-way | one-way",
+  "wait_for_user": ["one-line question for the user"],
   "blast_radius": "what breaks if this is wrong",
   "brief": "in plain words and the language you were given: what the PR does, the result, and each finding explained"
 }

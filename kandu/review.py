@@ -8,7 +8,7 @@ import json
 import re
 
 REPORT_KEYS = {"head_sha", "summary", "criteria", "earlier", "findings", "checked_ok", "door",
-               "blast_radius", "brief"}
+               "blast_radius", "brief", "wait_for_user"}
 FINDING_KEYS = {"n", "path", "line", "blocker", "body"}
 DOORS = ("two-way", "one-way")
 CRITERION_RESULTS = ("met", "not_met", "not_shown")
@@ -55,6 +55,8 @@ def validate_report(report, still_open):
         raise ReportError("report has no head_sha")
     if report["door"] not in DOORS:
         raise ReportError("door must be two-way or one-way")
+    if not isinstance(report["wait_for_user"], list) or not all(isinstance(q, str) for q in report["wait_for_user"]):
+        raise ReportError("wait_for_user must be a list of questions")
     for name in ("criteria", "earlier", "findings"):
         if not isinstance(report[name], list):
             raise ReportError(f"{name} must be a list")
@@ -100,12 +102,13 @@ def comment_for(report, round_number, findings):
     """Renders one review round: readable text, then the marker the supervisor reads back."""
     record = {"round": round_number, "head_sha": report["head_sha"], "door": report["door"], "open": findings,
               "summary": report["summary"], "brief": report["brief"], "blast_radius": report["blast_radius"],
-              "criteria": report["criteria"]}
+              "criteria": report["criteria"], "wait_for_user": report["wait_for_user"]}
     # `>` only occurs inside JSON strings, so this keeps `-->` in a finding from ending the marker.
     marker = json.dumps(record, ensure_ascii=False).replace(">", "\\u003e")
     lines = [f"**Kandu review, round {round_number}** on `{report['head_sha']}`", "", report["brief"], ""]
     lines += [f"- {c.get('criterion', '')}: {c['result']}" for c in report["criteria"]]
     lines += [""] + ([_finding_line(f) for f in findings] or ["No findings."])
+    lines += ["", *[f"- **Waits for you:** {q}" for q in report["wait_for_user"]]]
     lines += ["", f"Door: {report['door']}. Blast radius: {report['blast_radius']}", "",
               f"<!-- kandu-review {marker} -->"]
     return "\n".join(lines)

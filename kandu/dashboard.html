@@ -83,9 +83,10 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
     "awake": "بیدار", "asleep": "خواب", "stopped": "متوقف", "never ran": "هنوز اجرا نشده",
     "Ready": "آماده", "In progress": "در حال انجام", "In review": "در بازبینی", "Needs info": "نیازمند اطلاعات",
     "Blocked": "مسدود", "Done": "انجام‌شده", "OPEN": "باز", "MERGED": "ادغام‌شده", "CLOSED": "بسته",
-    "implement": "پیاده‌سازی", "two-way": "برگشت‌پذیر", "one-way": "برگشت‌ناپذیر",
+    "implement": "پیاده‌سازی", "merge": "ادغام", "deploy": "استقرار", "live check": "بررسی زنده", "two-way": "برگشت‌پذیر", "one-way": "برگشت‌ناپذیر",
     "merged": "ادغام شد", "needs_info": "نیازمند اطلاعات", "blocked": "مسدود", "pr_closed": "PR بسته شد", "failed": "شکست خورد",
-    "approved": "تأیید شد", "approved_with_notes": "تأیید با یادداشت", "review_voided": "بازبینی باطل شد",
+    "approved": "تأیید شد", "approved_with_notes": "تأیید با یادداشت", "review_voided": "بازبینی باطل شد", "merge_waits": "ادغام منتظر ماند", "deploy_failed": "استقرار شکست خورد",
+    "live_check_failed": "بررسی زنده رد شد",
     "wait: a blocker is open": "صبر کن: یک مانع باز است",
     "your decision: this is hard to undo": "تصمیم با توست: برگرداندن این کار سخت است",
     "ready to merge, with notes": "آماده ادغام، با یادداشت", "ready to merge": "آماده ادغام",
@@ -95,7 +96,7 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
     "the user decides next": "تصمیم بعدی با کاربر است", "the head moved during the review": "در میانه بازبینی کد عوض شد",
     "supervisor_woke": "ناظر بیدار شد", "supervisor_slept": "ناظر خوابید", "task_picked": "تسک برداشته شد",
     "phase_changed": "تغییر مرحله", "decision": "تصمیم", "run_finished": "اجرا تمام شد",
-    "review_finished": "بازبینی تمام شد", "task_finished": "تسک تمام شد"
+    "review_finished": "بازبینی تمام شد", "task_finished": "تسک تمام شد", "deployed": "مستقر شد", "project_checked": "پروژه بررسی شد"
   },
   "patterns_fa": [
     ["^review round (\\d+)$", "دور بازبینی $1"],
@@ -236,6 +237,7 @@ async function showReviews(task) {
     r.rounds.map(round => `<h3>${t("round")} ${num(round.round)}: ${esc(tr(round.recommendation))}</h3>
       <p dir="auto">${esc(round.brief)}</p>
       <p class="muted" dir="auto">${esc(tr(round.door))} · ${esc(round.blast_radius)}</p>
+      ${(round.wait_for_user || []).map(q => `<div class="finding blocker" dir="auto">${esc(q)}</div>`).join("")}
       ${round.open.map(f => `<div class="finding ${f.blocker ? "blocker" : ""}" dir="auto">${t(f.blocker ? "blocker" : "note")} · ${bdi(f.path)}<br>${esc(f.body)}</div>`).join("")}`).join("");
   $("prpage").scrollIntoView();
 }

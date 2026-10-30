@@ -140,7 +140,7 @@ class ReviewPageTest(Base):
                 "comments": [{"author": {"login": ACCOUNT}, "body": b} for b in comments]}
 
     def test_rounds_in_plain_words(self):
-        report = {"head_sha": "abc", "criteria": [], "brief": "کوتاه", "door": "two-way", "blast_radius": "b",
+        report = {"head_sha": "abc", "criteria": [], "brief": "کوتاه", "door": "two-way", "blast_radius": "b", "wait_for_user": [],
                   "summary": "s"}
         self.github.find_pr.return_value = self.pr(review.comment_for(report, 1, []))
         body = self.get(f"/api/v1/reviews/{REPO}/1")[1]

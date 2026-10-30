@@ -10,7 +10,7 @@ FINDING = {"n": 1, "path": "a.py", "line": 3, "blocker": True, "body": "This bre
 NOTE = {"n": 2, "path": "b.py", "line": None, "blocker": False, "body": "Confusing name."}
 REPORT = {
     "head_sha": "abc123", "summary": "s", "criteria": [{"criterion": "c", "result": "met"}], "earlier": [],
-    "findings": [], "checked_ok": [], "door": "two-way", "blast_radius": "b", "brief": "خلاصه",
+    "findings": [], "checked_ok": [], "door": "two-way", "blast_radius": "b", "brief": "خلاصه", "wait_for_user": [],
 }
 
 

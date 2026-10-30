@@ -32,7 +32,7 @@ class PromptsTest(unittest.TestCase):
         text = (PROMPTS / "reviewer.md").read_text(encoding="utf-8")
         report = json.loads(re.search(r"```json\n(.+?)```", text, re.DOTALL).group(1))
         self.assertEqual(set(report), {"head_sha", "summary", "criteria", "earlier", "findings",
-                                       "checked_ok", "door", "blast_radius", "brief"})
+                                       "checked_ok", "door", "blast_radius", "brief", "wait_for_user"})
         self.assertEqual(set(report["findings"][0]), {"n", "path", "line", "blocker", "body"})
 
     def test_agents_in_other_projects_get_no_path_into_this_repo(self):

@@ -21,8 +21,11 @@ EVENT_FIELDS = {
     "phase_changed": TASK_FIELDS + ("phase",),
     "decision": TASK_FIELDS + ("decision", "reason"),
     "run_finished": TASK_FIELDS + ("run_id", "role", "models", "duration_ms", "is_error"),
-    "review_finished": TASK_FIELDS + ("run_id", "round", "head_sha", "findings", "blockers", "door"),
+    "review_finished": TASK_FIELDS + ("run_id", "round", "head_sha", "findings", "blockers", "door", "criteria_met",
+                                      "wait_for_user"),
+    "deployed": TASK_FIELDS + ("run_id",),
     "task_finished": TASK_FIELDS + ("outcome",),
+    "project_checked": ("project", "passed", "detail"),
 }
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
 
@@ -114,6 +117,14 @@ class StateStore:
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
         return events
+
+    def last_event(self, event_type, **match):
+        """Returns the newest event of this type with these field values, or None."""
+        for day in reversed(self.days()):
+            for event in reversed(self.events(day)):
+                if event["type"] == event_type and all(event.get(k) == v for k, v in match.items()):
+                    return event
+        return None
 
     def tokens_for_day(self, day):
         """One day's tokens, split by task, model and role. Runs with no task go under `no_task`."""

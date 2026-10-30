@@ -10,10 +10,15 @@ FALLBACK_SLUG = "task"
 TIMEOUT_SECONDS = 60
 BOARD_ITEM_LIMIT = 500
 PR_SEARCH_LIMIT = 200
-PR_FIELDS = "number,title,state,url,body,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments"
+PR_FIELDS = "number,title,state,url,body,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,statusCheckRollup"
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 ISSUE_REFERENCE = re.compile(r"(?:(?<![\w.-])([\w.-]+/[\w.-]+))?#(\d+)")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+THREADS_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes {
+    isResolved resolvedBy { login } comments(first: 1) { nodes { author { login } } }
+  } } } }
+}"""
 
 
 class GitHubError(Exception):
@@ -155,6 +160,22 @@ class GitHub:
 
     def pr(self, repo, number):
         return self._json(["pr", "view", str(number), "--repo", repo, "--json", PR_FIELDS])
+
+    def review_threads(self, repo, number):
+        owner, name = repo.split("/")
+        data = self._json(["api", "graphql", "-f", f"query={THREADS_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
+                           "-F", f"number={number}"])
+        threads = []
+        for node in data["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]:
+            comments = node["comments"]["nodes"]
+            author = (comments[0].get("author") or {}).get("login") if comments else None
+            resolver = (node.get("resolvedBy") or {}).get("login")
+            threads.append({"resolved": node["isResolved"], "resolved_by_other": bool(resolver) and resolver != author})
+        return threads
+
+    def merge_pr(self, repo, number, head_sha):
+        """GitHub refuses this if the head is no longer `head_sha`."""
+        self._run(["pr", "merge", str(number), "--repo", repo, "--squash", "--match-head-commit", head_sha])
 
     def comment_pr(self, repo, number, body):
         self._run(["pr", "comment", str(number), "--repo", repo, "--body", body])

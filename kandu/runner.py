@@ -23,6 +23,7 @@ GIT_TIMEOUT_SECONDS = 300
 PROBE_TIMEOUT_SECONDS = 20
 POLL_SECONDS = 2
 STOP_GRACE_SECONDS = 10
+COMMAND_TIMEOUT_SECONDS = 30 * 60
 
 
 class RunnerError(Exception):
@@ -150,6 +151,21 @@ class Runner:
                 host.check(["git", "worktree", "prune"], cwd=path)
                 host.check(["git", "worktree", "add", "--detach", directory, head_sha], cwd=path)
         return directory
+
+    def run_command(self, project, cwd, command, log_name, secrets=False):
+        """Runs a project's command in `cwd` and returns its exit code. Its output stays in a local log."""
+        host = self.hosts[project.machine]
+        script = command
+        if secrets and project.secrets_from:
+            script = f"set -a; . {shlex.quote(host.absolute(project.secrets_from))}; set +a; {command}"
+        self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd = os.open(self.logs_dir / f"{log_name}.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as log:
+            try:
+                return subprocess.run(host.argv(["sh", "-c", script], cwd), stdout=log, stderr=subprocess.STDOUT,
+                                      timeout=COMMAND_TIMEOUT_SECONDS).returncode
+            except subprocess.TimeoutExpired as e:
+                raise RunnerError(f"a project command timed out on {host.name}") from e
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop):
         """Runs one `claude` process to its end; `should_stop` is polled while it runs.

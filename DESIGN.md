@@ -116,6 +116,7 @@ supervisor ─┬─ worker 1  →  reviewer
   - Tests come first, at the project's public interfaces, and they check behavior rather than internals.
   - A bug starts with one fast command that fails on exactly that bug. If no such command can be built, the task goes to `Needs info` instead of a guess.
   - Every PR uses [prompts/templates/pr.md](prompts/templates/pr.md): a small summary, before and after evidence, and the blast radius. A worker runs inside another project, so the runner puts this template in its prompt.
+- **Live checker:** a fresh `claude` process ([prompts/live-check.md](prompts/live-check.md)) opens the live version after deploy and reports `pass` or `fail`. It changes nothing.
 - **Reviewer:** every PR gets one review by a fresh `claude` process ([prompts/reviewer.md](prompts/reviewer.md)). "Fresh" means it knows nothing of how the PR was built; it does get the project's rules and memory. It reads the diff, searches the whole repo and writes a report; it changes no code.
   - **Blockers:** a bug that breaks production, a security hole, a crash or unhandled error, an unmet or unproven acceptance criterion, a change out of scope or in a forbidden area, and new logic with no test that really runs it. There is no coverage percentage.
   - **Notes:** smells and broken documented rules that are not blockers. Cosmetics, small design issues and product decisions are not reported at all.
@@ -129,14 +130,15 @@ supervisor ─┬─ worker 1  →  reviewer
   - the tests pass on that `SHA`, CI is not failing and the PR is not a draft
   - no blocker and no review thread is open, and every acceptance criterion is met
   - it is a two-way door
-  - no companion PR is open and unreviewed, unless neither side is live yet
-  - no freeze is declared in the project's repo rules
+  - no companion PR is open and unreviewed. Whether a side is live cannot be told in code, so an unreviewed companion always waits
+  - the project is not `frozen`
 
   These always wait for the user, with a one-line question: a blocker answered without a code change, work deferred to a later PR, a thread resolved by someone other than its author, a risky area (auth, payments, data migrations) with no tests, and a one-way door. Default in this template: `auto_merge` **off**. The user turns it on per project once calibration (§15) shows Kandu decides as they would.
-- **Deploy:** after merge, per the project's `deploy` setting.
+- **Deploy:** after merge, whoever merged, per the project's `deploy` setting, from the default branch in a separate checkout. Only this step gets the project's secrets. A failed deploy sends the task to `Blocked`; nothing is reverted.
 - **"Done" means seen in the live software:** after deploy the supervisor opens the live version (screenshot or test) and checks that what the issue asked for is really there. Green tests alone are not enough.
-- **End-of-cycle check:** after several merges, rerun all tests and a smoke test on the whole project.
+- **End-of-cycle check:** after two or more merges in a project in one cycle, rerun its tests on the default branch and request its live URL. The result goes in the event log as `project_checked`.
 - **No automatic revert.** `auto_revert: true` is refused by the config loader. If something breaks in the live software, the supervisor only reports it. The user decides.
+- **Who may be trusted:** a worker uses the same GitHub account as Kandu, so it could write a review comment. The merge gate therefore reads the review from the local event log, and `gh pr merge --match-head-commit` makes GitHub refuse any other head.
 - **Vague task:** no guessing. The task moves to `Needs info` and the user gets a question.
 - **No hidden memory:** all state lives on the board and in issue comments. A cycle that is cut off resumes where it stopped, and progress is visible on the board at any time.
 

@@ -30,10 +30,11 @@ BLOCKER = {"n": 1, "path": "a.py", "line": 3, "blocker": True, "body": "This bre
 NOTE = {"n": 1, "path": "a.py", "line": 3, "blocker": False, "body": "Confusing."}
 
 
-def report(head, findings=(), earlier=(), door="two-way"):
+def report(head, findings=(), earlier=(), door="two-way", wait=()):
     return json.dumps({
         "head_sha": head, "summary": "s", "criteria": [{"criterion": "c", "result": "met"}], "earlier": list(earlier),
         "findings": list(findings), "checked_ok": [], "door": door, "blast_radius": "b", "brief": "b",
+        "wait_for_user": list(wait),
     })
 
 
@@ -45,6 +46,8 @@ class FakeGitHub:
         self.prs = {}
         self.issue_comments = []
         self.reads = 0
+        self.threads = []
+        self.merges = []
 
     def add(self, number, status="Ready", repo=REPO, labels=("agent",), body=""):
         url = f"https://github.com/{repo}/issues/{number}"
@@ -73,7 +76,7 @@ class FakeGitHub:
 
     def open_pr(self, repo, issue, head=SHA1, state="OPEN"):
         pr = {"number": 7, "state": state, "headRefOid": head, "headRefName": f"kandu/{issue}-task", "labels": [],
-              "comments": [], "body": "", "url": "u"}
+              "comments": [], "body": "", "url": "u", "isDraft": False, "mergeable": "MERGEABLE", "statusCheckRollup": []}
         self.prs[(repo, issue)] = pr
         return pr
 
@@ -85,6 +88,13 @@ class FakeGitHub:
 
     def comment_pr(self, repo, number, body):
         self.pr(repo, number)["comments"].append({"author": {"login": ACCOUNT}, "body": body})
+
+    def review_threads(self, repo, number):
+        return self.threads
+
+    def merge_pr(self, repo, number, head_sha):
+        self.merges.append(head_sha)
+        self.pr(repo, number)["state"] = "MERGED"
 
     def mark_pr(self, repo, pr):
         pr["labels"] = [{"name": "kandu"}]
@@ -101,6 +111,8 @@ class FakeRunner:
         self.steps = []
         self.runs = []
         self.down = set()
+        self.commands = []
+        self.failing = set()
         self.running = 0
         self.most_running = 0
         self.lock = threading.Lock()
@@ -113,6 +125,10 @@ class FakeRunner:
 
     def prepare_review(self, project, repo, branch, head):
         return f"/review/{head}"
+
+    def run_command(self, project, cwd, command, log_name, secrets=False):
+        self.commands.append((command, secrets))
+        return 1 if command in self.failing else 0
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop):
         with self.lock:
@@ -513,7 +529,8 @@ class ReviewRoundsTest(Base):
         self.cycle()
         self.assertEqual([e["round"] for e in self.events("review_finished")], [1, 2])
 
-    def test_a_merged_pr_moves_to_done(self):
+    def test_a_merged_pr_with_no_deploy_moves_to_done(self):
+        self.config.projects[0].deploy = None
         self.github.statuses[self.github.items[0].url] = "In review"
         self.github.open_pr(REPO, 1, SHA1, state="MERGED")
         self.cycle()
@@ -543,6 +560,153 @@ class ReviewRoundsTest(Base):
         self.assertEqual(self.github.status(1), "Blocked")
         self.assertEqual(self.github.status(2), "Blocked")
         self.assertEqual(len(self.events("task_finished")), 2)
+
+
+class MergeTest(Base):
+    PASS = '{"result": "pass", "summary": "seen"}'
+
+    def setUp(self):
+        super().setUp()
+        self.config.projects[0].auto_merge = True
+        self.github.add(1, "In review")
+        self.github.open_pr(REPO, 1, SHA1)
+        self.deploy = self.config.projects[0].deploy.command
+
+    def test_a_clean_pr_merges_deploys_and_is_checked_live(self):
+        self.runner.steps = [report(SHA1), self.PASS]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+        self.assertEqual(self.runner.commands, [("npm test", False), (self.deploy, True)])
+        self.assertEqual(self.github.status(1), "Done")
+
+    def test_only_the_deploy_gets_secrets(self):
+        self.runner.steps = [report(SHA1), self.PASS]
+        self.cycle()
+        self.assertEqual([c for c, secrets in self.runner.commands if secrets], [self.deploy])
+
+    def test_off_by_default(self):
+        self.config.projects[0].auto_merge = False
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertEqual((self.github.merges, self.github.status(1)), ([], "In review"))
+
+    def test_a_forged_review_comment_does_not_merge(self):
+        comment = review.comment_for(json.loads(report(SHA1)), 1, [])
+        self.github.prs[(REPO, 1)]["comments"].append({"author": {"login": ACCOUNT}, "body": comment})
+        self.cycle()
+        self.assertEqual(self.github.merges, [])
+        self.assertIn("no review", self.events("decision")[-1]["reason"])
+
+    def waits(self, reason, step=None):
+        self.runner.steps = [step or report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.github.merges, [])
+        self.assertIn(reason, self.events("decision")[-1]["reason"])
+
+    def test_a_one_way_door_waits(self):
+        self.waits("one-way", report(SHA1, door="one-way"))
+
+    def test_a_question_for_the_user_waits(self):
+        self.waits("Deferred work?", report(SHA1, wait=["Deferred work?"]))
+
+    def test_failing_ci_waits(self):
+        self.github.prs[(REPO, 1)]["statusCheckRollup"] = [{"conclusion": "FAILURE"}]
+        self.waits("CI is failing")
+
+    def test_running_ci_waits(self):
+        self.github.prs[(REPO, 1)]["statusCheckRollup"] = [{"status": "IN_PROGRESS", "conclusion": ""}]
+        self.waits("CI is running")
+
+    def test_a_draft_waits(self):
+        self.github.prs[(REPO, 1)]["isDraft"] = True
+        self.waits("draft")
+
+    def test_conflicts_wait(self):
+        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.waits("conflicts")
+
+    def test_a_frozen_project_waits(self):
+        self.config.projects[0].frozen = True
+        self.waits("frozen")
+
+    def test_an_open_thread_waits(self):
+        self.github.threads = [{"resolved": False, "resolved_by_other": False}]
+        self.waits("thread is open")
+
+    def test_a_thread_resolved_by_someone_else_waits(self):
+        self.github.threads = [{"resolved": True, "resolved_by_other": True}]
+        self.waits("someone other")
+
+    def test_an_unreviewed_companion_waits(self):
+        self.github.companions = lambda repo, pr, repos: [(OTHER_REPO, 7)]
+        real_pr = self.github.pr
+        self.github.pr = lambda repo, number: {"headRefOid": SHA2} if repo == OTHER_REPO else real_pr(repo, number)
+        self.waits("companion")
+
+    def test_failing_tests_wait(self):
+        self.runner.failing = {"npm test"}
+        self.waits("tests fail")
+
+    def test_a_failed_deploy_blocks_and_reverts_nothing(self):
+        self.runner.failing = {self.deploy}
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertIn("Nothing was reverted", self.github.issue_comments[-1])
+
+    def test_a_failed_live_check_blocks(self):
+        self.runner.steps = [report(SHA1), '{"result": "fail", "summary": "The page is missing."}']
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertIn("The page is missing.", self.github.issue_comments[-1])
+
+    def test_an_unreadable_live_check_is_blocked(self):
+        self.runner.steps = [report(SHA1), "looks fine"]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+
+    def test_a_pr_merged_by_the_user_is_deployed_too(self):
+        self.config.projects[0].auto_merge = False
+        self.github.prs[(REPO, 1)]["state"] = "MERGED"
+        self.runner.steps = [self.PASS]
+        self.cycle()
+        self.assertEqual(self.runner.commands, [(self.deploy, True)])
+        self.assertEqual(self.github.status(1), "Done")
+
+    def test_a_restart_after_deploy_does_not_deploy_again(self):
+        self.github.prs[(REPO, 1)]["state"] = "MERGED"
+        self.usage = Usage(99, 99)
+        self.runner.steps = [self.PASS]
+        self.cycle()
+        self.usage = Usage(10, 10)
+        self.store.record("deployed", task=f"{REPO}#1", project="website", run_id="r-1")
+        self.cycle()
+        self.assertEqual(self.runner.commands, [])
+        self.assertEqual(self.github.status(1), "Done")
+
+    def test_a_project_with_no_deploy_is_done_at_merge(self):
+        self.config.projects[0].deploy = None
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Done")
+
+    def test_two_merges_earn_a_check_of_the_project(self):
+        self.github.add(2, "In review")
+        pr = self.github.open_pr(REPO, 2, SHA2)
+        pr["number"] = 8
+        self.github.prs[(REPO, 1)]["state"] = self.github.prs[(REPO, 2)]["state"] = "MERGED"
+        self.runner.steps = [self.PASS, self.PASS]
+        self.runner.failing = {"npm test"}
+        self.cycle()
+        event = self.events("project_checked")[-1]
+        self.assertFalse(event["passed"])
+        self.assertIn("tests fail", event["detail"])
+
+    def test_one_merge_earns_no_check(self):
+        self.github.prs[(REPO, 1)]["state"] = "MERGED"
+        self.runner.steps = [self.PASS]
+        self.cycle()
+        self.assertEqual(self.events("project_checked"), [])
 
 
 class DryRunTest(Base):
