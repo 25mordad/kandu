@@ -110,7 +110,7 @@ class Board:
 class Deploy:
     mode: str
     command: str
-    live_url: str
+    live_url: str = ""             # empty: nothing can check the live software, for example behind a login
 
 
 @dataclass

@@ -382,7 +382,7 @@ class Supervisor:
             deployed = self.store.last_event("deployed", task=task.key)
             if deployed is None and not self._deploy(task):
                 return
-            if not self._live_check(task):
+            if task.project.deploy.live_url and not self._live_check(task):
                 return
         self._finish(task, DONE, "merged")
         self.merged[task.project.name] += 1
@@ -395,7 +395,7 @@ class Supervisor:
             cwd = self.runner.prepare_review(project, repo, "kandu/end-check", f"origin/{base}")
             if self.runner.run_command(project, cwd, project.test, new_run_id(self.now())) != 0:
                 problems.append(f"tests fail in {repo}")
-            if project.deploy is not None:
+            if project.deploy is not None and project.deploy.live_url:
                 url = shlex.quote(project.deploy.live_url)
                 if self.runner.run_command(project, cwd, f"curl -fsS -o /dev/null {url}", new_run_id(self.now())) != 0:
                     problems.append("the live URL does not answer")

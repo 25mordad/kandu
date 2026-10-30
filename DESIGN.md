@@ -95,7 +95,7 @@ One entry per project in `local/projects.yaml`, written by `/kandu-add`. **A pro
   - `in-place` — must run on a named machine, in a separate `git worktree`, never in the user's own working copy.
 - machine, path, test command, local run command, extra `allowed_tools` for its workers
 - a project with several repos keeps each at `<path>/<repo name>`
-- `deploy`: `mode` (`direct` or `preview`), `command`, `live_url`
+- `deploy`: `mode` (`direct` or `preview`), `command`, `live_url` (leave it out when the live software is behind a login: the task is then done after the deploy, with no live check)
 - where its secrets are, forbidden areas, repo rules, merge mode, priority, max parallel workers, paused
 
 **Machines that are not always on** (e.g. a laptop): at the start of each cycle the supervisor checks the machine over SSH. Reachable → run the worker there. Not reachable → skip that project's tasks; they show as "waiting for machine" and are picked up the next cycle it is reachable. Leaving the machine on is enough to let Kandu work on it.
@@ -212,7 +212,7 @@ If you want isolation now, two options:
 ## 13. Didban — control from your own machine
 The brain runs on an always-on machine, which is usually not the machine the user sits at. **Didban** (Persian for "lookout", the one at the top of the tower) is how the user talks to Kandu from their own machine: one command opens a Claude Code session in a clone of this repo, in the control role. It is a role, not a service: no daemon, no new connection, nothing to keep running.
 
-- **Defining tasks:** `/kandu-task` writes the issue directly with `gh`. The brain picks it up on its next wake, so this works even when the brain's machine is off.
+- **Defining tasks:** a task is refined with the user first, and created only after the user says yes to its final text; naming a task is not that yes. `/kandu-task` then writes the issue directly with `gh`. The brain picks it up on its next wake, so this works even when the brain's machine is off.
 - **Seeing state:** reads the boards from GitHub and live state from the HTTP API (§7) over SSH to the brain. Answers `Needs info` tasks from here.
 - **Giving commands:** stop, resume and config changes (`/kandu-config`) run on the brain over SSH.
 - **Knowledge:** project locations come from the registry. Other sources are listed in `didban.knowledge` in the brain's `kandu.yaml`. The role prompt tells Didban to read them there, on the machine that holds each one, read-only, and never to copy them.

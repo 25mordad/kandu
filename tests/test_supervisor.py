@@ -579,6 +579,14 @@ class MergeTest(Base):
         self.assertEqual(self.runner.commands, [("npm test", False), (self.deploy, True)])
         self.assertEqual(self.github.status(1), "Done")
 
+    def test_a_deploy_with_no_live_url_is_done_without_a_live_check(self):
+        self.config.projects[0].deploy.live_url = ""
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+        self.assertEqual(self.runner.commands, [("npm test", False), (self.deploy, True)])
+        self.assertEqual(self.github.status(1), "Done")
+
     def test_only_the_deploy_gets_secrets(self):
         self.runner.steps = [report(SHA1), self.PASS]
         self.cycle()

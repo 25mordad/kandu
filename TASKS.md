@@ -35,3 +35,4 @@ Every task is designed and checked against harness, context and memory (§14).
 24. [x] Hive design for the dashboard: the meadow, with bees for agents and flowers for tasks, all from real state (§7)
 25. [ ] Show the dashboard inside another private app in a frame, through that app's server, opening no new port
 26. [ ] A film of the dashboard for the README with a voice explaining what Kandu does, only after the first real round works
+27. [ ] Every project gets a backup of what it cannot rebuild as its first task (`/kandu-add`)
