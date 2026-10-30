@@ -19,7 +19,7 @@ Every task is designed and checked against harness, context and memory (§14).
 12. [x] Merge on the reviewed `SHA` with all merge conditions in code, deploy, live check, end-of-cycle check; a one-way door blocks auto-merge; the merge gate reads the review from the local event log, because a worker uses the same account and could write a PR comment; replaces the current `MERGED` → `Done` step (§5)
 13. [ ] Notifier with a Telegram adapter, important events only (§8)
 14. [ ] Claude login watch: expiry per machine on the dashboard, early warning, works when `claude` is down (§7, §8)
-15. [ ] Move the running install to a private copy with pushes to `upstream` disabled, before the first board (§12)
+15. [x] Move the running install to a private copy with pushes to `upstream` disabled, before the first board (§12)
 
 ## [P2] Next
 16. [x] `/kandu-config` — change config by conversation (§1C)
@@ -32,3 +32,6 @@ Every task is designed and checked against harness, context and memory (§14).
 21. [ ] Optional isolation runners: separate Linux user, Docker (§9)
 22. [ ] Guide for a bot account / GitHub App (§10)
 23. [ ] Integration PR check: blockers of a PR still open must not reach `main` through a branch that merges it (§5)
+24. [x] Hive design for the dashboard: the meadow, with bees for agents and flowers for tasks, all from real state (§7)
+25. [ ] Show the dashboard inside another private app in a frame, through that app's server, opening no new port
+26. [ ] A short film of the dashboard for the README, recorded from the page with generic sample data, at no cost

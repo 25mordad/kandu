@@ -73,7 +73,7 @@ Kandu has its own interactive dashboard:
 - finished work, with PR link, live link and a screenshot of the final check
 - controls: stop / resume the supervisor, stop a worker
 
-The state files and a small HTTP API are documented, so you can connect Kandu to any other system or dashboard.
+The dashboard is one page with no outside requests, so another app can show it in a frame through its own server.
 
 ## Didban — control from your own machine
 

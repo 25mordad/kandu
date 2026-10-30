@@ -4,35 +4,86 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kandu</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 28'%3E%3Cpath fill='%23f5b301' d='M8 0h16l8 14-8 14H8L0 14z'/%3E%3C/svg%3E">
 <style>
-:root { color-scheme:light dark; --bg:#f6f5f1; --panel:#fff; --ink:#23211d; --muted:#6f6a60; --line:#e2dfd6; --accent:#a8650c; --bad:#b3362b; --good:#2f7d4f; }
-@media (prefers-color-scheme: dark) { :root { --bg:#171614; --panel:#201f1c; --ink:#ece9e1; --muted:#a09a8d; --line:#35322c; --accent:#e0a040; --bad:#ec7468; --good:#6cc08e; } }
-* { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; }
-header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:14px 16px; border-bottom:1px solid var(--line); }
-h1 { font-size:18px; margin:0; }
-h2 { font-size:13px; margin:0 0 10px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
-main { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; padding:14px 16px; max-width:1300px; margin:auto; }
-section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; min-width:0; overflow-x:auto; }
-button { font:inherit; padding:4px 10px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink); cursor:pointer; }
-input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink); max-width:100%; }
+:root { color-scheme:light dark; --bg:#fff6dc; --panel:#fffdf4; --ink:#3a2608; --muted:#7c6238; --line:#ecd9a4; --wax:#e3c376; --accent:#a86a00; --honey:#f5b301; --honey-deep:#d98a00; --bad:#b3362b; --good:#4a8a3a; --sky-top:#cfe9f5; --sky-low:#fdf2cf; --grass:#a9cf6b; --grass-deep:#7fb24d; --soil:#b98b4e; --hive:#e9a820; --hive-dark:#b87b0f; --hex:#a86a00; }
+@media (prefers-color-scheme: dark) { :root { --bg:#17100a; --panel:#241808; --ink:#f8ead0; --muted:#bfa578; --line:#4a3414; --wax:#6d4d1c; --accent:#f5b301; --honey:#f5b301; --honey-deep:#d98a00; --bad:#ee7b6c; --good:#8ccb73; --sky-top:#141b33; --sky-low:#3a2a2c; --grass:#3f5a2b; --grass-deep:#2e4620; --soil:#5e4221; --hive:#d39516; --hive-dark:#8d5e0b; --hex:#f5b301; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; position:relative; }
+body::before { content:""; position:fixed; inset:0; z-index:-1; opacity:.09; background-color:var(--hex); -webkit-mask:var(--comb); mask:var(--comb); --comb:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='97' viewBox='0 0 56 97'%3E%3Cpath fill='none' stroke='%23000' stroke-width='2' d='M28 0l28 16v33L28 65 0 49V16zM0 49v32l28 16 28-16V49M28 65v32'/%3E%3C/svg%3E"); }
+header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:12px 16px; border-bottom:2px solid var(--wax); background:var(--panel); }
+h1 { font-size:20px; margin:0; display:flex; align-items:center; gap:8px; }
+h1::before, h2::before { content:""; display:inline-block; width:1.05em; height:.92em; background:var(--honey); clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%); flex:none; }
+h2 { font-size:14px; margin:0 0 10px; color:var(--accent); display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+h2::before { width:.95em; height:.84em; }
+main { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr)); gap:14px; padding:14px 16px; max-width:1300px; margin:auto; }
+section { background:var(--panel); border:2px solid var(--wax); border-radius:16px; padding:14px; min-width:0; overflow-x:auto; }
+button { font:inherit; padding:4px 12px; border:2px solid var(--wax); border-radius:999px; background:var(--panel); color:var(--ink); cursor:pointer; }
+button:hover { background:var(--honey); color:#3a2608; }
+input, select { font:inherit; padding:4px 10px; border:2px solid var(--wax); border-radius:999px; background:var(--panel); color:var(--ink); max-width:100%; min-width:0; }
+#token { width:11rem; }
+td button { white-space:nowrap; margin-block:1px; }
 a { color:var(--accent); }
 table { border-collapse:collapse; width:100%; }
 td, th { text-align:start; padding-block:3px; padding-inline:0 8px; border-bottom:1px solid var(--line); }
 td { overflow-wrap:break-word; }
 th { color:var(--muted); font-weight:500; white-space:nowrap; }
 .muted { color:var(--muted); }
+@media (max-width: 640px) {
+  section table, section tbody, section tr { display:block; }
+  section tr:has(th) { display:none; }
+  section tr { padding-block:6px; border-bottom:1px solid var(--line); }
+  section td { display:inline-block; border:0; padding-block:1px; vertical-align:middle; }
+}
 .spacer { flex:1; }
-.bar { position:relative; height:12px; background:var(--line); border-radius:4px; margin:4px 0 10px; }
-.bar i { display:block; height:100%; background:var(--accent); border-radius:4px; }
-.bar.over i { background:var(--bad); }
-.bar b { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--ink); }
-.log { font:12px/1.5 ui-monospace, monospace; max-height:320px; overflow:auto; overflow-wrap:anywhere; }
 .wide { grid-column:1/-1; }
-.finding { border-inline-start:3px solid var(--line); padding-inline-start:10px; margin:8px 0; }
+.log { font:12px/1.5 ui-monospace, monospace; max-height:320px; overflow:auto; overflow-wrap:anywhere; }
+.finding { border-inline-start:3px solid var(--wax); padding-inline-start:10px; margin:8px 0; }
 .finding.blocker { border-color:var(--bad); }
-:lang(fa) body { font-family:system-ui, "Noto Sans Arabic", sans-serif; }
-:lang(fa) h2 { letter-spacing:0; font-size:14px; }
+
+.meadow { padding:0; overflow:hidden; line-height:0; }
+.meadow svg { display:block; width:100%; height:auto; }
+.legend { display:flex; flex-wrap:wrap; gap:6px 16px; padding:8px 14px; line-height:1.5; font-size:13px; border-top:2px solid var(--wax); }
+.legend span { display:inline-flex; align-items:center; gap:6px; }
+.legend i { width:12px; height:12px; border-radius:50%; background:var(--swatch); flex:none; }
+.clickable { cursor:pointer; }
+.sky-top { stop-color:var(--sky-top); } .sky-low { stop-color:var(--sky-low); }
+.hill { fill:var(--grass); } .hill.far { fill:var(--grass-deep); opacity:.7; }
+.soil { fill:var(--soil); opacity:.45; }
+.patch-name { fill:var(--ink); font:600 15px system-ui, "Noto Sans Arabic", sans-serif; text-anchor:middle; }
+.flower-number { fill:var(--ink); font:600 12px system-ui, sans-serif; text-anchor:middle; direction:ltr; }
+.meadow-note { fill:var(--ink); font:15px system-ui, "Noto Sans Arabic", sans-serif; text-anchor:middle; }
+.band { fill:var(--hive); stroke:var(--hive-dark); stroke-width:2; }
+.door { fill:#3a2608; }
+.asleep .band { filter:saturate(.55) brightness(.75); }
+.zzz { fill:var(--ink); font:700 20px system-ui, sans-serif; animation:rise 3.5s ease-in-out infinite; }
+.zzz.two { animation-delay:1.2s; } .zzz.three { animation-delay:2.4s; }
+@keyframes rise { 0% { opacity:0; transform:translateY(8px); } 30% { opacity:.9; } 100% { opacity:0; transform:translateY(-26px); } }
+.sway { transform-box:fill-box; transform-origin:50% 100%; animation:sway 5s ease-in-out infinite; }
+.sway.alt { animation-delay:-2.4s; }
+@keyframes sway { 0%,100% { transform:rotate(-2.5deg); } 50% { transform:rotate(2.5deg); } }
+.wing { fill:#fff; opacity:.75; stroke:#7c6238; stroke-width:.6; transform-box:fill-box; transform-origin:50% 100%; animation:flap .16s ease-in-out infinite alternate; }
+.wing.low { transform-origin:50% 0; }
+@keyframes flap { from { transform:scaleY(1); } to { transform:scaleY(.45); } }
+.body { fill:#f5b301; stroke:#3a2608; stroke-width:1; } .stripe { fill:#3a2608; } .head { fill:#3a2608; }
+.reviewer .body { fill:#9f7be0; } .scout .body { fill:#4fb6c9; }
+.drop { fill:#f5b301; stroke:#d98a00; }
+.paused * { animation-play-state:paused !important; }
+@media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz { animation:none; } }
+
+.jars { display:flex; gap:16px; flex-wrap:wrap; justify-content:center; }
+.jar-box { text-align:center; }
+.jar { position:relative; width:120px; height:104px; margin:auto; background:var(--line); clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%); overflow:hidden; }
+.jar i { position:absolute; inset-inline:0; bottom:0; background:linear-gradient(var(--honey),var(--honey-deep)); transition:height .8s ease; }
+.jar.over i { background:linear-gradient(var(--bad),var(--honey-deep)); }
+.jar b { position:absolute; inset-inline:0; height:2px; background:var(--ink); opacity:.8; }
+.jar span { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:20px; color:var(--ink); text-shadow:0 0 4px var(--panel); }
+.comb { display:flex; flex-wrap:wrap; gap:3px 4px; padding-block:4px; }
+.cell { position:relative; width:84px; height:74px; background:var(--line); clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%); color:var(--ink); text-decoration:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:12px; line-height:1.3; }
+.cell i { position:absolute; inset:0; background:var(--honey); opacity:var(--full); }
+.cell.stuck i { background:var(--muted); }
+.cell bdi, .cell small { position:relative; font-weight:600; }
+.cell small { font-weight:400; }
 </style>
 </head>
 <body>
@@ -46,7 +97,8 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
   <button id="lang" lang="" data-t="other_language"></button>
 </header>
 <main>
-  <section><h2 data-t="usage"></h2><div id="usage"></div><div id="nextwake" class="muted"></div></section>
+  <section class="wide meadow"><div id="scene"></div><div id="legend" class="legend"></div></section>
+  <section><h2 data-t="usage"></h2><div id="usage" class="jars"></div><div id="nextwake" class="muted"></div></section>
   <section><h2 data-t="active_workers"></h2><div id="workers"></div></section>
   <section><h2 data-t="queue"></h2><div id="queue"></div></section>
   <section class="wide"><h2><span data-t="by_day"></span> <select id="day" data-t-attr="aria-label" data-t="day"></select></h2><div id="byday"></div></section>
@@ -56,8 +108,8 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
 <script type="application/json" id="text">
 {
   "en": {
-    "brand": "Kandu", "other_language": "فارسی", "loading": "loading", "control_token": "control token", "stop": "Stop", "resume": "Resume",
-    "usage": "Usage", "active_workers": "Active workers", "queue": "Queue", "by_day": "By day", "day": "day",
+    "brand": "Kandu", "hive": "The hive", "empty_meadow": "The meadow is empty: no task is on a board yet.", "bee_worker": "Worker bee", "bee_reviewer": "Reviewer bee", "bee_scout": "Scout bee", "other_language": "فارسی", "loading": "loading", "control_token": "control token", "stop": "Stop", "resume": "Resume",
+    "usage": "Usage", "active_workers": "Bees at work", "queue": "The meadow", "by_day": "Honeycomb by day", "day": "day",
     "live_stream": "Live stream", "run": "Run", "pr_page": "PR page", "token_required": "A valid token is required.",
     "request_failed": "The request failed.", "api_unreachable": "The dashboard API cannot be reached.",
     "not_read_yet": "not read yet", "limit": "limit", "session": "5-hour", "week": "Week", "next_wake": "next wake",
@@ -68,8 +120,8 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
     "round": "Round", "blocker": "Blocker", "note": "Note"
   },
   "fa": {
-    "brand": "کندو", "other_language": "English", "loading": "در حال بارگذاری", "control_token": "توکن کنترل", "stop": "توقف", "resume": "ادامه",
-    "usage": "مصرف", "active_workers": "کارگرهای فعال", "queue": "صف", "by_day": "به تفکیک روز", "day": "روز",
+    "brand": "کندو", "hive": "کندو", "empty_meadow": "مرغزار خالی است: هنوز تسکی روی هیچ بوردی نیست.", "bee_worker": "زنبور کارگر", "bee_reviewer": "زنبور بازبین", "bee_scout": "زنبور پیشاهنگ", "other_language": "English", "loading": "در حال بارگذاری", "control_token": "توکن کنترل", "stop": "توقف", "resume": "ادامه",
+    "usage": "مصرف", "active_workers": "زنبورهای در حال کار", "queue": "مرغزار", "by_day": "شانهٔ عسل روز", "day": "روز",
     "live_stream": "جریان زنده", "run": "اجرا", "pr_page": "صفحه PR", "token_required": "توکن معتبر لازم است.",
     "request_failed": "درخواست انجام نشد.", "api_unreachable": "به API داشبورد دسترسی نیست.",
     "not_read_yet": "هنوز خوانده نشده", "limit": "سقف", "session": "پنج‌ساعته", "week": "هفته", "next_wake": "بیداری بعدی",
@@ -80,7 +132,7 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
     "round": "دور", "blocker": "مانع", "note": "یادداشت"
   },
   "values_fa": {
-    "awake": "بیدار", "asleep": "خواب", "stopped": "متوقف", "never ran": "هنوز اجرا نشده",
+    "awake": "بیدار", "waiting for machine": "در انتظار ماشین", "asleep": "خواب", "stopped": "متوقف", "never ran": "هنوز اجرا نشده",
     "Ready": "آماده", "In progress": "در حال انجام", "In review": "در بازبینی", "Needs info": "نیازمند اطلاعات",
     "Blocked": "مسدود", "Done": "انجام‌شده", "OPEN": "باز", "MERGED": "ادغام‌شده", "CLOSED": "بسته",
     "implement": "پیاده‌سازی", "merge": "ادغام", "deploy": "استقرار", "live check": "بررسی زنده", "two-way": "برگشت‌پذیر", "one-way": "برگشت‌ناپذیر",
@@ -112,11 +164,13 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
 const $ = id => document.getElementById(id);
 const esc = text => String(text ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const get = path => fetch("/api/v1" + path).then(r => r.ok ? r.json() : Promise.reject(r.status));
-const taskLink = task => `<a href="#" data-review="${esc(task)}"><bdi>${esc(task)}</bdi></a>`;
+const taskLink = (task, label = task) => `<a href="#" data-review="${esc(task)}" title="${esc(task)}"><bdi>${esc(label)}</bdi></a>`;
 const LANGUAGE_KEY = "kandu-language";
 const TEXT = JSON.parse($("text").textContent);
 const LIVE_LINES = 200;
+const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
 let lang = "en", shownRun = null, shownTask = null, live = [];
+let lastState = null, lastQueue = null, sceneKey = null;
 try { if (localStorage.getItem(LANGUAGE_KEY) === "fa") lang = "fa"; } catch {}
 
 const t = key => TEXT[lang][key];
@@ -148,6 +202,7 @@ function applyLanguage() {
     if (attrs) attrs.split(" ").forEach(attr => el.setAttribute(attr, t(el.dataset.t)));
     else el.textContent = t(el.dataset.t);
   }
+  renderLegend();
 }
 
 async function setLanguage(chosen) {
@@ -166,36 +221,179 @@ async function post(path) {
 }
 function alertLine(text) { $("state").textContent = text; }
 
-function bar(label, value, limit) {
-  if (value === undefined || value === null) return `<div class="muted">${label}: ${t("not_read_yet")}</div>`;
+// The meadow. Everything on it comes from real state: a bee flies only while a real agent runs.
+
+const FLOWERS = {
+  "Ready": {swatch: "#8fc46a"},
+  "In progress": {swatch: "#f08bb0", petal: "#f08bb0"},
+  "In review": {swatch: "#b394ea", petal: "#b394ea"},
+  "Needs info": {swatch: "#f2a65a", petal: "#f2a65a"},
+  "Blocked": {swatch: "#9a8f80"},
+  "waiting": {swatch: "#c9c4b6"},
+};
+const PETALS = [0, 60, 120, 180, 240, 300];
+const CELL_W = 72, CELL_H = 94;
+
+function flower(column, index) {
+  const sway = `sway${index % 2 ? " alt" : ""}`;
+  if (column === "Blocked") {
+    return `<g><path d="M0 34 Q2 10 -13 6" fill="none" stroke="#8a7f66" stroke-width="3"/>
+      <circle cx="-15" cy="9" r="6" fill="#9a8f80"/><circle cx="-5" cy="33" r="3" fill="#9a8f80"/><circle cx="7" cy="34" r="3" fill="#9a8f80"/></g>`;
+  }
+  if (column === "Ready" || column === "waiting") {
+    const tip = column === "Ready" ? "#f08bb0" : "#c9c4b6";
+    return `<g class="${sway}"><path d="M0 34 V2" stroke="#4f8a3a" stroke-width="3"/><ellipse cx="7" cy="20" rx="7" ry="3" fill="#6da84f"/>
+      <ellipse cy="-5" rx="7" ry="11" fill="#6da84f"/><ellipse cy="-11" rx="4" ry="6" fill="${tip}"/></g>`;
+  }
+  const petals = PETALS.map(a => `<ellipse cy="-11" rx="6" ry="9" fill="${FLOWERS[column].petal}" transform="rotate(${a})"/>`).join("");
+  const mark = column === "Needs info" ? '<text y="5" text-anchor="middle" font-weight="700" font-size="14" fill="#3a2608">?</text>' : "";
+  return `<g class="${sway}"><path d="M0 34 V4" stroke="#4f8a3a" stroke-width="3"/><ellipse cx="7" cy="22" rx="7" ry="3" fill="#6da84f"/>${petals}<circle r="7" fill="#f5b301"/>${mark}</g>`;
+}
+
+function bee(kind, size = 1) {
+  return `<g class="${kind}" transform="scale(${size})">
+    <ellipse class="wing" cx="-2" cy="-8" rx="6" ry="8"/><ellipse class="wing low" cx="-2" cy="8" rx="6" ry="8"/>
+    <ellipse class="body" rx="12" ry="7"/><rect class="stripe" x="-6" y="-6.6" width="3.4" height="13.2"/><rect class="stripe" x="0" y="-7" width="3.4" height="14"/>
+    <circle class="head" cx="11" r="4.5"/></g>`;
+}
+
+function beeKind(phase) {
+  if (/^review/.test(phase)) return "reviewer";
+  return phase === "live check" ? "scout" : "worker";
+}
+
+function flight(worker, kind, spot, hive, index) {
+  const label = `<title>${esc(worker.task)} · ${esc(tr(worker.phase))}</title>`;
+  const run = worker.run_id ? ` class="clickable" data-run="${esc(worker.run_id)}"` : "";
+  if (STILL) return `<g${run} transform="translate(${spot.x} ${spot.y - 26})">${label}${bee(kind)}</g>`;
+  if (kind !== "worker") {
+    const circle = `M${spot.x - 26} ${spot.y} a26 26 0 1 1 52 0 a26 26 0 1 1 -52 0`;
+    return `<g${run}>${label}${bee(kind)}<animateMotion dur="${5 + index}s" repeatCount="indefinite" rotate="auto" path="${circle}"/></g>`;
+  }
+  const midY = Math.min(hive.y, spot.y) - 70;
+  const midX = (hive.x + spot.x) / 2;
+  const path = `M${hive.x} ${hive.y} Q${midX} ${midY} ${spot.x} ${spot.y - 18} Q${midX} ${midY + 150} ${hive.x} ${hive.y}`;
+  return `<g${run}>${label}${bee(kind)}<animateMotion dur="${9 + index * 2}s" repeatCount="indefinite" rotate="auto" calcMode="linear"
+    keyTimes="0;0.4;0.65;1" keyPoints="0;0.5;0.5;1" path="${path}"/></g>`;
+}
+
+function hive(x, y, asleep) {
+  const widths = [52, 88, 112, 124, 124];
+  const bands = widths.map((w, i) => `<rect class="band" x="${-w / 2}" y="${-96 + i * 25}" width="${w}" height="27" rx="13"/>`).join("");
+  const naps = asleep ? `<text class="zzz" x="56" y="-92">z</text><text class="zzz two" x="70" y="-108">z</text><text class="zzz three" x="84" y="-124">z</text>` : "";
+  return `<g class="${asleep ? "asleep" : ""}" transform="translate(${x} ${y})"><title>${t("hive")}</title>${bands}<path class="door" d="M-16 29 a16 16 0 0 1 32 0z"/>
+    <g transform="translate(0 -44) rotate(-90)">${bee("queen", 1.5)}</g>
+    <path d="M-10 -80 l5 8 5 -8 5 8 5 -8 v12 h-20z" fill="#f5b301" stroke="#3a2608"/>${naps}</g>`;
+}
+
+function fields(state, queue) {
+  const projects = Object.entries(queue?.projects || {}).map(([name, columns]) => ({name, tasks:
+    Object.entries(columns).flatMap(([column, tasks]) => tasks.map(task => ({task: task.task, title: task.title, column})))}));
+  const seen = new Set(projects.flatMap(p => p.tasks.map(item => item.task)));
+  const strays = [...(state.workers || []).filter(w => !seen.has(w.task)).map(w => ({task: w.task, title: "", column: "In progress", project: w.project})),
+                  ...(state.waiting_for_machine || []).filter(task => !seen.has(task)).map(task => ({task, title: "", column: "waiting"}))];
+  for (const stray of strays) {
+    let patch = projects.find(p => p.name === stray.project) || projects[0];
+    if (!patch) projects.push(patch = {name: stray.project || "", tasks: []});
+    patch.tasks.push(stray);
+  }
+  for (const task of state.waiting_for_machine || []) {
+    const found = projects.flatMap(p => p.tasks).find(item => item.task === task);
+    if (found) found.column = "waiting";
+  }
+  return projects;
+}
+
+function placePatches(projects, narrow) {
+  const width = narrow ? 380 : 450, perRow = Math.floor(width / CELL_W);
+  const columns = narrow ? [{x: 20, y: 290}] : [{x: 30, y: 150}, {x: 720, y: 150}];
+  for (const patch of projects) {
+    const rows = Math.max(1, Math.ceil(patch.tasks.length / perRow));
+    const column = columns.reduce((a, b) => b.y < a.y ? b : a);
+    patch.x = column.x; patch.y = column.y; patch.width = width; patch.height = rows * CELL_H + 44; patch.perRow = perRow;
+    column.y += patch.height + 16;
+  }
+  return Math.max(...columns.map(c => c.y));
+}
+
+function renderScene(state, queue) {
+  const box = $("scene");
+  const narrow = box.clientWidth < 760;
+  const projects = fields(state, queue);
+  const stopped = state.stop_requested;
+  const asleep = stopped || state.supervisor !== "awake";
+  const key = JSON.stringify([narrow, lang, stopped, asleep, projects, state.workers]);
+  if (key === sceneKey) return;
+  sceneKey = key;
+  const width = narrow ? 420 : 1200;
+  const height = Math.max(placePatches(projects, narrow) + 34, narrow ? 300 : 420);
+  const home = narrow ? {x: 210, y: 140} : {x: 600, y: Math.round(height * .5)};
+  const spots = {};
+  const patches = projects.map(patch => {
+    const flowers = patch.tasks.map((item, i) => {
+      const x = patch.x + (i % patch.perRow) * CELL_W + CELL_W / 2 + (patch.width - patch.perRow * CELL_W) / 2;
+      const y = patch.y + Math.floor(i / patch.perRow) * CELL_H + 46;
+      spots[item.task] = {x, y};
+      const title = `${item.task} · ${item.title} · ${tr(item.column === "waiting" ? "waiting for machine" : item.column)}`;
+      return `<g class="clickable" data-review="${esc(item.task)}" transform="translate(${x} ${y})"><title>${esc(title)}</title>${flower(item.column, i)}
+        <text class="flower-number" y="52">#${esc(item.task.split("#")[1])}</text></g>`;
+    }).join("");
+    const middle = patch.x + patch.width / 2;
+    return `<ellipse class="soil" cx="${middle}" cy="${patch.y + patch.height / 2 + 8}" rx="${patch.width / 2}" ry="${patch.height / 2}"/>
+      <text class="patch-name" x="${middle}" y="${patch.y + 6}">${esc(patch.name)}</text>${flowers}`;
+  }).join("");
+  const bees = (state.workers || []).map((worker, i) => spots[worker.task] ? flight(worker, beeKind(worker.phase), spots[worker.task], {x: home.x, y: home.y + 20}, i) : "").join("");
+  const note = projects.some(p => p.tasks.length) ? "" : `<text class="meadow-note" x="${width / 2}" y="${height - 30}">${t("empty_meadow")}</text>`;
+  box.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${t("hive")}" class="${stopped ? "paused" : ""}">
+    <defs><linearGradient id="sky" x2="0" y2="1"><stop class="sky-top" offset="0"/><stop class="sky-low" offset="1"/></linearGradient></defs>
+    <rect width="${width}" height="${height}" fill="url(#sky)"/>
+    <path class="hill far" d="M0 90 Q${width * .3} 40 ${width * .6} 85 T${width} 70 V${height} H0z"/>
+    <path class="hill" d="M0 125 Q${width * .4} 75 ${width} 120 V${height} H0z"/>
+    ${hive(home.x, home.y, asleep)}${patches}${bees}${note}</svg>`;
+  if (stopped) box.firstElementChild.pauseAnimations();
+}
+
+function renderLegend() {
+  const kinds = [["Ready", "Ready"], ["In progress", "In progress"], ["In review", "In review"], ["Needs info", "Needs info"], ["Blocked", "Blocked"], ["waiting", "waiting for machine"]];
+  const bees = [["#f5b301", "bee_worker"], ["#9f7be0", "bee_reviewer"], ["#4fb6c9", "bee_scout"]];
+  $("legend").innerHTML = kinds.map(([kind, label]) => `<span style="--swatch:${FLOWERS[kind].swatch}"><i></i>${esc(tr(label))}</span>`).join("") +
+    bees.map(([color, key]) => `<span style="--swatch:${color}"><i></i>${t(key)}</span>`).join("");
+}
+
+function jar(label, value, limit) {
+  if (value === undefined || value === null) return `<div class="jar-box"><div class="jar"><span>?</span></div><div class="muted">${label}: ${t("not_read_yet")}</div></div>`;
   const over = value >= limit ? " over" : "";
-  return `<div>${label}: ${pct(value)} <span class="muted">${t("limit")} ${pct(limit)}</span></div>
-    <div class="bar${over}"><i style="width:${Math.min(value, 100)}%"></i><b style="inset-inline-start:${limit}%"></b></div>`;
+  return `<div class="jar-box"><div class="jar${over}"><i style="height:${Math.min(value, 100)}%"></i><b style="bottom:${limit}%"></b><span>${pct(value)}</span></div>
+    <div>${label} <span class="muted">${t("limit")} ${pct(limit)}</span></div></div>`;
 }
 
 async function refreshState() {
   const s = await get("/state");
+  lastState = s;
   const name = tr(s.stop_requested ? "stopped" : (s.supervisor || "never ran"));
   $("state").textContent = name + (s.last_reason ? " · " + tr(s.last_reason) : "");
-  $("usage").innerHTML = bar(t("session"), s.usage?.session, s.limits.session) + bar(t("week"), s.usage?.week, s.limits.week);
+  $("usage").innerHTML = jar(t("session"), s.usage?.session, s.limits.session) + jar(t("week"), s.usage?.week, s.limits.week);
   $("nextwake").innerHTML = s.next_wake ? `${t("next_wake")}: ${bdi(when(s.next_wake))}` : "";
   const workers = s.workers || [];
   $("workers").innerHTML = workers.length ? `<table><tr><th>${t("task")}</th><th>${t("machine")}</th><th>${t("phase")}</th><th>${t("started")}</th><th></th></tr>` +
-    workers.map(w => `<tr><td>${taskLink(w.task)}</td><td>${bdi(w.machine)}</td><td>${esc(tr(w.phase))}</td><td>${bdi(when(w.started))}</td>
+    workers.map(w => `<tr><td>${taskLink(w.task, w.task.split("/").pop())}</td><td>${bdi(w.machine)}</td><td>${esc(tr(w.phase))}</td><td>${bdi(when(w.started))}</td>
       <td>${w.run_id ? `<button data-run="${esc(w.run_id)}">${t("watch")}</button> <button data-stop="${esc(w.run_id)}">${t("stop")}</button>` : ""}</td></tr>`).join("") + "</table>"
     : `<div class="muted">${t("none")}</div>`;
+  renderScene(s, lastQueue);
   return s;
 }
 
 async function refreshQueue(state) {
   try {
     const q = await get("/queue");
+    lastQueue = q;
     const rows = [];
     for (const [project, columns] of Object.entries(q.projects))
       for (const [column, tasks] of Object.entries(columns))
-        for (const task of tasks) rows.push(`<tr><td>${bdi(project)}</td><td>${esc(tr(column))}</td><td>${taskLink(task.task)}</td><td>${bdi(task.title)}</td></tr>`);
+        for (const task of tasks) rows.push(`<tr><td>${bdi(project)}</td><td>${esc(tr(column))}</td><td>${taskLink(task.task, task.task.split("/").pop())}</td><td>${bdi(task.title)}</td></tr>`);
     for (const task of state.waiting_for_machine || []) rows.push(`<tr><td></td><td>${t("waiting_for_machine")}</td><td>${taskLink(task)}</td><td></td></tr>`);
     $("queue").innerHTML = rows.length ? `<table><tr><th>${t("project")}</th><th>${t("column")}</th><th>${t("task")}</th><th>${t("title")}</th></tr>${rows.join("")}</table>` : `<div class="muted">${t("empty")}</div>`;
+    renderScene(state, q);
   } catch { $("queue").innerHTML = `<div class="muted">${t("github_unreadable")}</div>`; }
 }
 
@@ -207,10 +405,17 @@ async function refreshDays() {
   if (!days.length) { $("byday").innerHTML = `<div class="muted">${t("no_activity")}</div>`; return; }
   const day = await get("/days/" + select.value);
   const finished = Object.fromEntries(day.finished.map(f => [f.task, f.outcome]));
-  const tasks = Object.entries(day.tasks).map(([task, spent]) => `<tr><td>${taskLink(task)}</td><td>${esc(tr(finished[task]) || "")}</td><td>${num(spent.total)}</td></tr>`);
-  const split = obj => Object.entries(obj).map(([k, v]) => `${bdi(k)}: ${num(v.total)}`).join(" · ");
-  $("byday").innerHTML = `<table><tr><th>${t("task")}</th><th>${t("outcome")}</th><th>${t("tokens")}</th></tr>${tasks.join("")}</table>
-    <p class="muted">${t("total")} ${num(day.total.total)} · ${split(day.models)} · ${split(day.roles)}</p>`;
+  const spent = Object.entries(day.tasks);
+  const most = Math.max(1, ...spent.map(([, used]) => used.total));
+  const cells = spent.map(([task, used]) => {
+    const outcome = finished[task];
+    const stuck = outcome && outcome !== "merged" ? " stuck" : "";
+    const title = `${task} · ${tr(outcome) || ""} · ${num(used.total)} ${t("tokens")}`;
+    return `<a href="#" class="cell${stuck}" data-review="${esc(task)}" title="${esc(title)}" style="--full:${(.25 + .75 * used.total / most).toFixed(2)}"><i></i><bdi>#${esc(task.split("#")[1])}</bdi><small>${num(used.total)}</small></a>`;
+  });
+  const split = obj => Object.entries(obj).map(([k, v]) => `${bdi(k)}: ${num(v.total)}`);
+  $("byday").innerHTML = `<div class="comb">${cells.join("")}</div>
+    <p class="muted">${[`${t("total")} ${num(day.total.total)}`, ...split(day.models), ...split(day.roles)].join(" · ")}</p>`;
 }
 
 function renderLive() {
@@ -243,15 +448,16 @@ async function showReviews(task) {
 }
 
 document.addEventListener("click", e => {
-  const t = e.target;
-  if (t.dataset.review) { e.preventDefault(); showReviews(t.dataset.review); }
-  if (t.dataset.run) showRun(t.dataset.run);
-  if (t.dataset.stop) post(`/workers/${encodeURIComponent(t.dataset.stop)}/stop`);
+  const review = e.target.closest("[data-review]"), run = e.target.closest("[data-run]"), stop = e.target.closest("[data-stop]");
+  if (review) { e.preventDefault(); showReviews(review.dataset.review); }
+  if (run) showRun(run.dataset.run);
+  if (stop) post(`/workers/${encodeURIComponent(stop.dataset.stop)}/stop`);
 });
 $("stop").onclick = () => post("/stop");
 $("resume").onclick = () => post("/resume");
 $("day").onchange = refreshDays;
 $("lang").onclick = () => setLanguage(lang === "fa" ? "en" : "fa");
+addEventListener("resize", () => { if (lastState) renderScene(lastState, lastQueue); });
 
 async function refresh() {
   try { const s = await refreshState(); await refreshQueue(s); await refreshDays(); }

@@ -213,6 +213,23 @@ class DocsTest(unittest.TestCase):
         self.assertIn('fetch("/api/v1"', page)
 
 
+class HiveTest(unittest.TestCase):
+    def setUp(self):
+        self.page = dashboard.PAGE.read_text(encoding="utf-8")
+
+    def test_every_queue_column_has_a_flower(self):
+        flowers = re.search(r"const FLOWERS = \{(.*?)\n\};", self.page, re.DOTALL).group(1)
+        for column in dashboard.QUEUE_COLUMNS:
+            self.assertIn(f'"{column}":', flowers)
+
+    def test_the_page_loads_nothing_from_outside(self):
+        self.assertEqual(re.findall(r'(?:src|href)="https?://', self.page), [])
+        self.assertNotIn("@import", self.page)
+
+    def test_motion_stops_for_those_who_ask(self):
+        self.assertIn("prefers-reduced-motion: reduce", self.page)
+
+
 class LanguageTest(unittest.TestCase):
     def setUp(self):
         self.page = dashboard.PAGE.read_text(encoding="utf-8")
