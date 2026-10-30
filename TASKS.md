@@ -8,7 +8,7 @@ Design: [DESIGN.md](DESIGN.md). Early development; Kandu does not run yet.
 3. [ ] `/kandu-add` — add a project by conversation (§1B)
 4. [ ] `/kandu-doctor` — health check (§1C)
 5. [ ] `/kandu-task` — define a task by conversation; issue template; standard board columns (§2, §3)
-6. [ ] Didban: one command from the user's own machine, control role, reads `local/` over SSH (§13)
+6. [x] Didban: one command from the user's own machine, control role, reads `local/` over SSH (§13)
 7. [ ] State files + event log in a documented format (§7)
 8. [ ] Dashboard with live stream and stop / resume controls; documented HTTP API (§7)
 9. [ ] Supervisor: usage check, lock file, task selection, `systemd timer` (§5, §6)
