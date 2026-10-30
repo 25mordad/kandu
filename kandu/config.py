@@ -131,6 +131,7 @@ class Project:
     forbidden: list[str] = field(default_factory=list)
     repo_rules: str = ""
     auto_merge: bool | None = None
+    allowed_tools: list[str] = field(default_factory=list)
 
 
 @dataclass

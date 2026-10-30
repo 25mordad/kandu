@@ -1,6 +1,6 @@
 # TASKS — build roadmap
 
-Design: [DESIGN.md](DESIGN.md). Early development; Kandu does not run yet.
+Design: [DESIGN.md](DESIGN.md). Early development: the main loop is built, but has not run on a real project yet.
 
 Every task is designed and checked against harness, context and memory (§14).
 
@@ -13,10 +13,10 @@ Every task is designed and checked against harness, context and memory (§14).
 6. [x] Didban: one command from the user's own machine, control role, reads `local/` over SSH (§13)
 7. [x] State files + event log in a documented format, including tokens per task and model (§7)
 8. [ ] Dashboard with live stream, by-day view with tokens per task, PR page in plain words, stop / resume controls; versioned HTTP API documented in `docs/API.md` (§7)
-9. [ ] Supervisor: usage check, lock file, task selection, `systemd timer` (§5, §6)
-10. [ ] Workers as `claude` processes in `git worktree`s, local and over SSH, behind a swappable runner layer; connect `prompts/worker.md` and put `prompts/templates/pr.md` in its prompt (§4, §5, §9)
-11. [ ] Reviewer + review rounds, the worker fixes every finding; report validated in code, a later round only on a new `SHA` with no LLM gate, companion PRs, every round logged; connect `prompts/reviewer.md` (§5, §15)
-12. [ ] Merge on the reviewed `SHA` with all merge conditions in code, deploy, live check, end-of-cycle check; a one-way door blocks auto-merge (§5)
+9. [x] Supervisor: usage check, lock file, task selection, `systemd timer` (§5, §6)
+10. [x] Workers as `claude` processes in `git worktree`s, local and over SSH, behind a swappable runner layer; connect `prompts/worker.md` and put `prompts/templates/pr.md` in its prompt (§4, §5, §9)
+11. [x] Reviewer + review rounds, the worker fixes every finding; report validated in code, a later round only on a new `SHA` with no LLM gate, companion PRs, every round logged; connect `prompts/reviewer.md` (§5, §15)
+12. [ ] Merge on the reviewed `SHA` with all merge conditions in code, deploy, live check, end-of-cycle check; a one-way door blocks auto-merge; the merge gate reads the review from the local event log, because a worker uses the same account and could write a PR comment; replaces the current `MERGED` → `Done` step (§5)
 13. [ ] Notifier with a Telegram adapter, important events only (§8)
 14. [ ] Claude login watch: expiry per machine on the dashboard, early warning, works when `claude` is down (§7, §8)
 15. [ ] Move the running install to a private copy with pushes to `upstream` disabled, before the first board (§12)

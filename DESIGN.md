@@ -1,6 +1,6 @@
 # Kandu — design
 
-Status: **early development, Kandu does not run yet.** This file is the full specification. The overview is in [README.md](README.md), the build roadmap in [TASKS.md](TASKS.md).
+Status: **early development; the main loop is built, but has not run on a real project yet.** This file is the full specification. The overview is in [README.md](README.md), the build roadmap in [TASKS.md](TASKS.md).
 
 Everything that belongs to one person's setup (machines, paths, accounts, projects, limits) lives in config files under `local/`, which is gitignored. Examples: [config.example/](config.example/).
 
@@ -43,7 +43,7 @@ The dashboard is not a setup question: it is always Kandu's own (§7).
 3. Where exactly it is: which machine, which path.
 4. Permission to run: may Kandu clone it into its own work folder and run it there (`clone`), or must it work on that machine, in a separate `git worktree` (`in-place`)? **Always asked, never inferred.**
 5. Does it have a board? Which one, and how do its columns map to Kandu's standard columns? If none, should one be created?
-6. How is it tested and run locally? (The LLM proposes, the user confirms.)
+6. How is it tested and run locally, and which extra tools do its workers need (`allowed_tools`)? (The LLM proposes, the user confirms.)
 7. How is it deployed: `direct` or `preview`? Which live URL is used for the final check?
 8. Which secrets does it need and where are they? Kandu only stores the location, never copies or logs secret values.
 9. Forbidden areas: e.g. migrations, payments, files that must never be touched.
@@ -90,11 +90,14 @@ One entry per project in `local/projects.yaml`, written by `/kandu-add`. **A pro
 - **run location**, set by the user per project, never inferred:
   - `clone` — Kandu may clone it into its own work folder on the brain's machine and run it there;
   - `in-place` — must run on a named machine, in a separate `git worktree`, never in the user's own working copy.
-- machine, path, test command, local run command
+- machine, path, test command, local run command, extra `allowed_tools` for its workers
+- a project with several repos keeps each at `<path>/<repo name>`
 - `deploy`: `mode` (`direct` or `preview`), `command`, `live_url`
 - where its secrets are, forbidden areas, repo rules, merge mode, priority, max parallel workers, paused
 
 **Machines that are not always on** (e.g. a laptop): at the start of each cycle the supervisor checks the machine over SSH. Reachable → run the worker there. Not reachable → skip that project's tasks; they show as "waiting for machine" and are picked up the next cycle it is reachable. Leaving the machine on is enough to let Kandu work on it.
+
+**Worktrees** sit beside the copy, in `<path>.kandu-worktrees/`, never inside it, so they never show in the user's `git status`. A worker's worktree is kept between runs, so a cut-off run leaves its work for the next one. A reviewer gets a separate checkout of exactly the head `SHA`.
 
 ## 5. Supervisor, workers, reviewer
 
@@ -106,7 +109,7 @@ supervisor ─┬─ worker 1  →  reviewer
    supervisor: final check → merge → deploy → check in the live software
 ```
 
-- **Supervisor:** runs on the always-on machine as a headless `claude -p` session. It **does not write code**. It picks tasks, hands them to workers, judges results and decides. It never grades its own work.
+- **Supervisor:** a code loop on the always-on machine ([kandu/supervisor.py](kandu/supervisor.py)), not an LLM session. Everything that needs no judgment runs there, at no token cost, and still works when Claude is down: gates, task selection, starting agents, review rounds, the `SHA` check. It **writes no code**. A headless `claude -p` session is started only where judgment is needed, such as the final check (task 12). It never grades its own work.
 - **Workers:** separate `claude` processes, started by the runner layer (§9) on the project's machine, each in its own `git worktree`, so they never write over each other. Separate processes are what let Kandu stream each worker (§7), stop one alone and record its tokens. Independent tasks (by `Blocked by`) run in parallel, up to `max_parallel_workers`; dependent ones run in order. Their instructions are in [prompts/worker.md](prompts/worker.md):
   - Tests come first, at the project's public interfaces, and they check behavior rather than internals.
   - A bug starts with one fast command that fails on exactly that bug. If no such command can be built, the task goes to `Needs info` instead of a guess.
@@ -117,7 +120,8 @@ supervisor ─┬─ worker 1  →  reviewer
   - **Verified:** each blocker is pressure-tested before it is reported: the head is checked again, the bug is separated from the stated reason, every caller in the repo is traced, and a path that really reaches the bug is found.
   - **Companion PRs:** an open PR in the same family is a companion if a PR body names it or its branch has the same slug. The reviewer checks that the two sides really work together, not only that the names match. Nothing else is assumed to be a companion.
   - **Report:** one JSON object, validated in code. It holds the reviewed `SHA`, each criterion's result, each finding with path, line and kind, what was checked and found sound, the door, and a plain brief for the dashboard in the language chosen at setup. Nothing found is a valid result.
-  - **Rounds:** every finding goes back to the same worker, who fixes all of them, blockers and notes alike. The kind only decides what stops a merge. A later review runs only if a code check sees a new head `SHA`, so waiting costs no tokens. It gives each earlier finding `fixed`, `not fixed` or `partly fixed`, judged from the code. After `max_review_rounds` (default 2), an open blocker sends the task to `Blocked`, and an open note stays on the PR.
+  - **Rounds:** every finding goes back to a fresh worker process on the same branch and worktree, which fixes all of them, blockers and notes alike. The kind only decides what stops a merge. A later review runs only if a code check sees a new head `SHA`, so waiting costs no tokens. It gives each earlier finding `fixed`, `not fixed` or `partly fixed`, judged from the code. After `max_review_rounds` fix rounds (default 2, so at most three reviews), or a fix round that adds no commit, an open blocker sends the task to `Blocked`, and an open note stays on the PR.
+  - **Record:** each review is a PR comment with a hidden marker, and only comments by Kandu's own account count, so a restart loses nothing.
 - **Merge danger:** the reviewer decides on its own whether a change is a **two-way door** (easy to undo) or a **one-way door** (hard to undo: data migrations, published APIs, sent messages), and states its blast radius. A one-way door waits for the user, even with `auto_merge` on.
 - **Merge:** enforced in code, on the exact `SHA` that was reviewed. A new commit voids the review. If `auto_merge` is on, the supervisor merges only when all of this holds, then moves on to the next task:
   - the tests pass on that `SHA`, CI is not failing and the PR is not a draft
@@ -169,8 +173,9 @@ Note on the trade-off: a container does not by itself use more tokens, since tok
 v1:
 - No container, no separate OS user. Kandu runs as the user.
 - A separate work folder for Kandu's clones, never mixed with the user's own working copies.
-- Free guards: a per-project command allowlist in Claude's settings, a list of forbidden paths (e.g. `~/.ssh`, other projects' private data), and never `--dangerously-skip-permissions`.
-- In the code, running a worker sits behind its own layer, so isolation can be added later by swapping only that layer.
+- Free guards: a command allowlist built in code for each run ([kandu/agents.py](kandu/agents.py)), `--permission-mode dontAsk` so anything else is refused, a list of forbidden paths (e.g. `~/.ssh`, other projects' private data), and never `--dangerously-skip-permissions`.
+- In the code, running a worker sits behind its own layer ([kandu/runner.py](kandu/runner.py)), so isolation can be added later by swapping only that layer.
+- Stopping an agent over SSH ends the local connection; the remote process dies at its next write to it, not at once.
 
 If you want isolation now, two options:
 - **Separate Linux user:** a `kandu` user that owns the work folder and only has access to the registered repos and their secrets. Simple, little overhead; isolation is only as good as file permissions.

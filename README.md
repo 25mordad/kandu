@@ -4,7 +4,7 @@
 
 [فارسی](README.fa.md)
 
-> **Status: early development.** Kandu does not run yet. The full specification is in [DESIGN.md](DESIGN.md), the roadmap in [TASKS.md](TASKS.md).
+> **Status: early development.** The main loop is built and tested with stand-ins, and has not run on a real project yet. The full specification is in [DESIGN.md](DESIGN.md), the roadmap in [TASKS.md](TASKS.md).
 
 *Kandu* is Persian for beehive: many workers, each doing its own job, an order above them, and production that never stops.
 
@@ -36,7 +36,7 @@ Working with a coding agent today still means sitting next to it: approving step
 ```
 
 1. **Tasks are GitHub issues** on a GitHub Project board, one board per project family. Each issue has a fixed template: goal, current behavior, acceptance criteria, how to test, out of scope, blocked by. Only issues labelled `agent` in the `Ready` column enter the loop.
-2. **The supervisor** is a headless Claude session on an always-on machine. It does not write code. It picks tasks, hands them to workers, judges the results and decides. It never grades its own work.
+2. **The supervisor** is a code loop on an always-on machine, not an LLM session, so everything that needs no judgment costs no tokens. It writes no code. It picks tasks, hands them to workers and enforces the rules. It never grades its own work.
 3. **Workers** are separate `claude` processes, each in its own `git worktree`. Independent tasks run in parallel; dependent tasks run in order.
 4. **A fresh reviewer** checks every PR against the issue and hunts for what really breaks: production bugs, security holes, crashes, and new logic with no test. Each blocker is verified before it is reported. The worker fixes every finding, for at most two rounds; a blocker still open after that marks the task `Blocked`.
 5. **Merge and deploy:** when every merge condition holds on the exact commit that was reviewed, the supervisor merges (if auto-merge is on for that project) and deploys, directly or to a preview, per project. A change that is hard to undo always waits for you. Auto-merge starts off, until Kandu's decisions have been shown to match yours.

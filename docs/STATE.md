@@ -51,4 +51,19 @@ The numbers come from `modelUsage` in the `result` event of `claude --output-for
 `review_finished` is written for every review round, even with no findings. `findings` and `blockers` are counts, `round` starts at 1 and `door` is `two-way` or `one-way`. The text of a finding is not logged here.
 
 ## current.json
-A snapshot, replaced atomically, so a reader never sees half a file. It always has `v`. The supervisor (task 9) defines the remaining fields.
+A snapshot, replaced atomically, so a reader never sees half a file.
+
+| Field | Meaning |
+|---|---|
+| `v` | format version |
+| `supervisor` | `awake`, `asleep` or `stopped` |
+| `last_reason` | why the last cycle ended |
+| `next_wake` | expected time of the next cycle |
+| `usage` | `{"session": percent, "week": percent}`, or `null` if not read |
+| `workers` | one object per active task: `task`, `project`, `machine`, `phase`, `started` |
+| `waiting_for_machine` | tasks whose machine was off in the last cycle |
+
+`phase` is `implement`, `review round N` or `fix round N`.
+
+## Other files
+`state/stopped` exists while the user has stopped the supervisor. `state/supervisor.lock` is held during a cycle. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.

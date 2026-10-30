@@ -13,6 +13,7 @@ projects:
     machine: server
     path: ~/kandu-work/website
     test: npm test
+    allowed_tools: ["Bash(npm install)"]   # extra tools for this project's workers
     run_local: npm run dev
     deploy:
       mode: direct                     # direct | preview
