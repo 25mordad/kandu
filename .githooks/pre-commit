@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Blocks a commit whose added lines contain a term from local/private-words.txt.
+# One term per line, case-insensitive; blank lines and # comments are ignored.
+# Enable once per clone: git config core.hooksPath .githooks
+set -euo pipefail
+
+words_file="$(git rev-parse --show-toplevel)/local/private-words.txt"
+[ -f "$words_file" ] || exit 0
+
+patterns="$(grep -vE '^[[:space:]]*(#|$)' "$words_file" || true)"
+[ -n "$patterns" ] || exit 0
+
+added="$(git diff --cached -U0 --no-color | grep -E '^\+' | grep -vE '^\+\+\+ ' || true)"
+hits="$(printf '%s\n' "$added" | grep -inF -f <(printf '%s\n' "$patterns") || true)"
+
+if [ -n "$hits" ]; then
+  echo "Commit blocked: private terms found in added lines." >&2
+  printf '%s\n' "$hits" >&2
+  exit 1
+fi

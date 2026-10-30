@@ -17,6 +17,7 @@ Everything that belongs to one person's setup (machines, paths, accounts, projec
 10. GitHub identity
 11. Safety rules
 12. Config and updates
+13. Didban — control from your own machine
 
 ## 1. Setup and configuration — by conversation, no forms
 
@@ -29,7 +30,8 @@ Everything is configured by talking to an LLM in a Claude Code session. There ar
 4. GitHub account, and the owners (users / orgs) Kandu may work in.
 5. Where notifications go (Telegram or nowhere), and in which language.
 6. Defaults: number of parallel workers, wake interval, auto-merge on or off.
-7. Prerequisites: `claude`, `gh`, `git`, `python` installed and logged in. Kandu says what is missing.
+7. Prerequisites: `claude`, `gh`, `git`, `python` installed and logged in; `gh` needs the `project` scope for boards. Kandu says what is missing.
+8. Didban (§13): which other sources may it read, and on which machine? On the machine you sit at, how is the brain reached?
 
 The dashboard is not a setup question: it is always Kandu's own (§7).
 
@@ -59,6 +61,7 @@ The dashboard is not a setup question: it is always Kandu's own (§7).
   - How to test
   - `Blocked by` (if any)
 - Claude adds the issue to the right board with status `Ready` and label `agent`. Only `agent`-labelled issues enter the loop.
+- On a public repo the issue is public too: no private details in the task text.
 - A precise task (clear acceptance criteria) and real tests in the project matter more for the result than the loop itself. That is why defining tasks is a conversation, not a form.
 
 ## 3. Boards
@@ -153,3 +156,14 @@ If you want isolation now, two options:
 - `local/` (gitignored) holds everything personal: `kandu.yaml`, `projects.yaml`, `.env` (secrets) and any personal notes.
 - [config.example/](config.example/) has complete examples. `/kandu-setup` and `/kandu-add` write `local/` for you.
 - Updating Kandu is `git pull`; nothing in `local/` is ever touched by an update.
+
+## 13. Didban — control from your own machine
+The brain runs on an always-on machine, which is usually not the machine the user sits at. **Didban** (Persian for "lookout", the one at the top of the tower) is how the user talks to Kandu from their own machine: one command opens a Claude Code session in a clone of this repo, in the control role. It is a role, not a service: no daemon, no new connection, nothing to keep running.
+
+- **Defining tasks:** `/kandu-task` writes the issue directly with `gh`. The brain picks it up on its next wake, so this works even when the brain's machine is off.
+- **Seeing state:** reads the boards from GitHub and live state from the HTTP API (§7) over SSH to the brain. Answers `Needs info` tasks from here.
+- **Giving commands:** stop, resume and config changes (`/kandu-config`) run on the brain over SSH.
+- **Knowledge:** project locations come from the registry. Other sources the user lists in `local/` are read on the machine that holds them, read-only, and never copied.
+- **Source of truth:** `local/` on the brain's machine. Didban reads and writes it over SSH, so there are never two diverging copies. The only local file is `local/didban.yaml`, which says how to reach the brain ([example](config.example/didban.example.yaml)). The list of sources is in `didban:` in the brain's `kandu.yaml`.
+- **Limits:** it does not write code, does not change the knowledge sources it reads and keeps no memory of its own; all state stays on the board. Its sessions count against the same usage limits as the supervisor (§6).
+- **When the brain's machine is off:** tasks can still be defined; live state and commands wait until it is back.

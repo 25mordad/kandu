@@ -1,0 +1,6 @@
+# Didban config — example. Lives in local/didban.yaml on the machine you sit at.
+# Only what is needed to find the brain; everything else is read from the brain's local/.
+
+brain:
+  reach: ssh server            # SSH alias from ~/.ssh/config
+  install_dir: ~/kandu         # where Kandu is installed on that machine

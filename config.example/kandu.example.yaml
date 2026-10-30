@@ -5,6 +5,13 @@
 brain:
   machine: server              # name of a machine below; the supervisor runs here (should be always on)
   work_dir: ~/kandu-work       # where Kandu clones projects that have run: clone
+  install_dir: ~/kandu         # where this repo is installed on that machine
+
+didban:                        # see DESIGN §13
+  knowledge:                   # sources Didban may read, read-only; never copied
+    - name: notes
+      machine: server
+      path: ~/notes
 
 machines:
   - name: server
