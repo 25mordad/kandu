@@ -34,8 +34,9 @@ Everything is configured by talking to an LLM in a Claude Code session. There ar
 6. Defaults: number of parallel workers, wake interval, auto-merge on or off.
 7. Prerequisites: `claude`, `gh`, `git`, `python` installed and logged in; `gh` needs the `project` scope for boards. Kandu says what is missing.
 8. Didban (§13): which other sources may it read, and on which machine? On the machine you sit at, how is the brain reached?
+9. Which port does the dashboard use (default 8790)?
 
-The dashboard is not a setup question: it is always Kandu's own (§7).
+The dashboard itself is always Kandu's own (§7); only its port is a choice.
 
 ### B. Adding a project — each time (`/kandu-add`)
 1. Name, one line on what it is, which family it belongs to.
