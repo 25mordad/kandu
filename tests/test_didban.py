@@ -76,6 +76,11 @@ class ClaudeArgsTest(unittest.TestCase):
         self.assertIn("brain reachable", prompt)
         self.assertIn("Edit,Write,NotebookEdit", args)
 
+    def test_session_is_named_and_remote(self):
+        args = claude_args(DIDBAN, "brain reachable", [])
+        self.assertEqual(args[args.index("--name") + 1], "Kandu")
+        self.assertEqual(args[args.index("--remote-control") + 1], "Kandu")
+
 
 if __name__ == "__main__":
     unittest.main()

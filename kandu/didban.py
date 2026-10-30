@@ -14,6 +14,7 @@ from .config import ConfigError, load_didban
 REPO_DIR = Path(__file__).resolve().parent.parent
 ROLE_FILE = REPO_DIR / "prompts" / "didban.md"
 BLOCKED_TOOLS = "Edit,Write,NotebookEdit"
+SESSION_NAME = "Kandu"
 
 
 def remote_path(path):
@@ -49,7 +50,8 @@ def system_prompt(didban, status):
 def claude_args(didban, status, extra):
     return [
         "claude", *extra,
-        "--name", "didban",
+        "--name", SESSION_NAME,
+        "--remote-control", SESSION_NAME,
         "--append-system-prompt", system_prompt(didban, status),
         "--disallowedTools", BLOCKED_TOOLS,
     ]
