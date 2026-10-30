@@ -8,5 +8,9 @@ This repo is public. Read [DESIGN.md](DESIGN.md) for the specification and [TASK
 - The same applies to commit messages and to issues and PRs on this repo: they are public too.
 - Enable the guard once per clone: `git config core.hooksPath .githooks`. It blocks commits containing a term from `local/private-words.txt`. Never bypass it with `--no-verify`.
 
+## Pushing to this repo
+- **During development**, before the first board or project is connected: committing and pushing directly to `main` is fine.
+- **From the moment the first board is connected:** direct pushes to `main` are forbidden, and no push to this repo happens at all without the owner's explicit permission for that push. Once Kandu can see real projects, every push is a possible leak into a public repo.
+
 ## Keep it usable by others
 Anyone must be able to clone this and reach the same setup by conversation. A new option needs a generic example in `config.example/` and a question in `/kandu-setup` or `/kandu-add`.
