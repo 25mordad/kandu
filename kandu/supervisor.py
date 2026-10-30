@@ -1,8 +1,8 @@
 """The main loop (DESIGN §5, §6).
 
 This is code, not an LLM session: everything that needs no judgment runs here,
-at no token cost, and still works when Claude is down. Agents are started only
-for work that needs judgment. No state is kept between cycles beyond what the
+at no token cost, and still works when Claude is down. Agents, and the queen
+above them, are started only for work that needs judgment. No state is kept between cycles beyond what the
 board and the PR hold, so a cycle that is cut off resumes where it stopped.
 """
 import argparse
@@ -18,7 +18,9 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from . import agents, merge, review
+from pathlib import Path
+
+from . import agents, merge, queen, review
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import AGENT_LABEL, GitHub, GitHubError, blockers_in, branch_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
@@ -30,6 +32,7 @@ NEEDS_INFO, BLOCKED, DONE = "Needs info", "Blocked", "Done"
 RESUMED = (IN_PROGRESS, IN_REVIEW)
 MERGEABLE = ("approved", "approved_with_notes")
 END_CHECK_MERGES = 2  # This many merges in a project in one cycle earn a check of the whole project.
+ROOT = Path(__file__).resolve().parent.parent
 FAILURE_COMMENT = "Kandu could not finish this step and stopped here. The details are in its local log."
 
 
@@ -60,29 +63,38 @@ class TaskFailed(Exception):
     """Something went wrong that a person must look at."""
 
 
+class StoppedByUser(TaskFailed):
+    """The user stopped this worker. Only the user sends it back."""
+
+
 def new_run_id(now):
     return f"r-{now:%Y%m%d%H%M%S}-{secrets.token_hex(3)}"
 
 
-def read_tasks(config, github):
-    """Returns the tasks the loop may work on: registered, not paused, and not waiting on a blocker."""
+def board_items(config, github):
+    """Yields (project, item) for each `agent` issue of a registered project that is not paused."""
     by_board = {}
     for project in config.projects:
         if project.board is not None and not project.paused:
             by_board.setdefault((project.board.owner, project.board.number), []).append(project)
-    tasks = []
     for projects in by_board.values():
         by_repo = {repo: project for project in projects for repo in project.repos}
         for item in github.board_items(projects[0].board):
             project = by_repo.get(item.repo)
-            if project is None or AGENT_LABEL not in item.labels:
-                continue
-            if item.status not in (READY, *RESUMED):
-                continue
-            if item.status == READY and not _can_start(github, item):
-                continue
-            tasks.append(Task(project, item.repo, item.number, item.title, item.url, item.status,
-                              branch_for(item.number, item.title)))
+            if project is not None and AGENT_LABEL in item.labels:
+                yield project, item
+
+
+def read_tasks(config, github):
+    """Returns the tasks the loop may work on: registered, not paused, and not waiting on a blocker."""
+    tasks = []
+    for project, item in board_items(config, github):
+        if item.status not in (READY, *RESUMED):
+            continue
+        if item.status == READY and not _can_start(github, item):
+            continue
+        tasks.append(Task(project, item.repo, item.number, item.title, item.url, item.status,
+                          branch_for(item.number, item.title)))
     return sorted(tasks, key=lambda t: t.order)
 
 
@@ -192,7 +204,7 @@ class Supervisor:
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
         if stop_one.exists():
             stop_one.unlink()
-            raise TaskFailed(f"{role} run {run_id} was stopped by the user")
+            raise StoppedByUser(f"{role} run {run_id} was stopped by the user")
         if result.stopped:
             self._halt("stopped while an agent was running")
         if result.is_error:
@@ -206,8 +218,10 @@ class Supervisor:
         run_id = new_run_id(self.now())
         base = self.github.default_branch(task.repo)
         cwd = self.runner.prepare_worktree(task.project, task.repo, task.branch, base)
+        retry = self.store.last_event("queen_decided", task=task.key, action="retry")
         prompt = agents.worker_prompt(task.project, task.repo, task.number, task.branch, run_id,
-                                      findings=findings, pr=pr, local_dir=self.local_dir)
+                                      findings=findings, pr=pr, local_dir=self.local_dir,
+                                      queen_note=retry and retry["note"])
         return self._agent(task, "worker", cwd, prompt, agents.worker_tools(task.project, task.branch), run_id)
 
     def _implement(self, task):
@@ -460,9 +474,65 @@ class Supervisor:
         self._decide(task, "failed", details)
         try:
             self.github.comment_issue(task.repo, task.number, FAILURE_COMMENT)
-            self._finish(task, BLOCKED, "failed")
+            self._finish(task, BLOCKED, "stopped_by_user" if isinstance(error, StoppedByUser) else "failed")
         except Exception as e:
             self._decide(task, "failed", f"could not mark the task Blocked: {type(e).__name__}: {e}")
+
+    # The queen.
+
+    def _queen(self):
+        """Wakes the queen if this cycle left something to judge, and carries out what code allows."""
+        settings = self.config.settings.supervisor
+        before, news = queen.since_last_look(self.store)
+        if not settings.queen or not queen.worth_a_look(before, news) or self._gate() is not None:
+            return
+        events = before + news
+        tasks = sorted({e["task"] for e in news if e.get("task")})
+        retries = {task: queen.retries_used(events, task) for task in tasks}
+        prompt = agents.queen_prompt(queen.prompt_events(news), retries, settings.queen_max_retries,
+                                     self.config.settings.notify.language, DEFAULT_LOGS_DIR)
+        allowed, denied = agents.queen_tools()
+        run_id = new_run_id(self.now())
+        result = self.runner.run_agent(self.config.settings.brain.machine, str(ROOT), prompt, allowed, denied, run_id,
+                                       self._hard_stop)
+        self.store.record("run_finished", task=None, project=None, run_id=run_id, role="queen",
+                          models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
+        if result.stopped:
+            return
+        try:
+            if result.is_error:
+                raise agents.ReplyError("her run ended with an error")
+            report = agents.parse_queen_report(result.text)
+        except agents.ReplyError as e:
+            # Everything stays as it is. Nothing here is worth paying for again each cycle.
+            self.store.record("queen_finished", run_id=run_id, brief=f"The queen could not finish this look: {e}.")
+            return
+        refused = self._carry_out(report["decisions"], events)
+        brief = "\n".join([report["brief"], *[f"Refused: {reason}" for reason in refused]])
+        self.store.record("queen_finished", run_id=run_id, brief=brief)
+
+    def _carry_out(self, decisions, events):
+        """Code checks every decision here. Returns why each refused one was refused."""
+        limit = self.config.settings.supervisor.queen_max_retries
+        items = {f"{item.repo}#{item.number}": (project, item) for project, item in board_items(self.config, self.github)}
+        refused = []
+        for decision in decisions:
+            task, action, note = decision["task"], decision["action"], decision["note"]
+            if task not in items:
+                refused.append(f"{task}: not a task of a running project")
+                continue
+            project, item = items[task]
+            if action == "retry":
+                pr = self.github.find_pr(item.repo, item.number)
+                why = queen.why_no_retry(events, task, limit, item.status == BLOCKED,
+                                         pr is not None and pr["state"] == "MERGED")
+                if why is not None:
+                    refused.append(f"retry of {task}: {why}")
+                    continue
+                self.github.set_status(project.board, item.url, READY)
+            self.store.record("queen_decided", task=task, project=project.name, action=action, note=note)
+            events.append({"type": "queen_decided", "task": task, "action": action})
+        return refused
 
     # One cycle.
 
@@ -505,6 +575,10 @@ class Supervisor:
         reason = self._gate()
         if reason is None:
             reason = self._work_through_board()
+        try:
+            self._queen()
+        except (GitHubError, RunnerError) as e:
+            reason = f"{reason}; the queen could not look: {type(e).__name__}"
         next_wake = (woke + timedelta(minutes=settings.wake_every_minutes)).isoformat(timespec="seconds")
         self.store.record("supervisor_slept", reason=reason, next_wake=next_wake)
         self._snapshot("stopped" if self.stop_file.exists() else "asleep", reason, next_wake)

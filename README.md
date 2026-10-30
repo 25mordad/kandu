@@ -37,11 +37,12 @@ Working with a coding agent today still means sitting next to it: approving step
 
 1. **Tasks are GitHub issues** on a GitHub Project board, one board per project family. Each issue has a fixed template: goal, current behavior, acceptance criteria, how to test, out of scope, blocked by. Only issues labelled `agent` in the `Ready` column enter the loop.
 2. **The supervisor** is a code loop on an always-on machine, not an LLM session, so everything that needs no judgment costs no tokens. It writes no code. It picks tasks, hands them to workers and enforces the rules. It never grades its own work.
-3. **Workers** are separate `claude` processes, each in its own `git worktree`. Independent tasks run in parallel; dependent tasks run in order.
-4. **A fresh reviewer** checks every PR against the issue and hunts for what really breaks: production bugs, security holes, crashes, and new logic with no test. Each blocker is verified before it is reported. The worker fixes every finding, for at most two rounds; a blocker still open after that marks the task `Blocked`.
-5. **Merge and deploy:** when every merge condition holds on the exact commit that was reviewed, the supervisor merges (if auto-merge is on for that project) and deploys, directly or to a preview, per project. A change that is hard to undo always waits for you. Auto-merge starts off, until Kandu's decisions have been shown to match yours.
-6. **"Done" means seen in the live software.** After deploy the supervisor opens the live version and checks that what the issue asked for is really there. Green tests alone are not enough.
-7. **No guessing:** a vague task goes to `Needs info` and you get a question.
+3. **The queen** is an LLM above the workers. When something stops, she reads what happened, then sends the task back with a note or asks you a question. Code checks each decision: she cannot merge, and she cannot pass the stop button or the usage limits. A quiet cycle wakes her at no cost.
+4. **Workers** are separate `claude` processes, each in its own `git worktree`. Independent tasks run in parallel; dependent tasks run in order.
+5. **A fresh reviewer** checks every PR against the issue and hunts for what really breaks: production bugs, security holes, crashes, and new logic with no test. Each blocker is verified before it is reported. The worker fixes every finding, for at most two rounds; a blocker still open after that marks the task `Blocked`.
+6. **Merge and deploy:** when every merge condition holds on the exact commit that was reviewed, the supervisor merges (if auto-merge is on for that project) and deploys, directly or to a preview, per project. A change that is hard to undo always waits for you. Auto-merge starts off, until Kandu's decisions have been shown to match yours.
+7. **"Done" means seen in the live software.** After deploy the supervisor opens the live version and checks that what the issue asked for is really there. Green tests alone are not enough.
+8. **No guessing:** a vague task goes to `Needs info` and you get a question.
 8. **No hidden memory:** all state lives on the board and in issue comments. A cycle that is cut off resumes where it stopped.
 
 ## Rhythm

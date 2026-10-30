@@ -101,6 +101,7 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
   <section><h2 data-t="usage"></h2><div id="usage" class="jars"></div><div id="nextwake" class="muted"></div></section>
   <section><h2 data-t="active_workers"></h2><div id="workers"></div></section>
   <section><h2 data-t="queue"></h2><div id="queue"></div></section>
+  <section class="wide" id="queenbox" hidden><h2 data-t="queen"></h2><div id="queen"></div></section>
   <section class="wide"><h2><span data-t="by_day"></span> <select id="day" data-t-attr="aria-label" data-t="day"></select></h2><div id="byday"></div></section>
   <section class="wide"><h2 id="detailtitle"></h2><div id="detail" class="log"></div></section>
   <section class="wide" id="prpage" hidden><h2 data-t="pr_page"></h2><div id="pr"></div></section>
@@ -109,7 +110,7 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
 {
   "en": {
     "brand": "Kandu", "hive": "The hive", "empty_meadow": "The meadow is empty: no task is on a board yet.", "bee_worker": "Worker bee", "bee_reviewer": "Reviewer bee", "bee_scout": "Scout bee", "other_language": "فارسی", "loading": "loading", "control_token": "control token", "stop": "Stop", "resume": "Resume",
-    "usage": "Usage", "active_workers": "Bees at work", "queue": "The meadow", "by_day": "Honeycomb by day", "day": "day",
+    "usage": "Usage", "queen": "The queen", "queen_asks": "She asks you", "active_workers": "Bees at work", "queue": "The meadow", "by_day": "Honeycomb by day", "day": "day",
     "live_stream": "Live stream", "run": "Run", "pr_page": "PR page", "token_required": "A valid token is required.",
     "request_failed": "The request failed.", "api_unreachable": "The dashboard API cannot be reached.",
     "not_read_yet": "not read yet", "limit": "limit", "session": "5-hour", "week": "Week", "next_wake": "next wake",
@@ -121,7 +122,7 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
   },
   "fa": {
     "brand": "کندو", "hive": "کندو", "empty_meadow": "مرغزار خالی است: هنوز تسکی روی هیچ بوردی نیست.", "bee_worker": "زنبور کارگر", "bee_reviewer": "زنبور بازبین", "bee_scout": "زنبور پیشاهنگ", "other_language": "English", "loading": "در حال بارگذاری", "control_token": "توکن کنترل", "stop": "توقف", "resume": "ادامه",
-    "usage": "مصرف", "active_workers": "زنبورهای در حال کار", "queue": "مرغزار", "by_day": "شانهٔ عسل روز", "day": "روز",
+    "usage": "مصرف", "queen": "ملکه", "queen_asks": "از تو می‌پرسد", "active_workers": "زنبورهای در حال کار", "queue": "مرغزار", "by_day": "شانهٔ عسل روز", "day": "روز",
     "live_stream": "جریان زنده", "run": "اجرا", "pr_page": "صفحه PR", "token_required": "توکن معتبر لازم است.",
     "request_failed": "درخواست انجام نشد.", "api_unreachable": "به API داشبورد دسترسی نیست.",
     "not_read_yet": "هنوز خوانده نشده", "limit": "سقف", "session": "پنج‌ساعته", "week": "هفته", "next_wake": "بیداری بعدی",
@@ -148,6 +149,7 @@ th { color:var(--muted); font-weight:500; white-space:nowrap; }
     "the user decides next": "تصمیم بعدی با کاربر است", "the head moved during the review": "در میانه بازبینی کد عوض شد",
     "supervisor_woke": "ناظر بیدار شد", "supervisor_slept": "ناظر خوابید", "task_picked": "تسک برداشته شد",
     "phase_changed": "تغییر مرحله", "decision": "تصمیم", "run_finished": "اجرا تمام شد",
+    "queen_decided": "تصمیم ملکه", "queen_finished": "ملکه نگاه کرد", "stopped_by_user": "کاربر متوقف کرد", "retry": "تلاش دوباره", "ask_user": "پرسش از کاربر",
     "review_finished": "بازبینی تمام شد", "task_finished": "تسک تمام شد", "deployed": "مستقر شد", "project_checked": "پروژه بررسی شد"
   },
   "patterns_fa": [
@@ -379,6 +381,11 @@ async function refreshState() {
     workers.map(w => `<tr><td>${taskLink(w.task, w.task.split("/").pop())}</td><td>${bdi(w.machine)}</td><td>${esc(tr(w.phase))}</td><td>${bdi(when(w.started))}</td>
       <td>${w.run_id ? `<button data-run="${esc(w.run_id)}">${t("watch")}</button> <button data-stop="${esc(w.run_id)}">${t("stop")}</button>` : ""}</td></tr>`).join("") + "</table>"
     : `<div class="muted">${t("none")}</div>`;
+  $("queenbox").hidden = !s.queen;
+  if (s.queen) {
+    $("queen").innerHTML = `<div class="muted">${bdi(when(s.queen.ts))}</div><div dir="auto" style="white-space:pre-line">${esc(s.queen.brief)}</div>` +
+      s.queen.questions.map(q => `<div class="finding blocker" dir="auto">${t("queen_asks")} · ${taskLink(q.task, q.task.split("/").pop())}: ${esc(q.question)}</div>`).join("");
+  }
   renderScene(s, lastQueue);
   return s;
 }

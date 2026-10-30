@@ -6,6 +6,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 |---|---|
 | **Brain** | The always-on machine where the supervisor runs |
 | **Supervisor** | The code loop that picks tasks, starts agents and enforces the rules; it is not an LLM session and writes no code |
+| **Queen** | The LLM that judges what stopped after a cycle; code checks each decision, and she cannot merge |
 | **Worker** | An agent that does one task in its own `git worktree` |
 | **Reviewer** | A fresh agent that reviews a PR, knowing nothing of how it was built |
 | **Didban** | The control role, run from the machine the user sits at |

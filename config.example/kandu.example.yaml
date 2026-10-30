@@ -48,6 +48,8 @@ supervisor:                    # optional; these are the defaults
   max_review_rounds: 2
   auto_merge: false            # true = the supervisor merges on its own when it judges a PR right
   auto_revert: false           # must stay false: the supervisor only reports breakage
+  queen: true                  # true = an LLM judges stopped tasks after a cycle; it wakes only when one needs it
+  queen_max_retries: 2         # how many times the queen may send one task back
 
 dashboard:
   bind: 127.0.0.1             # stay on this machine; reach it from another through an SSH tunnel

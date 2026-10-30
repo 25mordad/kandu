@@ -81,6 +81,19 @@ class PromptTest(unittest.TestCase):
             self.assertIn(part, text)
 
 
+class QueenReportTest(unittest.TestCase):
+    def test_a_good_report_is_taken(self):
+        text = '{"brief": "b", "decisions": [{"task": "o/r#1", "action": "retry", "note": "n"}]}'
+        self.assertEqual(agents.parse_queen_report(text)["brief"], "b")
+
+    def test_a_bad_report_is_refused(self):
+        for text in ('no', '{}', '{"brief": "", "decisions": []}', '{"brief": "b"}',
+                     '{"brief": "b", "decisions": [{"task": "o/r#1", "action": "merge", "note": "n"}]}',
+                     '{"brief": "b", "decisions": [{"task": "o/r#1", "action": "retry", "note": " "}]}'):
+            with self.assertRaises(agents.ReplyError):
+                agents.parse_queen_report(text)
+
+
 class WorkerReplyTest(unittest.TestCase):
     def test_valid(self):
         self.assertEqual(agents.parse_worker_reply('{"status": "pr_opened", "pr": 3}\n')["pr"], 3)
