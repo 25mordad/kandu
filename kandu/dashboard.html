@@ -456,8 +456,12 @@ function renderLive() {
 async function showRun(runId) {
   shownRun = runId;
   const {actions} = await get("/runs/" + encodeURIComponent(runId));
+  if (shownRun !== runId) return;
+  const box = $("detail");
+  const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
   $("detailtitle").innerHTML = `${t("run")} ${bdi(runId)}`;
   $("detail").innerHTML = actions.map(a => `<div dir="ltr">${esc(a.tool)} <span class="muted">${esc(a.detail)}</span></div>`).join("") || `<div class="muted">${t("nothing_yet")}</div>`;
+  if (atEnd) box.scrollTop = box.scrollHeight;
 }
 
 const renderDetail = () => shownRun ? showRun(shownRun) : renderLive();
@@ -502,6 +506,7 @@ applyLanguage();
 renderLive();
 refresh();
 setInterval(refresh, 30000);
+setInterval(() => { if (shownRun) showRun(shownRun).catch(() => {}); }, 5000);
 </script>
 </body>
 </html>
