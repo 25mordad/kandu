@@ -12,7 +12,7 @@ Every task is designed and checked against harness, context and memory (§14).
 5. [ ] `/kandu-task` — define a task by conversation, with the existing-work check and the interview for large tasks; uses `prompts/templates/issue.md`; standard board columns (§2, §3)
 6. [x] Didban: one command from the user's own machine, control role, reads `local/` over SSH (§13)
 7. [x] State files + event log in a documented format, including tokens per task and model (§7)
-8. [ ] Dashboard with live stream, by-day view with tokens per task, PR page in plain words, stop / resume controls; versioned HTTP API documented in `docs/API.md` (§7)
+8. [x] Dashboard with live stream, by-day view with tokens per task, PR page in plain words, stop / resume controls; versioned HTTP API documented in `docs/API.md` (§7)
 9. [x] Supervisor: usage check, lock file, task selection, `systemd timer` (§5, §6)
 10. [x] Workers as `claude` processes in `git worktree`s, local and over SSH, behind a swappable runner layer; connect `prompts/worker.md` and put `prompts/templates/pr.md` in its prompt (§4, §5, §9)
 11. [x] Reviewer + review rounds, the worker fixes every finding; report validated in code, a later round only on a new `SHA` with no LLM gate, companion PRs, every round logged; connect `prompts/reviewer.md` (§5, §15)

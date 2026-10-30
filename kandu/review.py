@@ -98,7 +98,9 @@ def _finding_line(finding):
 
 def comment_for(report, round_number, findings):
     """Renders one review round: readable text, then the marker the supervisor reads back."""
-    record = {"round": round_number, "head_sha": report["head_sha"], "door": report["door"], "open": findings}
+    record = {"round": round_number, "head_sha": report["head_sha"], "door": report["door"], "open": findings,
+              "summary": report["summary"], "brief": report["brief"], "blast_radius": report["blast_radius"],
+              "criteria": report["criteria"]}
     # `>` only occurs inside JSON strings, so this keeps `-->` in a finding from ending the marker.
     marker = json.dumps(record, ensure_ascii=False).replace(">", "\\u003e")
     lines = [f"**Kandu review, round {round_number}** on `{report['head_sha']}`", "", report["brief"], ""]

@@ -10,7 +10,7 @@ FALLBACK_SLUG = "task"
 TIMEOUT_SECONDS = 60
 BOARD_ITEM_LIMIT = 500
 PR_SEARCH_LIMIT = 200
-PR_FIELDS = "number,state,url,body,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments"
+PR_FIELDS = "number,title,state,url,body,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments"
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 ISSUE_REFERENCE = re.compile(r"(?:(?<![\w.-])([\w.-]+/[\w.-]+))?#(\d+)")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)

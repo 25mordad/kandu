@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kandu</title>
+<style>
+:root { --bg:#f6f5f1; --panel:#fff; --ink:#23211d; --muted:#6f6a60; --line:#e2dfd6; --accent:#a8650c; --bad:#b3362b; --good:#2f7d4f; }
+@media (prefers-color-scheme: dark) { :root { --bg:#171614; --panel:#201f1c; --ink:#ece9e1; --muted:#a09a8d; --line:#35322c; --accent:#e0a040; --bad:#ec7468; --good:#6cc08e; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; }
+header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:14px 16px; border-bottom:1px solid var(--line); }
+h1 { font-size:18px; margin:0; }
+h2 { font-size:13px; margin:0 0 10px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+main { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; padding:14px 16px; max-width:1300px; margin:auto; }
+section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; min-width:0; overflow-x:auto; }
+button { font:inherit; padding:4px 10px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink); cursor:pointer; }
+input, select { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink); max-width:100%; }
+a { color:var(--accent); }
+table { border-collapse:collapse; width:100%; }
+td, th { text-align:left; padding:3px 8px 3px 0; border-bottom:1px solid var(--line); }
+td { overflow-wrap:break-word; }
+th { color:var(--muted); font-weight:500; white-space:nowrap; }
+.muted { color:var(--muted); }
+.spacer { flex:1; }
+.bar { position:relative; height:12px; background:var(--line); border-radius:4px; margin:4px 0 10px; }
+.bar i { display:block; height:100%; background:var(--accent); border-radius:4px; }
+.bar.over i { background:var(--bad); }
+.bar b { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--ink); }
+.log { font:12px/1.5 ui-monospace, monospace; max-height:320px; overflow:auto; overflow-wrap:anywhere; }
+.wide { grid-column:1/-1; }
+.finding { border-left:3px solid var(--line); padding-left:10px; margin:8px 0; }
+.finding.blocker { border-color:var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Kandu</h1>
+  <span id="state" class="muted">loading</span>
+  <span class="spacer"></span>
+  <input id="token" type="password" placeholder="control token" aria-label="control token">
+  <button id="stop">Stop</button>
+  <button id="resume">Resume</button>
+</header>
+<main>
+  <section><h2>Usage</h2><div id="usage"></div><div id="nextwake" class="muted"></div></section>
+  <section><h2>Active workers</h2><div id="workers"></div></section>
+  <section><h2>Queue</h2><div id="queue"></div></section>
+  <section class="wide"><h2>By day <select id="day" aria-label="day"></select></h2><div id="byday"></div></section>
+  <section class="wide"><h2 id="detailtitle">Live stream</h2><div id="detail" class="log"></div></section>
+  <section class="wide" id="prpage" hidden><h2>PR page</h2><div id="pr"></div></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = text => String(text ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const get = path => fetch("/api/v1" + path).then(r => r.ok ? r.json() : Promise.reject(r.status));
+const taskLink = task => `<a href="#" data-review="${esc(task)}">${esc(task)}</a>`;
+
+async function post(path) {
+  const r = await fetch("/api/v1" + path, {method: "POST", headers: {Authorization: "Bearer " + $("token").value}});
+  if (!r.ok) alertLine(r.status === 403 ? "A valid token is required." : "The request failed.");
+  refresh();
+}
+function alertLine(text) { $("state").textContent = text; }
+
+function bar(label, value, limit) {
+  if (value === undefined || value === null) return `<div class="muted">${label}: not read yet</div>`;
+  const over = value >= limit ? " over" : "";
+  return `<div>${label}: ${value}% <span class="muted">limit ${limit}%</span></div>
+    <div class="bar${over}"><i style="width:${Math.min(value, 100)}%"></i><b style="left:${limit}%"></b></div>`;
+}
+
+async function refreshState() {
+  const s = await get("/state");
+  const name = s.stop_requested ? "stopped" : (s.supervisor || "never ran");
+  $("state").textContent = name + (s.last_reason ? " · " + s.last_reason : "");
+  $("usage").innerHTML = bar("5-hour", s.usage?.session, s.limits.session) + bar("Week", s.usage?.week, s.limits.week);
+  $("nextwake").textContent = s.next_wake ? "next wake: " + s.next_wake : "";
+  const workers = s.workers || [];
+  $("workers").innerHTML = workers.length ? `<table><tr><th>Task</th><th>Machine</th><th>Phase</th><th>Started</th><th></th></tr>` +
+    workers.map(w => `<tr><td>${taskLink(w.task)}</td><td>${esc(w.machine)}</td><td>${esc(w.phase)}</td><td>${esc(w.started)}</td>
+      <td>${w.run_id ? `<button data-run="${esc(w.run_id)}">Watch</button> <button data-stop="${esc(w.run_id)}">Stop</button>` : ""}</td></tr>`).join("") + "</table>"
+    : '<div class="muted">None</div>';
+  return s;
+}
+
+async function refreshQueue(state) {
+  try {
+    const q = await get("/queue");
+    const rows = [];
+    for (const [project, columns] of Object.entries(q.projects))
+      for (const [column, tasks] of Object.entries(columns))
+        for (const t of tasks) rows.push(`<tr><td>${esc(project)}</td><td>${esc(column)}</td><td>${taskLink(t.task)}</td><td>${esc(t.title)}</td></tr>`);
+    for (const task of state.waiting_for_machine || []) rows.push(`<tr><td></td><td>waiting for machine</td><td>${taskLink(task)}</td><td></td></tr>`);
+    $("queue").innerHTML = rows.length ? `<table><tr><th>Project</th><th>Column</th><th>Task</th><th>Title</th></tr>${rows.join("")}</table>` : '<div class="muted">Empty</div>';
+  } catch { $("queue").innerHTML = '<div class="muted">GitHub could not be read</div>'; }
+}
+
+async function refreshDays() {
+  const {days} = await get("/days");
+  const select = $("day"), chosen = select.value;
+  select.innerHTML = days.slice().reverse().map(d => `<option>${esc(d)}</option>`).join("");
+  if (days.includes(chosen)) select.value = chosen;
+  if (!days.length) { $("byday").innerHTML = '<div class="muted">No activity yet</div>'; return; }
+  const day = await get("/days/" + select.value);
+  const finished = Object.fromEntries(day.finished.map(f => [f.task, f.outcome]));
+  const tasks = Object.entries(day.tasks).map(([task, t]) => `<tr><td>${taskLink(task)}</td><td>${esc(finished[task] || "")}</td><td>${t.total.toLocaleString()}</td></tr>`);
+  const split = obj => Object.entries(obj).map(([k, v]) => `${esc(k)}: ${v.total.toLocaleString()}`).join(" · ");
+  $("byday").innerHTML = `<table><tr><th>Task</th><th>Outcome</th><th>Tokens</th></tr>${tasks.join("")}</table>
+    <p class="muted">Total ${day.total.total.toLocaleString()} · ${split(day.models)} · ${split(day.roles)}</p>`;
+}
+
+async function showRun(runId) {
+  const {actions} = await get("/runs/" + encodeURIComponent(runId));
+  $("detailtitle").textContent = "Run " + runId;
+  $("detail").innerHTML = actions.map(a => `<div>${esc(a.tool)} <span class="muted">${esc(a.detail)}</span></div>`).join("") || '<div class="muted">Nothing yet</div>';
+}
+
+async function showReviews(task) {
+  const [repo, number] = task.split("#");
+  const r = await get(`/reviews/${repo}/${number}`);
+  $("prpage").hidden = false;
+  if (!r.pr) { $("pr").innerHTML = '<div class="muted">No PR yet</div>'; return; }
+  $("pr").innerHTML = `<p><a href="${esc(r.pr.url)}">#${r.pr.number} ${esc(r.pr.title)}</a> <span class="muted">${esc(r.pr.state)}</span></p>` +
+    r.rounds.map(round => `<h3>Round ${round.round}: ${esc(round.recommendation)}</h3>
+      <p dir="auto">${esc(round.brief)}</p>
+      <p class="muted" dir="auto">${esc(round.door)} · ${esc(round.blast_radius)}</p>
+      ${round.open.map(f => `<div class="finding ${f.blocker ? "blocker" : ""}" dir="auto">${f.blocker ? "Blocker" : "Note"} · ${esc(f.path)}<br>${esc(f.body)}</div>`).join("")}`).join("");
+  $("prpage").scrollIntoView();
+}
+
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.dataset.review) { e.preventDefault(); showReviews(t.dataset.review); }
+  if (t.dataset.run) showRun(t.dataset.run);
+  if (t.dataset.stop) post(`/workers/${encodeURIComponent(t.dataset.stop)}/stop`);
+});
+$("stop").onclick = () => post("/stop");
+$("resume").onclick = () => post("/resume");
+$("day").onchange = refreshDays;
+
+async function refresh() {
+  try { const s = await refreshState(); await refreshQueue(s); await refreshDays(); }
+  catch { alertLine("The dashboard API cannot be reached."); }
+}
+new EventSource("/api/v1/stream").onmessage = m => {
+  const e = JSON.parse(m.data);
+  const line = document.createElement("div");
+  line.textContent = [e.ts, e.type, e.task, e.phase, e.decision, e.reason, e.outcome].filter(Boolean).join(" · ");
+  if ($("detailtitle").textContent === "Live stream") $("detail").prepend(line);
+  refreshState();
+};
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>

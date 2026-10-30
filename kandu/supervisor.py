@@ -108,7 +108,7 @@ class Supervisor:
 
     @property
     def stop_file(self):
-        return self.store.root / "stopped"
+        return self.store.stop_file
 
     def _hard_stop(self):
         """True when running agents must be killed: the deadline passed or the user pressed stop."""
@@ -176,9 +176,17 @@ class Supervisor:
         if reason is not None:
             self._halt(reason)
         allowed, denied = tools
-        result = self.runner.run_agent(task.project.machine, cwd, prompt, allowed, denied, run_id, self._hard_stop)
+        with self._lock:
+            self.workers[task.key]["run_id"] = run_id
+        self._snapshot("awake")
+        stop_one = self.store.worker_stop_file(run_id)
+        result = self.runner.run_agent(task.project.machine, cwd, prompt, allowed, denied, run_id,
+                                       lambda: self._hard_stop() or stop_one.exists())
         self.store.record("run_finished", task=task.key, project=task.project.name, run_id=run_id, role=role,
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
+        if stop_one.exists():
+            stop_one.unlink()
+            raise TaskFailed(f"{role} run {run_id} was stopped by the user")
         if result.stopped:
             self._halt("stopped while an agent was running")
         if result.is_error:
@@ -422,16 +430,14 @@ def main():
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
     args = parser.parse_args()
     store = StateStore()
-    stop_file = store.root / "stopped"
     if args.command == "status":
-        print(json.dumps(store.read_current() | {"stop_requested": stop_file.exists()}, ensure_ascii=False, indent=2))
+        print(json.dumps(store.read_current() | {"stop_requested": store.stop_file.exists()}, ensure_ascii=False, indent=2))
         return 0
     if args.command == "stop":
-        store.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        stop_file.touch(mode=0o600)
+        store.request_stop()
         return 0
     if args.command == "resume":
-        stop_file.unlink(missing_ok=True)
+        store.stop_file.unlink(missing_ok=True)
         return 0
     try:
         config = load_config(args.local)

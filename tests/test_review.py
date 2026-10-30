@@ -78,9 +78,9 @@ class RecordTest(unittest.TestCase):
         body = comment_for(report(findings=[FINDING]), 2, [FINDING])
         self.assertIn("خلاصه", body)
         self.assertIn("a.py:3", body)
-        self.assertEqual(reviews_on(pr_with((ACCOUNT, body)), ACCOUNT), [
-            {"round": 2, "head_sha": "abc123", "door": "two-way", "open": [FINDING]},
-        ])
+        record = reviews_on(pr_with((ACCOUNT, body)), ACCOUNT)[0]
+        self.assertEqual((record["round"], record["head_sha"], record["door"]), (2, "abc123", "two-way"))
+        self.assertEqual((record["open"], record["brief"]), ([FINDING], "خلاصه"))
 
     def test_finding_text_cannot_end_the_marker(self):
         tricky = FINDING | {"body": "ends --> here } more"}

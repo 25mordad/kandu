@@ -1,4 +1,4 @@
-"""Writes the user `systemd` units that wake the supervisor (DESIGN §6).
+"""Writes the user `systemd` units of the supervisor and the dashboard (DESIGN §6, §7).
 
 Rendered from the config, so no setup's paths are in the repo. Installing does
 not start anything: `--enable` is a separate, explicit step.
@@ -35,6 +35,23 @@ TimeoutStartSec={limit}min
 """
 
 
+def render_dashboard(config):
+    install = _systemd_path(config.settings.brain.install_dir).rstrip("/")
+    return f"""[Unit]
+Description=Kandu dashboard
+
+[Service]
+WorkingDirectory={install}
+ExecStart="{install}/.venv/bin/python" -m kandu.dashboard
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-{install}/local/.env
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+"""
+
+
 def render_timer(config):
     return f"""[Unit]
 Description=Wake the Kandu supervisor
@@ -52,6 +69,7 @@ def install(config, units_dir=UNITS_DIR):
     units_dir.mkdir(parents=True, exist_ok=True)
     (units_dir / f"{UNIT_NAME}.service").write_text(render_service(config), encoding="utf-8")
     (units_dir / f"{UNIT_NAME}.timer").write_text(render_timer(config), encoding="utf-8")
+    (units_dir / f"{UNIT_NAME}-dashboard.service").write_text(render_dashboard(config), encoding="utf-8")
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
 
 
@@ -67,11 +85,12 @@ def main():
         print(f"timer: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1
     if not args.install and not args.enable:
-        print(render_service(config), render_timer(config), sep="\n")
+        print(render_service(config), render_timer(config), render_dashboard(config), sep="\n")
         return 0
     install(config)
     if args.enable:
-        subprocess.run(["systemctl", "--user", "enable", "--now", f"{UNIT_NAME}.timer"], check=True)
+        subprocess.run(["systemctl", "--user", "enable", "--now", f"{UNIT_NAME}.timer",
+                        f"{UNIT_NAME}-dashboard.service"], check=True)
     return 0
 
 

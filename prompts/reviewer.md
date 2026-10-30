@@ -59,7 +59,7 @@ Reply with one JSON object and nothing else. Be direct: "This breaks when X." St
   "checked_ok": ["what you examined and found sound"],
   "door": "two-way | one-way",
   "blast_radius": "what breaks if this is wrong",
-  "brief": "the same result in plain words, in the language you were given"
+  "brief": "in plain words and the language you were given: what the PR does, the result, and each finding explained"
 }
 ```
 

@@ -157,7 +157,7 @@ The user must be able to see exactly what is happening: the supervisor and every
 - **By day:** what was done on each day and how many tokens each task used, split by model and by worker, reviewer and supervisor. Tokens come from the `result` event of each run's `stream-json` output and are saved with the task.
 - **Controls from day one:** stop / resume the supervisor, stop one worker.
 - **Integration interface:** Kandu's own dashboard uses only the public HTTP API, so everything it shows is available to any other system. The API is versioned (`/api/v1`) and covers state, tasks, tokens by day, an event stream and stop / resume. `docs/API.md` documents every endpoint and event with real examples, and a change to the API must update it. Tests check the two against each other.
-- **Access control:** reading is open on the bound address. Stop and resume need a token from `local/.env`.
+- **Access control:** reading is open on the bound address. Stop and resume need `KANDU_DASHBOARD_TOKEN` from `local/.env`; with none set, controls are refused.
 - Binds to `127.0.0.1` by default. From another machine use an SSH tunnel: `ssh -L 8790:127.0.0.1:8790 server`, then open `http://127.0.0.1:8790`. A system on the same machine calls the API directly. Exposing it further (private network, tunnel, reverse proxy) is the user's choice.
 
 ## 8. Notifications

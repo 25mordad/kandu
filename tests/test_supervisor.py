@@ -368,6 +368,19 @@ class FirstRunTest(Base):
         self.cycle()
         self.assertEqual(self.github.status(1), "In review")
 
+    def test_stopping_one_worker_blocks_its_task_and_the_cycle_goes_on(self):
+        self.github.add(2)
+        def stopped():
+            run_id = self.sup.workers[f"{REPO}#1"]["run_id"]
+            self.store.request_worker_stop(run_id)
+            return AgentResult(stopped=True)
+        self.config.projects[0].max_parallel_workers = 1
+        self.runner.steps = [stopped, '{"status": "blocked", "reason": "r"}']
+        self.assertEqual(self.cycle(), "tasks ran out")
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(len(self.runner.runs), 2)
+        self.assertEqual(list(self.store.worker_stops_dir.iterdir()), [])
+
     def test_a_failed_run_during_a_limit_is_not_the_tasks_fault(self):
         def hits_limit():
             self.usage = Usage(100, 0)

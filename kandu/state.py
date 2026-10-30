@@ -63,6 +63,8 @@ class StateStore:
         self.root = Path(root)
         self.events_dir = self.root / "events"
         self.current_file = self.root / "current.json"
+        self.stop_file = self.root / "stopped"
+        self.worker_stops_dir = self.root / "stop-workers"
 
     def _make_dirs(self):
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -127,6 +129,18 @@ class StateStore:
                 _add_tokens(report["models"].setdefault(model, _empty_tokens()), usage)
                 _add_tokens(report["roles"].setdefault(event["role"], _empty_tokens()), usage)
         return report
+
+    def request_stop(self):
+        self._make_dirs()
+        self.stop_file.touch(mode=0o600)
+
+    def worker_stop_file(self, run_id):
+        return self.worker_stops_dir / run_id
+
+    def request_worker_stop(self, run_id):
+        self._make_dirs()
+        self.worker_stops_dir.mkdir(mode=0o700, exist_ok=True)
+        self.worker_stop_file(run_id).touch(mode=0o600)
 
     def read_current(self):
         """Returns the current snapshot, or {} if there is none yet."""
