@@ -5,8 +5,13 @@ Only run when the user has said so; `/kandu-add` asks first.
 import argparse
 import sys
 
-from .config import BOARD_COLUMNS
+from .config import BOARD_COLUMNS, BOARD_FIELDS, DEADLINE_FIELD
 from .github import GitHub, GitHubError
+
+
+def missing_fields(found):
+    """Returns the task fields a board lacks."""
+    return [name for name in (*BOARD_FIELDS, DEADLINE_FIELD) if name not in found]
 
 
 def missing_columns(board, found):

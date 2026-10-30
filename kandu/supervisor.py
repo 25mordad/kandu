@@ -27,7 +27,7 @@ from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
 from .state import StateStore
 from .usage import UsageError, over_limit, read_usage
 
-READY, IN_PROGRESS, IN_REVIEW = "Ready", "In progress", "In review"
+BACKLOG, READY, IN_PROGRESS, IN_REVIEW = "Backlog", "Ready", "In progress", "In review"
 NEEDS_INFO, BLOCKED, DONE = "Needs info", "Blocked", "Done"
 RESUMED = (IN_PROGRESS, IN_REVIEW)
 MERGEABLE = ("approved", "approved_with_notes")
@@ -116,6 +116,7 @@ class Supervisor:
         self.deadline = None
         self.usage = None
         self.halt_reason = None
+        self.queen_trouble = None
         self.workers = {}
         self.waiting = []
         self.merged = Counter()
@@ -218,10 +219,10 @@ class Supervisor:
         run_id = new_run_id(self.now())
         base = self.github.default_branch(task.repo)
         cwd = self.runner.prepare_worktree(task.project, task.repo, task.branch, base)
-        retry = self.store.last_event("queen_decided", task=task.key, action="retry")
+        note = queen.note_for(queen.all_events(self.store), task.key)
         prompt = agents.worker_prompt(task.project, task.repo, task.number, task.branch, run_id,
                                       findings=findings, pr=pr, local_dir=self.local_dir,
-                                      queen_note=retry and retry["note"])
+                                      queen_note=note)
         return self._agent(task, "worker", cwd, prompt, agents.worker_tools(task.project, task.branch), run_id)
 
     def _implement(self, task):
@@ -480,17 +481,51 @@ class Supervisor:
 
     # The queen.
 
-    def _queen(self):
-        """Wakes the queen if this cycle left something to judge, and carries out what code allows."""
+    def _queen_limit(self):
+        """Returns why no new work may start because of her own spending, or None."""
         settings = self.config.settings.supervisor
+        if not settings.queen:
+            return None
+        spent = self.store.tokens_counted(self.store.today(), role="queen")
+        return "the queen reached her daily token limit" if spent >= settings.queen_daily_token_limit else None
+
+    def _project_view(self, items, backlog):
+        """What she sees of every project: fields, not task bodies, so a long Backlog stays cheap."""
+        today = self.store.today()
+        view = []
+        for project in self.config.projects:
+            ours = [item for owner, item in items if owner is project]
+            view.append({
+                "project": project.name, "rules": project.queen_rules,
+                "tokens_today": self.store.tokens_counted(today, project=project.name),
+                "daily_token_limit": project.daily_token_limit,
+                "max_parallel_workers": project.max_parallel_workers,
+                "at_work": sum(1 for item in ours if item.status in (READY, *RESUMED)),
+                "backlog": [{"task": f"{item.repo}#{item.number}", "title": item.title, "priority": item.priority,
+                             "kind": item.kind, "size": item.size, "deadline": item.deadline}
+                            for owner, item in backlog if owner is project],
+            })
+        return view
+
+    def _queen(self):
+        """Wakes the queen if there is something to decide. Returns True if she looked."""
+        settings = self.config.settings.supervisor
+        if not settings.queen or self.halt_reason is not None:
+            return False
+        items = list(board_items(self.config, self.github))
+        backlog = [(project, item) for project, item in items if item.status == BACKLOG and _can_start(self.github, item)]
+        keys = [f"{item.repo}#{item.number}" for _, item in backlog]
         before, news = queen.since_last_look(self.store)
-        if not settings.queen or not queen.worth_a_look(before, news) or self._gate() is not None:
-            return
+        if not queen.worth_a_look(before, news, keys, self.store.today()):
+            return False
+        if self._gate() is not None or self._queen_limit() is not None:
+            return False
         events = before + news
         tasks = sorted({e["task"] for e in news if e.get("task")})
         retries = {task: queen.retries_used(events, task) for task in tasks}
-        prompt = agents.queen_prompt(queen.prompt_events(news), retries, settings.queen_max_retries,
-                                     self.config.settings.notify.language, DEFAULT_LOGS_DIR)
+        prompt = agents.queen_prompt(queen.prompt_events(news), self._project_view(items, backlog), retries,
+                                     settings.queen_max_retries, self.config.settings.notify.language,
+                                     DEFAULT_LOGS_DIR, self.store.today())
         allowed, denied = agents.queen_tools()
         run_id = new_run_id(self.now())
         result = self.runner.run_agent(self.config.settings.brain.machine, str(ROOT), prompt, allowed, denied, run_id,
@@ -498,30 +533,45 @@ class Supervisor:
         self.store.record("run_finished", task=None, project=None, run_id=run_id, role="queen",
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
         if result.stopped:
-            return
+            return True
         try:
             if result.is_error:
                 raise agents.ReplyError("her run ended with an error")
             report = agents.parse_queen_report(result.text)
         except agents.ReplyError as e:
             # Everything stays as it is. Nothing here is worth paying for again each cycle.
-            self.store.record("queen_finished", run_id=run_id, brief=f"The queen could not finish this look: {e}.")
-            return
-        refused = self._carry_out(report["decisions"], events)
+            self.store.record("queen_finished", run_id=run_id, brief=f"The queen could not finish this look: {e}.",
+                              backlog=keys)
+            return True
+        refused, released = self._carry_out(report["decisions"], events)
         brief = "\n".join([report["brief"], *[f"Refused: {reason}" for reason in refused]])
-        self.store.record("queen_finished", run_id=run_id, brief=brief)
+        self.store.record("queen_finished", run_id=run_id, brief=brief, backlog=[k for k in keys if k not in released])
+        return True
 
     def _carry_out(self, decisions, events):
-        """Code checks every decision here. Returns why each refused one was refused."""
+        """Code checks every decision here, on a fresh board: she may have taken minutes.
+
+        Returns why each refused one was refused, and what she released.
+        """
         limit = self.config.settings.supervisor.queen_max_retries
         items = {f"{item.repo}#{item.number}": (project, item) for project, item in board_items(self.config, self.github)}
-        refused = []
+        refused, released = [], []
+        today = self.store.today()
         for decision in decisions:
             task, action, note = decision["task"], decision["action"], decision["note"]
             if task not in items:
                 refused.append(f"{task}: not a task of a running project")
                 continue
             project, item = items[task]
+            if action == "release":
+                why = "it was already released" if task in released else queen.why_no_release(
+                    item, _can_start(self.github, item), self.store.tokens_counted(today, project=project.name),
+                    project.daily_token_limit)
+                if why is not None:
+                    refused.append(f"release of {task}: {why}")
+                    continue
+                self.github.set_status(project.board, item.url, READY)
+                released.append(task)
             if action == "retry":
                 pr = self.github.find_pr(item.repo, item.number)
                 why = queen.why_no_retry(events, task, limit, item.status == BLOCKED,
@@ -532,7 +582,7 @@ class Supervisor:
                 self.github.set_status(project.board, item.url, READY)
             self.store.record("queen_decided", task=task, project=project.name, action=action, note=note)
             events.append({"type": "queen_decided", "task": task, "action": action})
-        return refused
+        return refused, released
 
     # One cycle.
 
@@ -542,12 +592,35 @@ class Supervisor:
         self.waiting = [t.key for t in tasks if t.project.machine not in reachable]
         return [t for t in tasks if t.project.machine in reachable]
 
+    def _over_budget(self, task):
+        """A project at its daily limit starts nothing, however its task reached `Ready`."""
+        limit = task.project.daily_token_limit
+        if self.store.tokens_counted(self.store.today(), project=task.project.name) < limit:
+            return False
+        self._decide(task, "over_budget", f"daily limit of {limit} tokens")
+        return True
+
+    def _what_she_released(self, seen):
+        """A task ended: she looks again, and what she releases joins this cycle."""
+        try:
+            if not self._queen():
+                return []
+            tasks = self._reachable_tasks([t for t in read_tasks(self.config, self.github)
+                                           if t.status == READY and t.key not in seen])
+        except (GitHubError, RunnerError) as e:
+            self.queen_trouble = type(e).__name__
+            return []
+        seen.update(task.key for task in tasks)
+        return tasks
+
     def _schedule(self, tasks):
         limit = self.config.settings.supervisor.max_parallel_workers
         pending = list(tasks)
+        seen = {task.key for task in tasks}
         running = {}
         with ThreadPoolExecutor(max_workers=limit) as pool:
             while pending or running:
+                self.halt_reason = self.halt_reason or (self._queen_limit() if pending else None)
                 for task in list(pending):
                     if self.halt_reason is not None:
                         break
@@ -557,12 +630,15 @@ class Supervisor:
                     if in_project >= task.project.max_parallel_workers:
                         continue
                     pending.remove(task)
+                    if self._over_budget(task):
+                        continue
                     running[pool.submit(self._run_task, task)] = task
                 if not running:
                     return
                 done, _ = wait(running, return_when=FIRST_COMPLETED)
                 for future in done:
                     del running[future]
+                pending += self._what_she_released(seen)
 
     def cycle(self):
         """Runs one cycle and returns why it ended."""
@@ -572,13 +648,17 @@ class Supervisor:
         self._snapshot("awake")
         settings = self.config.settings.supervisor
         self.deadline = woke + timedelta(minutes=settings.max_cycle_minutes)
-        reason = self._gate()
+        self.halt_reason = None
+        self.queen_trouble = None
+        reason = self._gate() or self._queen_limit()
         if reason is None:
+            try:
+                self._queen()
+            except (GitHubError, RunnerError) as e:
+                self.queen_trouble = type(e).__name__
             reason = self._work_through_board()
-        try:
-            self._queen()
-        except (GitHubError, RunnerError) as e:
-            reason = f"{reason}; the queen could not look: {type(e).__name__}"
+        if self.queen_trouble is not None:
+            reason = f"{reason}; the queen could not look: {self.queen_trouble}"
         next_wake = (woke + timedelta(minutes=settings.wake_every_minutes)).isoformat(timespec="seconds")
         self.store.record("supervisor_slept", reason=reason, next_wake=next_wake)
         self._snapshot("stopped" if self.stop_file.exists() else "asleep", reason, next_wake)

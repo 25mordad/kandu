@@ -8,7 +8,7 @@ from kandu.config import Project
 
 def project(**changes):
     values = dict(name="site", family="f", repos=["o/r"], run="clone", machine="m", path="~/w/site", test="npm test",
-                  priority=1, max_parallel_workers=1, paused=False)
+                  priority=1, max_parallel_workers=1, paused=False, daily_token_limit=1000)
     return Project(**(values | changes))
 
 

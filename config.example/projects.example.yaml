@@ -29,6 +29,8 @@ projects:
     frozen: false                      # true: nothing merges by itself, for example before a release
     priority: 1                        # 1 = highest
     max_parallel_workers: 2
+    daily_token_limit: 2000000         # no new task starts past this; cache reads do not count
+    queen_rules: "Fixes for the checkout come before anything else"   # how the queen paces this project
     paused: false
 
   # A project that must run on a specific machine (in a separate git worktree there).
@@ -50,4 +52,5 @@ projects:
       live_url: https://preview.example.com
     priority: 2
     max_parallel_workers: 1
+    daily_token_limit: 1000000
     paused: false

@@ -97,7 +97,7 @@ class RunnerTest(unittest.TestCase):
 
     def project(self, run="clone"):
         return Project(name="site", family="f", repos=["o/site"], run=run, machine="box", path="~/work/site",
-                       test="true", priority=1, max_parallel_workers=1, paused=False)
+                       test="true", priority=1, max_parallel_workers=1, paused=False, daily_token_limit=1000)
 
     def test_reachable(self):
         self.assertTrue(self.runner.reachable("box"))

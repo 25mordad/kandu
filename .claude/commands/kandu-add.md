@@ -16,8 +16,9 @@ Read `docs/COMMANDS.md`, then add one project to `local/projects.yaml`, in the s
    9. Forbidden areas, such as migrations or payments.
    10. Repo rules: CI, PR bots, other people on the repo, and any freeze on merges (`frozen`).
    11. Automatic merge, or approval? Recommend approval until calibration has run.
-   12. Priority against the other projects.
-   13. A short glossary of project terms: propose it, the user corrects it.
+   12. A daily token limit (`daily_token_limit`), and any rules for how the queen paces this project (`queen_rules`).
+   13. Priority against the other projects.
+   14. A short glossary of project terms: propose it, the user corrects it.
 3. Create a board only if the user said yes: `.venv/bin/python -m kandu.boards --owner OWNER --title TITLE`. It prints the number. Before the first board of this install, stop and remind the user that direct pushes to the Kandu repo end at that moment.
 4. Write the entry. Put the glossary in `local/memory/<project>.md`.
 5. Name a backup of what the project cannot rebuild as its first task, and refine it with `/kandu-task`.

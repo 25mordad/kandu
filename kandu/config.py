@@ -16,7 +16,10 @@ import yaml
 
 DEFAULT_LOCAL_DIR = Path(__file__).resolve().parent.parent / "local"
 SSH_REACH = re.compile(r"ssh \w[\w.@-]*")
-BOARD_COLUMNS = ("Ready", "In progress", "In review", "Needs info", "Blocked", "Done")
+BOARD_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Blocked", "Done")
+BOARD_FIELDS = {"Priority": ("High", "Medium", "Low"), "Kind": ("Bug", "Feature", "Chore"),
+                "Size": ("Small", "Medium", "Large")}
+DEADLINE_FIELD = "Deadline"
 
 
 class ConfigError(Exception):
@@ -93,6 +96,7 @@ class Supervisor:
     auto_revert: bool = False
     queen: bool = True
     queen_max_retries: int = 2
+    queen_daily_token_limit: int = 2000000
 
 
 @dataclass
@@ -127,6 +131,7 @@ class Project:
     priority: int
     max_parallel_workers: int
     paused: bool
+    daily_token_limit: int
     description: str = ""
     board: Board | None = None
     run_local: str | None = None
@@ -134,6 +139,7 @@ class Project:
     secrets_from: str | None = None
     forbidden: list[str] = field(default_factory=list)
     repo_rules: str = ""
+    queen_rules: str = ""
     auto_merge: bool | None = None
     frozen: bool = False
     allowed_tools: list[str] = field(default_factory=list)
@@ -290,7 +296,7 @@ def _check_settings(s, problems):
         problems.append("notify.telegram: required when notify.adapter is telegram")
 
     for name in ("wake_every_minutes", "max_cycle_minutes", "max_parallel_workers", "max_review_rounds",
-                 "queen_max_retries"):
+                 "queen_max_retries", "queen_daily_token_limit"):
         _check_positive(getattr(s.supervisor, name), f"supervisor.{name}", problems)
     if s.supervisor.auto_revert:
         problems.append("supervisor.auto_revert: must be false; Kandu only reports breakage (DESIGN §5)")
@@ -335,6 +341,7 @@ def _check_projects(projects, s, problems):
             _check_one_of(p.deploy.mode, ("direct", "preview"), f"{where}.deploy.mode", problems)
         _check_positive(p.priority, f"{where}.priority", problems)
         _check_positive(p.max_parallel_workers, f"{where}.max_parallel_workers", problems)
+        _check_positive(p.daily_token_limit, f"{where}.daily_token_limit", problems)
 
 
 def load_config(local_dir=DEFAULT_LOCAL_DIR):

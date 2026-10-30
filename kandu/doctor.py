@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .boards import missing_columns
+from .boards import missing_columns, missing_fields
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .dashboard import TOKEN_ENV
 from .github import GitHub, GitHubError
@@ -83,6 +83,7 @@ def check_project(project, runner, github):
         return results
     try:
         missing = missing_columns(project.board, github.board_columns(project.board))
+        missing += missing_fields(github.board_fields(project.board))
     except GitHubError:
         results.append((FAIL, f"{project.name}: board cannot be read"))
         return results

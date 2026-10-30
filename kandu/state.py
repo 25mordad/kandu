@@ -27,7 +27,7 @@ EVENT_FIELDS = {
     "task_finished": TASK_FIELDS + ("outcome",),
     "project_checked": ("project", "passed", "detail"),
     "queen_decided": TASK_FIELDS + ("action", "note"),
-    "queen_finished": ("run_id", "brief"),
+    "queen_finished": ("run_id", "brief", "backlog"),
 }
 NO_TASK_ROLES = ("supervisor", "queen")
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
@@ -143,6 +143,16 @@ class StateStore:
                 _add_tokens(report["models"].setdefault(model, _empty_tokens()), usage)
                 _add_tokens(report["roles"].setdefault(event["role"], _empty_tokens()), usage)
         return report
+
+    def today(self):
+        return datetime.now().astimezone().date().isoformat()
+
+    def tokens_counted(self, day, *, project=None, role=None):
+        """The tokens that count against a daily limit. A cache read is far cheaper, so it does not count."""
+        runs = [e for e in self.events(day) if e["type"] == "run_finished"
+                and (project is None or e["project"] == project) and (role is None or e["role"] == role)]
+        return sum(usage.get(kind, 0) for run in runs for usage in run["models"].values()
+                   for kind in TOKEN_KINDS if kind != "cache_read")
 
     def request_stop(self):
         self._make_dirs()

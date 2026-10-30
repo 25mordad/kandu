@@ -28,7 +28,7 @@ STREAM_POLL_SECONDS = 2
 EVENT_PAGE = 500
 RUN_ID = re.compile(r"r-[\w-]+")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
-QUEUE_COLUMNS = ("Ready", "In progress", "In review", "Needs info", "Blocked")
+QUEUE_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Blocked")
 TOOL_DETAIL_KEYS = ("file_path", "path", "pattern", "command")
 MAX_DETAIL = 200
 
@@ -84,8 +84,15 @@ class Api:
         return self.store.read_current() | {
             "stop_requested": self.store.stop_file.exists(),
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
-            "queen": queen.last_report(self.store),
+            "queen": self._queen_report(),
         }
+
+    def _queen_report(self):
+        report = queen.last_report(self.store)
+        if report is None:
+            return None
+        return report | {"today": self.store.tokens_counted(self.store.today(), role="queen"),
+                         "limit": self.config.settings.supervisor.queen_daily_token_limit}
 
     def queue(self, query):
         """Each project's columns, read from its board. Cached: `gh` calls are not free of time."""

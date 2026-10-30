@@ -6,9 +6,10 @@ does not depend on the conversation.
 import argparse
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
-from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
+from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR, DEADLINE_FIELD, ConfigError, load_config
 from .github import GitHub, GitHubError
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "prompts" / "templates" / "issue.md"
@@ -43,8 +44,20 @@ def check_private(text, words):
         raise TaskError(f"this repo is public, and the text holds {len(found)} private word(s)")
 
 
-def create_task(config, github, project_name, repo, title, body, local_dir):
-    """Creates the issue, puts it on the board in `Ready` and returns its URL."""
+def check_fields(priority, kind, size, deadline):
+    """The queen paces work from these alone, so a task without them cannot exist."""
+    for name, value in (("Priority", priority), ("Kind", kind), ("Size", size)):
+        if value not in BOARD_FIELDS[name]:
+            raise TaskError(f"{name} must be one of: {', '.join(BOARD_FIELDS[name])}")
+    if deadline is not None:
+        try:
+            date.fromisoformat(deadline)
+        except ValueError as e:
+            raise TaskError("the deadline must be a date, YYYY-MM-DD") from e
+
+
+def create_task(config, github, project_name, repo, title, body, local_dir, priority, kind, size, deadline=None):
+    """Creates the issue, puts it on the board in `Backlog` and returns its URL."""
     project = next((p for p in config.projects if p.name == project_name), None)
     if project is None:
         raise TaskError(f"unknown project: {project_name}")
@@ -54,11 +67,15 @@ def create_task(config, github, project_name, repo, title, body, local_dir):
     if project.board is None:
         raise TaskError(f"{project_name} has no board")
     check_body(body)
+    check_fields(priority, kind, size, deadline)
     if github.repo_is_public(repo):
         check_private(f"{title}\n{body}", private_words(local_dir))
     url = github.create_issue(repo, title, body)
     github.add_to_board(project.board, url)
-    github.set_status(project.board, url, "Ready")
+    github.set_status(project.board, url, "Backlog")
+    for name, value in (("Priority", priority), ("Kind", kind), ("Size", size), (DEADLINE_FIELD, deadline)):
+        if value is not None:
+            github.set_field(project.board, url, name, value)
     return url
 
 
@@ -68,12 +85,17 @@ def main():
     parser.add_argument("--repo", help="needed when the project has several repos")
     parser.add_argument("--title", required=True)
     parser.add_argument("--body-file", required=True)
+    parser.add_argument("--priority", required=True, choices=BOARD_FIELDS["Priority"])
+    parser.add_argument("--kind", required=True, choices=BOARD_FIELDS["Kind"])
+    parser.add_argument("--size", required=True, choices=BOARD_FIELDS["Size"])
+    parser.add_argument("--deadline", help="the date it must be done by, YYYY-MM-DD")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
     args = parser.parse_args()
     try:
         config = load_config(args.local)
         body = Path(args.body_file).read_text(encoding="utf-8")
-        print(create_task(config, GitHub(), args.project, args.repo, args.title, body, args.local))
+        print(create_task(config, GitHub(), args.project, args.repo, args.title, body, args.local,
+                          args.priority, args.kind, args.size, args.deadline))
     except ConfigError as e:
         print(f"tasks: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1

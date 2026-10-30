@@ -2,6 +2,7 @@ import fcntl
 import io
 import contextlib
 import json
+from dataclasses import replace
 import shutil
 import tempfile
 import threading
@@ -49,9 +50,10 @@ class FakeGitHub:
         self.threads = []
         self.merges = []
 
-    def add(self, number, status="Ready", repo=REPO, labels=("agent",), body=""):
+    def add(self, number, status="Ready", repo=REPO, labels=("agent",), body="", priority="Medium", size="Small", deadline=""):
         url = f"https://github.com/{repo}/issues/{number}"
-        self.items.append(BoardItem(repo, number, f"Task {number}", url, status, list(labels), body))
+        self.items.append(BoardItem(repo, number, f"Task {number}", url, status, list(labels), body,
+                                    priority, "Chore", size, deadline))
         self.open_issues.add((repo, number))
         self.statuses[url] = status
 
@@ -60,7 +62,7 @@ class FakeGitHub:
 
     def board_items(self, board):
         self.reads += 1
-        return [BoardItem(i.repo, i.number, i.title, i.url, self.statuses[i.url], i.labels, i.body) for i in self.items]
+        return [replace(i, status=self.statuses[i.url]) for i in self.items]
 
     def set_status(self, board, url, status):
         self.statuses[url] = status
@@ -384,6 +386,144 @@ class QueenTest(Base):
     def test_she_merges_nothing(self):
         self.assertFalse({"Edit", "Write"} & set(agents.queen_tools()[0]))
         self.assertFalse(any("merge" in tool or "push" in tool for tool in agents.queen_tools()[0]))
+
+
+class QueenPacesTest(Base):
+    def setUp(self):
+        super().setUp()
+        self.config.settings.supervisor.queen = True
+
+    def reply(self, *decisions):
+        return json.dumps({"brief": "Done.", "decisions": list(decisions)})
+
+    def release(self, number=1, note="Nothing special."):
+        return {"task": f"{REPO}#{number}", "action": "release", "note": note}
+
+    def spend(self, tokens, project="website", role="worker"):
+        self.store.record("run_finished", task=f"{REPO}#9", project=project, run_id="r-0", role=role,
+                          models={"m": {"input": tokens, "output": 0, "cache_read": 10 ** 9, "cache_creation": 0}},
+                          duration_ms=1, is_error=False)
+
+    def test_she_wakes_first_and_what_she_releases_is_worked_on_at_once(self):
+        self.github.add(1, "Backlog")
+        self.config.projects[0].auto_merge = False
+        self.runner.steps = [self.reply(self.release(note="Mind the old links.")), self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertIn("Backlog", self.runner.runs[0].prompt)
+        self.assertEqual(self.events("queen_decided")[0]["action"], "release")
+        self.assertIn("Mind the old links.", self.runner.runs[1].prompt)
+
+    def test_she_sees_fields_and_never_a_task_body(self):
+        self.github.add(1, "Backlog", body="SECRET BODY", priority="High", deadline="2030-01-02")
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        prompt = self.runner.runs[0].prompt
+        self.assertIn("2030-01-02", prompt)
+        self.assertNotIn("SECRET BODY", prompt)
+
+    def test_a_hundred_tasks_start_only_as_she_releases_them(self):
+        for number in range(1, 101):
+            self.github.add(number, "Backlog")
+        self.config.projects[0].auto_merge = False
+        self.runner.steps = [self.reply(self.release(1)), self.worker_makes_pr(1), report(SHA1), self.reply()]
+        self.cycle()
+        self.assertEqual(sum(self.github.status(n) == "Backlog" for n in range(1, 101)), 99)
+
+    def test_a_large_task_never_leaves_backlog_through_her(self):
+        self.github.add(1, "Backlog", size="Large")
+        self.runner.steps = [self.reply(self.release())]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Backlog")
+        self.assertIn("must be split", self.events("queen_finished")[0]["brief"])
+
+    def test_a_large_task_the_user_moved_runs(self):
+        self.github.add(1, "Ready", size="Large")
+        self.config.projects[0].auto_merge = False
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
+
+    def test_she_cannot_release_a_blocked_task(self):
+        self.github.add(1, "Backlog")
+        self.github.add(2, "Backlog", body="## Blocked by\n#1\n")
+        self.runner.steps = [self.reply(self.release(2))]
+        self.cycle()
+        self.assertEqual(self.github.status(2), "Backlog")
+        self.assertIn("Refused", self.events("queen_finished")[0]["brief"])
+
+    def test_she_cannot_release_past_the_project_limit(self):
+        self.github.add(1, "Backlog")
+        self.config.projects[0].daily_token_limit = 100
+        self.spend(100)
+        self.runner.steps = [self.reply(self.release())]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Backlog")
+        self.assertIn("daily token limit", self.events("queen_finished")[0]["brief"])
+
+    def test_the_limit_holds_for_a_task_the_user_moved(self):
+        self.github.add(1)
+        self.config.projects[0].daily_token_limit = 100
+        self.spend(100)
+        self.cycle()
+        self.assertEqual(self.runner.runs, [])
+        self.assertEqual(self.events("decision")[-1]["decision"], "over_budget")
+
+    def test_cache_reads_do_not_count_against_a_limit(self):
+        self.github.add(1)
+        self.config.projects[0].daily_token_limit = 100
+        self.config.projects[0].auto_merge = False
+        self.spend(99)
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
+
+    def test_at_her_own_limit_nothing_new_starts_and_she_sleeps(self):
+        self.github.add(1)
+        self.config.settings.supervisor.queen_daily_token_limit = 100
+        self.spend(100, project=None, role="queen")
+        self.cycle()
+        self.assertEqual(self.runner.runs, [])
+        self.assertIn("her daily token limit", self.events("supervisor_slept")[0]["reason"])
+
+    def test_she_sees_the_same_backlog_only_once(self):
+        self.github.add(1, "Backlog")
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+
+    def test_a_new_task_in_backlog_wakes_her(self):
+        self.github.add(1, "Backlog")
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.github.add(2, "Backlog")
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
+
+    def test_a_finished_task_wakes_her_while_backlog_waits(self):
+        self.github.add(1)
+        self.github.add(2, "Backlog", size="Large")
+        self.config.projects[0].auto_merge = True
+        self.runner.steps = [self.reply(), self.worker_makes_pr(), report(SHA1), '{"result": "pass", "summary": "seen"}',
+                             self.reply()]
+        self.cycle()
+        self.assertEqual(len(self.events("queen_finished")), 2)
+
+    def test_one_look_covers_every_project(self):
+        self.github.add(1, "Backlog")
+        self.github.add(2, "Backlog", repo="acme-org/app")
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+
+    def test_each_look_shows_what_it_cost(self):
+        self.github.add(1, "Backlog")
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        look = next(e for e in self.events("run_finished") if e["role"] == "queen")
+        self.assertEqual(look["run_id"], self.events("queen_finished")[0]["run_id"])
+        self.assertEqual(queen.last_report(self.store)["tokens"], 2)
 
 
 class GateTest(Base):

@@ -20,7 +20,7 @@ Working with a coding agent today still means sitting next to it: approving step
 ## How it works
 
 ```
- you ──(conversation)──► GitHub issue on a board (Ready)
+ you ──(conversation)──► GitHub issue on a board (Backlog)
                               │
                               ▼
  supervisor (wakes every hour, works while usage allows)
@@ -37,7 +37,7 @@ Working with a coding agent today still means sitting next to it: approving step
 
 1. **Tasks are GitHub issues** on a GitHub Project board, one board per project family. Each issue has a fixed template: goal, current behavior, acceptance criteria, how to test, out of scope, blocked by. Only issues labelled `agent` in the `Ready` column enter the loop.
 2. **The supervisor** is a code loop on an always-on machine, not an LLM session, so everything that needs no judgment costs no tokens. It writes no code. It picks tasks, hands them to workers and enforces the rules. It never grades its own work.
-3. **The queen** is an LLM above the workers. When something stops, she reads what happened, then sends the task back with a note or asks you a question. Code checks each decision: she cannot merge, and she cannot pass the stop button or the usage limits. A quiet cycle wakes her at no cost.
+3. **The queen** is one LLM above the workers of all projects. New tasks wait in `Backlog`, and she releases them at a pace each project can take, from the priority, size and deadline set when the task was defined. When something stops, she reads what happened, then sends the task back with a note or asks you a question. Code checks each decision: she cannot merge, and she cannot pass the stop button or the usage limits. A quiet cycle wakes her at no cost.
 4. **Workers** are separate `claude` processes, each in its own `git worktree`. Independent tasks run in parallel; dependent tasks run in order.
 5. **A fresh reviewer** checks every PR against the issue and hunts for what really breaks: production bugs, security holes, crashes, and new logic with no test. Each blocker is verified before it is reported. The worker fixes every finding, for at most two rounds; a blocker still open after that marks the task `Blocked`.
 6. **Merge and deploy:** when every merge condition holds on the exact commit that was reviewed, the supervisor merges (if auto-merge is on for that project) and deploys, directly or to a preview, per project. A change that is hard to undo always waits for you. Auto-merge starts off, until Kandu's decisions have been shown to match yours.
@@ -50,7 +50,7 @@ Working with a coding agent today still means sitting next to it: approving step
 Kandu is paced by usage, not by a fixed number of tasks:
 
 - A timer wakes the supervisor every hour (configurable).
-- If there is nothing `Ready`, or usage is over a limit, it goes back to sleep immediately, at no cost.
+- If there is nothing to decide or start, or usage is over a limit, it goes back to sleep immediately, at no cost.
 - Otherwise it works until the tasks run out, about 50 minutes pass, or a usage limit is reached, whichever comes first.
 - Two limits: the 5-hour usage window and the weekly usage, both in percent. If you share a subscription with your own sessions, keep a margin (for example 70% and 60%).
 
@@ -72,7 +72,7 @@ Kandu has its own interactive dashboard:
 - supervisor state, next wake time, why the last cycle stopped, usage bars with the limit lines
 - active workers: task, project, machine, phase, elapsed time
 - a live stream of what every worker does (files read, commands, edits), the reviewer's notes and the supervisor's decisions
-- queues per project: Ready, waiting for machine, Needs info, Blocked
+- queues per project: Backlog, Ready, waiting for machine, Needs info, Blocked
 - finished work, with PR link, live link and a screenshot of the final check
 - controls: stop / resume the supervisor, stop a worker
 

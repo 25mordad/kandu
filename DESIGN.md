@@ -50,8 +50,9 @@ The dashboard itself is always Kandu's own (§7); only its port is a choice.
 9. Forbidden areas: e.g. migrations, payments, files that must never be touched.
 10. Existing repo rules: CI, PR bots, other people working on the repo. Kandu respects them.
 11. Merge in this project: automatic or with approval?
-12. Priority relative to the other projects.
-13. Project terms: the LLM proposes a short glossary from what it read, the user corrects it (§14).
+12. A daily token limit, and any rules for how the queen paces this project.
+13. Priority relative to the other projects.
+14. Project terms: the LLM proposes a short glossary from what it read, the user corrects it (§14).
 
 ### C. Other conversational commands
 - `/kandu-task` — define a task; writes the issue with the standard template onto the right board (§2).
@@ -68,7 +69,9 @@ The rules shared by these commands are in [docs/COMMANDS.md](docs/COMMANDS.md). 
   - How to test
   - Out of scope
   - `Blocked by` (if any)
-- Claude adds the issue to the right board with status `Ready` and label `agent`. Only `agent`-labelled issues enter the loop.
+- Claude adds the issue to the right board with status `Backlog` and label `agent`. Only `agent`-labelled issues enter the loop.
+- Each task gets its fields while it is refined: `Priority` (`High`, `Medium`, `Low`), `Kind` (`Bug`, `Feature`, `Chore`), `Size` (`Small`, `Medium`, `Large`) and, if it must be done by a date, `Deadline`. `kandu.tasks` refuses a task without them. The queen paces work from these fields, so organizing them is the job of whoever defines the task, not hers.
+- A `Large` task must be split before it runs. The queen may not release or split one.
 - On a public repo the issue is public too: no private details in the task text.
 - A precise task (clear acceptance criteria) and real tests in the project matter more for the result than the loop itself. That is why defining tasks is a conversation, not a form.
 
@@ -83,7 +86,9 @@ Before writing the issue, `/kandu-task` checks that the behavior does not alread
 
 ## 3. Boards
 - **One GitHub Project board per project family**, owned by the GitHub user or org the repos live in. One family can hold many repos; the built-in `Repository` field tells the supervisor which repo an issue is in.
-- Standard columns on every board, so the supervisor handles them all the same way: `Ready`, `In progress`, `In review`, `Needs info`, `Blocked`, `Done`. An existing board with other columns is mapped onto these during `/kandu-add`, under `board.columns`.
+- Standard columns on every board, so the supervisor handles them all the same way: `Backlog`, `Ready`, `In progress`, `In review`, `Needs info`, `Blocked`, `Done`. An existing board with other columns is mapped onto these during `/kandu-add`, under `board.columns`.
+- `Backlog` holds approved tasks. `Ready` means work may start: the queen moves tasks there at the pace of each project, and a task the user moves there by hand starts as well.
+- Each board also has the fields `Priority`, `Kind`, `Size` and `Deadline`. `Type` is a name GitHub keeps for itself, hence `Kind`.
 - Kandu creates a board only when the user says so.
 - A task only a person can do stays on the board without the `agent` label, so it is visible and Kandu leaves it alone.
 
@@ -96,7 +101,7 @@ One entry per project in `local/projects.yaml`, written by `/kandu-add`. **A pro
 - machine, path, test command, local run command, extra `allowed_tools` for its workers
 - a project with several repos keeps each at `<path>/<repo name>`
 - `deploy`: `mode` (`direct` or `preview`), `command`, `live_url` (leave it out when the live software is behind a login: the task is then done after the deploy, with no live check)
-- where its secrets are, forbidden areas, repo rules, merge mode, priority, max parallel workers, paused
+- where its secrets are, forbidden areas, repo rules, merge mode, priority, max parallel workers, daily token limit, the queen's rules for this project, paused
 
 **Machines that are not always on** (e.g. a laptop): at the start of each cycle the supervisor checks the machine over SSH. Reachable → run the worker there. Not reachable → skip that project's tasks; they show as "waiting for machine" and are picked up the next cycle it is reachable. Leaving the machine on is enough to let Kandu work on it.
 
@@ -105,8 +110,8 @@ One entry per project in `local/projects.yaml`, written by `/kandu-add`. **A pro
 ## 5. Supervisor, workers, reviewer
 
 ```
-queen (LLM, judges after each cycle)
-  │
+queen (LLM, one for all projects: wakes at the start, and when a task ends)
+  │ releases tasks, judges what stopped
 supervisor ─┬─ worker 1  →  reviewer
             ├─ worker 2  →  reviewer
             └─ ...
@@ -115,10 +120,13 @@ supervisor ─┬─ worker 1  →  reviewer
 ```
 
 - **Supervisor:** a code loop on the always-on machine ([kandu/supervisor.py](kandu/supervisor.py)), not an LLM session. Everything that needs no judgment runs there, at no token cost, and still works when Claude is down: gates, task selection, starting agents, review rounds, the `SHA` check. It **writes no code**. A headless `claude -p` session is started only where judgment is needed, such as the final check (task 12). It never grades its own work.
-- **Queen:** the LLM that oversees the workers ([kandu/queen.py](kandu/queen.py), [prompts/queen.md](prompts/queen.md)). A fresh `claude` process on the brain's machine, with read-only tools, who reads the logs, the issue and the PR of what stopped.
-  - **When:** at the end of a cycle, and only if code finds a stopped task, a failed project check or a new reason for a merge to wait. A quiet cycle costs no tokens. `supervisor.queen: false` turns her off.
-  - **What she decides:** `retry` sends a `Blocked` task back to `Ready`, with a note the next worker reads; `ask_user` puts a question on the dashboard. Her brief goes to the dashboard. Her notes stay local, since an issue may be public.
-  - **Locks she cannot pass:** code carries out each decision, and refuses one that breaks a rule. She cannot merge, deploy or edit. A task the user stopped does not go back, and `supervisor.queen_max_retries` (default 2) caps each task. The usage limits, the stop button, the `SHA` check, `wait_for_user` and the denied paths stay in code, so they hold when the model is wrong, or when Claude is down.
+- **Queen:** the LLM that runs the cycle for every project ([kandu/queen.py](kandu/queen.py), [prompts/queen.md](prompts/queen.md)). There is one queen, and each look covers all projects. She is a fresh `claude` process on the brain's machine with read-only tools, not one long session, so the cost of a waiting queen is nothing.
+  - **When:** at the start of a cycle, and each time a task ends, if code finds something to decide: a new or changed `Backlog`, a stopped task, a failed project check or a new reason for a merge to wait. She sees an unchanged `Backlog` once a day. A quiet cycle costs no tokens. `supervisor.queen: false` turns her off, and only `Ready` tasks then run.
+  - **What she sees:** each project's fields, `queen_rules`, tokens used and limit, and the events since her last look. She reads no task body until a task is a candidate, so a long `Backlog` stays cheap.
+  - **What she decides:** `release` moves a task from `Backlog` to `Ready`; `retry` sends a `Blocked` task back to `Ready`; both carry a note the next worker reads. `ask_user` puts a question on the dashboard. Her brief goes to the dashboard. Her notes stay local, since an issue may be public.
+  - **Locks she cannot pass:** code carries out each decision on a fresh read of the board, and refuses one that breaks a rule. She cannot merge, deploy or edit. She cannot release a `Large` or blocked task, or one of a project at its limit. A task the user stopped, or one whose PR is merged, does not go back, and `supervisor.queen_max_retries` (default 2) caps each task. The usage limits, the stop button, the `SHA` check, `wait_for_user` and the denied paths stay in code.
+  - **Daily limits:** each project has `daily_token_limit`, and she has `supervisor.queen_daily_token_limit`. Cache reads do not count. A project at its limit starts nothing new, even a task the user moved by hand; work already running ends normally, so a limit can be passed a little. At her own limit she sleeps and nothing new starts anywhere, since no one is planning.
+  - **Cost:** each look is recorded as a run with role `queen`, and the dashboard shows that look, today's total and her limit.
 - **Workers:** separate `claude` processes, started by the runner layer (§9) on the project's machine, each in its own `git worktree`, so they never write over each other. Separate processes are what let Kandu stream each worker (§7), stop one alone and record its tokens. Independent tasks (by `Blocked by`) run in parallel, up to `max_parallel_workers`; dependent ones run in order. Their instructions are in [prompts/worker.md](prompts/worker.md):
   - Tests come first, at the project's public interfaces, and they check behavior rather than internals.
   - A bug starts with one fast command that fails on exactly that bug. If no such command can be built, the task goes to `Needs info` instead of a guess.
@@ -151,7 +159,7 @@ supervisor ─┬─ worker 1  →  reviewer
 
 ## 6. Rhythm — usage-based, not a fixed number of tasks
 - A `systemd timer` wakes the supervisor every `wake_every_minutes` (default 60). A lock file prevents two supervisors running at once.
-- No `Ready` task, or usage over a limit → sleep immediately, at no cost.
+- Nothing for the queen to decide, no `Ready` task, or usage over a limit → sleep immediately, at no cost.
 - Otherwise work until the tasks run out, or `max_cycle_minutes` (default 50) pass, or usage hits a limit, whichever comes first.
 - **Limits** (`claude.limits`): 5-hour window % and weekly %. With a subscription shared with your own interactive sessions, leave a margin (example values: 70% and 60%). On a subscription, usage is read at no cost with `claude -p "/usage"`.
 - Usage is recorded per task, and reported per day and per project, so it is clear what each task cost and how much of the limit each project used.
