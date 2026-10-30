@@ -4,6 +4,8 @@ Every problem is reported at once, so a config can be fixed in one pass.
 Paths are kept as written: a `~` may belong to another machine.
 """
 import argparse
+import posixpath
+import re
 import sys
 import types
 from dataclasses import MISSING, dataclass, field, fields, is_dataclass
@@ -13,6 +15,7 @@ from typing import Union, get_args, get_origin, get_type_hints
 import yaml
 
 DEFAULT_LOCAL_DIR = Path(__file__).resolve().parent.parent / "local"
+SSH_REACH = re.compile(r"ssh \w[\w.@-]*")
 
 
 class ConfigError(Exception):
@@ -57,6 +60,7 @@ class ClaudeLimits:
 class Claude:
     auth: str
     limits: ClaudeLimits
+    login_warn_days: int = 7
 
 
 @dataclass
@@ -80,12 +84,12 @@ class Notify:
 
 @dataclass
 class Supervisor:
-    wake_every_minutes: int
-    max_cycle_minutes: int
-    max_parallel_workers: int
-    max_review_rounds: int
-    auto_merge: bool
-    auto_revert: bool
+    wake_every_minutes: int = 60
+    max_cycle_minutes: int = 50
+    max_parallel_workers: int = 2
+    max_review_rounds: int = 2
+    auto_merge: bool = False
+    auto_revert: bool = False
 
 
 @dataclass
@@ -136,8 +140,8 @@ class Settings:
     claude: Claude
     github: GitHub
     notify: Notify
-    supervisor: Supervisor
     dashboard: Dashboard
+    supervisor: Supervisor = field(default_factory=Supervisor)
     didban: Didban = field(default_factory=Didban)
 
 
@@ -243,12 +247,16 @@ def _check_percent(value, where, problems):
         problems.append(f"{where}: must be between 1 and 100, got {value}")
 
 
+def _is_inside(path, folder):
+    return posixpath.normpath(path).startswith(posixpath.normpath(folder).rstrip("/") + "/")
+
+
 def _check_settings(s, problems):
     names = [m.name for m in s.machines]
     if len(set(names)) != len(names):
         problems.append("machines: names must be unique")
     for i, m in enumerate(s.machines):
-        if m.reach != "local" and not (m.reach.startswith("ssh ") and m.reach[4:].strip()):
+        if m.reach != "local" and not SSH_REACH.fullmatch(m.reach):
             problems.append(f"machines[{i}].reach: must be 'local' or 'ssh <alias>', got {m.reach!r}")
 
     brain = next((m for m in s.machines if m.name == s.brain.machine), None)
@@ -264,6 +272,7 @@ def _check_settings(s, problems):
     _check_one_of(s.claude.auth, ("subscription", "api_key"), "claude.auth", problems)
     _check_percent(s.claude.limits.session_5h_percent, "claude.limits.session_5h_percent", problems)
     _check_percent(s.claude.limits.weekly_percent, "claude.limits.weekly_percent", problems)
+    _check_positive(s.claude.login_warn_days, "claude.login_warn_days", problems)
 
     _check_one_of(s.notify.adapter, ("telegram", "none"), "notify.adapter", problems)
     if s.notify.adapter == "telegram" and s.notify.telegram is None:
@@ -271,6 +280,8 @@ def _check_settings(s, problems):
 
     for name in ("wake_every_minutes", "max_cycle_minutes", "max_parallel_workers", "max_review_rounds"):
         _check_positive(getattr(s.supervisor, name), f"supervisor.{name}", problems)
+    if s.supervisor.auto_revert:
+        problems.append("supervisor.auto_revert: must be false; Kandu only reports breakage (DESIGN §5)")
     if not 1 <= s.dashboard.port <= 65535:
         problems.append(f"dashboard.port: must be between 1 and 65535, got {s.dashboard.port}")
 
@@ -278,6 +289,7 @@ def _check_settings(s, problems):
 def _check_projects(projects, s, problems):
     machines = [m.name for m in s.machines]
     seen = set()
+    family_boards = {}
     for i, p in enumerate(projects):
         where = f"projects[{i}] ({p.name})"
         if p.name in seen:
@@ -285,11 +297,25 @@ def _check_projects(projects, s, problems):
         seen.add(p.name)
         if not p.repos:
             problems.append(f"{where}.repos: must not be empty")
+        for repo in p.repos:
+            owner, _, name = repo.partition("/")
+            if not owner or not name or "/" in name:
+                problems.append(f"{where}.repos: must be owner/name, got {repo!r}")
+            elif owner not in s.github.owners:
+                problems.append(f"{where}.repos: owner {owner!r} is not in github.owners")
+        if p.board is not None:
+            if p.board.owner not in s.github.owners:
+                problems.append(f"{where}.board: owner {p.board.owner!r} is not in github.owners")
+            if family_boards.setdefault(p.family, p.board) != p.board:
+                problems.append(f"{where}.board: family {p.family!r} already has another board; one board per family")
         _check_one_of(p.run, ("clone", "in-place"), f"{where}.run", problems)
         if p.machine not in machines:
             problems.append(f"{where}.machine: unknown machine {p.machine!r}")
         if p.run == "clone" and p.machine != s.brain.machine:
             problems.append(f"{where}.machine: run: clone must be on the brain's machine {s.brain.machine!r}")
+        if p.run == "clone" and not _is_inside(p.path, s.brain.work_dir):
+            problems.append(f"{where}.path: run: clone must be inside brain.work_dir {s.brain.work_dir!r}, "
+                            f"written the same way, got {p.path!r}")
         if p.deploy is not None:
             _check_one_of(p.deploy.mode, ("direct", "preview"), f"{where}.deploy.mode", problems)
         _check_positive(p.priority, f"{where}.priority", problems)
@@ -324,7 +350,7 @@ def load_didban(local_dir=DEFAULT_LOCAL_DIR):
     if problems:
         raise ConfigError(problems)
     didban = _build(DidbanConfig, raw, "", problems)
-    if not problems and not (didban.brain.reach.startswith("ssh ") and didban.brain.reach[4:].strip()):
+    if not problems and not SSH_REACH.fullmatch(didban.brain.reach):
         problems.append(f"brain.reach: must be 'ssh <alias>', got {didban.brain.reach!r}")
     if problems:
         raise ConfigError(problems)

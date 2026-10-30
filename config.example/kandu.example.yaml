@@ -4,7 +4,7 @@
 
 brain:
   machine: server              # name of a machine below; the supervisor runs here (should be always on)
-  work_dir: ~/kandu-work       # where Kandu clones projects that have run: clone
+  work_dir: ~/kandu-work       # where Kandu clones projects that have run: clone; their path must be inside it
   install_dir: ~/kandu         # where this repo is installed on that machine
 
 didban:                        # see DESIGN §13
@@ -26,12 +26,13 @@ claude:
   limits:
     session_5h_percent: 70     # stop when the 5-hour usage window reaches this
     weekly_percent: 60         # stop when weekly usage reaches this
+  login_warn_days: 7           # warn this many days before the Claude login expires
 
 github:
   account: your-github-login
   owners:                      # users / orgs Kandu may work in
     - your-github-login
-    - your-org
+    - acme-org
 
 notify:
   adapter: telegram            # telegram | none
@@ -40,13 +41,13 @@ notify:
     bot_token_env: KANDU_TELEGRAM_BOT_TOKEN   # names of variables in local/.env, not the values
     chat_id_env: KANDU_TELEGRAM_CHAT_ID
 
-supervisor:
+supervisor:                    # optional; these are the defaults
   wake_every_minutes: 60
   max_cycle_minutes: 50
   max_parallel_workers: 2
   max_review_rounds: 2
   auto_merge: false            # true = the supervisor merges on its own when it judges a PR right
-  auto_revert: false           # the supervisor only reports breakage; it never reverts
+  auto_revert: false           # must stay false: the supervisor only reports breakage
 
 dashboard:
   bind: 127.0.0.1

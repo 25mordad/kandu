@@ -1,8 +1,10 @@
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from kandu.state import EVENT_FIELDS, StateError, StateStore, usage_from_result
 
@@ -20,9 +22,9 @@ class StateTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.store = StateStore(Path(tmp.name))
 
-    def run_finished(self, task="o/r#1", role="worker", models=None):
+    def run_finished(self, task="o/r#1", role="worker", models=None, project="site"):
         self.store.record(
-            "run_finished", now=NOW, task=task, project="site", run_id="r1", role=role,
+            "run_finished", now=NOW, task=task, project=project, run_id="r1", role=role,
             models=models or {"model-a": tokens(input=10, output=5)}, duration_ms=100, is_error=False,
         )
 
@@ -69,10 +71,44 @@ class StateTest(unittest.TestCase):
             f.write('{"v": 1, "type": "sup')
         self.assertEqual(len(self.store.events(DAY)), 1)
 
-    def test_log_files_are_private(self):
+    def test_line_cut_inside_a_character_is_skipped(self):
         self.store.record("supervisor_woke", now=NOW)
-        mode = (self.store.events_dir / f"{DAY}.jsonl").stat().st_mode & 0o777
-        self.assertEqual(mode, 0o600)
+        with open(self.store.events_dir / f"{DAY}.jsonl", "ab") as f:
+            f.write('{"reason": "ک'.encode("utf-8")[:-1])
+        self.assertEqual(len(self.store.events(DAY)), 1)
+
+    def test_event_after_a_cut_off_line_is_kept(self):
+        self.store.record("supervisor_woke", now=NOW)
+        with open(self.store.events_dir / f"{DAY}.jsonl", "a") as f:
+            f.write('{"v": 1, "type": "sup')
+        self.run_finished()
+        self.assertEqual([e["type"] for e in self.store.events(DAY)], ["supervisor_woke", "run_finished"])
+        self.assertEqual(self.store.tokens_for_day(DAY)["total"]["total"], 15)
+
+    def test_text_with_a_unicode_line_separator_survives(self):
+        reason = "first second"
+        self.store.record("supervisor_slept", now=NOW, reason=reason, next_wake="later")
+        self.assertEqual(self.store.events(DAY)[0]["reason"], reason)
+
+    def test_log_files_and_folders_are_private(self):
+        self.store.record("supervisor_woke", now=NOW)
+        self.assertEqual((self.store.events_dir / f"{DAY}.jsonl").stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.store.events_dir.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(self.store.root.stat().st_mode & 0o777, 0o700)
+
+    def test_supervisor_run_without_a_task(self):
+        self.run_finished(task=None, role="supervisor", project=None)
+        self.run_finished()
+        report = self.store.tokens_for_day(DAY)
+        self.assertEqual(report["no_task"]["total"], 15)
+        self.assertEqual(list(report["tasks"]), ["o/r#1"])
+        self.assertEqual(report["total"]["total"], 30)
+
+    def test_only_a_supervisor_run_may_have_no_task(self):
+        with self.assertRaises(StateError):
+            self.run_finished(task=None, role="worker", project=None)
+        with self.assertRaises(StateError):
+            self.store.record("task_picked", now=NOW, task=None, project=None)
 
     def test_tokens_are_split_by_task_model_and_role(self):
         self.run_finished(task="o/r#1", role="worker", models={"model-a": tokens(10, 5, 100, 20)})
@@ -98,6 +134,18 @@ class StateTest(unittest.TestCase):
         self.assertEqual(self.store.read_current(), {"v": 1, "supervisor": "asleep"})
         self.assertEqual(list(self.store.root.glob("*.tmp")), [])
         self.assertEqual(self.store.current_file.stat().st_mode & 0o777, 0o600)
+
+    def test_snapshot_file_is_private_from_the_start(self):
+        created = []
+        real_open = os.open
+
+        def spy(path, flags, mode=0o777, **kwargs):
+            created.append(mode)
+            return real_open(path, flags, mode, **kwargs)
+
+        with mock.patch("kandu.state.os.open", spy):
+            self.store.write_current({"supervisor": "asleep"})
+        self.assertEqual(created, [0o600])
 
 
 class UsageFromResultTest(unittest.TestCase):

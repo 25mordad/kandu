@@ -90,8 +90,8 @@ One entry per project in `local/projects.yaml`, written by `/kandu-add`. **A pro
 - **run location**, set by the user per project, never inferred:
   - `clone` — Kandu may clone it into its own work folder on the brain's machine and run it there;
   - `in-place` — must run on a named machine, in a separate `git worktree`, never in the user's own working copy.
-- machine, path, test command, local run command, deploy command, live URL
-- `deploy: direct` or `deploy: preview`
+- machine, path, test command, local run command
+- `deploy`: `mode` (`direct` or `preview`), `command`, `live_url`
 - where its secrets are, forbidden areas, repo rules, merge mode, priority, max parallel workers, paused
 
 **Machines that are not always on** (e.g. a laptop): at the start of each cycle the supervisor checks the machine over SSH. Reachable → run the worker there. Not reachable → skip that project's tasks; they show as "waiting for machine" and are picked up the next cycle it is reachable. Leaving the machine on is enough to let Kandu work on it.
@@ -107,21 +107,21 @@ supervisor ─┬─ worker 1  →  reviewer
 ```
 
 - **Supervisor:** runs on the always-on machine as a headless `claude -p` session. It **does not write code**. It picks tasks, hands them to workers, judges results and decides. It never grades its own work.
-- **Workers:** separate subagents, each in its own `git worktree`, so they never write over each other. Independent tasks (by `Blocked by`) run in parallel, up to `max_parallel_workers`; dependent ones run in order. Their instructions are in [prompts/worker.md](prompts/worker.md):
+- **Workers:** separate `claude` processes, started by the runner layer (§9) on the project's machine, each in its own `git worktree`, so they never write over each other. Separate processes are what let Kandu stream each worker (§7), stop one alone and record its tokens. Independent tasks (by `Blocked by`) run in parallel, up to `max_parallel_workers`; dependent ones run in order. Their instructions are in [prompts/worker.md](prompts/worker.md):
   - Tests come first, at the project's public interfaces, and they check behavior rather than internals.
   - A bug starts with one fast command that fails on exactly that bug. If no such command can be built, the task goes to `Needs info` instead of a guess.
-  - Every PR uses [prompts/templates/pr.md](prompts/templates/pr.md): a small summary, before and after evidence, and the merge danger.
-- **Reviewer:** every PR gets two reviews, each a fresh agent that knows nothing of the other ([prompts/reviewer.md](prompts/reviewer.md)):
+  - Every PR uses [prompts/templates/pr.md](prompts/templates/pr.md): a small summary, before and after evidence, and the merge danger. A worker runs inside another project, so the runner puts this template in its prompt.
+- **Reviewer:** every PR gets two reviews, each a fresh `claude` process that knows nothing of the other ([prompts/reviewer.md](prompts/reviewer.md)):
   - `Spec`: does the diff do what the issue asked, all of it and nothing more?
   - `Standards`: does it follow the project's documented rules?
 
-  Hard findings go back to the same worker. Judgment calls are noted on the PR and do not use a review round. After `max_review_rounds` (default 2) the task goes to `Blocked`.
+  Every finding goes back to the same worker, who fixes all of them, hard findings and judgment calls alike; a finding the worker thinks is wrong gets a stated reason on the PR, never silence. The kind only decides what stops a merge. After `max_review_rounds` (default 2), a hard finding still open sends the task to `Blocked`, and a judgment call still open is noted on the PR.
 - **Merge danger:** every PR states whether its change is a **two-way door** (easy to undo) or a **one-way door** (hard to undo: data migrations, published APIs, sent messages), and its blast radius. The worker states it and the reviewer checks it independently. If either says one-way, the task waits for the user, even with `auto_merge` on.
 - **Merge:** if `auto_merge` is on and the supervisor concludes the PR is right (tests pass, reviewer approves, acceptance criteria met, two-way door), it merges and moves on to the next task. The user supervises the supervisor and corrects it when it is wrong. Default in this template: **off**.
 - **Deploy:** after merge, per the project's `deploy` setting.
 - **"Done" means seen in the live software:** after deploy the supervisor opens the live version (screenshot or test) and checks that what the issue asked for is really there. Green tests alone are not enough.
 - **End-of-cycle check:** after several merges, rerun all tests and a smoke test on the whole project.
-- **No automatic revert** (`auto_revert: false`). If something breaks in the live software, the supervisor only reports it. The user decides.
+- **No automatic revert.** `auto_revert: true` is refused by the config loader. If something breaks in the live software, the supervisor only reports it. The user decides.
 - **Vague task:** no guessing. The task moves to `Needs info` and the user gets a question.
 - **No hidden memory:** all state lives on the board and in issue comments. A cycle that is cut off resumes where it stopped, and progress is visible on the board at any time.
 
@@ -182,8 +182,9 @@ If you want isolation now, two options:
 ## 12. Config and updates
 - `local/` (gitignored) holds everything personal: `kandu.yaml`, `projects.yaml`, `.env` (secrets) and any personal notes.
 - [config.example/](config.example/) has complete examples. `/kandu-setup` and `/kandu-add` write `local/` for you.
-- Updating Kandu is `git pull`; nothing in `local/` is ever touched by an update.
 - **Recommended install:** a private repo of your own with this public repo as `upstream` and pushes to `upstream` disabled, so issues, PRs and mistakes stay private. A GitHub fork of a public repo cannot be private. Steps are in [README.md](README.md#recommended-run-kandu-from-your-own-private-copy).
+- Updating Kandu is `git fetch upstream && git merge upstream/main` in the recommended install, and `git pull` in a plain clone. Nothing in `local/` is ever touched by an update.
+- **Private guard:** `.githooks` checks new content, file names and commit messages against `local/private-words.txt` of the main working tree, at commit and again at push, because a cherry-pick or a rebase passes no commit hook. Text in a compressed file or in UTF-16 is not seen.
 
 ## 13. Didban — control from your own machine
 The brain runs on an always-on machine, which is usually not the machine the user sits at. **Didban** (Persian for "lookout", the one at the top of the tower) is how the user talks to Kandu from their own machine: one command opens a Claude Code session in a clone of this repo, in the control role. It is a role, not a service: no daemon, no new connection, nothing to keep running.
@@ -191,9 +192,9 @@ The brain runs on an always-on machine, which is usually not the machine the use
 - **Defining tasks:** `/kandu-task` writes the issue directly with `gh`. The brain picks it up on its next wake, so this works even when the brain's machine is off.
 - **Seeing state:** reads the boards from GitHub and live state from the HTTP API (§7) over SSH to the brain. Answers `Needs info` tasks from here.
 - **Giving commands:** stop, resume and config changes (`/kandu-config`) run on the brain over SSH.
-- **Knowledge:** project locations come from the registry. Other sources the user lists in `local/` are read on the machine that holds them, read-only, and never copied.
+- **Knowledge:** project locations come from the registry. Other sources are listed in `didban.knowledge` in the brain's `kandu.yaml`. The role prompt tells Didban to read them there, on the machine that holds each one, read-only, and never to copy them.
 - **Source of truth:** `local/` on the brain's machine. Didban reads and writes it over SSH, so there are never two diverging copies. The only local file is `local/didban.yaml`, which says how to reach the brain ([example](config.example/didban.example.yaml)). The list of sources is in `didban:` in the brain's `kandu.yaml`.
-- **Limits:** it does not write code, does not change the knowledge sources it reads and keeps no memory of its own; all state stays on the board. Its sessions count against the same usage limits as the supervisor (§6).
+- **Limits:** it does not write code, does not change the knowledge sources it reads and keeps no memory of its own; all state stays on the board. `Edit`, `Write` and `NotebookEdit` are blocked in code. `Bash` stays open because Didban needs SSH, so these limits rest on the role prompt there, and a mistake is possible: do not treat Didban as a security boundary. Its sessions count against the same usage limits as the supervisor (§6).
 - **When the brain's machine is off:** tasks can still be defined; live state and commands wait until it is back.
 
 ## 14. Harness, context and memory

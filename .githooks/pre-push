@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Last gate: scans every commit about to be pushed. It catches what the commit
+# hooks never see, such as a cherry-pick, a rebase or a merge.
+set -euo pipefail
+. "$(dirname "$0")/private-words.sh"
+
+remote="$1"
+no_commit='^0+$'
+
+scan_commit() {
+  {
+    git log -1 --format=%B "$1"
+    git diff-tree --root -m -r --no-commit-id --name-only --no-renames --diff-filter=d -z "$1" | tr '\0' '\n'
+    git diff-tree --root -m -r --no-commit-id -p -U0 --text --no-color --no-ext-diff --no-textconv --no-renames "$1" | added_lines
+  } | scan_private
+}
+
+while read -r _ local_sha _ remote_sha; do
+  [[ ! "$local_sha" =~ $no_commit ]] || continue
+  if [[ "$remote_sha" =~ $no_commit ]] || ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    commits="$(git rev-list "$local_sha" --not --remotes="$remote")"
+  else
+    commits="$(git rev-list "$remote_sha..$local_sha")"
+  fi
+  for commit in $commits; do
+    hits="$(scan_commit "$commit")"
+    [ -z "$hits" ] || blocked "Push of $commit" "$hits"
+  done
+done

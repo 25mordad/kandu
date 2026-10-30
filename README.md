@@ -35,11 +35,11 @@ Working with a coding agent today still means sitting next to it: approving step
           dashboard (everything, live) + notifications (important only)
 ```
 
-1. **Tasks are GitHub issues** on a GitHub Project board, one board per project family. Each issue has a fixed template: goal, acceptance criteria, how to test, blocked by. Only issues labelled `agent` in the `Ready` column enter the loop.
+1. **Tasks are GitHub issues** on a GitHub Project board, one board per project family. Each issue has a fixed template: goal, current behavior, acceptance criteria, how to test, out of scope, blocked by. Only issues labelled `agent` in the `Ready` column enter the loop.
 2. **The supervisor** is a headless Claude session on an always-on machine. It does not write code. It picks tasks, hands them to workers, judges the results and decides. It never grades its own work.
-3. **Workers** are separate agents, each in its own `git worktree`. Independent tasks run in parallel; dependent tasks run in order.
-4. **A reviewer** with a fresh context checks every PR against the issue's acceptance criteria. Findings go back to the worker, for at most two rounds; after that the task is marked `Blocked`.
-5. **Merge and deploy:** when the supervisor concludes a PR is right, it merges (if auto-merge is on for that project) and deploys, directly or to a preview, per project.
+3. **Workers** are separate `claude` processes, each in its own `git worktree`. Independent tasks run in parallel; dependent tasks run in order.
+4. **Two fresh reviewers** check every PR, neither knowing of the other: `Spec` (does it do what the issue asked, all of it and nothing more?) and `Standards` (does it follow the project's documented rules?). The worker fixes every finding, for at most two rounds; a serious finding still open after that marks the task `Blocked`.
+5. **Merge and deploy:** when the supervisor concludes a PR is right, it merges (if auto-merge is on for that project) and deploys, directly or to a preview, per project. A change that is hard to undo always waits for you, even with auto-merge on.
 6. **"Done" means seen in the live software.** After deploy the supervisor opens the live version and checks that what the issue asked for is really there. Green tests alone are not enough.
 7. **No guessing:** a vague task goes to `Needs info` and you get a question.
 8. **No hidden memory:** all state lives on the board and in issue comments. A cycle that is cut off resumes where it stopped.
@@ -82,6 +82,7 @@ The supervisor runs on an always-on machine, which is usually not the one you si
 On the machine you sit at, in a clone of Kandu with its `.venv`:
 
 ```
+mkdir -p local
 cp config.example/didban.example.yaml local/didban.yaml   # then edit it
 ln -s "$PWD/bin/didban" ~/.local/bin/didban
 ```
@@ -121,7 +122,7 @@ There are no forms. You configure Kandu by talking to it in Claude Code. It firs
 - `/kandu-config`: change anything later ("pause this project for a week").
 - `/kandu-doctor`: check that everything works.
 
-Everything personal goes into `local/`, which is gitignored: your config, project registry, secrets and notes. Updating Kandu is a `git pull` and never touches `local/`. Complete examples are in [config.example/](config.example/).
+Everything personal goes into `local/`, which is gitignored: your config, project registry, secrets and notes. Updating Kandu, as shown above or with `git pull` in a plain clone, never touches `local/`. Complete examples are in [config.example/](config.example/).
 
 ## Requirements
 

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Blocks a commit whose message contains a private term. The part below the
+# scissors line of `git commit -v` is not part of the message.
+set -euo pipefail
+. "$(dirname "$0")/private-words.sh"
+
+hits="$(sed '/^# -* >8 -*$/,$d' "$1" | git stripspace --strip-comments | scan_private)"
+
+[ -z "$hits" ] || blocked "Commit" "$hits"

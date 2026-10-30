@@ -15,8 +15,8 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Task** | A GitHub issue on a board; only those with the label `agent` enter the loop |
 | **Ready task** | An `agent` task in `Ready` whose blockers are all done |
 | **Slice** | A task that delivers a complete path that can be verified alone |
-| **Hard finding** | A review result that sends the task back to the worker |
-| **Judgment call** | A review result noted on the PR, which uses no review round |
+| **Hard finding** | A review result that the worker fixes and that stops the merge until it is gone |
+| **Judgment call** | A review result that the worker also fixes, but that does not stop a merge once the review rounds are used up |
 | **Two-way door** | A change that is easy to undo |
 | **One-way door** | A change that is hard to undo; it always waits for the user |
 | **Blast radius** | What a merge can break if it is wrong |

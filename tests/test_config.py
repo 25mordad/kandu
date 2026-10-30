@@ -1,11 +1,14 @@
+import contextlib
+import io
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
-from kandu.config import ConfigError, load_config
+from kandu.config import ConfigError, load_config, main
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "config.example"
 
@@ -120,6 +123,84 @@ class ConfigTest(unittest.TestCase):
     def test_machine_lookup(self):
         config = load_config(self.local)
         self.assertFalse(config.machine("laptop").always_on)
+
+    def test_reach_is_local_or_one_alias(self):
+        self.edit("kandu.yaml", lambda d: d["machines"][1].update(reach="ssh -oProxyCommand=x laptop"))
+        self.assertIn("machines[1].reach", self.problems())
+
+    def test_auto_revert_is_refused(self):
+        self.edit("kandu.yaml", lambda d: d["supervisor"].update(auto_revert=True))
+        self.assertIn("supervisor.auto_revert: must be false", self.problems())
+
+    def test_clone_must_be_inside_the_work_folder(self):
+        for path in ("~/code/website", "~/kandu-work-2/website", "~/kandu-work/../website", "~/kandu-work"):
+            self.edit("projects.yaml", lambda d: d["projects"][0].update(path=path))
+            self.assertIn("run: clone must be inside brain.work_dir", self.problems())
+
+    def test_in_place_may_be_anywhere(self):
+        self.edit("projects.yaml", lambda d: d["projects"][1].update(path="/srv/tool"))
+        self.assertEqual(load_config(self.local).projects[1].path, "/srv/tool")
+
+    def test_repo_owner_must_be_allowed(self):
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(repos=["stranger/website"]))
+        self.assertIn("owner 'stranger' is not in github.owners", self.problems())
+
+    def test_repo_must_be_owner_and_name(self):
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(repos=["website"]))
+        self.assertIn("must be owner/name", self.problems())
+
+    def test_board_owner_must_be_allowed(self):
+        self.edit("projects.yaml", lambda d: d["projects"][0]["board"].update(owner="stranger"))
+        self.assertIn("owner 'stranger' is not in github.owners", self.problems())
+
+    def test_one_board_per_family(self):
+        self.edit("projects.yaml", lambda d: d["projects"][1]["board"].update(number=2))
+        self.assertIn("one board per family", self.problems())
+
+    def test_two_families_may_have_their_own_boards(self):
+        def change(d):
+            d["projects"][1].update(family="other")
+            d["projects"][1]["board"].update(number=2)
+        self.edit("projects.yaml", change)
+        self.assertEqual(load_config(self.local).projects[1].board.number, 2)
+
+    def test_login_warning_defaults_to_a_week(self):
+        self.edit("kandu.yaml", lambda d: d["claude"].pop("login_warn_days"))
+        self.assertEqual(load_config(self.local).settings.claude.login_warn_days, 7)
+
+    def test_supervisor_section_is_optional(self):
+        self.edit("kandu.yaml", lambda d: d.pop("supervisor"))
+        supervisor = load_config(self.local).settings.supervisor
+        self.assertEqual((supervisor.wake_every_minutes, supervisor.max_cycle_minutes), (60, 50))
+        self.assertEqual((supervisor.max_review_rounds, supervisor.auto_merge), (2, False))
+
+    def test_one_supervisor_key_can_be_set_alone(self):
+        self.edit("kandu.yaml", lambda d: d.update(supervisor={"wake_every_minutes": 30}))
+        supervisor = load_config(self.local).settings.supervisor
+        self.assertEqual((supervisor.wake_every_minutes, supervisor.max_cycle_minutes), (30, 50))
+
+
+class MainTest(unittest.TestCase):
+    def run_main(self, local):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch("sys.argv", ["kandu.config", "--local", str(local)]), \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            return main(), out.getvalue(), err.getvalue()
+
+    def test_valid_config_prints_a_result_on_stdout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shutil.copy(EXAMPLES / "kandu.example.yaml", Path(tmp) / "kandu.yaml")
+            shutil.copy(EXAMPLES / "projects.example.yaml", Path(tmp) / "projects.yaml")
+            code, out, _ = self.run_main(tmp)
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "config ok: 2 machine(s), 2 project(s)\n")
+
+    def test_problems_go_to_stderr_with_exit_1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out, err = self.run_main(tmp)
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("file not found", err)
 
 
 if __name__ == "__main__":

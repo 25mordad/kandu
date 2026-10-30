@@ -6,7 +6,7 @@ This repo is public. Read [DESIGN.md](DESIGN.md) for the specification and [TASK
 - Everything that belongs to one person's setup lives in `local/`, which is gitignored: machines, paths, accounts, projects, notes, secrets.
 - Code, commands, docs and examples read from config and use generic examples only. Never hard-code a name, host, path or project of a real setup.
 - The same applies to commit messages and to issues and PRs on this repo: they are public too.
-- Enable the guard once per clone: `git config core.hooksPath .githooks`. It blocks commits containing a term from `local/private-words.txt`. Never bypass it with `--no-verify`.
+- Enable the guard once per clone: `git config core.hooksPath .githooks`. It blocks commits and pushes containing a term from `local/private-words.txt`, in content, file names and commit messages. Never bypass it with `--no-verify`.
 
 ## Harness, context, memory
 Check every design and every task against these three (DESIGN §14): is the rule enforced in code, does each agent get only the context it needs, and is what matters saved outside the session?

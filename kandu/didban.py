@@ -15,6 +15,12 @@ REPO_DIR = Path(__file__).resolve().parent.parent
 ROLE_FILE = REPO_DIR / "prompts" / "didban.md"
 BLOCKED_TOOLS = "Edit,Write,NotebookEdit"
 SESSION_NAME = "Kandu"
+SSH_FAILED = 255
+STATUS = {
+    "ok": "brain reachable; {}",
+    "problem": "brain reachable, but Kandu's check failed: {}. Tell the user what failed.",
+    "unreachable": "brain NOT reachable; {}. Tell the user live state is unavailable.",
+}
 
 
 def remote_path(path):
@@ -24,17 +30,31 @@ def remote_path(path):
     return shlex.quote(path)
 
 
+def last_line(text):
+    lines = text.strip().splitlines()
+    return lines[-1] if lines else "no output"
+
+
 def check_brain(brain):
-    """Returns (reachable, message) from Kandu's config check on the brain's machine."""
-    ssh, *target = shlex.split(brain.reach)
+    """Runs Kandu's config check on the brain's machine; returns (state, message).
+
+    The state is `ok`, `problem` (the machine answered, but the check failed) or
+    `unreachable`. Only ssh itself exits with 255.
+    """
+    ssh, target = brain.reach.split()
     command = f"cd {remote_path(brain.install_dir)} && .venv/bin/python -m kandu.config"
-    args = [ssh, "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", *target, command]
+    args = [ssh, "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", target, command]
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=20)
     except subprocess.TimeoutExpired:
-        return False, "no answer in time"
-    output = (result.stdout + result.stderr).strip()
-    return result.returncode == 0, output.splitlines()[-1] if output else "no output"
+        return "unreachable", "no answer in time"
+    except FileNotFoundError:
+        return "unreachable", "ssh is not installed"
+    if result.returncode == SSH_FAILED:
+        return "unreachable", last_line(result.stderr)
+    if result.returncode == 0:
+        return "ok", last_line(result.stdout)
+    return "problem", " ".join((result.stderr or result.stdout).split()) or "no output"
 
 
 def system_prompt(didban, status):
@@ -66,15 +86,16 @@ def main():
             print(f"  - {problem}", file=sys.stderr)
         return 1
 
-    reachable, message = check_brain(didban.brain)
-    if reachable:
-        status = f"brain reachable; {message}"
-    else:
-        status = f"brain NOT reachable; {message}. Tell the user live state is unavailable."
-        print(f"didban: warning: {didban.brain.reach} is not reachable: {message}", file=sys.stderr)
+    state, message = check_brain(didban.brain)
+    if state != "ok":
+        print(f"didban: warning: {didban.brain.reach}: {state}: {message}", file=sys.stderr)
 
     os.chdir(REPO_DIR)
-    os.execvp("claude", claude_args(didban, status, sys.argv[1:]))
+    try:
+        os.execvp("claude", claude_args(didban, STATUS[state].format(message), sys.argv[1:]))
+    except FileNotFoundError:
+        print("didban: claude is not installed or not on PATH", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

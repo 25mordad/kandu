@@ -10,9 +10,9 @@ state/
 
 ## Rules
 - The event log is append-only, and nothing is ever edited. Reports such as tokens by day are computed from it.
-- Each event type has a fixed set of fields, enforced in `kandu/state.py`. A task's text, command output, prompts and secrets are never written here.
+- Each event type has a fixed set of fields, enforced in `kandu/state.py`. The values are not inspected, so a caller must never pass a task's text, command output, a prompt or a secret.
 - Timestamps are ISO 8601 with the machine's offset. A day's file is that machine's local date.
-- A reader must skip a last line that does not parse: a crash can cut one off.
+- A reader splits lines on `\n` only, and skips any line that does not parse: a crash can cut one off. The next event starts on a new line.
 
 ## Common fields
 
@@ -22,7 +22,7 @@ state/
 | `ts` | time of the event |
 | `type` | one of the types below |
 
-`task` is `owner/repo#number` and `project` is the name in the registry.
+`task` is `owner/repo#number` and `project` is the name in the registry. Both are `null` on a `run_finished` of the supervisor that belongs to no task; reports count such a run under `no_task`.
 
 ## Event types
 

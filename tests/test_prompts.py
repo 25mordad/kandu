@@ -29,10 +29,17 @@ class PromptsTest(unittest.TestCase):
         self.assertIn("Axis: Spec", found)
         self.assertIn("Axis: Standards", found)
 
-    def test_files_named_in_prompts_exist(self):
-        text = (PROMPTS / "worker.md").read_text(encoding="utf-8")
-        for name in re.findall(r"`(prompts/[\w/.-]+)`", text):
-            self.assertTrue((ROOT / name).exists(), name)
+    def test_agents_in_other_projects_get_no_path_into_this_repo(self):
+        for name in ("worker.md", "reviewer.md"):
+            text = (PROMPTS / name).read_text(encoding="utf-8")
+            self.assertNotIn("prompts/", text, name)
+            self.assertNotIn("DESIGN.md", text, name)
+
+    def test_the_worker_fixes_every_finding(self):
+        self.assertIn("Fix every finding", (PROMPTS / "worker.md").read_text(encoding="utf-8"))
+
+    def test_didban_is_told_where_its_sources_are(self):
+        self.assertIn("`didban.knowledge`", (PROMPTS / "didban.md").read_text(encoding="utf-8"))
 
     def test_links_in_the_design_exist(self):
         text = (ROOT / "DESIGN.md").read_text(encoding="utf-8")
