@@ -8,7 +8,10 @@ projects:
     description: Public website of Acme
     family: acme                       # one board per family
     repos: [acme-org/website]
-    board: { owner: acme-org, number: 1 }
+    board:
+      owner: acme-org
+      number: 1
+      columns: { Ready: "To do" }      # only for a column named differently on this board
     run: clone                         # clone | in-place — always set by you, never inferred
     machine: server
     path: ~/kandu-work/website
@@ -32,7 +35,10 @@ projects:
     description: Internal tool that needs a local database on the laptop
     family: acme
     repos: [acme-org/internal-tool]
-    board: { owner: acme-org, number: 1 }
+    board:
+      owner: acme-org
+      number: 1
+      columns: { Ready: "To do" }
     run: in-place
     machine: laptop                    # if the laptop is off, its tasks wait for the next cycle
     path: ~/code/internal-tool

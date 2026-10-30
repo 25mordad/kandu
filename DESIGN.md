@@ -55,7 +55,9 @@ The dashboard is not a setup question: it is always Kandu's own (§7).
 ### C. Other conversational commands
 - `/kandu-task` — define a task; writes the issue with the standard template onto the right board (§2).
 - `/kandu-config` — change config: "pause project X for a week", "set the weekly limit to 50%", "remove this project".
-- `/kandu-doctor` — health check: access, machines, `gh`, `claude`, each project's test command.
+- `/kandu-doctor` — health check in code (`python -m kandu.doctor`, no tokens): access, machines, `gh`, `claude`, the private guard, each project's copy, test tool and board columns.
+
+The rules shared by these commands are in [docs/COMMANDS.md](docs/COMMANDS.md). What must hold for a task is enforced in `kandu/tasks.py`: the template's sections, and no private word in a public repo.
 
 ## 2. Task intake
 - The user describes a task in a Claude session (`/kandu-task`). Claude writes it as a GitHub **issue** with a fixed template ([prompts/templates/issue.md](prompts/templates/issue.md)):
@@ -80,7 +82,7 @@ Before writing the issue, `/kandu-task` checks that the behavior does not alread
 
 ## 3. Boards
 - **One GitHub Project board per project family**, owned by the GitHub user or org the repos live in. One family can hold many repos; the built-in `Repository` field tells the supervisor which repo an issue is in.
-- Standard columns on every board, so the supervisor handles them all the same way: `Ready`, `In progress`, `In review`, `Needs info`, `Blocked`, `Done`. An existing board with other columns is mapped onto these during `/kandu-add`.
+- Standard columns on every board, so the supervisor handles them all the same way: `Ready`, `In progress`, `In review`, `Needs info`, `Blocked`, `Done`. An existing board with other columns is mapped onto these during `/kandu-add`, under `board.columns`.
 - Kandu creates a board only when the user says so.
 - A task only a person can do stays on the board without the `agent` label, so it is visible and Kandu leaves it alone.
 

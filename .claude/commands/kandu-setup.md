@@ -1,0 +1,20 @@
+---
+description: First setup of Kandu, by conversation
+---
+Read `docs/COMMANDS.md`, then set up this install, once. The result is `local/kandu.yaml` and `local/.env`, in the shape of `config.example/`.
+
+1. Check the prerequisites: `claude`, `gh`, `git`, `python3`, `gh auth status` with the `project` scope. Finish when each is present, or the user knows what to install.
+2. Create `.venv`, install `requirements.txt` and run `git config core.hooksPath .githooks`.
+3. Ask, as one numbered list, what you could not find out:
+   1. Which machine runs the brain, and is it always on?
+   2. Which other machines exist, how are they reached, and which are always on?
+   3. Subscription or API key? The 5-hour and weekly limits, in percent. Point out that a shared subscription needs a margin.
+   4. The GitHub account, and the owners Kandu may work in.
+   5. Notifications: Telegram or none, and in which language?
+   6. Parallel workers, wake interval, and auto-merge. Recommend leaving auto-merge off.
+   7. Which sources may Didban read, and on which machine? From the user's own machine, how is the brain reached?
+4. Write `local/kandu.yaml`. For Didban, write `local/didban.yaml` on the user's own machine, from `config.example/didban.example.yaml`.
+5. Write `local/.env` from `config.example/example.env`, mode 600. Fill `KANDU_DASHBOARD_TOKEN` with `openssl rand -hex 32`, without showing it. The user fills in the Telegram values themselves.
+6. Ask for the words that must never reach a public repo, and write them to `local/private-words.txt`, one per line.
+7. Finish when `.venv/bin/python -m kandu.config` passes and `.venv/bin/python -m kandu.doctor` has no `FAIL`.
+8. Tell the user the timer starts with `.venv/bin/python -m kandu.timer --enable`, and leave that step to them.

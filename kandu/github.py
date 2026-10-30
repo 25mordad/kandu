@@ -87,6 +87,7 @@ class GitHub:
         """Returns the issues on a board; draft items and PRs are not tasks."""
         data = self._json(["project", "item-list", str(board.number), "--owner", board.owner,
                            "--format", "json", "-L", str(BOARD_ITEM_LIMIT)])
+        names = {theirs: ours for ours, theirs in board.columns.items()}
         items = []
         for item in data["items"]:
             content = item.get("content", {})
@@ -94,14 +95,44 @@ class GitHub:
                 continue
             items.append(BoardItem(
                 repo=content["repository"], number=content["number"], title=content["title"],
-                url=content["url"], status=item.get("status", ""), labels=item.get("labels") or [],
+                url=content["url"], status=names.get(item.get("status", ""), item.get("status", "")), labels=item.get("labels") or [],
                 body=content.get("body", ""),
             ))
         return items
 
     def set_status(self, board, url, status):
         self._run(["project", "item-edit", str(board.number), "--owner", board.owner,
-                   "--url", url, "--field", "Status", "--value", status])
+                   "--url", url, "--field", "Status", "--value", board.columns.get(status, status)])
+
+    def add_to_board(self, board, url):
+        self._run(["project", "item-add", str(board.number), "--owner", board.owner, "--url", url])
+
+    def board_columns(self, board):
+        """Returns the option names of the board's `Status` field."""
+        data = self._json(["project", "field-list", str(board.number), "--owner", board.owner, "--format", "json"])
+        status = next((f for f in data["fields"] if f["name"] == "Status"), {})
+        return [option["name"] for option in status.get("options", [])]
+
+    def create_board(self, owner, title, columns):
+        """Creates a board and gives its `Status` field exactly these columns."""
+        board = self._json(["project", "create", "--owner", owner, "--title", title, "--format", "json"])
+        fields = self._json(["project", "field-list", str(board["number"]), "--owner", owner, "--format", "json"])
+        status = next(f for f in fields["fields"] if f["name"] == "Status")
+        options = ", ".join(f'{{name: {json.dumps(c)}, color: GRAY, description: ""}}' for c in columns)
+        query = ("mutation { updateProjectV2Field(input: {fieldId: %s, singleSelectOptions: [%s]}) "
+                 "{ clientMutationId } }" % (json.dumps(status["id"]), options))
+        self._run(["api", "graphql", "-f", f"query={query}"])
+        return board["number"]
+
+    def create_issue(self, repo, title, body):
+        """Creates an issue labelled `agent` and returns its URL."""
+        self._run(["label", "create", AGENT_LABEL, "--repo", repo, "--force",
+                   "--description", "Kandu may work on this"])
+        return self._run(["issue", "create", "--repo", repo, "--title", title, "--body", body,
+                          "--label", AGENT_LABEL]).strip()
+
+    def repo_is_public(self, repo):
+        return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"
 
     def issue_is_open(self, repo, number):
         data = self._json(["issue", "view", str(number), "--repo", repo, "--json", "state"])

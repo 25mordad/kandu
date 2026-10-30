@@ -6,10 +6,10 @@ Every task is designed and checked against harness, context and memory (§14).
 
 ## [P1] Core
 1. [x] Config format + loader for `local/kandu.yaml` and `local/projects.yaml`; examples in `config.example/` (DESIGN §4, §12)
-2. [ ] `/kandu-setup` — initial setup by conversation, with prerequisites check (§1A)
-3. [ ] `/kandu-add` — add a project by conversation (§1B)
-4. [ ] `/kandu-doctor` — health check (§1C)
-5. [ ] `/kandu-task` — define a task by conversation, with the existing-work check and the interview for large tasks; uses `prompts/templates/issue.md`; standard board columns (§2, §3)
+2. [x] `/kandu-setup` — initial setup by conversation, with prerequisites check (§1A)
+3. [x] `/kandu-add` — add a project by conversation (§1B)
+4. [x] `/kandu-doctor` — health check (§1C)
+5. [x] `/kandu-task` — define a task by conversation, with the existing-work check and the interview for large tasks; uses `prompts/templates/issue.md`; standard board columns (§2, §3)
 6. [x] Didban: one command from the user's own machine, control role, reads `local/` over SSH (§13)
 7. [x] State files + event log in a documented format, including tokens per task and model (§7)
 8. [x] Dashboard with live stream, by-day view with tokens per task, PR page in plain words, stop / resume controls; versioned HTTP API documented in `docs/API.md` (§7)
@@ -22,7 +22,7 @@ Every task is designed and checked against harness, context and memory (§14).
 15. [ ] Move the running install to a private copy with pushes to `upstream` disabled, before the first board (§12)
 
 ## [P2] Next
-16. [ ] `/kandu-config` — change config by conversation (§1C)
+16. [x] `/kandu-config` — change config by conversation (§1C)
 17. [ ] Usage report per task, day and project (§6)
 18. [ ] Pilot on one real project, then roll out
 19. [ ] Project memory in `local/`: lessons, glossary, decisions, rejected requests and do-not-flag list, read by the next worker and the reviewer (§14)

@@ -16,6 +16,7 @@ import yaml
 
 DEFAULT_LOCAL_DIR = Path(__file__).resolve().parent.parent / "local"
 SSH_REACH = re.compile(r"ssh \w[\w.@-]*")
+BOARD_COLUMNS = ("Ready", "In progress", "In review", "Needs info", "Blocked", "Done")
 
 
 class ConfigError(Exception):
@@ -102,6 +103,7 @@ class Dashboard:
 class Board:
     owner: str
     number: int
+    columns: dict[str, str] = field(default_factory=dict)  # Kandu's column name -> this board's, if different
 
 
 @dataclass
@@ -192,6 +194,11 @@ def _build(tp, raw, where, problems):
             return []
         item = get_args(tp)[0]
         return [_build(item, v, f"{where}[{i}]", problems) for i, v in enumerate(raw)]
+    if origin is dict:
+        if not isinstance(raw, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in raw.items()):
+            problems.append(f"{where}: must map text to text")
+            return {}
+        return raw
     if is_dataclass(tp):
         return _build_dataclass(tp, raw, where, problems)
     if type(raw) is not tp:
@@ -307,6 +314,9 @@ def _check_projects(projects, s, problems):
         if p.board is not None:
             if p.board.owner not in s.github.owners:
                 problems.append(f"{where}.board: owner {p.board.owner!r} is not in github.owners")
+            for column in p.board.columns:
+                if column not in BOARD_COLUMNS:
+                    problems.append(f"{where}.board.columns: unknown column {column!r}")
             if family_boards.setdefault(p.family, p.board) != p.board:
                 problems.append(f"{where}.board: family {p.family!r} already has another board; one board per family")
         _check_one_of(p.run, ("clone", "in-place"), f"{where}.run", problems)
