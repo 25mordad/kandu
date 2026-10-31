@@ -525,6 +525,10 @@ class HiveTest(unittest.TestCase):
             if column != "Blocked":  # It wilts, and that is its sign.
                 self.assertIn(f'"{column}":', signs)
 
+    def test_technical_debt_is_counted_and_its_weeds_are_not_called_unsized(self):
+        self.assertIn('columns["Technical debt"].length', self.page)
+        self.assertIn('size || item.column === "Technical debt"', self.page)
+
     def test_the_page_shows_the_queen_and_a_task_sent_back(self):
         self.assertIn("state.queen_run", self.page)
         self.assertIn("isFix(worker.phase)", self.page)

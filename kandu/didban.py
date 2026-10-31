@@ -70,6 +70,10 @@ def waiting_questions(brain):
     return _waiting(brain, "kandu.questions list")
 
 
+def waiting_debt(brain):
+    return _waiting(brain, "kandu.debt list")
+
+
 def _waiting(brain, module):
     """Returns what waits for the user. The session opens with this, so nothing is forgotten."""
     try:
@@ -81,7 +85,7 @@ def _waiting(brain, module):
     return "; ".join(result.stdout.strip().splitlines()) or "none"
 
 
-def system_prompt(didban, status, splits="none", questions="none"):
+def system_prompt(didban, status, splits="none", questions="none", debt="none"):
     return "\n".join([
         ROLE_FILE.read_text(encoding="utf-8"),
         "## This setup",
@@ -90,15 +94,16 @@ def system_prompt(didban, status, splits="none", questions="none"):
         f"- Check at session start: {status}",
         f"- Sized too large, waiting for a split: {splits}",
         f"- Open questions from reviews, written by an agent: {questions}",
+        f"- Parked in Technical debt: {debt}",
     ])
 
 
-def claude_args(didban, status, extra, splits="none", questions="none"):
+def claude_args(didban, status, extra, splits="none", questions="none", debt="none"):
     return [
         "claude", *extra,
         "--name", SESSION_NAME,
         "--remote-control", SESSION_NAME,
-        "--append-system-prompt", system_prompt(didban, status, splits, questions),
+        "--append-system-prompt", system_prompt(didban, status, splits, questions, debt),
         "--disallowedTools", BLOCKED_TOOLS,
     ]
 
@@ -118,9 +123,10 @@ def main():
 
     splits = waiting_splits(didban.brain) if state == "ok" else "could not be read"
     questions = waiting_questions(didban.brain) if state == "ok" else "could not be read"
+    debt = waiting_debt(didban.brain) if state == "ok" else "could not be read"
     os.chdir(REPO_DIR)
     try:
-        os.execvp("claude", claude_args(didban, STATUS[state].format(message), sys.argv[1:], splits, questions))
+        os.execvp("claude", claude_args(didban, STATUS[state].format(message), sys.argv[1:], splits, questions, debt))
     except FileNotFoundError:
         print("didban: claude is not installed or not on PATH", file=sys.stderr)
         return 1

@@ -71,8 +71,8 @@ def check_size(body, size):
         raise TaskError(f"{criteria} acceptance criteria do not fit {size}: size it {sizing.LARGE}")
 
 
-def create_task(config, github, project_name, repo, title, body, local_dir, priority, kind, size, deadline=None):
-    """Creates the issue, puts it on the board in `Backlog` and returns its URL."""
+def find_project(config, project_name, repo):
+    """Returns the project and the repo a new task goes in."""
     project = next((p for p in config.projects if p.name == project_name), None)
     if project is None:
         raise TaskError(f"unknown project: {project_name}")
@@ -81,18 +81,37 @@ def create_task(config, github, project_name, repo, title, body, local_dir, prio
         raise TaskError(f"name one of the project's repos: {', '.join(project.repos)}")
     if project.board is None:
         raise TaskError(f"{project_name} has no board")
-    check_body(body)
+    return project, repo
+
+
+def check_text(github, repo, title, body, local_dir):
     check_english(f"{title}\n{body}")
-    check_fields(priority, kind, size, deadline)
-    check_size(body, size)
     if github.repo_is_public(repo):
         check_private(f"{title}\n{body}", private_words(local_dir))
+
+
+def check_task(github, repo, title, body, local_dir, priority, kind, size, deadline):
+    """All that must hold before a task may reach `Backlog`."""
+    check_body(body)
+    check_fields(priority, kind, size, deadline)
+    check_size(body, size)
+    check_text(github, repo, title, body, local_dir)
+
+
+def set_fields(github, board, url, priority, kind, size, deadline):
+    for name, value in (("Priority", priority), ("Kind", kind), ("Size", size), (DEADLINE_FIELD, deadline)):
+        if value is not None:
+            github.set_field(board, url, name, value)
+
+
+def create_task(config, github, project_name, repo, title, body, local_dir, priority, kind, size, deadline=None):
+    """Creates the issue, puts it on the board in `Backlog` and returns its URL."""
+    project, repo = find_project(config, project_name, repo)
+    check_task(github, repo, title, body, local_dir, priority, kind, size, deadline)
     url = github.create_issue(repo, title, body)
     github.add_to_board(project.board, url)
     github.set_status(project.board, url, "Backlog")
-    for name, value in (("Priority", priority), ("Kind", kind), ("Size", size), (DEADLINE_FIELD, deadline)):
-        if value is not None:
-            github.set_field(project.board, url, name, value)
+    set_fields(github, project.board, url, priority, kind, size, deadline)
     return url
 
 

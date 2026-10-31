@@ -11,3 +11,5 @@ Read `docs/COMMANDS.md`, then turn what the user wants into one issue, using `pr
 5. Write each issue in English, whatever language you and the user talk in: behavior instead of steps, no file paths or line numbers, and acceptance criteria that can each be checked alone.
 6. Show the final text and create nothing until the user says yes to it. Naming a task, or saying what comes next, is not a yes.
 7. Save the body to a temporary file and run `.venv/bin/python -m kandu.tasks --project NAME --title TITLE --body-file FILE --priority P --kind K --size S`, adding `--deadline YYYY-MM-DD` if there is one and `--repo` for a project with several repos. Finish when it prints the issue's URL.
+
+A task the user chooses not to refine now is parked instead, only on their word: run `.venv/bin/python -m kandu.debt add --project NAME --title TITLE --body-file FILE`. It needs an English title and a short text, and steps 3 and 4 wait until Didban takes it up.

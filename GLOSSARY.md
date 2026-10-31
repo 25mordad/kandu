@@ -8,6 +8,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Supervisor** | The code loop that picks tasks, starts agents and enforces the rules; it is not an LLM session and writes no code |
 | **Queen** | The one LLM that runs the cycle for all projects: she releases tasks from `Backlog` and judges what stopped; code checks each decision, and she cannot merge |
 | **Worker** | An agent that does one task in its own `git worktree` |
+| **Technical debt** | The column for tasks the user parked without refining them; no agent reads it, and Didban brings them up |
 | **Splitter** | A read-only agent that sizes every task in `Backlog` against the scale and proposes how to split a `Large` one |
 | **Group** | The slices of one split task: chained by `Blocked by`, each with its own PR, run one after another |
 | **Reviewer** | A fresh agent that reviews a PR, knowing nothing of how it was built |

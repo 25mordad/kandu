@@ -52,7 +52,7 @@ main { max-width:1240px; margin:auto; padding:16px; display:grid; gap:14px; }
 .pad { padding:14px 16px; }
 .card-title { font-size:14px; font-weight:600; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
 
-.stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.stats { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
 .stat { padding:12px 16px; }
 .stat-label { font-size:13px; color:var(--muted); }
 .stat-value { font-size:24px; font-weight:600; line-height:1.4; }
@@ -262,6 +262,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "sent_back": "Back from review",
   "bee_queen": "Queen",
   "active_workers": "Bees at work",
+  "debt": "Technical debt",
   "queue": "The meadow",
   "by_day": "Daily usage",
   "day": "day",
@@ -346,6 +347,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "sent_back": "برگشت از بازبینی",
   "bee_queen": "ملکه",
   "active_workers": "زنبورهای در حال کار",
+  "debt": "بدهی فنی",
   "queue": "مرغزار",
   "by_day": "مصرف روزانه",
   "day": "روز",
@@ -478,6 +480,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "deployed": "مستقر شد",
   "project_checked": "پروژه بررسی شد",
   "Needs split": "نیازمند شکستن",
+  "Technical debt": "بدهی فنی",
   "Your approval": "منتظر تأیید تو",
   "Approved": "تأییدشده، منتظر ادغام",
   "Small": "کوچک",
@@ -543,7 +546,7 @@ const TEXT = JSON.parse($("text").textContent);
 const LIVE_LINES = 200;
 const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // What needs the user comes first.
-const COLUMN_ORDER = ["Your approval", "Needs info", "Needs split", "Approved", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog"];
+const COLUMN_ORDER = ["Your approval", "Needs info", "Needs split", "Approved", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog", "Technical debt"];
 let lang = "en", tab = "meadow", shownRun = null, shownTask = null, confirming = false, live = [], token = "";
 let lastState = null, lastQueue = null, sceneKey = null, listKey = null, briefOpen = false, closed = new Set();
 const saved = key => { try { return localStorage.getItem(key); } catch { return null; } };
@@ -659,6 +662,7 @@ const FLOWERS = {
   "Needs info": {swatch: "#f2a65a", petal: "#f2a65a"},
   "Needs split": {swatch: "#e0689a", petal: "#e0689a"},
   "Blocked": {swatch: "#d9604f"},
+  "Technical debt": {swatch: "#7a8a45"},
   "waiting": {swatch: "#a8a297"},
   "Your approval": {swatch: "#e8590c", petal: "#f5c518", heart: "#5b3a16"},
   "Approved": {swatch: "#2f8a4e", petal: "#8fd19e", heart: "#2f8a4e"},
@@ -678,6 +682,7 @@ const SIGNS = {
   "In review": '<circle class="sign" cx="-1" cy="-1" r="3.4"/><path class="sign" d="M1.6 1.6 L4.6 4.6"/>',
   "Needs info": '<text class="sign-text" y="5">?</text>',
   "Needs split": '<path class="sign" stroke-dasharray="2 2" d="M0 -6 V6"/><path class="sign" d="M-2.2 -2 L-5 0 L-2.2 2 M2.2 -2 L5 0 L2.2 2"/>',
+  "Technical debt": '<path class="sign" style="stroke:#c9ae5a;stroke-width:1.8" d="M-21 -7 L-25 -13 M-7 -16 L-9 -24 M6 -19 L9 -27 M20 -9 L25 -14"/>',
   "Your approval": CHECK,
   "Approved": CHECK,
 };
@@ -695,6 +700,11 @@ function bloom(column, index) {
   if (column === "Blocked") {
     return `<g><path d="M0 34 Q2 10 -13 6" fill="none" stroke="#8a7f66" stroke-width="3"/>
       <circle cx="-15" cy="9" r="6" fill="#9a8f80"/><path class="sign" style="stroke:#c43d2f;stroke-width:2.2" d="M-18 6 l6 6 M-12 6 l-6 6"/><circle cx="-5" cy="33" r="3" fill="#9a8f80"/><circle cx="7" cy="34" r="3" fill="#9a8f80"/></g>`;
+  }
+  if (column === "Technical debt") {  // Wild grass with dry tips: no flower, and nobody planted it.
+    const blade = (x, tip, top, fill) => `<path d="M${x - 4} 34 Q${x + (tip - x) * .3} 12 ${tip} ${top} Q${x + (tip - x) * .75} 14 ${x + 4} 34z" fill="${fill}"/>`;
+    return `<g class="${sway}">${blade(-8, -21, -7, "#5d6b34")}${blade(8, 20, -9, "#5d6b34")}${blade(-3, -7, -16, "#6f7f3d")}${blade(3, 6, -19, "#6f7f3d")}
+      ${blade(-11, -24, 12, "#7f8c45")}${blade(11, 25, 11, "#7f8c45")}${blade(0, 1, 2, "#8b9650")}${sign}</g>`;
   }
   if (column === "Ready" || column === "waiting" || column === "Backlog") {
     const tip = column === "Ready" ? "#8fc46a" : "#c9c4b6";
@@ -720,7 +730,7 @@ function flower(item, index) {
   const {size, door, sent_back: back, slice, questions} = item.mark || {};
   const scale = SCALES[size] || 1;
   const marks = [door && door !== "two-way" ? [MARKS.door] : null, back ? [MARKS.back] : null, slice ? [MARKS.slice] : null,
-                 size ? null : [MARKS.unsized], questions ? [`<text class="mark-text" y="3.4">${num(questions)}</text>`, "ask"] : null].filter(Boolean);
+                 size || item.column === "Technical debt" ? null : [MARKS.unsized], questions ? [`<text class="mark-text" y="3.4">${num(questions)}</text>`, "ask"] : null].filter(Boolean);
   const start = -(marks.length - 1) * 7.5;
   return `<g class="bloom" transform="translate(0 34) scale(${scale}) translate(0 -34)">${bloom(item.column, index)}</g>
     ${marks.map(([drawing, kind], i) => markAt(start + i * 15, drawing, kind)).join("")}`;
@@ -863,7 +873,7 @@ function renderScene(state, queue) {
 function renderLegend() {
   const entry = (drawing, label, box, height) => `<span><svg viewBox="${box}" style="height:${height}px" aria-hidden="true">${drawing}</svg>${esc(label)}</span>`;
   const group = (title, entries) => `<div class="legend-group"><b>${t(title)}</b>${entries.join("")}</div>`;
-  const kinds = ["Your approval", "Approved", "Needs info", "Needs split", "In review", "In progress", "Ready", "waiting", "Blocked", "Backlog"];
+  const kinds = ["Your approval", "Approved", "Needs info", "Needs split", "In review", "In progress", "Ready", "waiting", "Blocked", "Backlog", "Technical debt"];
   const flowers = kinds.map(kind => entry(bloom(kind, 0), tr(kind === "waiting" ? "waiting for machine" : kind), "-28 -28 56 66", 46));
   const sizes = Object.keys(SCALES).map(size => entry(flower({column: "In progress", mark: {size}}, 0), tr(size), "-34 -46 68 84", 58));
   const mark = (drawing, key, kind) => entry(markAt(0, drawing, kind), t(key), "-9 25 18 18", 20);
@@ -886,7 +896,9 @@ function renderStats(s) {
   const workers = s.workers || [];
   const bees = `<div class="card stat"><div class="stat-label">${t("active_workers")}</div><div class="stat-value">${num(workers.length)}</div></div>`;
   const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${!s.timer_on ? t("timer_off") : s.next_wake ? esc(when(s.next_wake)) : "—"}</div></div>`;
-  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + wake;
+  const parked = lastQueue && Object.values(lastQueue.projects).reduce((sum, columns) => sum + columns["Technical debt"].length, 0);
+  const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
+  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + debt + wake;
 }
 
 function renderBees(s) {
@@ -967,6 +979,7 @@ function renderProjects() {
 async function refreshQueue(state, fresh) {
   try {
     lastQueue = await get(fresh ? "/queue?fresh=1" : "/queue");
+    renderStats(state);
     renderProjects();
     renderScene(state, lastQueue);
     if (lastQueue.stale) toast(t("github_unreadable"));

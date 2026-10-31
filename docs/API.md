@@ -45,7 +45,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 ```json
 {"projects": {"website": {"Ready": [{"task": "acme-org/website#13", "title": "Add search",
   "url": "https://github.com/acme-org/website/issues/13"}], "In progress": [], "In review": [],
-  "Needs info": [], "Blocked": []}}, "stale": false}
+  "Needs info": [], "Blocked": [], "Technical debt": []}}, "stale": false}
 ```
 `?fresh=1` reads the board now, at most once a minute, and a task that finished does the same. If GitHub fails, the answer is the last good one with `"stale": true`, and the next read waits 5 minutes; with no good one it is a `502`.
 
