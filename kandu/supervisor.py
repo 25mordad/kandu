@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import agents, debt, merge, queen, questions, review, sizing, split
-from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
+from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError, blockers_in, branch_for
 from .notify import notifier_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
@@ -533,14 +533,21 @@ class Supervisor:
         repo, number = key.split("#")
         return self.github.issue_is_open(repo, int(number))
 
-    def _group_ahead(self, project, key):
-        """Returns the parent of the group that must finish before `key` may start, or None."""
+    def _group_ahead(self, project, key, items, released=()):
+        """Returns the parent of a group under way that must finish before `key` may start, or None.
+
+        The board decides, not the order the groups were made in. A group none of
+        whose slices started holds nothing, and a slice in `Technical debt` does not count.
+        `items` is the board by task, and `released` what this look already released.
+        """
+        status = lambda child: items[child][1].status if child in items else None
         for event in queen.all_events(self.store):
-            if event["type"] != "task_split" or event["project"] != project.name:
+            if event["type"] != "task_split" or event["project"] != project.name or key in event["children"]:
                 continue
-            if key in event["children"]:
-                return None
-            if any(self._is_open(child) for child in event["children"]):
+            slices = [child for child in event["children"] if status(child) != TECHNICAL_DEBT]
+            remaining = [child for child in slices if self._is_open(child)]
+            unstarted = [child for child in remaining if status(child) == BACKLOG and child not in released]
+            if remaining and unstarted != slices:
                 return event["task"]
         return None
 
@@ -787,7 +794,7 @@ class Supervisor:
                 why = "it was already released" if task in released else queen.why_no_release(
                     item, _can_start(self.github, item), self.store.tokens_counted(today, project=project.name),
                     project.daily_token_limit, split.current_size(self.store, task),
-                    self._group_ahead(project, task))
+                    self._group_ahead(project, task, items, released))
                 if why is not None:
                     refused.append(f"release of {task}: {why}")
                     continue
