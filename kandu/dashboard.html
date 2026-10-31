@@ -135,13 +135,26 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 
 .meadow { overflow:hidden; line-height:0; }
 .meadow svg { display:block; width:100%; height:auto; }
-.legend { display:flex; flex-wrap:wrap; gap:6px 14px; padding:10px 16px; line-height:1.5; font-size:13px; border-top:1px solid var(--line); }
-.legend span { display:inline-flex; align-items:center; gap:6px; }
-.legend i { width:10px; height:10px; border-radius:50%; background:var(--swatch); flex:none; }
+.legend { display:grid; gap:10px; padding:12px 16px; line-height:1.5; font-size:13px; border-top:1px solid var(--line); }
+.legend-group { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; }
+.legend-group b { flex:0 0 100%; font-size:12px; font-weight:600; color:var(--muted); }
+.legend span { display:inline-flex; align-items:center; gap:4px; }
+.legend svg { width:auto; flex:none; }
+.legend .sway, .legend .wait-ring, .legend .wing { animation:none; }
 .clickable { cursor:pointer; }
 .sky-top { stop-color:var(--sky-top); } .sky-low { stop-color:var(--sky-low); }
 .hill { fill:var(--grass); } .hill.far { fill:var(--grass-deep); opacity:.7; }
 .soil { fill:var(--soil); opacity:.45; }
+.patch-off .bloom { filter:grayscale(.3); opacity:.8; }
+.patch-off .sway, .patch-off .wait-ring { animation:none; }
+.sign { fill:none; stroke:#3a2608; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+.sign.light { stroke:#fff; stroke-width:2.4; }
+.sign.solid { fill:#3a2608; stroke:none; }
+.sign-text { fill:#3a2608; font:700 14px var(--sans); text-anchor:middle; }
+.mark { fill:#fffdf5; stroke:#3a2608; stroke-width:1; }
+.mark.ask { fill:#f2a65a; }
+.mark-text { fill:#3a2608; font:700 9.5px var(--sans); text-anchor:middle; }
+.wait-ring { fill:none; stroke:#e8590c; stroke-width:4; transform-box:fill-box; transform-origin:center; animation:halo 1.8s ease-out infinite; }
 .patch-name { fill:var(--ink); font:600 15px var(--sans); text-anchor:middle; }
 .flower-number { fill:var(--ink); font:600 13px var(--sans); text-anchor:middle; }
 .meadow-note { fill:var(--ink); font:15px var(--sans); text-anchor:middle; }
@@ -159,14 +172,16 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 @keyframes flap { from { transform:scaleY(1); } to { transform:scaleY(.45); } }
 .body { fill:#f5b301; stroke:#3a2608; stroke-width:1; } .stripe { fill:#3a2608; } .head { fill:#3a2608; }
 .reviewer .body { fill:#9f7be0; } .scout .body { fill:#4fb6c9; } .splitter .body { fill:#62c48d; }
+.queen .body { fill:#d98a00; }
 .lens { fill:#ffffff88; stroke:#3a2608; stroke-width:2; }
+.tool { fill:#fffdf5; stroke:#3a2608; stroke-width:1; }
 .halo { fill:none; stroke:#f5b301; stroke-width:4; transform-box:fill-box; transform-origin:center; animation:halo 1.8s ease-out infinite; }
 @keyframes halo { from { opacity:.9; transform:scale(.6); } to { opacity:0; transform:scale(1.5); } }
 .speech rect, .speech path { fill:#fffdf5; stroke:#3a2608; stroke-width:1.2; }
 .speech text { fill:#3a2608; font:600 13px var(--sans); text-anchor:middle; unicode-bidi:plaintext; }
 .speech.back rect, .speech.back path { fill:#fde2c4; stroke:#b4580f; }
 .paused * { animation-play-state:paused !important; }
-@media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz, .halo { animation:none; } .btn, .meter i { transition:none; } }
+@media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz, .halo, .wait-ring { animation:none; } .btn, .meter i { transition:none; } }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width: 640px) {
@@ -189,8 +204,8 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     <button id="lang" class="btn plain" lang="" data-t="other_language"></button>
   </div>
   <nav class="tabs" role="tablist">
-    <button class="tab" role="tab" data-tab="work" data-t="tab_work"></button>
     <button class="tab" role="tab" data-tab="meadow" data-t="queue"></button>
+    <button class="tab" role="tab" data-tab="work" data-t="tab_work"></button>
     <button class="tab" role="tab" data-tab="days" data-t="by_day"></button>
     <button class="tab" role="tab" data-tab="activity" data-t="live_stream"></button>
   </nav>
@@ -297,7 +312,15 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "show_more": "Show more",
   "show_less": "Show less",
   "no_match": "No task matches this search.",
-  "bee_splitter": "Splitter bee"
+  "bee_splitter": "Splitter bee",
+  "legend_flowers": "Tasks",
+  "legend_sizes": "Size of the flower",
+  "legend_marks": "Signs under a flower",
+  "legend_bees": "Bees",
+  "mark_door": "Hard to undo",
+  "mark_slice": "Slice of a split task",
+  "mark_unsized": "Not sized",
+  "mark_questions": "Open questions for you"
  },
  "fa": {
   "brand": "کندو",
@@ -372,7 +395,15 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "show_more": "بیشتر",
   "show_less": "کمتر",
   "no_match": "هیچ تسکی با این جست‌وجو پیدا نشد.",
-  "bee_splitter": "زنبور اندازه‌گیر"
+  "bee_splitter": "زنبور اندازه‌گیر",
+  "legend_flowers": "تسک‌ها",
+  "legend_sizes": "اندازه‌ی گل",
+  "legend_marks": "نشانه‌های زیر گل",
+  "legend_bees": "زنبورها",
+  "mark_door": "برگرداندنش سخت است",
+  "mark_slice": "تکه‌ای از یک تسک شکسته",
+  "mark_unsized": "اندازه‌گیری نشده",
+  "mark_questions": "سؤال‌های باز برای تو"
  },
  "values_fa": {
   "awake": "بیدار",
@@ -440,6 +471,11 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "deployed": "مستقر شد",
   "project_checked": "پروژه بررسی شد",
   "Needs split": "نیازمند شکستن",
+  "Your approval": "منتظر تأیید تو",
+  "Approved": "تأییدشده، منتظر ادغام",
+  "Small": "کوچک",
+  "Medium": "متوسط",
+  "Large": "بزرگ",
   "sizing": "اندازه‌گیری",
   "sizing_failed": "اندازه‌گیری نشد",
   "oversized": "بزرگ‌تر از اندازه",
@@ -496,8 +532,8 @@ const TEXT = JSON.parse($("text").textContent);
 const LIVE_LINES = 200;
 const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // What needs the user comes first.
-const COLUMN_ORDER = ["Needs info", "Needs split", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog"];
-let lang = "en", tab = "work", shownRun = null, shownTask = null, confirming = false, live = [], token = "";
+const COLUMN_ORDER = ["Your approval", "Needs info", "Needs split", "Approved", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog"];
+let lang = "en", tab = "meadow", shownRun = null, shownTask = null, confirming = false, live = [], token = "";
 let lastState = null, lastQueue = null, sceneKey = null, listKey = null, briefOpen = false, closed = new Set();
 const saved = key => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
@@ -557,7 +593,7 @@ function setLanguage(chosen) {
 }
 
 function showTab(chosen) {
-  tab = document.querySelector(`[data-panel="${chosen}"]`) ? chosen : "work";
+  tab = document.querySelector(`[data-panel="${chosen}"]`) ? chosen : "meadow";
   save(TAB_KEY, tab);
   for (const el of document.querySelectorAll("[data-tab]")) el.setAttribute("aria-selected", el.dataset.tab === tab);
   for (const el of document.querySelectorAll("[data-panel]")) el.hidden = el.dataset.panel !== tab;
@@ -613,31 +649,83 @@ const FLOWERS = {
   "Needs split": {swatch: "#e0689a", petal: "#e0689a"},
   "Blocked": {swatch: "#d9604f"},
   "waiting": {swatch: "#a8a297"},
+  "Your approval": {swatch: "#e8590c", petal: "#f5c518", heart: "#5b3a16"},
+  "Approved": {swatch: "#2f8a4e", petal: "#8fd19e", heart: "#2f8a4e"},
 };
+const ON_THE_WAY = ["Ready", "In progress", "In review"];  // A column that says more than this is left as it is.
 const PETALS = [0, 60, 120, 180, 240, 300];
-const CELL_W = 72, CELL_H = 94;
+const RAYS = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
+const CROWN = "M-7 -5 l3.5 4 3.5 -5 3.5 5 3.5 -4 v8 h-14z";
+const SCALES = {Small: .72, Medium: 1, Large: 1.4};
+const CELL_W = 72, CELL_H = 124;
+const CHECK = '<path class="sign light" d="M-4.5 0 L-1 3.5 L5 -3.5"/>';
+const SIGNS = {
+  "Backlog": `<path class="sign" fill="#f5b301" transform="translate(0 -7) scale(.8)" d="${CROWN}"/>`,
+  "Ready": '<path class="sign solid" d="M-3 -10 L4 -5.5 L-3 -1z"/>',
+  "waiting": '<path class="sign" d="M-3.5 -10 h7 l-7 8 h7z"/>',
+  "In progress": '<circle class="sign solid" cx="-3.6" r="1.5"/><circle class="sign solid" r="1.5"/><circle class="sign solid" cx="3.6" r="1.5"/>',
+  "In review": '<circle class="sign" cx="-1" cy="-1" r="3.4"/><path class="sign" d="M1.6 1.6 L4.6 4.6"/>',
+  "Needs info": '<text class="sign-text" y="5">?</text>',
+  "Needs split": '<path class="sign" stroke-dasharray="2 2" d="M0 -6 V6"/><path class="sign" d="M-2.2 -2 L-5 0 L-2.2 2 M2.2 -2 L5 0 L2.2 2"/>',
+  "Your approval": CHECK,
+  "Approved": CHECK,
+};
+// Each one sits in a small round mark under the flower.
+const MARKS = {
+  door: '<rect class="sign solid" x="-3.6" y="-1" width="7.2" height="5" rx="1"/><path class="sign" d="M-2.1 -1 V-2.2 a2.1 2.1 0 0 1 4.2 0 V-1"/>',
+  back: '<path class="sign" d="M3.8 3.4 V.4 a2.2 2.2 0 0 0 -2.2 -2.2 H-3.6 M-1.6 -4 L-3.8 -1.8 L-1.6 .4"/>',
+  slice: '<circle class="sign" cx="-1.9" r="2.5"/><circle class="sign" cx="1.9" r="2.5"/>',
+  unsized: '<path class="sign" d="M-4.8 -1.8 h9.6 v3.6 h-9.6z M-2.4 -1.8 v1.6 M0 -1.8 v1.6 M2.4 -1.8 v1.6"/>',
+};
 
-function flower(column, index) {
+function bloom(column, index) {
   const sway = `sway${index % 2 ? " alt" : ""}`;
+  const sign = SIGNS[column];
   if (column === "Blocked") {
     return `<g><path d="M0 34 Q2 10 -13 6" fill="none" stroke="#8a7f66" stroke-width="3"/>
-      <circle cx="-15" cy="9" r="6" fill="#9a8f80"/><circle cx="-5" cy="33" r="3" fill="#9a8f80"/><circle cx="7" cy="34" r="3" fill="#9a8f80"/></g>`;
+      <circle cx="-15" cy="9" r="6" fill="#9a8f80"/><path class="sign" style="stroke:#c43d2f;stroke-width:2.2" d="M-18 6 l6 6 M-12 6 l-6 6"/><circle cx="-5" cy="33" r="3" fill="#9a8f80"/><circle cx="7" cy="34" r="3" fill="#9a8f80"/></g>`;
   }
   if (column === "Ready" || column === "waiting" || column === "Backlog") {
     const tip = column === "Ready" ? "#8fc46a" : "#c9c4b6";
     return `<g class="${sway}"><path d="M0 34 V2" stroke="#4f8a3a" stroke-width="3"/><ellipse cx="7" cy="20" rx="7" ry="3" fill="#6da84f"/>
-      <ellipse cy="-5" rx="7" ry="11" fill="#6da84f"/><ellipse cy="-11" rx="4" ry="6" fill="${tip}"/></g>`;
+      <ellipse cy="-5" rx="8" ry="12" fill="#6da84f"/><ellipse cy="-6" rx="6" ry="8" fill="${tip}"/>${sign}</g>`;
   }
-  const petals = PETALS.map(a => `<ellipse cy="-11" rx="6" ry="9" fill="${FLOWERS[column].petal}" transform="rotate(${a})"/>`).join("");
-  const mark = column === "Needs info" || column === "Needs split" ? '<text y="5" text-anchor="middle" font-weight="700" font-size="14" fill="#3a2608">?</text>' : "";
-  return `<g class="${sway}"><path d="M0 34 V4" stroke="#4f8a3a" stroke-width="3"/><ellipse cx="7" cy="22" rx="7" ry="3" fill="#6da84f"/>${petals}<circle r="7" fill="#f5b301"/>${mark}</g>`;
+  const {petal, heart} = FLOWERS[column];
+  const stem = '<path d="M0 34 V4" stroke="#4f8a3a" stroke-width="3"/><ellipse cx="7" cy="22" rx="7" ry="3" fill="#6da84f"/>';
+  if (heart) {
+    const rays = RAYS.map(a => `<ellipse cy="-15" rx="4.2" ry="8" fill="${petal}" stroke="#3a260844" transform="rotate(${a})"/>`).join("");
+    const ring = column === "Your approval" ? '<circle class="wait-ring" r="24"/>' : "";
+    return `<g class="${sway}">${stem}${ring}${rays}<circle r="10" fill="${heart}"/>${sign}</g>`;
+  }
+  const petals = PETALS.map(a => `<ellipse cy="-11" rx="6" ry="9" fill="${petal}" transform="rotate(${a})"/>`).join("");
+  return `<g class="${sway}">${stem}${petals}<circle r="8.5" fill="#f5b301"/>${sign}</g>`;
 }
+
+function markAt(x, drawing, kind = "") {
+  return `<g transform="translate(${x} 34)"><circle class="mark ${kind}" r="7"/>${drawing}</g>`;
+}
+
+function flower(item, index) {
+  const {size, door, sent_back: back, slice, questions} = item.mark || {};
+  const scale = SCALES[size] || 1;
+  const marks = [door && door !== "two-way" ? [MARKS.door] : null, back ? [MARKS.back] : null, slice ? [MARKS.slice] : null,
+                 size ? null : [MARKS.unsized], questions ? [`<text class="mark-text" y="3.4">${num(questions)}</text>`, "ask"] : null].filter(Boolean);
+  const start = -(marks.length - 1) * 7.5;
+  return `<g class="bloom" transform="translate(0 34) scale(${scale}) translate(0 -34)">${bloom(item.column, index)}</g>
+    ${marks.map(([drawing, kind], i) => markAt(start + i * 15, drawing, kind)).join("")}`;
+}
+
+const BEE_TOOLS = {
+  reviewer: '<path class="lens" d="M21 5 l6 7"/><circle class="lens" cx="18" cy="1" r="6"/>',
+  scout: '<path class="lens" d="M-12 0 H-24"/><path class="tool" d="M-24 0 v-11 l10 3.5 -10 3.5z"/>',
+  splitter: '<rect class="tool" x="-13" y="-15" width="26" height="6" rx="1"/><path class="lens" style="stroke-width:1" d="M-8 -15 v3 M-3 -15 v3 M2 -15 v3 M7 -15 v3"/>',
+};
 
 function bee(kind, size = 1) {
   return `<g class="${kind}" transform="scale(${size})">
     <ellipse class="wing" cx="-2" cy="-8" rx="6" ry="8"/><ellipse class="wing low" cx="-2" cy="8" rx="6" ry="8"/>
     <ellipse class="body" rx="12" ry="7"/><rect class="stripe" x="-6" y="-6.6" width="3.4" height="13.2"/><rect class="stripe" x="0" y="-7" width="3.4" height="14"/>
-    <circle class="head" cx="11" r="4.5"/>${kind === "reviewer" ? '<path class="lens" d="M21 5 l6 7"/><circle class="lens" cx="18" cy="1" r="6"/>' : ""}</g>`;
+    <circle class="head" cx="11" r="4.5"/>${BEE_TOOLS[kind] || ""}</g>`;
 }
 
 // A small speech bubble that does not move with the bee, so it can be read.
@@ -694,6 +782,13 @@ function fields(state, queue) {
     const found = projects.flatMap(p => p.tasks).find(item => item.task === task);
     if (found) found.column = "waiting";
   }
+  for (const patch of projects) {
+    patch.paused = (state.paused_projects || []).includes(patch.name);
+    for (const item of patch.tasks) {
+      item.mark = state.flowers?.[item.task] || {};
+      if (item.mark.pr && ON_THE_WAY.includes(item.column)) item.column = item.mark.pr === "waits" ? "Your approval" : "Approved";
+    }
+  }
   return projects;
 }
 
@@ -703,7 +798,7 @@ function placePatches(projects, narrow) {
   for (const patch of projects) {
     const rows = Math.max(1, Math.ceil(patch.tasks.length / perRow));
     const column = columns.reduce((a, b) => b.y < a.y ? b : a);
-    patch.x = column.x; patch.y = column.y; patch.width = width; patch.height = rows * CELL_H + 44; patch.perRow = perRow;
+    patch.x = column.x; patch.y = column.y; patch.width = width; patch.height = rows * CELL_H + 52; patch.perRow = perRow;
     column.y += patch.height + 16;
   }
   return Math.max(...columns.map(c => c.y));
@@ -726,15 +821,15 @@ function renderScene(state, queue) {
   const patches = projects.map(patch => {
     const flowers = patch.tasks.map((item, i) => {
       const x = patch.x + (i % patch.perRow) * CELL_W + CELL_W / 2 + (patch.width - patch.perRow * CELL_W) / 2;
-      const y = patch.y + Math.floor(i / patch.perRow) * CELL_H + 46;
+      const y = patch.y + Math.floor(i / patch.perRow) * CELL_H + 54;
       spots[item.task] = {x, y};
       const title = `${item.task} · ${item.title} · ${tr(item.column === "waiting" ? "waiting for machine" : item.column)}`;
-      return `<g class="clickable" data-review="${esc(item.task)}" transform="translate(${x} ${y})"><title>${esc(title)}</title>${flower(item.column, i)}
+      return `<g class="clickable" data-review="${esc(item.task)}" transform="translate(${x} ${y})"><title>${esc(title)}</title>${flower(item, i)}
         <text class="flower-number" y="52">${numberOf(item.task)}</text></g>`;
     }).join("");
     const middle = patch.x + patch.width / 2;
     return `<ellipse class="soil" cx="${middle}" cy="${patch.y + patch.height / 2 + 8}" rx="${patch.width / 2}" ry="${patch.height / 2}"/>
-      <text class="patch-name" x="${middle}" y="${patch.y + patch.height - 8}">${esc(patch.name)}</text>${flowers}`;
+      <g class="${patch.paused ? "patch-off" : ""}"><text class="patch-name" x="${middle}" y="${patch.y + patch.height - 8}">\u2066${esc(patch.name)}\u2069${patch.paused ? ` · ${t("project_on_pause")}` : ""}</text>${flowers}</g>`;
   }).join("");
   const bees = (state.workers || []).map((worker, i) => spots[worker.task] ? flight(worker, beeKind(worker.phase), spots[worker.task], {x: home.x, y: home.y + 20}, i) : "").join("");
   // Neighbouring flowers take turns on two rows, so their labels do not cover each other.
@@ -742,7 +837,7 @@ function renderScene(state, queue) {
     .sort((a, b) => spots[a.task].x - spots[b.task].x);
   const talk = talking.map((worker, i) => {
     const spot = spots[worker.task];
-    return speech(spot.x, spot.y - 38 - (i % 2) * 28, `${isFix(worker.phase) ? "↩ " : ""}${tr(worker.phase)}`, isFix(worker.phase));
+    return speech(spot.x, spot.y - 46 - (i % 2) * 28, `${isFix(worker.phase) ? "↩ " : ""}${tr(worker.phase)}`, isFix(worker.phase));
   }).join("");
   const note = projects.some(p => p.tasks.length) ? "" : `<text class="meadow-note" x="${width / 2}" y="${height - 30}">${t("empty_meadow")}</text>`;
   box.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${t("hive")}" class="${stopped ? "paused" : ""}">
@@ -755,10 +850,18 @@ function renderScene(state, queue) {
 }
 
 function renderLegend() {
-  const kinds = [["Backlog", "Backlog"], ["Ready", "Ready"], ["In progress", "In progress"], ["In review", "In review"], ["Needs info", "Needs info"], ["Needs split", "Needs split"], ["Blocked", "Blocked"], ["waiting", "waiting for machine"]];
-  const bees = [["#d98a00", "bee_queen"], ["#f5b301", "bee_worker"], ["#9f7be0", "bee_reviewer"], ["#4fb6c9", "bee_scout"], ["#62c48d", "bee_splitter"], ["#fde2c4", "sent_back"]];
-  $("legend").innerHTML = kinds.map(([kind, label]) => `<span style="--swatch:${FLOWERS[kind].swatch}"><i></i>${esc(tr(label))}</span>`).join("") +
-    bees.map(([color, key]) => `<span style="--swatch:${color}"><i></i>${t(key)}</span>`).join("");
+  const entry = (drawing, label, box, height) => `<span><svg viewBox="${box}" style="height:${height}px" aria-hidden="true">${drawing}</svg>${esc(label)}</span>`;
+  const group = (title, entries) => `<div class="legend-group"><b>${t(title)}</b>${entries.join("")}</div>`;
+  const kinds = ["Your approval", "Approved", "Needs info", "Needs split", "In review", "In progress", "Ready", "waiting", "Blocked", "Backlog"];
+  const flowers = kinds.map(kind => entry(bloom(kind, 0), tr(kind === "waiting" ? "waiting for machine" : kind), "-28 -28 56 66", 46));
+  const sizes = Object.keys(SCALES).map(size => entry(flower({column: "In progress", mark: {size}}, 0), tr(size), "-34 -46 68 84", 58));
+  const mark = (drawing, key, kind) => entry(markAt(0, drawing, kind), t(key), "-9 25 18 18", 20);
+  const signs = [mark(MARKS.door, "mark_door"), mark(MARKS.back, "sent_back"), mark(MARKS.slice, "mark_slice"), mark(MARKS.unsized, "mark_unsized"),
+                 mark(`<text class="mark-text" y="3.4">${num(3)}</text>`, "mark_questions", "ask")];
+  const queen = `${bee("queen")}<path transform="translate(11 -9)" fill="#f5b301" stroke="#3a2608" d="${CROWN}"/>`;
+  const bees = [[queen, "bee_queen"], [bee("worker"), "bee_worker"], [bee("reviewer"), "bee_reviewer"], [bee("scout"), "bee_scout"], [bee("splitter"), "bee_splitter"]]
+    .map(([drawing, key]) => entry(drawing, t(key), "-28 -20 58 40", 30));
+  $("legend").innerHTML = group("legend_flowers", flowers) + group("legend_sizes", sizes) + group("legend_marks", signs) + group("legend_bees", bees);
 }
 
 function meter(label, value, limit) {

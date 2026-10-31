@@ -27,7 +27,7 @@ def question_id(question):
     return hashlib.sha256(question.encode("utf-8")).hexdigest()[:6]
 
 
-def open_questions(store):
+def open_questions(store, events=None):
     """Returns the unanswered questions of each task, oldest task first.
 
     A question stays open across heads, even if a later review does not repeat it.
@@ -35,7 +35,7 @@ def open_questions(store):
     memory, so the same question on a new head is a new one. The user's yes settles
     all that is open then, and a task that ended asks nothing.
     """
-    events = all_events(store)
+    events = all_events(store) if events is None else events
     answered = {(e["head_sha"], e["question"]) for e in events if e["type"] == "question_answered"}
     approved = {(e["task"], e["head_sha"]) for e in events if e["type"] == "user_approved"}
     waiting = {}
