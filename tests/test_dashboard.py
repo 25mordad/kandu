@@ -45,7 +45,8 @@ class Base(unittest.TestCase):
         self.store = StateStore(self.root / "state")
         self.github = mock.Mock()
         self.time = [0]
-        self.api = Api(self.config, self.store, self.github, self.root / "logs", TOKEN, clock=lambda: self.time[0])
+        self.api = Api(self.config, self.store, self.github, self.root / "logs", TOKEN, clock=lambda: self.time[0],
+                       timer_on=lambda: True)
 
     def get(self, target):
         return dispatch(self.api, "GET", target)
@@ -102,6 +103,24 @@ class ReadTest(Base):
         first.join(5)
         second.join(5)
         self.assertEqual(self.github.board_queue.call_count, 1)
+
+    def test_a_finished_task_reads_the_board_sooner(self):
+        self.github.board_queue.return_value = []
+        self.get("/api/v1/queue")
+        reads = self.github.board_queue.call_count
+        self.time[0] += 61
+        self.store.record("task_finished", task=f"{REPO}#1", project="website", outcome="merged")
+        self.get("/api/v1/queue")
+        self.assertGreater(self.github.board_queue.call_count, reads)
+
+    def test_a_finished_task_reads_the_board_once(self):
+        self.github.board_queue.return_value = []
+        self.store.record("task_finished", task=f"{REPO}#1", project="website", outcome="merged")
+        self.get("/api/v1/queue")
+        reads = self.github.board_queue.call_count
+        self.time[0] += 61
+        self.get("/api/v1/queue")
+        self.assertEqual(self.github.board_queue.call_count, reads)
 
     def test_fresh_queue_is_limited_to_one_read_a_minute(self):
         self.github.board_queue.return_value = []
@@ -255,6 +274,33 @@ class QueenReportTest(Base):
         self.assertEqual(queen["questions"], [{"task": f"{REPO}#1", "question": "Which?"}])
 
 
+    def asked(self):
+        self.store.record("queen_decided", task=f"{REPO}#1", project="website", action="ask_user", note="Which?")
+        self.store.record("queen_finished", run_id="r-1", brief="b", backlog=[])
+
+    def test_the_users_yes_ends_her_question(self):
+        self.asked()
+        self.store.record("user_approved", task=f"{REPO}#1", project="website", head_sha="abc")
+        self.assertEqual(self.api.state({})["queen"]["questions"], [])
+
+    def test_a_cycle_that_moved_the_task_on_ends_her_question(self):
+        self.asked()
+        self.store.record("task_picked", task=f"{REPO}#1", project="website")
+        self.assertEqual(self.api.state({})["queen"]["questions"], [])
+
+    def test_another_tasks_news_leaves_her_question(self):
+        self.asked()
+        self.store.record("task_picked", task=f"{REPO}#2", project="website")
+        self.assertEqual(len(self.api.state({})["queen"]["questions"]), 1)
+
+
+class TimerStateTest(Base):
+    def test_state_says_whether_the_timer_is_on(self):
+        self.assertIs(self.api.state({})["timer_on"], True)
+        self.api.timer_on = lambda: False
+        self.assertIs(self.api.state({})["timer_on"], False)
+
+
 class ReviewPageTest(Base):
     def pr(self, *comments):
         return {"number": 7, "title": "T", "url": "u", "state": "OPEN", "headRefOid": "abc",
@@ -311,6 +357,14 @@ class ControlTest(Base):
         self.assertIn("Blocked", body["error"])
         self.assertFalse(self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["can_approve"])
         self.assertIsNone(self.store.last_event("user_approved"))
+
+    def test_the_page_is_told_why_it_may_not_approve(self):
+        self.reviewed()
+        self.store.pause_project("website")
+        pr = self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]
+        self.assertEqual((pr["can_approve"], pr["why_not"]), (False, "this project is paused: resume it first"))
+        self.store.resume_project("website")
+        self.assertIsNone(self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["why_not"])
 
     def test_approve_saves_the_yes_for_that_head_and_starts_a_cycle(self):
         self.reviewed()
@@ -530,6 +584,9 @@ class LanguageTest(unittest.TestCase):
         source = (ROOT / "kandu" / "supervisor.py").read_text(encoding="utf-8")
         values += re.findall(r'(?:self\._finish\(task, \w+, |self\._decide\(task, )"(\w+)"', source)
         values += re.findall(r'return "([a-z][^"]*)"', source)
+        reasons = (ROOT / "kandu" / "dashboard.py").read_text(encoding="utf-8").split("def _why_no_approval")[1].split("    def approve")[0]
+        values += [r for r in re.findall(r'return "([a-z][^"]*)"', reasons) if r != "this PR is not open"]
+        values.append("its task is in Blocked, so no cycle would pick it up")
         missing = [v for v in values if not self.translate(v)]
         self.assertEqual(missing, [])
 

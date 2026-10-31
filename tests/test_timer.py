@@ -46,6 +46,13 @@ class TimerTest(unittest.TestCase):
                 self.assertIs(timer.start_cycle(), expected)
                 self.assertEqual(run.call_count, calls)
 
+    def test_timer_on_reads_the_timer_unit(self):
+        for state, expected in (("active\n", True), ("inactive\n", False)):
+            with mock.patch("kandu.timer.subprocess.run") as run:
+                run.return_value = mock.Mock(stdout=state)
+                self.assertIs(timer.timer_on(), expected)
+                self.assertIn("kandu.timer", run.call_args.args[0])
+
     def test_dashboard_flag_never_starts_the_timer(self):
         with mock.patch.object(timer, "load_config", return_value=self.config), \
                 mock.patch.object(timer, "install") as install, \

@@ -71,7 +71,7 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 | `v` | format version |
 | `supervisor` | `awake`, `asleep` or `stopped` |
 | `last_reason` | why the last cycle ended |
-| `next_wake` | expected time of the next cycle |
+| `next_wake` | expected time of the next cycle, if the timer is on |
 | `usage` | `{"session": percent, "week": percent}`, or `null` if not read |
 | `workers` | one object per active task: `task`, `project`, `machine`, `phase`, `started` |
 | `queen_run` | the run id of the queen while she is awake, otherwise null |

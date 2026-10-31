@@ -285,6 +285,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "session": "5-hour",
   "week": "Week",
   "next_wake": "next wake",
+  "timer_off": "Timer off",
   "watch": "Watch",
   "none": "None",
   "project": "Project",
@@ -368,6 +369,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "session": "پنج‌ساعته",
   "week": "هفته",
   "next_wake": "بیداری بعدی",
+  "timer_off": "تایمر خاموش است",
   "watch": "تماشا",
   "none": "هیچ",
   "project": "پروژه",
@@ -439,6 +441,11 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "deploy_failed": "استقرار شکست خورد",
   "live_check_failed": "بررسی زنده رد شد",
   "wait: a blocker is open": "صبر کن: یک مانع باز است",
+  "this head has no review": "این نسخه از PR بازبینی نشده است",
+  "a blocker is open": "یک مانع باز است",
+  "an acceptance criterion is not met": "یک معیار پذیرش برآورده نشده است",
+  "this project is paused: resume it first": "این پروژه متوقف است: اول از توقف درش بیاور",
+  "this project has no board": "این پروژه تخته ندارد",
   "your decision: this is hard to undo": "تصمیم با توست: برگرداندن این کار سخت است",
   "your decision: the review has a question": "تصمیم با توست: ریویو از تو سؤالی دارد",
   "ready to merge, with notes": "آماده ادغام، با یادداشت",
@@ -515,6 +522,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   [
    "^usage unknown, not starting: (.*)$",
    "مصرف نامعلوم است، شروع نمی‌شود: $1"
+  ],
+  [
+   "^its task is in (.*), so no cycle would pick it up$",
+   "تسکش در ستون $1 است و هیچ چرخه‌ای آن را برنمی‌دارد"
   ],
   [
    "^could not read the boards: (.*)$",
@@ -874,7 +885,7 @@ function meter(label, value, limit) {
 function renderStats(s) {
   const workers = s.workers || [];
   const bees = `<div class="card stat"><div class="stat-label">${t("active_workers")}</div><div class="stat-value">${num(workers.length)}</div></div>`;
-  const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${s.next_wake ? esc(when(s.next_wake)) : "—"}</div></div>`;
+  const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${!s.timer_on ? t("timer_off") : s.next_wake ? esc(when(s.next_wake)) : "—"}</div></div>`;
   $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + wake;
 }
 
@@ -1032,7 +1043,7 @@ function queued(task) {
 
 function approval(task, pr) {
   if (pr.approved) return `<p class="muted">${t("approved_waits")}</p>`;
-  if (!pr.can_approve) return "";
+  if (!pr.can_approve) return pr.state === "OPEN" ? `<p class="muted">${esc(tr(pr.why_not))}</p>` : "";
   if (!confirming) return `<button class="btn primary" data-sure>${t("approve")}</button>`;
   return `<div class="confirm"><div>${t("approve_sure")}</div><div class="actions"><button class="btn primary" data-approve="${esc(task)}" data-head="${esc(pr.head_sha)}">${t("approve")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`;
 }
