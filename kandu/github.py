@@ -275,8 +275,10 @@ class GitHub:
                  "{ clientMutationId } }" % (json.dumps(status["id"]), ", ".join(kept + added)))
         self._run(["api", "graphql", "-f", f"query={query}"])
 
-    def create_issue(self, repo, title, body):
-        """Creates an issue labelled `agent` and returns its URL."""
+    def create_issue(self, repo, title, body, by_hand=False):
+        """Creates an issue and returns its URL. It is labelled `agent` unless a person will do it."""
+        if by_hand:
+            return self._run(["issue", "create", "--repo", repo, "--title", title, "--body", body]).strip()
         self._run(["label", "create", AGENT_LABEL, "--repo", repo, "--force",
                    "--description", "Kandu may work on this"])
         return self._run(["issue", "create", "--repo", repo, "--title", title, "--body", body,

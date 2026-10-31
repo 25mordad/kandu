@@ -48,6 +48,9 @@ Every task is designed and checked against harness, context and memory (§14).
 37. [x] One `language` for all Kandu says to the user, English by default; only notifications may differ, through `notify.language` (§1A, §7, §8)
 40. [x] A `Technical debt` column no agent reads: Didban offers what is parked, and the dashboard counts it and grows it as weeds in the meadow (§2, §3)
 41. [x] A PR merged while its task is `Blocked` still deploys and reaches `Done` (§5)
+42. [x] Didban takes each request, keeps it until it is tasks, and reads the code before scoping; a `Large` task does not reach the board (§2, §13)
+43. [x] Change the 5-hour and weekly limits on the dashboard at any time (§7)
+44. [x] The dashboard shows each Didban session: when, tokens and what it did, in no project's limits (§13)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

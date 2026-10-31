@@ -73,7 +73,7 @@ class FakeGitHub:
     def issue_text(self, repo, number):
         return {"body": next((i.body for i in self.items if i.number == number), "")}
 
-    def create_issue(self, repo, title, body):
+    def create_issue(self, repo, title, body, by_hand=False):
         self.created.append((repo, title, body))
         return f"https://github.com/{repo}/issues/{900 + len(self.created)}"
 

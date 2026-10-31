@@ -99,18 +99,23 @@ class CheckBrainTest(unittest.TestCase):
 
 
 class MainTest(unittest.TestCase):
-    def run_main(self, check, **execvp):
+    def run_main(self, check, argv=(), **run):
         err = io.StringIO()
-        with mock.patch("kandu.didban.load_didban", return_value=DIDBAN), \
+        run = run or {"return_value": subprocess.CompletedProcess([], 0)}
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch("kandu.didban.UNREPORTED", Path(tmp) / "unreported"), \
+             mock.patch("kandu.didban.load_didban", return_value=DIDBAN), \
              mock.patch("kandu.didban.check_brain", return_value=check), \
-             mock.patch("kandu.didban.os.chdir"), \
-             mock.patch("kandu.didban.os.execvp", **execvp) as exec_call, \
-             mock.patch("sys.argv", ["didban"]), \
+             mock.patch("kandu.didban._waiting", return_value="none"), \
+             mock.patch("kandu.didban.report_sessions") as self.reports, \
+             mock.patch("kandu.didban.signal.signal"), \
+             mock.patch("kandu.didban.subprocess.run", **run) as run_call, \
+             mock.patch("sys.argv", ["didban", *argv]), \
              contextlib.redirect_stderr(err):
-            return main(), exec_call, err.getvalue()
+            return main(), run_call, err.getvalue()
 
-    def prompt(self, exec_call):
-        args = exec_call.call_args.args[1]
+    def prompt(self, run_call):
+        args = run_call.call_args.args[0]
         return args[args.index("--append-system-prompt") + 1]
 
     def test_healthy_brain(self):
@@ -127,6 +132,23 @@ class MainTest(unittest.TestCase):
         _, exec_call, err = self.run_main(("unreachable", "no answer in time"))
         self.assertIn("brain NOT reachable", self.prompt(exec_call))
         self.assertIn("no answer in time", err)
+
+    def test_a_session_is_reported_when_it_ends(self):
+        _, run_call, _ = self.run_main(("unreachable", "no answer in time"))
+        self.assertIn("--session-id", run_call.call_args.args[0])
+        self.reports.assert_called_once()
+
+    def test_what_a_closed_window_left_is_reported_at_the_start(self):
+        self.run_main(("ok", "config ok"))
+        self.assertEqual(self.reports.call_count, 2)
+
+    def test_a_resumed_session_keeps_its_own_id(self):
+        _, run_call, _ = self.run_main(("ok", "config ok"), ["--continue"])
+        self.assertNotIn("--session-id", run_call.call_args.args[0])
+
+    def test_the_exit_code_of_claude_is_kept(self):
+        code, _, _ = self.run_main(("ok", "config ok"), return_value=subprocess.CompletedProcess([], 3))
+        self.assertEqual(code, 3)
 
     def test_claude_not_installed(self):
         code, _, err = self.run_main(("ok", "config ok"), side_effect=FileNotFoundError())

@@ -71,6 +71,12 @@ def check_size(body, size):
         raise TaskError(f"{criteria} acceptance criteria do not fit {size}: size it {sizing.LARGE}")
 
 
+def check_not_large(size):
+    """Didban splits a task while it is defined. The splitter still catches one that turns out large."""
+    if size == sizing.LARGE:
+        raise TaskError(f"a {sizing.LARGE} task does not go on the board: split it into slices first")
+
+
 def find_project(config, project_name, repo):
     """Returns the project and the repo a new task goes in."""
     project = next((p for p in config.projects if p.name == project_name), None)
@@ -94,6 +100,7 @@ def check_task(github, repo, title, body, local_dir, priority, kind, size, deadl
     """All that must hold before a task may reach `Backlog`."""
     check_body(body)
     check_fields(priority, kind, size, deadline)
+    check_not_large(size)
     check_size(body, size)
     check_text(github, repo, title, body, local_dir)
 
@@ -104,11 +111,12 @@ def set_fields(github, board, url, priority, kind, size, deadline):
             github.set_field(board, url, name, value)
 
 
-def create_task(config, github, project_name, repo, title, body, local_dir, priority, kind, size, deadline=None):
+def create_task(config, github, project_name, repo, title, body, local_dir, priority, kind, size, deadline=None,
+                by_hand=False):
     """Creates the issue, puts it on the board in `Backlog` and returns its URL."""
     project, repo = find_project(config, project_name, repo)
     check_task(github, repo, title, body, local_dir, priority, kind, size, deadline)
-    url = github.create_issue(repo, title, body)
+    url = github.create_issue(repo, title, body, by_hand=by_hand)
     github.add_to_board(project.board, url)
     github.set_status(project.board, url, "Backlog")
     set_fields(github, project.board, url, priority, kind, size, deadline)
@@ -125,13 +133,14 @@ def main():
     parser.add_argument("--kind", required=True, choices=BOARD_FIELDS["Kind"])
     parser.add_argument("--size", required=True, choices=BOARD_FIELDS["Size"])
     parser.add_argument("--deadline", help="the date it must be done by, YYYY-MM-DD")
+    parser.add_argument("--by-hand", action="store_true", help="a person does this: no `agent` label")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
     args = parser.parse_args()
     try:
         config = load_config(args.local)
         body = Path(args.body_file).read_text(encoding="utf-8")
         print(create_task(config, GitHub(cache=BoardCache()), args.project, args.repo, args.title, body, args.local,
-                          args.priority, args.kind, args.size, args.deadline))
+                          args.priority, args.kind, args.size, args.deadline, args.by_hand))
     except ConfigError as e:
         print(f"tasks: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1

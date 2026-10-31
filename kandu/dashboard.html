@@ -100,6 +100,8 @@ tr:last-child td { border-bottom:0; }
 .number { color:var(--muted); font-variant-numeric:tabular-nums; }
 .textlink { all:unset; cursor:pointer; overflow-wrap:anywhere; }
 .textlink:focus-visible { outline:2px solid var(--honey); outline-offset:2px; }
+.limit-edit { margin-inline-start:6px; text-decoration:underline; }
+.limit-field { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-block:8px; }
 .tokenbar { display:block; height:4px; min-width:2px; margin-top:4px; border-radius:2px; background:var(--honey); }
 
 .bee-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 0; border-bottom:1px solid var(--line); }
@@ -237,6 +239,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <section data-panel="days" class="list" hidden>
     <div class="toolbar"><select id="day" data-t-attr="aria-label" data-t="day"></select><div id="daytotals" class="chips"></div></div>
     <div id="byday" class="card"></div>
+    <div id="didbansessions" class="card"></div>
   </section>
   <section data-panel="activity" class="card" hidden><div id="live" class="feed-scroll"></div></section>
 </main>
@@ -245,6 +248,12 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <h2 data-t="control_token"></h2><p class="muted" data-t="token_why"></p>
   <input id="token" type="password" autocomplete="off" data-t-attr="aria-label" data-t="control_token">
   <div class="actions"><button class="btn primary" value="yes" data-t="continue"></button><button class="btn" value="no" data-t="cancel"></button></div>
+</form></dialog>
+<dialog id="limitsbox" class="small"><form method="dialog" class="dialog-body">
+  <h2 data-t="limits_title"></h2><p class="muted" data-t="limits_why"></p>
+  <label class="limit-field"><span data-t="session"></span><input id="limitsession" type="number" min="1" max="100" required></label>
+  <label class="limit-field"><span data-t="week"></span><input id="limitweek" type="number" min="1" max="100" required></label>
+  <div class="actions"><button class="btn primary" value="yes" data-t="save"></button><button class="btn" value="no" formnovalidate data-t="cancel"></button></div>
 </form></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
 <script type="application/json" id="text">
@@ -330,6 +339,18 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "close": "Close",
   "open": "Open",
   "cancel": "Cancel",
+  "didban_sessions": "Didban sessions",
+  "no_didban_sessions": "No Didban session reported yet",
+  "session_title": "Session",
+  "session_did": "Did",
+  "when": "When",
+  "did_requests": "requests",
+  "did_tasks": "tasks",
+  "did_answers": "answers",
+  "change": "change",
+  "save": "Save",
+  "limits_title": "Usage limits",
+  "limits_why": "Kandu starts no new work at these percents. The next cycle uses them.",
   "continue": "Continue",
   "token_why": "Stop, resume and approve need the control token. It is kept only until this page closes.",
   "show_more": "Show more",
@@ -426,6 +447,18 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "close": "بستن",
   "open": "باز کردن",
   "cancel": "انصراف",
+  "didban_sessions": "جلسه‌های دیدبان",
+  "no_didban_sessions": "هنوز جلسه‌ای از دیدبان گزارش نشده",
+  "session_title": "جلسه",
+  "session_did": "کارها",
+  "when": "زمان",
+  "did_requests": "درخواست",
+  "did_tasks": "تسک",
+  "did_answers": "پاسخ",
+  "change": "تغییر",
+  "save": "ذخیره",
+  "limits_title": "سقف مصرف",
+  "limits_why": "کندو با رسیدن به این درصدها کار تازه‌ای شروع نمی‌کند. چرخهٔ بعدی از آن‌ها استفاده می‌کند.",
   "continue": "ادامه",
   "token_why": "توقف، ادامه و تأیید به توکن کنترل نیاز دارند. توکن فقط تا بسته شدن این صفحه نگه داشته می‌شود.",
   "show_more": "بیشتر",
@@ -533,6 +566,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "split_declined": "پیشنهاد شکستن رد شد",
   "question_answered": "به سؤال جواب داده شد",
   "project_paused": "پروژه متوقف شد",
+  "limits_changed": "سقف مصرف تغییر کرد",
   "notification_sent": "اعلان فرستاده شد",
   "notification_failed": "اعلان فرستاده نشد",
   "project_resumed": "پروژه ادامه یافت",
@@ -962,10 +996,22 @@ function renderLegend() {
 }
 
 function meter(label, value, limit) {
-  if (value === undefined || value === null) return `<div class="card stat"><div class="stat-label">${label}</div><div class="stat-value muted">—</div><small>${t("not_read_yet")}</small></div>`;
+  const edit = `<button class="textlink limit-edit" data-limits>${t("change")}</button>`;
+  if (value === undefined || value === null) return `<div class="card stat"><div class="stat-label">${label}</div><div class="stat-value muted">—</div><small>${t("limit")} ${pct(limit)}${edit}</small></div>`;
   const over = value >= limit ? " over" : "";
   return `<div class="card stat"><div class="stat-label">${label}</div><div class="stat-value${over}">${pct(value)}</div>
-    <div class="meter${over}"><i style="width:${Math.min(value, 100)}%"></i><b style="inset-inline-start:${limit}%"></b></div><small>${t("limit")} ${pct(limit)}</small></div>`;
+    <div class="meter${over}"><i style="width:${Math.min(value, 100)}%"></i><b style="inset-inline-start:${limit}%"></b></div><small>${t("limit")} ${pct(limit)}${edit}</small></div>`;
+}
+
+function changeLimits(button) {
+  const box = $("limitsbox");
+  $("limitsession").value = lastState.limits.session;
+  $("limitweek").value = lastState.limits.week;
+  box.returnValue = "no";
+  box.addEventListener("close", () => {
+    if (box.returnValue === "yes") act(button, `/limits?session=${$("limitsession").value}&week=${$("limitweek").value}`);
+  }, {once: true});
+  box.showModal();
 }
 
 function renderStats(s) {
@@ -1062,7 +1108,22 @@ async function refreshQueue(state, fresh) {
   } catch { toast(t("github_unreadable")); }
 }
 
+function didDuring(actions) {
+  const done = ["requests", "tasks", "answers"].filter(kind => actions[kind]).map(kind => `${num(actions[kind])} ${t("did_" + kind)}`);
+  return done.join(" · ") || "—";
+}
+
+async function refreshDidban() {
+  const {sessions} = await get("/didban");
+  const rows = sessions.map(s => `<tr><td class="fit number">${esc(s.started ? when(s.started) : "—")}</td><td dir="auto">${esc(s.title || "—")}</td>
+    <td class="fit hide-narrow">${esc(didDuring(s.actions))}</td>
+    <td class="fit end" title="${esc(num(s.tokens.input + s.tokens.output + s.tokens.cache_read + s.tokens.cache_creation))}">${esc(short(s.tokens.input + s.tokens.output + s.tokens.cache_creation))}</td></tr>`).join("");
+  $("didbansessions").innerHTML = `<h3>${t("didban_sessions")}</h3>` + (rows ? `<table class="rows"><thead><tr><th class="fit">${t("when")}</th><th>${t("session_title")}</th><th class="fit hide-narrow">${t("session_did")}</th><th class="fit end">${t("tokens")}</th></tr></thead><tbody>${rows}</tbody></table>`
+    : `<div class="empty">${t("no_didban_sessions")}</div>`);
+}
+
 async function refreshDays() {
+  refreshDidban();
   const {days} = await get("/days");
   const select = $("day"), chosen = select.value;
   select.innerHTML = days.slice().reverse().map(d => `<option value="${esc(d)}">${esc(dayName(d))}</option>`).join("");
@@ -1195,6 +1256,7 @@ document.addEventListener("click", e => {
   const hit = name => e.target.closest(`[data-${name}]`);
   const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
   if (hit("close")) { $("modal").close(); return; }
+  if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); showReviews(shownTask); return; }
   if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
   if (pause) {  // It sits in the project's summary, which would fold.

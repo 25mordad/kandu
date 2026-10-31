@@ -359,6 +359,25 @@ def _check_projects(projects, s, problems):
         _check_positive(p.daily_token_limit, f"{where}.daily_token_limit", problems)
 
 
+def set_limits(session, week, local_dir=DEFAULT_LOCAL_DIR):
+    """Changes the two usage limits in `kandu.yaml`, line by line, so its comments stay."""
+    problems = []
+    _check_percent(session, "claude.limits.session_5h_percent", problems)
+    _check_percent(week, "claude.limits.weekly_percent", problems)
+    if problems:
+        raise ConfigError(problems)
+    path = Path(local_dir) / "kandu.yaml"
+    text = path.read_text(encoding="utf-8")
+    for name, value in (("session_5h_percent", session), ("weekly_percent", week)):
+        text, found = re.subn(rf"^(\s+{name}:\s*)\d+", rf"\g<1>{value}", text, flags=re.MULTILINE)
+        if found != 1:
+            raise ConfigError([f"claude.limits.{name}: expected one such line in kandu.yaml, found {found}"])
+    temporary = path.with_suffix(".yaml.new")
+    temporary.write_text(text, encoding="utf-8")
+    temporary.chmod(path.stat().st_mode & 0o777)
+    temporary.replace(path)
+
+
 def load_config(local_dir=DEFAULT_LOCAL_DIR):
     """Returns a validated Config, or raises ConfigError listing every problem."""
     local_dir = Path(local_dir)

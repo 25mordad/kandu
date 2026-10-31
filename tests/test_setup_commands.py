@@ -36,6 +36,17 @@ class TaskTest(unittest.TestCase):
         return tasks.create_task(self.config, self.github, name, repo, title, body, self.local,
                                  priority, kind, size, deadline)
 
+    def test_a_large_task_does_not_reach_the_board(self):
+        with self.assertRaises(tasks.TaskError) as caught:
+            self.create(size="Large")
+        self.assertIn("split", str(caught.exception))
+        self.github.create_issue.assert_not_called()
+
+    def test_a_task_for_a_person_says_so(self):
+        tasks.create_task(self.config, self.github, "site", None, "T", BODY, self.local, "High", "Bug", "Small",
+                          by_hand=True)
+        self.assertTrue(self.github.create_issue.call_args.kwargs["by_hand"])
+
     def test_goes_on_the_board_in_backlog(self):
         self.assertEqual(self.create(), "https://x/1")
         self.github.add_to_board.assert_called_once()

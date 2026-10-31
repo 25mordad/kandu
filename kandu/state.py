@@ -40,6 +40,7 @@ EVENT_FIELDS = {
     "project_checked": ("project", "passed", "detail"),
     "project_paused": ("project",),
     "project_resumed": ("project",),
+    "limits_changed": ("session", "week"),
     "queen_decided": TASK_FIELDS + ("action", "note"),
     "queen_finished": ("run_id", "brief", "backlog"),
     "notification_sent": ("kind", "key"),
@@ -89,6 +90,8 @@ class StateStore:
         self.worker_stops_dir = self.root / "stop-workers"
         self.paused_dir = self.root / "paused"
         self.splits_dir = self.root / "splits"
+        self.requests_dir = self.root / "requests"
+        self.didban_dir = self.root / "didban"
         self.listeners = []  # Called with each event once it is in the log.
 
     def _make_dirs(self):
@@ -236,6 +239,37 @@ class StateStore:
         with open(self.root / "split.lock", "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             yield
+
+    def write_request(self, request):
+        """A request is the user's own words, so it stays out of the event log."""
+        self._make_dirs()
+        self.requests_dir.mkdir(mode=0o700, exist_ok=True)
+        path = self.requests_dir / f"{request['id']}.json"
+        path.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
+        path.chmod(0o600)
+
+    def drop_request(self, request_id):
+        (self.requests_dir / f"{request_id}.json").unlink(missing_ok=True)
+
+    def requests(self):
+        if not self.requests_dir.exists():
+            return []
+        paths = sorted(self.requests_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        return [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+
+    def write_didban_session(self, summary):
+        """A later report of the same session replaces the earlier one."""
+        self._make_dirs()
+        self.didban_dir.mkdir(mode=0o700, exist_ok=True)
+        path = self.didban_dir / f"{summary['id']}.json"
+        path.write_text(json.dumps(summary, ensure_ascii=False), encoding="utf-8")
+        path.chmod(0o600)
+
+    def didban_sessions(self):
+        if not self.didban_dir.exists():
+            return []
+        sessions = [json.loads(path.read_text(encoding="utf-8")) for path in self.didban_dir.glob("*.json")]
+        return sorted(sessions, key=lambda s: s.get("started") or "")
 
     def worker_stop_file(self, run_id):
         return self.worker_stops_dir / run_id

@@ -13,7 +13,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from kandu import dashboard, review, split
+from kandu import dashboard, review, sessions, split
 from kandu.config import load_config
 from kandu.dashboard import Api, actions_in, dispatch, make_handler, new_events, recommendation
 from kandu.github import BoardItem, GitHubError
@@ -24,6 +24,8 @@ ROOT = Path(__file__).resolve().parent.parent
 REPO = "acme-org/website"
 ACCOUNT = "your-github-login"
 TOKEN = "secret-token"
+SESSION_A = "11111111-2222-3333-4444-555555555555"
+SESSION_B = "99999999-2222-3333-4444-555555555555"
 USAGE = {"session": 5, "week": 6}
 
 
@@ -384,6 +386,36 @@ class ControlTest(Base):
         self.github.find_pr.return_value = {"number": 7, "title": "T", "url": "u", "state": "OPEN", "headRefOid": "abc",
                                             "comments": []}
         self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", status, ["agent"], "")]
+
+    def set_limits(self, query, token=TOKEN):
+        self.api.local_dir = self.root / "local"
+        return self.post(f"/api/v1/limits{query}", token)
+
+    def test_limits_change_in_the_config_and_keep_its_comments(self):
+        status, body = self.set_limits("?session=85&week=40")
+        self.assertEqual((status, body), (200, {"limits": {"session": 85, "week": 40}}))
+        limits = load_config(self.root / "local").settings.claude.limits
+        self.assertEqual((limits.session_5h_percent, limits.weekly_percent), (85, 40))
+        self.assertIn("# stop when weekly usage", (self.root / "local" / "kandu.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(self.get("/api/v1/state")[1]["limits"], {"session": 85, "week": 40})
+        self.assertEqual(self.store.last_event("limits_changed")["week"], 40)
+
+    def test_a_wrong_limit_changes_nothing(self):
+        before = (self.root / "local" / "kandu.yaml").read_text(encoding="utf-8")
+        for query in ("?session=0&week=40", "?session=85&week=101", "?session=85", "?session=a&week=40", ""):
+            self.assertEqual(self.set_limits(query)[0], 400, query)
+        self.assertEqual((self.root / "local" / "kandu.yaml").read_text(encoding="utf-8"), before)
+        self.assertIsNone(self.store.last_event("limits_changed"))
+
+    def test_changing_limits_needs_the_token(self):
+        self.assertEqual(self.set_limits("?session=85&week=40", "wrong")[0], 403)
+
+    def test_didban_sessions_come_newest_first_and_count_in_no_day(self):
+        sessions.save(self.store, {"id": SESSION_A, "started": "2026-10-30T10:00:00Z"})
+        sessions.save(self.store, {"id": SESSION_B, "started": "2026-10-31T10:00:00Z"})
+        found = self.get("/api/v1/didban")[1]["sessions"]
+        self.assertEqual([s["id"] for s in found], [SESSION_B, SESSION_A])
+        self.assertEqual(self.store.days(), [])
 
     def test_a_task_no_cycle_would_pick_up_is_not_approved(self):
         self.reviewed(status="Blocked")
