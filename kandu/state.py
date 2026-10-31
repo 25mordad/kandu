@@ -39,6 +39,8 @@ EVENT_FIELDS = {
     "project_resumed": ("project",),
     "queen_decided": TASK_FIELDS + ("action", "note"),
     "queen_finished": ("run_id", "brief", "backlog"),
+    "notification_sent": ("kind", "key"),
+    "notification_failed": ("kind", "key", "reason"),
 }
 NO_TASK_ROLES = ("supervisor", "queen")
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
@@ -84,6 +86,7 @@ class StateStore:
         self.worker_stops_dir = self.root / "stop-workers"
         self.paused_dir = self.root / "paused"
         self.splits_dir = self.root / "splits"
+        self.listeners = []  # Called with each event once it is in the log.
 
     def _make_dirs(self):
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -112,6 +115,8 @@ class StateStore:
             os.write(fd, line)
         finally:
             os.close(fd)
+        for listen in self.listeners:
+            listen(event)
         return event
 
     def days(self):

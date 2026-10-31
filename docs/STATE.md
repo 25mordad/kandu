@@ -43,6 +43,8 @@ state/
 | `task_split` | `task`, `project`, `children` |
 | `split_declined` | `task`, `project` |
 | `question_answered` | `task`, `project`, `head_sha`, `question`, `answer` |
+| `notification_sent` | `kind`, `key` |
+| `notification_failed` | `kind`, `key`, `reason` |
 | `project_paused` | `project` |
 | `project_resumed` | `project` |
 | `group_closed` | `task`, `project` |

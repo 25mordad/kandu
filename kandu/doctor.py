@@ -36,12 +36,26 @@ def check_guard(hooks_path, local_dir):
     return results
 
 
-def check_dashboard_token(local_dir):
+def _env_is_set(name, local_dir):
     env_file = Path(local_dir) / ".env"
     lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
-    if os.environ.get(TOKEN_ENV) or any(re.fullmatch(rf"{TOKEN_ENV}=\S+", line) for line in lines):
+    return bool(os.environ.get(name)) or any(re.fullmatch(rf"{name}=\S+", line) for line in lines)
+
+
+def check_dashboard_token(local_dir):
+    if _env_is_set(TOKEN_ENV, local_dir):
         return OK, f"{TOKEN_ENV} is set"
     return WARN, f"{TOKEN_ENV} is not set; the dashboard's controls are refused"
+
+
+def check_notify(notify, local_dir):
+    if notify.adapter == "none":
+        return OK, "notifications are off"
+    missing = [name for name in (notify.telegram.bot_token_env, notify.telegram.chat_id_env)
+               if not _env_is_set(name, local_dir)]
+    if missing:
+        return WARN, f"{', '.join(missing)} not set; notifications cannot be sent"
+    return OK, "notifications: Telegram is set"
 
 
 def check_usage(auth, reader=read_usage):
@@ -101,6 +115,7 @@ def run_checks(config, local_dir, runner, github):
     results += check_guard(hooks.stdout.strip(), local_dir)
     results.append(check_usage(settings.claude.auth))
     results.append(check_dashboard_token(local_dir))
+    results.append(check_notify(settings.notify, local_dir))
     results += [check_machine(m, runner) for m in settings.machines]
     for project in config.projects:
         if runner.reachable(project.machine):

@@ -42,6 +42,14 @@ notify:
   telegram:
     bot_token_env: KANDU_TELEGRAM_BOT_TOKEN   # names of variables in local/.env, not the values
     chat_id_env: KANDU_TELEGRAM_CHAT_ID
+  language: en                 # optional; the language of notifications only, en | fa. Default: top-level language
+  events:                      # optional; what is important enough to send. Default: all of these
+    - supervisor_stopped
+    - failure
+    - needs_decision
+    - pr_ready
+    - usage_limit
+    - claude_login
 
 supervisor:                    # optional; these are the defaults
   wake_every_minutes: 60

@@ -24,10 +24,16 @@ PROBE_TIMEOUT_SECONDS = 20
 POLL_SECONDS = 2
 STOP_GRACE_SECONDS = 10
 COMMAND_TIMEOUT_SECONDS = 30 * 60
+SECRET_PREFIX = "KANDU_"
 
 
 class RunnerError(Exception):
     pass
+
+
+def child_env():
+    """What an agent or a project's command may see: a worker's code runs here, so none of Kandu's own secrets."""
+    return {name: value for name, value in os.environ.items() if not name.startswith(SECRET_PREFIX)}
 
 
 @dataclass
@@ -56,7 +62,7 @@ class Host:
 
     def run(self, command, cwd=None, timeout=GIT_TIMEOUT_SECONDS):
         try:
-            return subprocess.run(self.argv(command, cwd), capture_output=True, text=True, timeout=timeout)
+            return subprocess.run(self.argv(command, cwd), capture_output=True, text=True, timeout=timeout, env=child_env())
         except subprocess.TimeoutExpired as e:
             raise RunnerError(f"{command[0]} timed out on {self.name}") from e
 
@@ -163,7 +169,7 @@ class Runner:
         with os.fdopen(fd, "w", encoding="utf-8") as log:
             try:
                 return subprocess.run(host.argv(["sh", "-c", script], cwd), stdout=log, stderr=subprocess.STDOUT,
-                                      timeout=COMMAND_TIMEOUT_SECONDS).returncode
+                                      timeout=COMMAND_TIMEOUT_SECONDS, env=child_env()).returncode
             except subprocess.TimeoutExpired as e:
                 raise RunnerError(f"a project command timed out on {host.name}") from e
 
@@ -183,7 +189,7 @@ class Runner:
         self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd = os.open(self.logs_dir / f"{run_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         process = subprocess.Popen(self.hosts[machine].argv(command, cwd), stdin=subprocess.PIPE,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=child_env())
         stopped = threading.Event()
         threading.Thread(target=self._feed, args=(process, prompt), daemon=True).start()
         threading.Thread(target=self._watch, args=(process, should_stop, stopped), daemon=True).start()

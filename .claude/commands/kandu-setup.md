@@ -10,7 +10,7 @@ Read `docs/COMMANDS.md`, then set up this install, once. The result is `local/ka
    2. Which other machines exist, how are they reached, and which are always on?
    3. Subscription or API key? The 5-hour and weekly limits, in percent. Point out that a shared subscription needs a margin.
    4. The GitHub account, and the owners Kandu may work in.
-   5. Notifications: Telegram or none? In which language should Kandu talk to the user (`language`, default `en`)?
+   5. Notifications: Telegram or none? In which language should Kandu talk to the user (`language`, default `en`)? Should notifications use another language (`notify.language`)? Which of `notify.events` should be sent (default all)?
    6. Parallel workers, wake interval, auto-merge, and the queen. Recommend leaving auto-merge off and the queen on: she costs tokens only when there is something to decide. Ask for her daily token limit (`queen_daily_token_limit`).
    7. Which sources may Didban read, and on which machine? From the user's own machine, how is the brain reached?
    8. Which port does the dashboard use? The default is 8790; `ss -ltn` on the brain's machine must not show it in use.

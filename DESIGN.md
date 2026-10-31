@@ -30,7 +30,7 @@ Everything is configured by talking to an LLM in a Claude Code session. There ar
 2. Which other machines are on the network, how are they reached (SSH alias), and which of them are always on?
 3. Claude access: subscription or API key? Usage limits: 5-hour window %, weekly %.
 4. GitHub account, and the owners (users / orgs) Kandu may work in.
-5. Where notifications go (Telegram or nowhere), and which language Kandu talks to you in (`language`, default English).
+5. Where notifications go (Telegram or nowhere), which language Kandu talks to you in (`language`, default English), and which language its notifications use (`notify.language`, default `language`).
 6. Defaults: number of parallel workers, wake interval, auto-merge on or off.
 7. Prerequisites: `claude`, `gh`, `git`, `python` installed and logged in; `gh` needs the `project` scope for boards. Kandu says what is missing.
 8. Didban (§13): which other sources may it read, and on which machine? On the machine you sit at, how is the brain reached?
@@ -198,7 +198,10 @@ The user must be able to see exactly what is happening: the supervisor and every
 ## 8. Notifications
 - Only the important things: the supervisor stopped, something broke, a task is stuck and needs a decision, a usage limit was hit, the Claude login expires soon (`claude.login_warn_days`, default 7) or has stopped working, and things of similar weight. Everything else only on the dashboard.
 - The login check never calls `claude`, so the warning still goes out when Claude itself is down.
-- The notifier is pluggable; Telegram is the first adapter. Messages are sent in `language`.
+- `notify.events` lists what counts as important: `supervisor_stopped`, `failure`, `needs_decision`, `pr_ready`, `usage_limit`, `claude_login`. Default: all of them.
+- The notifier is pluggable; Telegram is the first adapter. Messages are sent in `notify.language`, or in `language` when that is not set.
+- The event log drives it ([kandu/notify.py](kandu/notify.py)). Each message is a fixed text, so no error or agent's words reach a third party. A state that lasts, such as a limit, is told once until it clears. A failed send never stops a cycle and shows on the dashboard as `notification_failed`.
+- Every variable named `KANDU_*` stays with Kandu: `kandu/runner.py` removes them before it starts an agent or a project command, since a worker's code runs there.
 
 ## 9. Isolation — none in this version
 Considered and deliberately left out of v1.

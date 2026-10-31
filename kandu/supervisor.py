@@ -23,6 +23,7 @@ from pathlib import Path
 from . import agents, merge, queen, questions, review, sizing, split
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError, blockers_in, branch_for
+from .notify import notifier_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
 from .state import StateStore
 from .usage import UsageError, over_limit, read_usage
@@ -681,7 +682,7 @@ class Supervisor:
             report = agents.parse_queen_report(result.text)
         except agents.ReplyError as e:
             # Everything stays as it is. Nothing here is worth paying for again each cycle.
-            self.store.record("queen_finished", run_id=run_id, brief=f"The queen could not finish this look: {e}.",
+            self.store.record("queen_finished", run_id=run_id, brief=f"{queen.COULD_NOT_FINISH}: {e}.",
                               backlog=keys)
             return True
         refused, released = self._carry_out(report["decisions"], events)
@@ -868,7 +869,15 @@ def main():
     if args.dry_run:
         print("\n".join(supervisor.dry_run()))
         return 0
-    _locked_cycle(supervisor)
+    notifier = notifier_for(config.settings, store)
+    if notifier is not None:
+        store.listeners.append(notifier.on_event)
+    try:
+        _locked_cycle(supervisor)
+    except Exception:
+        if notifier is not None:
+            notifier.crashed()
+        raise
     return 0
 
 

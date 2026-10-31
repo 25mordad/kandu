@@ -17,7 +17,7 @@ Every task is designed and checked against harness, context and memory (§14).
 10. [x] Workers as `claude` processes in `git worktree`s, local and over SSH, behind a swappable runner layer; connect `prompts/worker.md` and put `prompts/templates/pr.md` in its prompt (§4, §5, §9)
 11. [x] Reviewer + review rounds, the worker fixes every finding; report validated in code, a later round only on a new `SHA` with no LLM gate, companion PRs, every round logged; connect `prompts/reviewer.md` (§5, §15)
 12. [x] Merge on the reviewed `SHA` with all merge conditions in code, deploy, live check, end-of-cycle check; a one-way door blocks auto-merge; the merge gate reads the review from the local event log, because a worker uses the same account and could write a PR comment; replaces the current `MERGED` → `Done` step (§5)
-13. [ ] Notifier with a Telegram adapter, important events only (§8)
+13. [x] Notifier with a Telegram adapter, important events only; the events and the language are set in the config (§8)
 14. [ ] Claude login watch: expiry per machine on the dashboard, early warning, works when `claude` is down (§7, §8)
 15. [x] Move the running install to a private copy with pushes to `upstream` disabled, before the first board (§12)
 
@@ -45,7 +45,7 @@ Every task is designed and checked against harness, context and memory (§14).
 34. [x] See a split proposal on the dashboard and accept it there; declining or changing it stays in Didban (§2, §7)
 35. [x] Choose a model per role in `claude.models` (§1A)
 36. [x] Read a split proposal whole in the user's language on the dashboard; the issues stay in English (§2, §7)
-37. [x] One `language` for all Kandu says to the user, English by default (§1A, §7)
+37. [x] One `language` for all Kandu says to the user, English by default; only notifications may differ, through `notify.language` (§1A, §7, §8)
 40. [x] A `Technical debt` column no agent reads: Didban offers what is parked, and the dashboard counts it and grows it as weeds in the meadow (§2, §3)
 
 ## Technical debt
