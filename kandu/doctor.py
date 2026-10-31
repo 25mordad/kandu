@@ -93,6 +93,9 @@ def check_project(project, runner, github):
                 results.append((FAIL, f"{project.name}: no git copy of {repo} on {project.machine}"))
         present = host.succeeds(["sh", "-c", 'command -v "$1"', "sh", test_tool])
         results.append((OK if present else WARN, f"{project.name}: test tool {test_tool}"))
+        for name in project.task_tokens:
+            found = host.succeeds(["grep", "-Eq", rf"^(export +)?{name} *=", host.absolute(project.secrets_from)])
+            results.append((OK if found else FAIL, f"{project.name}: token {name}"))
     except RunnerError:
         results.append((WARN, f"{project.name}: machine {project.machine} did not answer"))
     if project.board is None:

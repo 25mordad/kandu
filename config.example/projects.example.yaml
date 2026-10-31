@@ -23,6 +23,8 @@ projects:
       command: npx wrangler deploy
       live_url: https://www.example.com
     secrets_from: ~/projects/website/.env   # location only; values are never copied or logged
+    task_tokens:                       # the only values a task labelled uses-tokens gets, and what each is for
+      IMAGE_API_KEY: "generating images"
     forbidden: ["migrations/", "src/payments/"]
     repo_rules: "CI must be green before merge"
     auto_merge: false                  # overrides supervisor.auto_merge for this project

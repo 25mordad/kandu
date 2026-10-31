@@ -22,7 +22,7 @@ from pathlib import Path
 
 from . import agents, debt, merge, queen, questions, review, sizing, split
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
-from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError, blockers_in, branch_for
+from .github import AGENT_LABEL, TOKENS_LABEL, BoardCache, GitHub, GitHubError, blockers_in, branch_for
 from .notify import notifier_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
 from .state import StateStore
@@ -51,6 +51,7 @@ class Task:
     status: str
     branch: str
     priority: str = ""
+    tokens: bool = False           # labelled `uses-tokens`: its worker gets the project's task_tokens
 
     @property
     def key(self):
@@ -110,7 +111,8 @@ def read_tasks(config, github, paused=()):
 
 def _task(project, item):
     return Task(project, item.repo, item.number, item.title, item.url, item.status,
-                branch_for(item.number, item.title), item.priority)
+                branch_for(item.number, item.title), item.priority,
+                TOKENS_LABEL in item.labels and bool(project.task_tokens))
 
 
 def _can_start(github, item):
@@ -231,7 +233,7 @@ class Supervisor:
     def _model(self, role):
         return self.config.settings.claude.models.get(role)
 
-    def _agent(self, task, role, cwd, prompt, tools, run_id):
+    def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None):
         reason = self._gate()
         if reason is not None:
             self._halt(reason)
@@ -243,7 +245,7 @@ class Supervisor:
         self._snapshot("awake")
         stop_one = self.store.worker_stop_file(run_id)
         result = self.runner.run_agent(task.project.machine, cwd, prompt, allowed, denied, run_id,
-                                       lambda: self._hard_stop() or stop_one.exists(), self._model(role))
+                                       lambda: self._hard_stop() or stop_one.exists(), self._model(role), tokens)
         self.store.record("run_finished", task=task.key, project=task.project.name, run_id=run_id, role=role,
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
         if stop_one.exists():
@@ -265,8 +267,10 @@ class Supervisor:
         note = queen.note_for(queen.all_events(self.store), task.key)
         prompt = agents.worker_prompt(task.project, task.repo, task.number, task.branch, run_id,
                                       findings=findings, pr=pr, local_dir=self.local_dir,
-                                      queen_note=note)
-        return self._agent(task, "worker", cwd, prompt, agents.worker_tools(task.project, task.branch), run_id)
+                                      queen_note=note, tokens=task.tokens)
+        project = task.project
+        tokens = (project.secrets_from, list(project.task_tokens)) if task.tokens else None
+        return self._agent(task, "worker", cwd, prompt, agents.worker_tools(project, task.branch), run_id, tokens)
 
     def _implement(self, task):
         """First run. Returns the new PR, or None if the worker gave the task back."""

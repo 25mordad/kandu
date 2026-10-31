@@ -70,6 +70,7 @@ The rules shared by these commands are in [docs/COMMANDS.md](docs/COMMANDS.md). 
   - How to test
   - Out of scope
   - `Blocked by` (if any)
+- **Tokens:** a project names in `task_tokens` the tokens its tasks may use and what each is for. A task labelled `uses-tokens` is one that must really call a service: only its worker gets those values, in its environment, read from `secrets_from`, and being given the task is the user's yes for what it asks. Every other task gets none, so its tests mock the service. No agent can read the secrets file.
 - Claude adds the issue to the right board with status `Backlog` and label `agent`. Only `agent`-labelled issues enter the loop.
 - Each task gets its fields while it is refined: `Priority` (`High`, `Medium`, `Low`), `Kind` (`Bug`, `Feature`, `Chore`), `Size` (`Small`, `Medium`, `Large`) and, if it must be done by a date, `Deadline`. `kandu.tasks` refuses a task without them. The queen paces work from these fields, so organizing them is the job of whoever defines the task, not hers.
 - A `Large` task must be split before it runs. It is split while it is defined, and `kandu.tasks` refuses to put one on the board; one the splitter later measures as `Large` waits for the user. The queen may not release or split one.
@@ -113,7 +114,7 @@ One entry per project in `local/projects.yaml`, written by `/kandu-add`. **A pro
 - machine, path, test command, local run command, extra `allowed_tools` for its workers
 - a project with several repos keeps each at `<path>/<repo name>`
 - `deploy`: `mode` (`direct` or `preview`), `command`, `live_url` (leave it out when the live software is behind a login: the task is then done after the deploy, with no live check)
-- where its secrets are, forbidden areas, repo rules, merge mode, priority, max parallel workers, daily token limit, the queen's rules for this project, paused
+- where its secrets are, the `task_tokens` its tasks may use with what each is for, forbidden areas, repo rules, merge mode, priority, max parallel workers, daily token limit, the queen's rules for this project, paused
 
 **Machines that are not always on** (e.g. a laptop): at the start of each cycle the supervisor checks the machine over SSH. Reachable → run the worker there. Not reachable → skip that project's tasks; they show as "waiting for machine" and are picked up the next cycle it is reachable. Leaving the machine on is enough to let Kandu work on it.
 
@@ -164,7 +165,7 @@ supervisor ─┬─ worker 1  →  reviewer
 
   These always wait for the user, with a one-line question: a blocker answered without a code change, work deferred to a later PR, a thread resolved by someone other than its author, a risky area (auth, payments, data migrations) with no tests, and a one-way door. Default in this template: `auto_merge` **off**. The user turns it on per project once calibration (§15) shows Kandu decides as they would.
 - **The user's yes:** the approve button writes `user_approved` to the local log for one `SHA`, so a new commit voids it, and starts a cycle. It stands in for `auto_merge`, a one-way door and the review's questions. Every other condition above still holds: the tests run on that `SHA`, and a blocker or an unmet criterion still stops the merge.
-- **Deploy:** after merge, whoever merged, per the project's `deploy` setting, from the default branch in a separate checkout. Only this step gets the project's secrets. A failed deploy sends the task to `Blocked`; nothing is reverted. A task in `Blocked` whose PR someone merged takes the same path to `Done`; one whose deploy or live check failed stays for a person.
+- **Deploy:** after merge, whoever merged, per the project's `deploy` setting, from the default branch in a separate checkout. Only this step gets all the project's secrets. A failed deploy sends the task to `Blocked`; nothing is reverted. A task in `Blocked` whose PR someone merged takes the same path to `Done`; one whose deploy or live check failed stays for a person.
 - **"Done" means seen in the live software:** after deploy the supervisor opens the live version (screenshot or test) and checks that what the issue asked for is really there. Green tests alone are not enough.
 - **End-of-cycle check:** after two or more merges in a project in one cycle, rerun its tests on the default branch and request its live URL. The result goes in the event log as `project_checked`.
 - **No automatic revert.** `auto_revert: true` is refused by the config loader. If something breaks in the live software, the supervisor only reports it. The user decides.

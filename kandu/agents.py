@@ -10,8 +10,8 @@ from . import sizing
 from .config import DEFAULT_LOCAL_DIR
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
-ALWAYS_DENIED = ["Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)", "Read(**/.env)", "Bash(git push --force*)",
-                 "Bash(git push -f*)"]
+ALWAYS_DENIED = ["Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)", "Read(**/.env)", "Read(**/.dev.vars)",
+                 "Read(//proc/**)", "Bash(git push --force*)", "Bash(git push -f*)"]
 WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
 LIVE_RESULTS = ("pass", "fail")
 QUEEN_ACTIONS = ("release", "retry", "ask_user", "park")
@@ -34,6 +34,9 @@ def worker_tools(project, branch):
     allowed += [f"Bash(git push origin {branch})", f"Bash(git push -u origin {branch})"]
     allowed += project.allowed_tools
     denied = list(ALWAYS_DENIED)
+    if project.secrets_from:
+        path = project.secrets_from
+        denied.append(f"Read({'/' + path if path.startswith('/') else path})")
     for area in project.forbidden:
         pattern = f"./{area.rstrip('/')}/**" if area.endswith("/") else f"./{area}"
         denied += [f"Edit({pattern})", f"Write({pattern})"]
@@ -92,11 +95,19 @@ def _project_facts(project):
     return facts
 
 
+def _token_facts(project):
+    names = "; ".join(f"`{name}`: {purpose}" for name, purpose in project.task_tokens.items())
+    return [f"- Tokens in your environment: {names}. This task needs real requests with them, and being given this "
+            "task is the owner's yes for what it asks. Nothing else needs asking."]
+
+
 def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None, local_dir=DEFAULT_LOCAL_DIR,
-                  queen_note=None):
+                  queen_note=None, tokens=False):
     """The first run gets the PR template; a fix round gets what the last review left for it instead."""
     facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- Your branch: `{branch}`",
              f"- For the `Kandu-Run:` line: `{run_id}`", *_project_facts(project)]
+    if tokens:
+        facts += _token_facts(project)
     parts = [_read("worker.md"), "## This task", *facts, *_memory(project, local_dir)]
     if queen_note:
         parts += ["## Note from the queen", "This task stopped once. She looked at why:", queen_note]
