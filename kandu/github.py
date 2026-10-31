@@ -1,8 +1,13 @@
 """Everything Kandu reads from and writes to GitHub, through `gh` (DESIGN §3, §10)."""
+import fcntl
 import json
+import os
 import re
 import subprocess
-from dataclasses import dataclass
+import time
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from .config import BOARD_FIELDS, DEADLINE_FIELD
 
@@ -11,6 +16,8 @@ AGENT_LABEL = "agent"
 FALLBACK_SLUG = "task"
 TIMEOUT_SECONDS = 60
 BOARD_ITEM_LIMIT = 500
+BOARD_CACHE_DIR = Path(__file__).resolve().parent.parent / "state" / "boards"
+BOARD_CACHE_SECONDS = 60
 PR_SEARCH_LIMIT = 200
 PR_FIELDS = "number,title,state,url,body,changedFiles,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,statusCheckRollup"
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
@@ -22,15 +29,21 @@ THREADS_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   } } } }
 }"""
 
-BOARD_QUEUE_QUERY = """query($owner: String!, $number: Int!, $after: String) {
-  repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $number) { items(first: 100, after: $after) {
-    pageInfo { hasNextPage endCursor }
-    nodes {
-      fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
-      content { ... on Issue { number title url closedAt repository { nameWithOwner } labels(first: 50) { nodes { name } } } }
-    }
-  } } } }
-}"""
+SELECT_VALUE = "... on ProjectV2ItemFieldSingleSelectValue { name }"
+# `fieldValueByName` is what keeps this at one point a page: `gh project item-list` costs 100.
+BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
+  repositoryOwner(login: $owner) {{ ... on ProjectV2Owner {{ projectV2(number: $number) {{ items(first: 100, after: $after) {{
+    pageInfo {{ hasNextPage endCursor }}
+    nodes {{
+      status: fieldValueByName(name: "Status") {{ {SELECT_VALUE} }}
+      priority: fieldValueByName(name: "Priority") {{ {SELECT_VALUE} }}
+      kind: fieldValueByName(name: "Kind") {{ {SELECT_VALUE} }}
+      size: fieldValueByName(name: "Size") {{ {SELECT_VALUE} }}
+      deadline: fieldValueByName(name: "{DEADLINE_FIELD}") {{ ... on ProjectV2ItemFieldDateValue {{ date }} }}
+      content {{ ... on Issue {{ number title url body closedAt repository {{ nameWithOwner }} labels(first: 50) {{ nodes {{ name }} }} }} }}
+    }}
+  }} }} }} }}
+}}"""
 
 
 class GitHubError(Exception):
@@ -51,6 +64,68 @@ class BoardItem:
     size: str = ""
     deadline: str = ""
     closed_at: str = ""
+
+
+class BoardCache:
+    """One copy of each board on disk, shared by every Kandu process (DESIGN §3).
+
+    GitHub stays the source of truth: a write goes there first and lands here after.
+    """
+
+    def __init__(self, root=BOARD_CACHE_DIR, clock=time.time):
+        self.root = Path(root)
+        self.clock = clock
+
+    def _path(self, board):
+        return self.root / f"{board.owner}-{board.number}.json"
+
+    @contextmanager
+    def locked(self, board):
+        """Held during a read of GitHub, so a process that arrives meanwhile gets its result."""
+        self.root.mkdir(parents=True, exist_ok=True)
+        with open(self._path(board).with_suffix(".lock"), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
+
+    def _load(self, board):
+        try:
+            data = json.loads(self._path(board).read_text(encoding="utf-8"))
+            return data["read_at"], [BoardItem(**item) for item in data["items"]]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def _store(self, board, read_at, items):
+        temporary = self._path(board).with_suffix(".tmp")
+        temporary.write_text(json.dumps({"read_at": read_at, "items": [asdict(i) for i in items]}), encoding="utf-8")
+        os.replace(temporary, self._path(board))
+
+    def fresh(self, board):
+        """The board's items, or None if the copy is missing or too old."""
+        found = self._load(board)
+        if found is None or not 0 <= self.clock() - found[0] < BOARD_CACHE_SECONDS:
+            return None
+        return found[1]
+
+    def save(self, board, items):
+        self._store(board, self.clock(), items)
+
+    def update(self, board, url, changes):
+        """Puts a write GitHub accepted into the copy. The copy keeps its age."""
+        with self.locked(board):
+            found = self._load(board)
+            if found is None:
+                return
+            read_at, items = found
+            for item in items:
+                if item.url == url:
+                    for name, value in changes.items():
+                        setattr(item, name, value)
+            self._store(board, read_at, items)
+
+    def forget(self, board=None):
+        """For a change the copy cannot follow. Without a board it drops them all: an issue has no board of its own."""
+        for path in [self._path(board)] if board else self.root.glob("*.json"):
+            path.unlink(missing_ok=True)
 
 
 def run_gh(args):
@@ -99,46 +174,43 @@ def is_companion(ours, ours_repo, theirs, theirs_repo):
 
 
 class GitHub:
-    def __init__(self, run=run_gh):
+    def __init__(self, run=run_gh, cache=None):
         self._run = run
+        self._cache = cache
 
     def _json(self, args):
         return json.loads(self._run(args))
 
     def board_items(self, board):
-        """Returns the issues on a board; draft items and PRs are not tasks."""
-        data = self._json(["project", "item-list", str(board.number), "--owner", board.owner,
-                           "--format", "json", "-L", str(BOARD_ITEM_LIMIT)])
-        names = {theirs: ours for ours, theirs in board.columns.items()}
-        items = []
-        for item in data["items"]:
-            content = item.get("content", {})
-            if content.get("type") != "Issue":
-                continue
-            items.append(BoardItem(
-                repo=content["repository"], number=content["number"], title=content["title"],
-                url=content["url"], status=names.get(item.get("status", ""), item.get("status", "")), labels=item.get("labels") or [],
-                body=content.get("body", ""), priority=item.get("priority", ""), kind=item.get("kind", ""),
-                size=item.get("size", ""), deadline=item.get("deadline", ""),
-            ))
-        return items
+        """Returns the issues on a board, from the shared copy while it is fresh."""
+        if self._cache is None:
+            return self._read_board(board)
+        with self._cache.locked(board):
+            items = self._cache.fresh(board)
+            if items is None:
+                items = self._read_board(board)
+                self._cache.save(board, items)
+            return items
 
-    def board_queue(self, board):
-        """The same issues with only their column and labels, for what reads a board often: `board_items` costs 100 points."""
+    def _read_board(self, board):
+        """Draft items and PRs are not tasks."""
         names = {theirs: ours for ours, theirs in board.columns.items()}
         items, after = [], []
         while True:
-            data = self._json(["api", "graphql", "-f", f"query={BOARD_QUEUE_QUERY}", "-f", f"owner={board.owner}",
+            data = self._json(["api", "graphql", "-f", f"query={BOARD_QUERY}", "-f", f"owner={board.owner}",
                                "-F", f"number={board.number}", *after])
             page = data["data"]["repositoryOwner"]["projectV2"]["items"]
             for node in page["nodes"]:
                 content = node.get("content") or {}
                 if "number" not in content:
                     continue
-                status = (node.get("fieldValueByName") or {}).get("name", "")
+                value = lambda name, key="name": (node.get(name) or {}).get(key, "")
                 items.append(BoardItem(repo=content["repository"]["nameWithOwner"], number=content["number"],
-                                       title=content["title"], url=content["url"], status=names.get(status, status),
-                                       labels=[label["name"] for label in content["labels"]["nodes"]], body="",
+                                       title=content["title"], url=content["url"],
+                                       status=names.get(value("status"), value("status")),
+                                       labels=[label["name"] for label in content["labels"]["nodes"]],
+                                       body=content.get("body") or "", priority=value("priority"), kind=value("kind"),
+                                       size=value("size"), deadline=value("deadline", "date"),
                                        closed_at=content.get("closedAt") or ""))
             if not page["pageInfo"]["hasNextPage"] or len(items) >= BOARD_ITEM_LIMIT:
                 return items
@@ -147,14 +219,20 @@ class GitHub:
     def set_status(self, board, url, status):
         self._run(["project", "item-edit", str(board.number), "--owner", board.owner,
                    "--url", url, "--field", "Status", "--value", board.columns.get(status, status)])
+        if self._cache is not None:
+            self._cache.update(board, url, {"status": status})
 
     def set_field(self, board, url, field, value):
         flag = "--date" if field == DEADLINE_FIELD else "--value"
         self._run(["project", "item-edit", str(board.number), "--owner", board.owner,
                    "--url", url, "--field", field, flag, value])
+        if self._cache is not None:
+            self._cache.update(board, url, {field.lower(): value})
 
     def add_to_board(self, board, url):
         self._run(["project", "item-add", str(board.number), "--owner", board.owner, "--url", url])
+        if self._cache is not None:
+            self._cache.forget(board)
 
     def board_columns(self, board):
         """Returns the option names of the board's `Status` field."""
@@ -206,6 +284,8 @@ class GitHub:
 
     def edit_issue(self, repo, number, title, body):
         self._run(["issue", "edit", str(number), "--repo", repo, "--title", title, "--body", body])
+        if self._cache is not None:
+            self._cache.forget()
 
     def repo_is_public(self, repo):
         return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"
@@ -219,6 +299,8 @@ class GitHub:
 
     def close_issue(self, repo, number):
         self._run(["issue", "close", str(number), "--repo", repo])
+        if self._cache is not None:
+            self._cache.forget()
 
     def comment_issue(self, repo, number, body):
         self._run(["issue", "comment", str(number), "--repo", repo, "--body", body])

@@ -22,7 +22,7 @@ from pathlib import Path
 
 from . import agents, merge, queen, questions, review, sizing, split
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
-from .github import AGENT_LABEL, GitHub, GitHubError, blockers_in, branch_for
+from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError, blockers_in, branch_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
 from .state import StateStore
 from .usage import UsageError, over_limit, read_usage
@@ -864,7 +864,7 @@ def main():
     except ConfigError as e:
         print(f"supervisor: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1
-    supervisor = Supervisor(config, store, GitHub(), Runner(config, DEFAULT_LOGS_DIR), read_usage, args.local)
+    supervisor = Supervisor(config, store, GitHub(cache=BoardCache()), Runner(config, DEFAULT_LOGS_DIR), read_usage, args.local)
     if args.dry_run:
         print("\n".join(supervisor.dry_run()))
         return 0

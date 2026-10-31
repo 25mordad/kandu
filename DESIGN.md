@@ -99,6 +99,7 @@ Before writing the issue, `/kandu-task` checks that the behavior does not alread
 - Standard columns on every board, so the supervisor handles them all the same way: `Backlog`, `Technical debt`, `Ready`, `In progress`, `In review`, `Needs info`, `Needs split`, `Blocked`, `Done`. `python -m kandu.boards --add-missing` adds a new column to an existing board, keeping its items in place. An existing board with other columns is mapped onto these during `/kandu-add`, under `board.columns`.
 - `Backlog` holds approved tasks. `Ready` means work may start: the queen moves tasks there at the pace of each project, and a task the user moves there by hand starts as well.
 - Each board also has the fields `Priority`, `Kind`, `Size` and `Deadline`. `Type` is a name GitHub keeps for itself, hence `Kind`.
+- **Kandu reads a shared copy.** Every process reads a board through one copy in `state/boards/`, at most once a minute, so a burst of reads costs GitHub one. GitHub stays the source of truth: every write goes there first and lands in the copy only once accepted, and a refused write stops as before. A change the user makes on GitHub shows within a minute.
 - Kandu creates a board only when the user says so.
 - A task only a person can do stays on the board without the `agent` label, so it is visible and Kandu leaves it alone.
 

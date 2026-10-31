@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import queen, questions, review, split, timer
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
-from .github import AGENT_LABEL, GitHub, GitHubError
+from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError
 from .runner import DEFAULT_LOGS_DIR
 from .state import StateStore
 from .tasks import TaskError
@@ -190,7 +190,7 @@ class Api:
                 boards.setdefault((project.board.owner, project.board.number), project.board)
         by_repo = {repo: p.name for p in self.config.projects for repo in p.repos}
         for board in boards.values():
-            for item in self.github.board_queue(board):
+            for item in self.github.board_items(board):
                 name = by_repo.get(item.repo)
                 if name is None or AGENT_LABEL not in item.labels or item.status not in QUEUE_COLUMNS:
                     continue
@@ -273,7 +273,7 @@ class Api:
             return "this project is paused: resume it first"
         if project.board is None:
             return "this project has no board"
-        status = next((i.status for i in self.github.board_queue(project.board)
+        status = next((i.status for i in self.github.board_items(project.board)
                        if i.repo == repo and i.number == int(number)), None)
         if status not in MERGEABLE_COLUMNS:
             return f"its task is in {status or 'no column'}, so no cycle would pick it up"
@@ -507,7 +507,7 @@ def main():
     except ConfigError as e:
         print(f"dashboard: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1
-    api = Api(config, StateStore(), GitHub(), DEFAULT_LOGS_DIR, os.environ.get(TOKEN_ENV), local_dir=args.local)
+    api = Api(config, StateStore(), GitHub(cache=BoardCache()), DEFAULT_LOGS_DIR, os.environ.get(TOKEN_ENV), local_dir=args.local)
     bind, port = config.settings.dashboard.bind, config.settings.dashboard.port
     server = ThreadingHTTPServer((bind, port), make_handler(api))
     print(f"dashboard: http://{bind}:{port}")

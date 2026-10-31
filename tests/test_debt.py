@@ -54,7 +54,7 @@ class DebtTest(unittest.TestCase):
             debt.add(self.config, self.github, "site", None, "T", "About secretname.", self.local)
 
     def test_list_shows_only_parked_agent_tasks_of_registered_repos(self):
-        self.github.board_queue.return_value = [item(), item("Backlog", 2), item(number=3, labels=()), item(number=4, repo="x/y")]
+        self.github.board_items.return_value = [item(), item("Backlog", 2), item(number=3, labels=()), item(number=4, repo="x/y")]
         self.assertEqual([i.number for i in debt.parked(self.config, self.github)], [1])
 
     def test_promote_moves_the_column_last(self):

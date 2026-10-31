@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
-from .github import AGENT_LABEL, GitHub, GitHubError
+from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError
 from .split import BACKLOG, find_item
 from .tasks import TaskError, check_task, check_text, find_project, set_fields
 
@@ -21,7 +21,7 @@ def parked(config, github):
         if project.board is not None:
             boards.setdefault((project.board.owner, project.board.number), project.board)
     repos = {repo for project in config.projects for repo in project.repos}
-    return [item for board in boards.values() for item in github.board_queue(board)
+    return [item for board in boards.values() for item in github.board_items(board)
             if item.status == TECHNICAL_DEBT and item.repo in repos and AGENT_LABEL in item.labels]
 
 
@@ -73,7 +73,7 @@ def main():
     args = parser.parse_args()
     try:
         config = load_config(args.local)
-        github = GitHub()
+        github = GitHub(cache=BoardCache())
         if args.command == "list":
             for item in parked(config, github):
                 print(f"{item.repo}#{item.number}: {item.title}")
