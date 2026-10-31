@@ -11,6 +11,7 @@ import re
 import sys
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -34,7 +35,9 @@ EVENT_PAGE = 500
 RUN_ID = re.compile(r"r-[\w-]+")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 MERGEABLE_COLUMNS = ("Ready", "In progress", "In review")  # the columns a cycle picks up
-QUEUE_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", TECHNICAL_DEBT)
+DONE = "Done"
+DONE_KEEP_DAYS = 5  # A finished task stays in the hive this long, so the recent work stays in sight.
+QUEUE_COLUMNS = (DONE, "Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", TECHNICAL_DEBT)
 TOOL_DETAIL_KEYS = ("file_path", "path", "pattern", "command")
 MAX_DETAIL = 200
 USER_DECIDES = "the user decides next"
@@ -101,6 +104,13 @@ def actions_in(line):
             detail = next((str(tool_input[k]) for k in TOOL_DETAIL_KEYS if k in tool_input), "")
             actions.append({"tool": part.get("name", ""), "detail": detail[:MAX_DETAIL]})
     return actions
+
+
+def closed_lately(item):
+    if not item.closed_at:
+        return False
+    closed = datetime.fromisoformat(item.closed_at.replace("Z", "+00:00"))
+    return datetime.now(timezone.utc) - closed < timedelta(days=DONE_KEEP_DAYS)
 
 
 class ApiError(Exception):
@@ -184,11 +194,13 @@ class Api:
                 name = by_repo.get(item.repo)
                 if name is None or AGENT_LABEL not in item.labels or item.status not in QUEUE_COLUMNS:
                     continue
+                if item.status == DONE and not closed_lately(item):
+                    continue
                 task = f"{item.repo}#{item.number}"
                 if item.status == split.NEEDS_SPLIT and self.store.last_event("task_split", task=task) is not None:
                     continue  # Accepted: it waits for nobody, and its slices stand for it until the last one closes it.
                 projects[name][item.status].append({"task": task, "title": item.title, "url": item.url})
-        return {"projects": projects}
+        return {"projects": projects, "done_days": DONE_KEEP_DAYS}
 
     def days(self, query):
         return {"days": self.store.days()}
@@ -285,6 +297,17 @@ class Api:
         self.store.record("user_approved", task=task, project=project.name, head_sha=pr["headRefOid"])
         return {"approved": pr["headRefOid"], "cycle_started": self.start_cycle()}
 
+    def task(self, query, owner, repo, number):
+        """What a task was and what it cost. An unreadable issue costs only its text, not the numbers."""
+        key = self._split_task(owner, repo, number)
+        try:
+            text = self.github.issue_text(f"{owner}/{repo}", int(number))
+        except GitHubError:
+            text = None
+        finished = self.store.last_event("task_finished", task=key)
+        return {"task": key, "issue": text, "outcome": finished and finished["outcome"],
+                "cost": self.store.task_cost(key)}
+
     def _split_task(self, owner, repo, number):
         full = f"{owner}/{repo}"
         if not number.isdigit() or not any(full in p.repos for p in self.config.projects):
@@ -356,6 +379,7 @@ ROUTES = [
     ("GET", "/events", Api.events),
     ("GET", "/stream", None),
     ("GET", "/runs/{run_id}", Api.run),
+    ("GET", "/tasks/{owner}/{repo}/{number}", Api.task),
     ("GET", "/reviews/{owner}/{repo}/{number}", Api.reviews),
     ("POST", "/reviews/{owner}/{repo}/{number}/approve", Api.approve),
     ("GET", "/splits/{owner}/{repo}/{number}", Api.split),

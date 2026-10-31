@@ -27,7 +27,7 @@ BOARD_QUEUE_QUERY = """query($owner: String!, $number: Int!, $after: String) {
     pageInfo { hasNextPage endCursor }
     nodes {
       fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
-      content { ... on Issue { number title url repository { nameWithOwner } labels(first: 50) { nodes { name } } } }
+      content { ... on Issue { number title url closedAt repository { nameWithOwner } labels(first: 50) { nodes { name } } } }
     }
   } } } }
 }"""
@@ -50,6 +50,7 @@ class BoardItem:
     kind: str = ""
     size: str = ""
     deadline: str = ""
+    closed_at: str = ""
 
 
 def run_gh(args):
@@ -137,7 +138,8 @@ class GitHub:
                 status = (node.get("fieldValueByName") or {}).get("name", "")
                 items.append(BoardItem(repo=content["repository"]["nameWithOwner"], number=content["number"],
                                        title=content["title"], url=content["url"], status=names.get(status, status),
-                                       labels=[label["name"] for label in content["labels"]["nodes"]], body=""))
+                                       labels=[label["name"] for label in content["labels"]["nodes"]], body="",
+                                       closed_at=content.get("closedAt") or ""))
             if not page["pageInfo"]["hasNextPage"] or len(items) >= BOARD_ITEM_LIMIT:
                 return items
             after = ["-f", f"after={page['pageInfo']['endCursor']}"]
@@ -207,6 +209,9 @@ class GitHub:
 
     def repo_is_public(self, repo):
         return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"
+
+    def issue_text(self, repo, number):
+        return self._json(["issue", "view", str(number), "--repo", repo, "--json", "title,body,url"])
 
     def issue_is_open(self, repo, number):
         data = self._json(["issue", "view", str(number), "--repo", repo, "--json", "state"])

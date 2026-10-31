@@ -181,6 +181,21 @@ class StateStore:
                 _add_tokens(report["roles"].setdefault(event["role"], _empty_tokens()), usage)
         return report
 
+    def task_cost(self, task):
+        """What one task spent over its whole life, in all and by role."""
+        report = {"total": _empty_tokens(), "runs": 0, "duration_ms": 0, "roles": {}}
+        for day in self.days():
+            for event in self.events(day):
+                if event["type"] != "run_finished" or event["task"] != task:
+                    continue
+                role = report["roles"].setdefault(event["role"], {"tokens": _empty_tokens(), "runs": 0, "duration_ms": 0})
+                for side, tokens in ((report, report["total"]), (role, role["tokens"])):
+                    side["runs"] += 1
+                    side["duration_ms"] += event["duration_ms"]
+                    for usage in event["models"].values():
+                        _add_tokens(tokens, usage)
+        return report
+
     def today(self):
         return datetime.now().astimezone().date().isoformat()
 

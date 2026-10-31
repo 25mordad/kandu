@@ -8,7 +8,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
@@ -80,6 +80,35 @@ class ReadTest(Base):
         self.store.record("task_split", task=f"{REPO}#1", project="website", children=[])
         tasks = self.get("/api/v1/queue")[1]["projects"]["website"]["Needs split"]
         self.assertEqual([t["task"] for t in tasks], [f"{REPO}#2"])
+
+    def test_a_done_task_stays_for_five_days(self):
+        def closed(number, days):
+            when = datetime.now(timezone.utc) - timedelta(days=days)
+            return BoardItem(REPO, number, "t", "u", "Done", ["agent"], "", closed_at=when.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        self.github.board_queue.return_value = [closed(1, 1), closed(2, 6), BoardItem(REPO, 3, "t", "u", "Done", ["agent"], "")]
+        answer = self.get("/api/v1/queue")[1]
+        self.assertEqual([t["task"] for t in answer["projects"]["website"]["Done"]], [f"{REPO}#1"])
+        self.assertEqual(answer["done_days"], 5)
+
+    def test_a_task_says_what_it_was_and_what_it_cost(self):
+        self.github.issue_text.return_value = {"title": "Big", "body": "Why", "url": "u"}
+        usage = {"opus": {"input": 10, "output": 20, "cache_read": 100, "cache_creation": 5}}
+        for role in ("worker", "reviewer", "worker"):
+            self.store.record("run_finished", task=f"{REPO}#1", project="website", run_id="r", role=role,
+                              models=usage, duration_ms=60000, is_error=False)
+        self.store.record("run_finished", task=f"{REPO}#2", project="website", run_id="r", role="worker",
+                          models=usage, duration_ms=60000, is_error=False)
+        self.store.record("task_finished", task=f"{REPO}#1", project="website", outcome="merged")
+        answer = self.get(f"/api/v1/tasks/{REPO}/1")[1]
+        self.assertEqual(answer["issue"]["body"], "Why")
+        self.assertEqual(answer["outcome"], "merged")
+        self.assertEqual((answer["cost"]["runs"], answer["cost"]["duration_ms"]), (3, 180000))
+        self.assertEqual(answer["cost"]["total"]["cache_read"], 300)
+        self.assertEqual(answer["cost"]["roles"]["worker"]["runs"], 2)
+
+    def test_a_task_outside_the_config_is_not_read(self):
+        self.assertEqual(self.get("/api/v1/tasks/x/y/1")[0], 404)
+        self.github.issue_text.assert_not_called()
 
     def test_queue_reads_one_board_once_and_is_cached(self):
         self.github.board_queue.return_value = []
@@ -518,6 +547,11 @@ class HiveTest(unittest.TestCase):
         for column in dashboard.QUEUE_COLUMNS:
             self.assertIn(f'"{column}":', flowers)
 
+    def test_a_finished_task_fills_the_comb_and_opens_its_cost(self):
+        self.assertIn('<div id="comb"', self.page)
+        self.assertIn('class="cell full" data-review=', self.page)
+        self.assertIn('get(`/tasks/${repo}/${number}`)', self.page)
+
     def test_the_meadow_is_the_first_tab(self):
         tabs = re.findall(r'data-tab="(\w+)"', self.page)
         self.assertEqual(tabs[0], "meadow")
@@ -528,6 +562,8 @@ class HiveTest(unittest.TestCase):
         kinds = re.search(r"const kinds = \[(.*?)\];", self.page).group(1)
         flowers = re.findall(r'^  "([\w ]+)":', re.search(r"const FLOWERS = \{(.*?)\n\};", self.page, re.DOTALL).group(1), re.MULTILINE)
         for column in flowers:
+            if column == dashboard.DONE:  # It leaves the field for the comb.
+                continue
             self.assertIn(f'"{column}"', kinds)
             if column != "Blocked":  # It wilts, and that is its sign.
                 self.assertIn(f'"{column}":', signs)

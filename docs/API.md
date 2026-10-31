@@ -11,12 +11,13 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | Method | Path | Answer |
 |---|---|---|
 | GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `timer_on`, `language`, `limits`, `queen` and `flowers` |
-| GET | `/api/v1/queue` | each project's board columns, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes |
+| GET | `/api/v1/queue` | each project's board columns, with `Done` holding only what closed in the last `done_days` days, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes |
 | GET | `/api/v1/days` | dates that have events |
 | GET | `/api/v1/days/{day}` | one day's tokens by task, model and role, and its finished tasks |
 | GET | `/api/v1/events` | a page of events; `day` (default: the last) and `after` (default: 0) |
 | GET | `/api/v1/stream` | new events as they happen, as Server-Sent Events |
 | GET | `/api/v1/runs/{run_id}` | what one agent run did: files read, commands, edits |
+| GET | `/api/v1/tasks/{owner}/{repo}/{number}` | a task's issue text, its outcome, and its runs, time and tokens by role |
 | GET | `/api/v1/reviews/{owner}/{repo}/{number}` | the PR of a task and each review round |
 | POST | `/api/v1/reviews/{owner}/{repo}/{number}/approve` | the user's yes to merge the PR's head, given as `?head=SHA`; a cycle starts |
 | GET | `/api/v1/splits/{owner}/{repo}/{number}` | the proposal to split a task that waits for the user, or `null` |
