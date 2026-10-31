@@ -29,7 +29,7 @@ class ReportError(Exception):
 def parse_report(text):
     """Takes the splitter's last message; returns its report."""
     text = text.strip()
-    fence = CODE_FENCE.match(text)
+    fence = CODE_FENCE.search(text)
     try:
         report = json.loads(fence.group(1) if fence else text)
     except json.JSONDecodeError as e:

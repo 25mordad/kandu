@@ -59,6 +59,7 @@ class ReportTest(unittest.TestCase):
 
     def test_a_report_in_a_code_fence_is_read(self):
         self.assertEqual(split.parse_report('```json\n{"size": "Small"}\n```'), {"size": "Small"})
+        self.assertEqual(split.parse_report('A line first.\n\n```json\n{"size": "Small"}\n```\n'), {"size": "Small"})
 
     def test_only_json_is_a_report(self):
         for text in ("not json", "[1]"):

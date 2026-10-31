@@ -15,7 +15,8 @@ CRITERION_RESULTS = ("met", "not_met", "not_shown")
 EARLIER_RESULTS = ("fixed", "not_fixed", "partly_fixed")
 REVIEW_MARKER = re.compile(r"<!-- kandu-review (\{.*?\}) -->", re.DOTALL)
 FIX_MARKER = re.compile(r"<!-- kandu-fix ([0-9a-f]+) -->")
-CODE_FENCE = re.compile(r"\A```(?:json)?\n(.*)\n```\Z", re.DOTALL)
+# The last thing in a reply. A model may write a line before it, however clearly it is told not to.
+CODE_FENCE = re.compile(r"(?:\A|\n)```(?:json)?\n((?:(?!```).)*)\n```\Z", re.DOTALL)
 
 
 class ReportError(Exception):
@@ -25,7 +26,7 @@ class ReportError(Exception):
 def parse_report(text):
     """Takes the reviewer's last message; returns the JSON object in it."""
     text = text.strip()
-    fence = CODE_FENCE.match(text)
+    fence = CODE_FENCE.search(text)
     try:
         report = json.loads(fence.group(1) if fence else text)
     except json.JSONDecodeError as e:
