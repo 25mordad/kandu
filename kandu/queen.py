@@ -7,6 +7,7 @@ the user or park a note the splitter reported. She cannot merge, deploy or pass 
 """
 RETRYABLE = ("failed", "blocked")
 LARGE = "Large"
+HIGH = "High"
 NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed", "sizing_failed")
 MOVED_ON = ("user_approved", "task_picked", "task_finished")
 COULD_NOT_FINISH = "The queen could not finish this look"
@@ -25,6 +26,8 @@ def since_last_look(store):
 
 
 def _is_news(event, before):
+    if event["type"] == "priority_raised":
+        return True
     if event["type"] == "task_finished":
         return event["outcome"] in NEEDS_A_LOOK
     if event["type"] == "project_checked":
@@ -77,11 +80,12 @@ def note_for(events, task):
     return notes[-1] if notes else None
 
 
-def why_no_release(item, startable, spent, limit, sized, group):
+def why_no_release(item, startable, spent, limit, sized, group, first=()):
     """Returns why this task may not leave Backlog, or None.
 
     `sized` is its `task_sized` event: the local log counts, as a worker can edit a board field.
     `group` is an unfinished group that comes before this task.
+    `first` holds the tasks of its project that go before any other.
     """
     if item.status != "Backlog":
         return "it is not in Backlog"
@@ -93,6 +97,8 @@ def why_no_release(item, startable, spent, limit, sized, group):
         return f"the group of {group} comes first"
     if not startable:
         return "another task blocks it"
+    if first and f"{item.repo}#{item.number}" not in first:
+        return f"{first[0]} goes first"
     if spent >= limit:
         return "its project reached its daily token limit"
     return None
