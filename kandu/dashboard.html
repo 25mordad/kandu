@@ -276,6 +276,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "approve_split": "Accept this split",
   "split_creating": "Creating the tasks…",
   "working": "Working…",
+  "reading_board": "Reading the boards…",
   "english_text": "English text",
   "approve_split_sure": "Create these slices as tasks on the board? Each one runs after the one before it.",
   "split_approved": "The slices are on the board.",
@@ -362,6 +363,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "approve_split": "قبول این شکستن",
   "split_creating": "در حال ساختن تسک‌ها…",
   "working": "در حال انجام…",
+  "reading_board": "در حال خواندن بردها…",
   "english_text": "متن انگلیسی",
   "approve_split_sure": "این تکه‌ها به‌صورت تسک روی برد ساخته شوند؟ هر کدام بعد از قبلی اجرا می‌شود.",
   "split_approved": "تکه‌ها روی برد ساخته شدند.",
@@ -853,7 +855,7 @@ function renderScene(state, queue) {
   const projects = fields(state, queue);
   const stopped = state.stop_requested;
   const asleep = stopped || state.supervisor !== "awake";
-  const key = JSON.stringify([narrow, lang, stopped, asleep, projects, state.workers, state.queen_run]);
+  const key = JSON.stringify([narrow, lang, stopped, asleep, !queue, projects, state.workers, state.queen_run]);
   if (key === sceneKey) return;
   sceneKey = key;
   const width = narrow ? 420 : 1200;
@@ -881,7 +883,7 @@ function renderScene(state, queue) {
     const spot = spots[worker.task];
     return speech(spot.x, spot.y - 46 - (i % 2) * 28, `${isFix(worker.phase) ? "↩ " : ""}${tr(worker.phase)}`, isFix(worker.phase));
   }).join("");
-  const note = projects.some(p => p.tasks.length) ? "" : `<text class="meadow-note" x="${width / 2}" y="${height - 30}">${t("empty_meadow")}</text>`;
+  const note = projects.some(p => p.tasks.length) ? "" : `<text class="meadow-note" x="${width / 2}" y="${height - 30}">${t(queue ? "empty_meadow" : "reading_board")}</text>`;
   box.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${t("hive")}" class="${stopped ? "paused" : ""}">
     <defs><linearGradient id="sky" x2="0" y2="1"><stop class="sky-top" offset="0"/><stop class="sky-low" offset="1"/></linearGradient></defs>
     <rect width="${width}" height="${height}" fill="url(#sky)"/>

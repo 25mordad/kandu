@@ -537,6 +537,9 @@ class HiveTest(unittest.TestCase):
         self.assertIn("() => post(path)", self.page)
         self.assertIn('t("split_creating")', self.page)
 
+    def test_an_unread_board_is_not_called_empty(self):
+        self.assertIn('t(queue ? "empty_meadow" : "reading_board")', self.page)
+
     def test_the_page_shows_the_queen_and_a_task_sent_back(self):
         self.assertIn("state.queen_run", self.page)
         self.assertIn("isFix(worker.phase)", self.page)
