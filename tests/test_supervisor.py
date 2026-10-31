@@ -1336,6 +1336,55 @@ class MergeTest(Base):
         self.assertEqual(self.events("project_checked"), [])
 
 
+class MergedWhileBlockedTest(Base):
+    def setUp(self):
+        super().setUp()
+        self.config.projects[0].deploy.live_url = ""
+        self.deploy = self.config.projects[0].deploy.command
+        self.github.add(1, "Blocked")
+        self.github.open_pr(REPO, 1, SHA1, state="MERGED")
+
+    def test_it_is_deployed_and_done(self):
+        self.cycle()
+        self.assertEqual(self.runner.commands, [(self.deploy, True)])
+        self.assertEqual(self.github.status(1), "Done")
+        self.assertEqual(self.events("task_finished")[-1]["outcome"], "merged")
+
+    def test_its_pr_is_not_merged_again(self):
+        self.cycle()
+        self.assertEqual(self.github.merges, [])
+
+    def test_an_open_pr_stays_blocked(self):
+        self.github.prs[(REPO, 1)]["state"] = "OPEN"
+        self.cycle()
+        self.assertEqual((self.runner.commands, self.github.status(1)), ([], "Blocked"))
+
+    def test_no_pr_stays_blocked(self):
+        del self.github.prs[(REPO, 1)]
+        self.cycle()
+        self.assertEqual((self.runner.commands, self.github.status(1)), ([], "Blocked"))
+
+    def test_a_failed_landing_is_not_repeated(self):
+        for outcome in ("deploy_failed", "live_check_failed"):
+            self.store.record("task_finished", task=f"{REPO}#1", project="website", outcome=outcome)
+            self.cycle()
+            self.assertEqual((self.runner.commands, self.github.status(1)), ([], "Blocked"))
+
+    def test_a_task_blocked_for_another_reason_lands(self):
+        self.store.record("task_finished", task=f"{REPO}#1", project="website", outcome="blocked")
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Done")
+
+    def test_a_paused_project_waits(self):
+        self.config.projects[0].paused = True
+        self.cycle()
+        self.assertEqual((self.runner.commands, self.github.status(1)), ([], "Blocked"))
+
+    def test_a_dry_run_names_it(self):
+        self.assertIn(f"{REPO}#1", self.sup.dry_run()[0])
+        self.assertEqual(self.runner.commands, [])
+
+
 class DryRunTest(Base):
     def test_no_agent_and_no_writes(self):
         self.github.add(1)
