@@ -82,7 +82,9 @@ def _memory(project, local_dir):
 
 
 def _project_facts(project):
-    facts = [f"- Test command: `{project.test}`"]
+    facts = [f"- Test command: `{project.test}`",
+             "- Repo guides: `CLAUDE.md` and `AGENTS.md` are not loaded for you. If the repo has them, search them "
+             "for what concerns this task and read those parts."]
     if project.forbidden:
         facts.append(f"- Forbidden areas: {', '.join(project.forbidden)}")
     if project.repo_rules:

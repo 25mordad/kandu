@@ -175,6 +175,7 @@ class RunnerTest(unittest.TestCase):
         args = (self.home / "claude.args").read_text().splitlines()
         self.assertIn("Bash(npm test *)", args)
         self.assertEqual(args[args.index("--permission-mode") + 1], "dontAsk")
+        self.assertEqual(args[args.index("--setting-sources") + 1], "user")
         self.assertEqual(args[args.index("--output-format") + 1], "stream-json")
         self.assertNotIn("--dangerously-skip-permissions", args)
         self.assertEqual((self.home / "claude.stdin").read_text(), "the prompt")
