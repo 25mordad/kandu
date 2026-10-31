@@ -1,10 +1,18 @@
 import json
+import tempfile
 import unittest
 
 from kandu.config import Board
-from kandu.github import GitHub, blockers_in, branch_for, is_companion, slugify
+from kandu.github import BOARD_CACHE_SECONDS, BoardCache, GitHub, GitHubError, blockers_in, branch_for, is_companion, slugify
 
 BOARD = Board(owner="acme", number=1)
+ISSUE = {"number": 3, "title": "t", "url": "u", "body": "b", "repository": {"nameWithOwner": "o/r"},
+         "labels": {"nodes": [{"name": "agent"}]}}
+
+
+def board_page(nodes, more=False):
+    return {"data": {"repositoryOwner": {"projectV2": {"items": {
+        "pageInfo": {"hasNextPage": more, "endCursor": "c"}, "nodes": nodes}}}}}
 
 
 class FakeGh:
@@ -71,29 +79,81 @@ class CompanionTest(unittest.TestCase):
         self.assertFalse(is_companion(self.pr("kandu/1-a"), "o/a", self.pr("kandu/2-b", number=2), "o/b"))
 
 
-class GitHubTest(unittest.TestCase):
-    def test_board_items_are_issues_only(self):
-        issue = {"type": "Issue", "repository": "o/r", "number": 3, "title": "t", "url": "u", "body": "b"}
-        gh = FakeGh({"items": [
-            {"content": issue, "status": "Ready", "labels": ["agent"]},
-            {"content": {"type": "DraftIssue", "title": "x"}, "status": "Ready"},
-            {"content": {"type": "PullRequest", "number": 4}, "status": "Ready"},
-        ]})
-        items = GitHub(gh).board_items(BOARD)
-        self.assertEqual([(i.repo, i.number, i.status, i.labels) for i in items], [("o/r", 3, "Ready", ["agent"])])
+class BoardCacheTest(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.now = 1000.0
+        self.cache = BoardCache(folder.name, clock=lambda: self.now)
+        self.page = board_page([{"content": ISSUE, "status": {"name": "Backlog"}}])
 
-    def test_board_queue_is_issues_only_across_pages(self):
-        issue = {"number": 3, "title": "t", "url": "u", "repository": {"nameWithOwner": "o/r"},
-                 "labels": {"nodes": [{"name": "agent"}]}}
-        board_page = lambda nodes, more: {"data": {"repositoryOwner": {"projectV2": {"items": {
-            "pageInfo": {"hasNextPage": more, "endCursor": "c"}, "nodes": nodes}}}}}
-        gh = FakeGh(
-            board_page([{"content": issue, "fieldValueByName": {"name": "Ready"}}, {"content": {}}], True),
-            board_page([{"content": issue | {"number": 4}, "fieldValueByName": None}], False),
-        )
-        items = GitHub(gh).board_queue(BOARD)
+    def test_every_process_shares_one_read(self):
+        gh = FakeGh(self.page)
+        GitHub(gh, self.cache).board_items(BOARD)
+        other = GitHub(FakeGh(), BoardCache(self.cache.root, clock=self.cache.clock))
+        self.assertEqual(other.board_items(BOARD)[0].labels, ["agent"])
+        self.assertEqual(len(gh.calls), 1)
+
+    def test_a_copy_too_old_is_read_again(self):
+        gh = FakeGh(self.page, self.page)
+        github = GitHub(gh, self.cache)
+        github.board_items(BOARD)
+        self.now += BOARD_CACHE_SECONDS
+        github.board_items(BOARD)
+        self.assertEqual(len(gh.calls), 2)
+
+    def test_a_write_lands_in_the_copy_and_keeps_its_age(self):
+        gh = FakeGh(self.page, "", "", self.page)
+        github = GitHub(gh, self.cache)
+        github.board_items(BOARD)
+        github.set_status(BOARD, "u", "Ready")
+        github.set_field(BOARD, "u", "Size", "Small")
+        item = github.board_items(BOARD)[0]
+        self.assertEqual((item.status, item.size), ("Ready", "Small"))
+        self.assertEqual(len(gh.calls), 3)
+        self.now += BOARD_CACHE_SECONDS
+        self.assertEqual(github.board_items(BOARD)[0].status, "Backlog")
+
+    def test_a_refused_write_leaves_the_copy_alone(self):
+        replies = [json.dumps(self.page)]
+
+        def run(args):
+            if args[0] == "project":
+                raise GitHubError("limit")
+            return replies.pop(0)
+
+        github = GitHub(run, self.cache)
+        github.board_items(BOARD)
+        with self.assertRaises(GitHubError):
+            github.set_status(BOARD, "u", "Ready")
+        self.assertEqual(github.board_items(BOARD)[0].status, "Backlog")
+
+    def test_what_the_copy_cannot_follow_drops_it(self):
+        for change in (lambda g: g.add_to_board(BOARD, "u"), lambda g: g.close_issue("o/r", 3),
+                       lambda g: g.edit_issue("o/r", 3, "t", "b")):
+            gh = FakeGh(self.page, "", self.page)
+            github = GitHub(gh, self.cache)
+            self.cache.forget()
+            github.board_items(BOARD)
+            change(github)
+            github.board_items(BOARD)
+            self.assertEqual(len(gh.calls), 3)
+
+    def test_a_broken_copy_is_read_again(self):
+        gh = FakeGh(self.page)
+        self.cache.root.joinpath(f"{BOARD.owner}-{BOARD.number}.json").write_text("{", encoding="utf-8")
+        self.assertEqual(GitHub(gh, self.cache).board_items(BOARD)[0].number, 3)
+
+
+class GitHubTest(unittest.TestCase):
+    def test_board_items_are_issues_only_across_pages(self):
+        gh = FakeGh(board_page([{"content": ISSUE, "status": {"name": "Ready"}, "size": {"name": "Small"},
+                                 "deadline": {"date": "2026-01-02"}}, {"content": {}}], True),
+                    board_page([{"content": ISSUE | {"number": 4}, "status": None}], False))
+        items = GitHub(gh).board_items(BOARD)
         self.assertEqual([(i.repo, i.number, i.status, i.labels) for i in items],
                          [("o/r", 3, "Ready", ["agent"]), ("o/r", 4, "", ["agent"])])
+        self.assertEqual((items[0].body, items[0].size, items[0].deadline), ("b", "Small", "2026-01-02"))
         self.assertEqual(gh.calls[1][-2:], ["-f", "after=c"])
 
     def test_set_status(self):

@@ -1,3 +1,4 @@
+import json
 import re
 import tempfile
 import unittest
@@ -102,7 +103,9 @@ class TaskTest(unittest.TestCase):
 class GitHubBoardTest(unittest.TestCase):
     def test_column_names_are_mapped_both_ways(self):
         board = Board("o", 1, columns={"Ready": "To do"})
-        reply = '{"items": [{"content": {"type": "Issue", "repository": "o/r", "number": 1, "title": "t", "url": "u"}, "status": "To do"}]}'
+        content = {"number": 1, "title": "t", "url": "u", "repository": {"nameWithOwner": "o/r"}, "labels": {"nodes": []}}
+        page = {"pageInfo": {"hasNextPage": False}, "nodes": [{"content": content, "status": {"name": "To do"}}]}
+        reply = json.dumps({"data": {"repositoryOwner": {"projectV2": {"items": page}}}})
         run = mock.Mock(return_value=reply)
         github = GitHub(run)
         self.assertEqual(github.board_items(board)[0].status, "Ready")
