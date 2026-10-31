@@ -136,6 +136,7 @@ class Api:
         self._queue_time = None
         self._queue_failed = False
         self._queue_finished = None
+        self._queue_versions = None
         self._queue_lock = threading.Lock()
 
     def state(self, query):
@@ -165,10 +166,12 @@ class Api:
         """Each project's columns. All pages share one read, and a failed read keeps the last good answer.
 
         A task that finished moved on the board, so it counts as asking for a fresh read.
+        So does a change to the shared copy: the supervisor writes each move there.
         """
         with self._queue_lock:  # A page that arrives during a read gets its result.
             finished = self.store.last_event("task_finished")
-            fresh = query.get("fresh") == ["1"] or finished != self._queue_finished
+            moved = self._board_versions() != self._queue_versions
+            fresh = query.get("fresh") == ["1"] or finished != self._queue_finished or moved
             wait = QUEUE_RETRY_SECONDS if self._queue_failed else QUEUE_FRESH_SECONDS if fresh else QUEUE_CACHE_SECONDS
             if self._queue_time is None or self.clock() - self._queue_time >= wait:
                 self._queue_time = self.clock()
@@ -176,20 +179,27 @@ class Api:
                 try:
                     self._queue = self._read_queue()
                     self._queue_failed = False
+                    self._queue_versions = self._board_versions()  # After the read, which may write the copy itself.
                 except GitHubError:
                     self._queue_failed = True
             if self._queue is None:
                 raise ApiError(502, "GitHub could not be read")
             return self._queue | {"stale": self._queue_failed}
 
-    def _read_queue(self):
-        projects = {p.name: {c: [] for c in QUEUE_COLUMNS} for p in self.config.projects}
+    def _boards(self):
         boards = {}
         for project in self.config.projects:
             if project.board is not None:
                 boards.setdefault((project.board.owner, project.board.number), project.board)
+        return list(boards.values())
+
+    def _board_versions(self):
+        return [self.github.board_version(board) for board in self._boards()]
+
+    def _read_queue(self):
+        projects = {p.name: {c: [] for c in QUEUE_COLUMNS} for p in self.config.projects}
         by_repo = {repo: p.name for p in self.config.projects for repo in p.repos}
-        for board in boards.values():
+        for board in self._boards():
             for item in self.github.board_items(board):
                 name = by_repo.get(item.repo)
                 if name is None or AGENT_LABEL not in item.labels or item.status not in QUEUE_COLUMNS:

@@ -1,6 +1,8 @@
 import json
+import os
 import tempfile
 import unittest
+from pathlib import Path
 
 from kandu.config import Board
 from kandu.github import BOARD_CACHE_SECONDS, BoardCache, GitHub, GitHubError, blockers_in, branch_for, is_companion, slugify
@@ -93,6 +95,22 @@ class BoardCacheTest(unittest.TestCase):
         other = GitHub(FakeGh(), BoardCache(self.cache.root, clock=self.cache.clock))
         self.assertEqual(other.board_items(BOARD)[0].labels, ["agent"])
         self.assertEqual(len(gh.calls), 1)
+
+    def test_a_write_by_another_process_changes_the_version(self):
+        gh = FakeGh(self.page, "")
+        github = GitHub(gh, self.cache)
+        self.assertIsNone(github.board_version(BOARD))
+        github.board_items(BOARD)
+        copy = next(Path(self.cache.root).glob("*.json"))
+        os.utime(copy, ns=(1, 1))  # File times are coarser than two writes in a row.
+        before = github.board_version(BOARD)
+        calls = len(gh.calls)
+        GitHub(gh, BoardCache(self.cache.root, clock=self.cache.clock)).set_status(BOARD, "u", "Ready")
+        self.assertNotEqual(github.board_version(BOARD), before)
+        self.assertEqual(len(gh.calls), calls + 1)  # The write itself; asking the version costs nothing.
+
+    def test_no_copy_has_no_version(self):
+        self.assertIsNone(GitHub(FakeGh()).board_version(BOARD))
 
     def test_a_copy_too_old_is_read_again(self):
         gh = FakeGh(self.page, self.page)

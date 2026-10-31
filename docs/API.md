@@ -11,7 +11,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | Method | Path | Answer |
 |---|---|---|
 | GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `timer_on`, `language`, `limits`, `queen` and `flowers` |
-| GET | `/api/v1/queue` | each project's board columns, with `Done` holding only what closed in the last `done_days` days, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes |
+| GET | `/api/v1/queue` | each project's board columns, with `Done` holding only what closed in the last `done_days` days, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes or moves |
 | GET | `/api/v1/days` | dates that have events |
 | GET | `/api/v1/days/{day}` | one day's tokens by task, model and role, and its finished tasks |
 | GET | `/api/v1/didban` | the last Didban sessions: when, title, tokens and what each did; counted in no limit |
@@ -50,7 +50,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
   "url": "https://github.com/acme-org/website/issues/13"}], "In progress": [], "In review": [],
   "Needs info": [], "Blocked": [], "Technical debt": []}}, "stale": false}
 ```
-`?fresh=1` reads the board now, at most once a minute, and a task that finished does the same. If GitHub fails, the answer is the last good one with `"stale": true`, and the next read waits 5 minutes; with no good one it is a `502`.
+`?fresh=1` reads the board now, at most once a minute, and a task that finished or moved does the same. If GitHub fails, the answer is the last good one with `"stale": true`, and the next read waits 5 minutes; with no good one it is a `502`.
 
 `GET /api/v1/days/2026-10-30`
 ```json
