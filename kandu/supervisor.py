@@ -36,6 +36,7 @@ RESUMED = (IN_PROGRESS, IN_REVIEW)
 MERGEABLE = ("approved", "approved_with_notes")
 SIZED_PER_CYCLE = 3  # A long Backlog must not hold up merges and resumed tasks.
 END_CHECK_MERGES = 2  # This many merges in a project in one cycle earn a check of the whole project.
+LANDING_FAILED = ("deploy_failed", "live_check_failed")
 ROOT = Path(__file__).resolve().parent.parent
 FAILURE_COMMENT = "Kandu could not finish this step and stopped here. The details are in its local log."
 
@@ -100,9 +101,13 @@ def read_tasks(config, github, paused=()):
             continue
         if item.status == READY and not _can_start(github, item):
             continue
-        tasks.append(Task(project, item.repo, item.number, item.title, item.url, item.status,
-                          branch_for(item.number, item.title)))
+        tasks.append(_task(project, item))
     return sorted(tasks, key=lambda t: t.order)
+
+
+def _task(project, item):
+    return Task(project, item.repo, item.number, item.title, item.url, item.status,
+                branch_for(item.number, item.title))
 
 
 def _can_start(github, item):
@@ -139,6 +144,18 @@ class Supervisor:
 
     def _read_tasks(self):
         return read_tasks(self.config, self.github, self.store.paused_projects())
+
+    def _merged_while_blocked(self):
+        """Tasks in `Blocked` whose PR someone merged. A failed deploy or live check stays for a person to look at."""
+        finished = {e["task"]: e["outcome"] for e in queen.all_events(self.store) if e["type"] == "task_finished"}
+        tasks = []
+        for project, item in self._board_items():
+            if item.status != BLOCKED or finished.get(f"{item.repo}#{item.number}") in LANDING_FAILED:
+                continue
+            pr = self.github.find_pr(item.repo, item.number)
+            if pr is not None and pr["state"] == "MERGED":
+                tasks.append(_task(project, item))
+        return tasks
 
     # Limits. Each of these is checked in code before any agent starts.
 
@@ -888,7 +905,7 @@ class Supervisor:
 
     def _work_through_board(self):
         try:
-            tasks = self._read_tasks()
+            tasks = self._read_tasks() + self._merged_while_blocked()
         except GitHubError as e:
             return f"could not read the boards: {e}"
         if not tasks:
@@ -905,7 +922,7 @@ class Supervisor:
         reason = self._gate()
         if reason is not None:
             return [f"would sleep: {reason}"]
-        tasks = self._read_tasks()
+        tasks = self._read_tasks() + self._merged_while_blocked()
         return [f"{t.key} [{t.status}] on {t.project.machine}: reachable={self.runner.reachable(t.project.machine)}"
                 for t in tasks] or ["would sleep: nothing ready"]
 
