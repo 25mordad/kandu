@@ -2,8 +2,8 @@
 
 She decides what starts and judges what stopped. Code decides when she wakes,
 so a quiet cycle costs no tokens, and code checks each decision before it
-happens. She can release a task from Backlog, send a stopped task back or ask
-the user. She cannot merge, deploy or pass a lock.
+happens. She can release a task from Backlog, send a stopped task back, ask
+the user or park a note the splitter reported. She cannot merge, deploy or pass a lock.
 """
 RETRYABLE = ("failed", "blocked")
 LARGE = "Large"
@@ -35,16 +35,27 @@ def _is_news(event, before):
     return False
 
 
+def unparked(events):
+    """Returns each note the splitter reported that has no task in `Technical debt` yet."""
+    parked = {(e["task"], e["finding"]) for e in events if e["type"] == "debt_parked"}
+    return [e for e in events if e["type"] == "debt_reported" and (e["task"], e["finding"]) not in parked]
+
+
 def worth_a_look(before, news, backlog, today, paused_repos=()):
     """`backlog` holds the Backlog tasks nothing blocks. She sees the same list only once a day.
 
     Pausing a project takes its tasks off the list, which is no reason to wake her.
+    A note she left unparked also gets one look a day.
     """
     if any(_is_news(event, before) for event in news):
         return True
+    looks = [e for e in before if e["type"] == "queen_finished"]
+    debts = [e for e in unparked(before + news) if e["task"].partition("#")[0] not in paused_repos]
+    if debts and (any(e["type"] == "debt_reported" for e in news) or not looks
+                  or not looks[-1]["ts"].startswith(today)):
+        return True
     if not backlog:
         return False
-    looks = [e for e in before if e["type"] == "queen_finished"]
     seen = [key for key in looks[-1]["backlog"] if key.partition("#")[0] not in paused_repos] if looks else []
     return (any(e["type"] == "task_finished" for e in news) or not looks
             or sorted(seen) != sorted(backlog) or not looks[-1]["ts"].startswith(today))

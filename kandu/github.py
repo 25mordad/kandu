@@ -19,7 +19,7 @@ BOARD_ITEM_LIMIT = 500
 BOARD_CACHE_DIR = Path(__file__).resolve().parent.parent / "state" / "boards"
 BOARD_CACHE_SECONDS = 60
 PR_SEARCH_LIMIT = 200
-PR_FIELDS = "number,title,state,url,body,changedFiles,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,statusCheckRollup"
+PR_FIELDS = "number,title,state,url,body,changedFiles,files,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,statusCheckRollup"
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 ISSUE_REFERENCE = re.compile(r"(?:(?<![\w.-])([\w.-]+/[\w.-]+))?#(\d+)")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)

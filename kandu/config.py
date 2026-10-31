@@ -94,7 +94,6 @@ class Supervisor:
     wake_every_minutes: int = 60
     max_cycle_minutes: int = 50
     max_parallel_workers: int = 2
-    max_review_rounds: int = 2
     auto_merge: bool = False
     auto_revert: bool = False
     queen: bool = True
@@ -303,7 +302,7 @@ def _check_settings(s, problems):
     if s.notify.adapter == "telegram" and s.notify.telegram is None:
         problems.append("notify.telegram: required when notify.adapter is telegram")
 
-    for name in ("wake_every_minutes", "max_cycle_minutes", "max_parallel_workers", "max_review_rounds",
+    for name in ("wake_every_minutes", "max_cycle_minutes", "max_parallel_workers",
                  "queen_max_retries", "queen_daily_token_limit"):
         _check_positive(getattr(s.supervisor, name), f"supervisor.{name}", problems)
     if s.supervisor.auto_revert:

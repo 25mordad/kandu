@@ -85,6 +85,35 @@ def validate_report(report, body):
         raise ReportError("report: only a Large task is split")
 
 
+def validate_notes(report, notes):
+    """Checks the sizes of a review's notes against the scale, as for a task."""
+    sized = report.get("notes")
+    if not isinstance(sized, list) or not all(isinstance(n, dict) and type(n.get("n")) is int for n in sized) \
+            or sorted(n["n"] for n in sized) != sorted(n["n"] for n in notes):
+        raise ReportError("report: every note needs exactly one size")
+    for item in sized:
+        where = f"note {item['n']}"
+        files = _facts(item, where)
+        if sizing.ORDER.index(item["size"]) < sizing.ORDER.index(sizing.smallest(0, files, item["door"])):
+            raise ReportError(f"{where}: too much for {item['size']}")
+        if not all(isinstance(item.get(k), str) and item[k].strip() for k in ("title", "body", "reason")):
+            raise ReportError(f"{where}: needs a title, a body and a reason")
+        try:
+            check_english(f"{item['title']}\n{item['body']}")
+        except TaskError as e:
+            raise ReportError(f"{where}: {e}") from e
+
+
+def unsized_notes(notes):
+    """Notes the splitter could not size must not hold the PR, so they count as too large for it."""
+    return [{"n": note["n"], "size": sizing.MEDIUM, "files": 0, "door": "two-way", "reason": "It could not be sized.",
+             "title": f"Review note on {note['path']}", "body": note["body"]} for note in notes]
+
+
+def stays_in_pr(note):
+    return note["size"] == sizing.SMALL and note["door"] == "two-way"
+
+
 def user_text(report):
     """The proposal in the user's language, or None. It is only read, so a bad one costs no more than the English."""
     text = report.get("user_text")

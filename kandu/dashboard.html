@@ -520,6 +520,12 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "Large": "بزرگ",
   "sizing": "اندازه‌گیری",
   "sizing_failed": "اندازه‌گیری نشد",
+  "sizing notes": "اندازه‌گیری یادداشت‌ها",
+  "notes_not_sized": "یادداشت‌ها اندازه‌گیری نشدند",
+  "notes_sized": "یادداشت‌ها اندازه‌گیری شدند",
+  "debt_reported": "یادداشت به ملکه گزارش شد",
+  "debt_parked": "یادداشت به بدهی فنی رفت",
+  "findings_dropped": "یافته‌های خارج از محدوده حذف شد",
   "oversized": "بزرگ‌تر از اندازه",
   "task_sized": "اندازه‌گیری شد",
   "task_split": "تسک شکسته شد",
@@ -817,7 +823,7 @@ function isFix(phase) { return /^fix round/.test(phase || ""); }
 
 function beeKind(phase) {
   if (/^review/.test(phase)) return "reviewer";
-  if (phase === "sizing") return "splitter";
+  if (/^sizing/.test(phase)) return "splitter";
   return phase === "live check" ? "scout" : "worker";
 }
 

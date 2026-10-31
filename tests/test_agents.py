@@ -77,17 +77,31 @@ class PromptTest(unittest.TestCase):
         (self.local / "memory" / "site.md").write_text("a lesson", encoding="utf-8")
         self.assertIn("a lesson", self.worker())
 
-    def test_reviewer_gets_the_head_earlier_findings_and_companions(self):
+    def test_reviewer_gets_the_head_criteria_and_companions(self):
         text = agents.reviewer_prompt(project(), "o/r", 12, 7, "abc123", "fa", [("o/b", 9)],
-                                      [{"n": 1, "body": "earlier one"}], 2, local_dir=self.local)
-        for part in ("`abc123`", "gh pr diff 7 --repo o/r", "fa", "o/b#9", "earlier one", "from 2"):
+                                      ["It stops"], 2, local_dir=self.local)
+        for part in ("`abc123`", "gh pr diff 7 --repo o/r", "fa", "o/b#9", "1. It stops", "from 2"):
             self.assertIn(part, text)
+
+    def test_a_second_review_gets_the_items_and_nothing_to_widen_them(self):
+        (self.local / "memory").mkdir()
+        (self.local / "memory" / "site.md").write_text("a lesson", encoding="utf-8")
+        text = agents.second_review_prompt("o/r", 12, 7, "abc123", "fa", [{"n": 1, "body": "item one"}])
+        self.assertIn("item one", text)
+        self.assertNotIn("a lesson", text)
+        self.assertNotIn("## Blockers", text)
 
 
 class QueenReportTest(unittest.TestCase):
     def test_a_good_report_is_taken(self):
         text = '{"brief": "b", "decisions": [{"task": "o/r#1", "action": "retry", "note": "n"}]}'
         self.assertEqual(agents.parse_queen_report(text)["brief"], "b")
+
+    def test_a_park_decision_names_its_note(self):
+        text = '{"brief": "b", "decisions": [{"task": "o/r#1", "action": "park", "finding": 2, "note": "n"}]}'
+        self.assertEqual(agents.parse_queen_report(text)["decisions"][0]["finding"], 2)
+        with self.assertRaises(agents.ReplyError):
+            agents.parse_queen_report(text.replace('"finding": 2, ', ""))
 
     def test_a_bad_report_is_refused(self):
         for text in ('no', '{}', '{"brief": "", "decisions": []}', '{"brief": "b"}',

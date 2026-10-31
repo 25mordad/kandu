@@ -14,7 +14,7 @@ ALWAYS_DENIED = ["Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)", "Read(*
                  "Bash(git push -f*)"]
 WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
 LIVE_RESULTS = ("pass", "fail")
-QUEEN_ACTIONS = ("release", "retry", "ask_user")
+QUEEN_ACTIONS = ("release", "retry", "ask_user", "park")
 
 
 class ReplyError(Exception):
@@ -94,7 +94,7 @@ def _project_facts(project):
 
 def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None, local_dir=DEFAULT_LOCAL_DIR,
                   queen_note=None):
-    """The first run gets the PR template; a fix round gets the open findings instead."""
+    """The first run gets the PR template; a fix round gets what the last review left for it instead."""
     facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- Your branch: `{branch}`",
              f"- For the `Kandu-Run:` line: `{run_id}`", *_project_facts(project)]
     parts = [_read("worker.md"), "## This task", *facts, *_memory(project, local_dir)]
@@ -103,23 +103,30 @@ def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None,
     if findings is None:
         parts += ["## PR template", _read("templates/pr.md")]
     else:
-        parts += [f"## Review findings on PR #{pr}", "A review came back. Push your fixes to the same branch.",
+        parts += [f"## Review findings on PR #{pr}", "A review came back. Fix these and push to the same branch.",
                   "```json", json.dumps(findings, ensure_ascii=False, indent=2), "```"]
     return "\n".join(parts)
 
 
-def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, still_open, first_n,
+def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, criteria, first_n,
                     local_dir=DEFAULT_LOCAL_DIR):
     facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- PR: #{pr}", f"- Head SHA: `{head_sha}`",
              f"- Diff: `gh pr diff {pr} --repo {repo}`", f"- Language of `user_brief`: {language}",
              f"- Number new findings from {first_n}", *_project_facts(project)]
     parts = [_read("reviewer.md"), "## This PR", *facts, *_memory(project, local_dir)]
+    if criteria:
+        parts += ["## Acceptance criteria", *[f"{i}. {text}" for i, text in enumerate(criteria, 1)]]
     if companions:
         parts += ["## Companion PRs", *[f"- {other}#{n}" for other, n in companions]]
-    if still_open:
-        parts += ["## Findings of the earlier rounds", "```json",
-                  json.dumps(still_open, ensure_ascii=False, indent=2), "```"]
     return "\n".join(parts)
+
+
+def second_review_prompt(repo, number, pr, head_sha, language, items):
+    """Only what the first review listed: this round needs no memory, criteria or companions."""
+    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- PR: #{pr}", f"- Head SHA: `{head_sha}`",
+             f"- Diff: `gh pr diff {pr} --repo {repo}`", f"- Language of `user_brief`: {language}"]
+    return "\n".join([_read("second-review.md"), "## This PR", *facts, "## The items", "```json",
+                      json.dumps(items, ensure_ascii=False, indent=2), "```"])
 
 
 def splitter_prompt(project, repo, number, language, local_dir=DEFAULT_LOCAL_DIR):
@@ -129,13 +136,22 @@ def splitter_prompt(project, repo, number, language, local_dir=DEFAULT_LOCAL_DIR
                       "## Issue template", _read("templates/issue.md"), *_memory(project, local_dir)])
 
 
-def queen_prompt(events, projects, retries, retry_limit, language, logs_dir, today):
+def notes_prompt(project, repo, number, pr, notes, local_dir=DEFAULT_LOCAL_DIR):
+    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- PR: #{pr}", *_project_facts(project)]
+    return "\n".join([_read("splitter-notes.md"), "## This PR", *facts, "## The size scale", *sizing.describe(),
+                      "## The notes", "```json", json.dumps(notes, ensure_ascii=False, indent=2), "```",
+                      *_memory(project, local_dir)])
+
+
+def queen_prompt(events, projects, retries, retry_limit, language, logs_dir, today, debts=()):
     facts = [f"- Today: {today}", f"- Language of the brief: {language}", f"- Logs folder: `{logs_dir}`",
              f"- Retries a task may have: {retry_limit}"]
     parts = [_read("queen.md"), "## This look", *facts, "## Projects", "```json",
              json.dumps(projects, ensure_ascii=False, indent=2), "```", "## Retries used", "```json",
              json.dumps(retries, ensure_ascii=False), "```", "## Events since your last look", "```json",
              json.dumps(events, ensure_ascii=False, indent=2), "```"]
+    if debts:
+        parts += ["## Notes to park", "```json", json.dumps(list(debts), ensure_ascii=False, indent=2), "```"]
     return "\n".join(parts)
 
 
@@ -174,6 +190,8 @@ def parse_queen_report(text):
         if not isinstance(decision.get("task"), str) or not isinstance(decision.get("note"), str) \
                 or not decision["note"].strip():
             raise ReplyError("queen decision has no task or note")
+        if decision["action"] == "park" and type(decision.get("finding")) is not int:
+            raise ReplyError("a park decision has no finding")
     return report
 
 
