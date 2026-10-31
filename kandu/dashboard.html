@@ -147,6 +147,13 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .sky-top { stop-color:var(--sky-top); } .sky-low { stop-color:var(--sky-low); }
 .hill { fill:var(--grass); } .hill.far { fill:var(--grass-deep); opacity:.7; }
 .soil { fill:var(--soil); opacity:.45; }
+.comb { line-height:1.4; padding:16px 20px; border-top:1px solid var(--line); }
+.comb b { display:block; margin-bottom:10px; }
+.cells { display:flex; flex-wrap:wrap; gap:4px; }
+.cell { width:76px; height:66px; border:0; padding:0 8px; background:var(--sunken); color:var(--on-honey); font:600 14px var(--sans); clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%); display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.cell.full { background:var(--honey); cursor:pointer; }
+.cell.full:hover { filter:brightness(1.08); }
+.cell small { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:400; font-size:10px; }
 .patch-off .bloom { filter:grayscale(.3); opacity:.8; }
 .patch-off .sway, .patch-off .wait-ring { animation:none; }
 .sign { fill:none; stroke:#3a2608; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
@@ -226,7 +233,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
       <div class="card pad" id="queenbox" hidden><h2 class="card-title" data-t="queen"></h2><div id="queen"></div></div>
     </div>
   </section>
-  <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="legend" class="legend"></div></section>
+  <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
   <section data-panel="days" class="list" hidden>
     <div class="toolbar"><select id="day" data-t-attr="aria-label" data-t="day"></select><div id="daytotals" class="chips"></div></div>
     <div id="byday" class="card"></div>
@@ -278,6 +285,14 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "split_creating": "Creating the tasks…",
   "working": "Working…",
   "reading_board": "Reading the boards…",
+  "done_in_hive": "{count} done in the last {days} days",
+  "cost_tokens": "Tokens used",
+  "cost_cached": "Read from cache",
+  "cost_role": "Who",
+  "cost_runs": "Runs",
+  "cost_time": "Time",
+  "cost_none": "No agent ran on this task.",
+  "minutes": "min",
   "english_text": "English text",
   "approve_split_sure": "Create these slices as tasks on the board? Each one runs after the one before it.",
   "split_approved": "The slices are on the board.",
@@ -366,6 +381,14 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "split_creating": "در حال ساختن تسک‌ها…",
   "working": "در حال انجام…",
   "reading_board": "در حال خواندن بردها…",
+  "done_in_hive": "{count} تسک انجام‌شده در {days} روز اخیر",
+  "cost_tokens": "توکن مصرف‌شده",
+  "cost_cached": "خوانده از کش",
+  "cost_role": "چه کسی",
+  "cost_runs": "اجرا",
+  "cost_time": "زمان",
+  "cost_none": "هیچ ایجنتی روی این تسک کار نکرد.",
+  "minutes": "دقیقه",
   "english_text": "متن انگلیسی",
   "approve_split_sure": "این تکه‌ها به‌صورت تسک روی برد ساخته شوند؟ هر کدام بعد از قبلی اجرا می‌شود.",
   "split_approved": "تکه‌ها روی برد ساخته شدند.",
@@ -555,7 +578,7 @@ const TEXT = JSON.parse($("text").textContent);
 const LIVE_LINES = 200;
 const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // What needs the user comes first.
-const COLUMN_ORDER = ["Your approval", "Needs info", "Needs split", "Approved", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog", "Technical debt"];
+const COLUMN_ORDER = ["Your approval", "Needs info", "Needs split", "Approved", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog", "Technical debt", "Done"];
 let lang = "en", tab = "meadow", shownRun = null, shownTask = null, confirming = false, live = [], token = "";
 let lastState = null, lastQueue = null, sceneKey = null, listKey = null, briefOpen = false, closed = new Set();
 const saved = key => { try { return localStorage.getItem(key); } catch { return null; } };
@@ -696,6 +719,7 @@ const FLOWERS = {
   "Needs split": {swatch: "#e0689a", petal: "#e0689a"},
   "Blocked": {swatch: "#d9604f"},
   "Technical debt": {swatch: "#7a8a45"},
+  "Done": {swatch: "#c98f00"},
   "waiting": {swatch: "#a8a297"},
   "Your approval": {swatch: "#e8590c", petal: "#f5c518", heart: "#5b3a16"},
   "Approved": {swatch: "#2f8a4e", petal: "#8fd19e", heart: "#2f8a4e"},
@@ -705,7 +729,7 @@ const PETALS = [0, 60, 120, 180, 240, 300];
 const RAYS = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
 const CROWN = "M-7 -5 l3.5 4 3.5 -5 3.5 5 3.5 -4 v8 h-14z";
 const SCALES = {Small: .72, Medium: 1, Large: 1.4};
-const CELL_W = 72, CELL_H = 124;
+const CELL_W = 72, CELL_H = 124, COMB_ROW = 12;
 const CHECK = '<path class="sign light" d="M-4.5 0 L-1 3.5 L5 -3.5"/>';
 const SIGNS = {
   "Backlog": `<path class="sign" fill="#f5b301" transform="translate(0 -7) scale(.8)" d="${CROWN}"/>`,
@@ -858,6 +882,14 @@ function placePatches(projects, narrow) {
   return Math.max(...columns.map(c => c.y));
 }
 
+// A finished task leaves the field and fills a cell of the comb under it.
+function renderComb(done, days) {
+  const free = Math.max(COMB_ROW - done.length % COMB_ROW, 0) % COMB_ROW + (done.length ? 0 : COMB_ROW);
+  const full = done.map(item => `<button class="cell full" data-review="${esc(item.task)}" title="${esc(item.title)}">${numberOf(item.task)}<small>${esc(item.project)}</small></button>`);
+  const label = days ? t("done_in_hive").replace("{count}", num(done.length)).replace("{days}", num(days)) : "";
+  $("comb").innerHTML = `<b>${t("hive")}${label ? ` · ${label}` : ""}</b><div class="cells">${full.join("")}${'<span class="cell"></span>'.repeat(free)}</div>`;
+}
+
 function renderScene(state, queue) {
   if (tab !== "meadow") return;
   const box = $("scene");
@@ -869,6 +901,8 @@ function renderScene(state, queue) {
   if (key === sceneKey) return;
   sceneKey = key;
   const width = narrow ? 420 : 1200;
+  const done = projects.flatMap(patch => patch.tasks.filter(item => item.column === "Done").map(item => ({...item, project: patch.name})));
+  projects.forEach(patch => { patch.tasks = patch.tasks.filter(item => item.column !== "Done"); });
   const height = Math.max(placePatches(projects, narrow) + 34, narrow ? 300 : 420);
   const home = narrow ? {x: 210, y: 140} : {x: 600, y: Math.round(height * .5)};
   const spots = {};
@@ -893,7 +927,7 @@ function renderScene(state, queue) {
     const spot = spots[worker.task];
     return speech(spot.x, spot.y - 46 - (i % 2) * 28, `${isFix(worker.phase) ? "↩ " : ""}${tr(worker.phase)}`, isFix(worker.phase));
   }).join("");
-  const note = projects.some(p => p.tasks.length) ? "" : `<text class="meadow-note" x="${width / 2}" y="${height - 30}">${t(queue ? "empty_meadow" : "reading_board")}</text>`;
+  const note = done.length || projects.some(p => p.tasks.length) ? "" : `<text class="meadow-note" x="${width / 2}" y="${height - 30}">${t(queue ? "empty_meadow" : "reading_board")}</text>`;
   box.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${t("hive")}" class="${stopped ? "paused" : ""}">
     <defs><linearGradient id="sky" x2="0" y2="1"><stop class="sky-top" offset="0"/><stop class="sky-low" offset="1"/></linearGradient></defs>
     <rect width="${width}" height="${height}" fill="url(#sky)"/>
@@ -901,6 +935,7 @@ function renderScene(state, queue) {
     <path class="hill" d="M0 125 Q${width * .4} 75 ${width} 120 V${height} H0z"/>
     ${hive(home.x, home.y, asleep, state.queen_run)}${patches}${bees}${talk}${note}</svg>`;
   if (stopped) box.firstElementChild.pauseAnimations();
+  renderComb(done, queue?.done_days);
 }
 
 function renderLegend() {
@@ -1083,6 +1118,15 @@ function roundBox(round, open) {
   </div></details>`;
 }
 
+function doneBox(info) {
+  const counted = tokens => tokens.total - tokens.cache_read;  // As the daily limit counts them.
+  const minutes = ms => `${num(Math.max(1, Math.round(ms / 60000)))} ${t("minutes")}`;
+  const roles = Object.entries(info.cost.roles).map(([role, used]) => `<tr><td>${esc(tr(role))}</td><td class="fit number">${num(used.runs)}</td><td class="fit number">${minutes(used.duration_ms)}</td><td class="fit number">${num(counted(used.tokens))}</td></tr>`).join("");
+  return `${info.issue ? `<div class="slice-body" dir="auto">${esc(info.issue.body)}</div>` : ""}
+    <div class="chips">${info.outcome ? `<span class="chip">${esc(tr(info.outcome))}</span>` : ""}<span class="chip">${t("cost_tokens")}: ${num(counted(info.cost.total))}</span><span class="chip">${t("cost_cached")}: ${num(info.cost.total.cache_read)}</span></div>
+    ${roles ? `<table class="rows"><thead><tr><th>${t("cost_role")}</th><th class="fit">${t("cost_runs")}</th><th class="fit">${t("cost_time")}</th><th class="fit">${t("tokens")}</th></tr></thead><tbody>${roles}</tbody></table>` : `<p class="muted">${t("cost_none")}</p>`}`;
+}
+
 function queued(task) {
   return Object.values(lastQueue?.projects || {}).flatMap(columns => Object.entries(columns).flatMap(([column, tasks]) => tasks.map(item => ({...item, column})))).find(item => item.task === task);
 }
@@ -1122,18 +1166,19 @@ async function showReviews(task) {
   shownRun = null;
   const [repo, number] = task.split("#");
   const item = queued(task);
-  const [r, proposal] = await Promise.all([get(`/reviews/${repo}/${number}`),
-    item?.column === "Needs split" ? get(`/splits/${repo}/${number}`).then(s => s.split) : null]);
+  const [r, proposal, info] = await Promise.all([get(`/reviews/${repo}/${number}`),
+    item?.column === "Needs split" ? get(`/splits/${repo}/${number}`).then(s => s.split) : null,
+    item?.column === "Done" ? get(`/tasks/${repo}/${number}`) : null]);
   if (shownTask !== task) return;
   const link = (url, label) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${label} ↗</a>`;
   if (!r.pr) {
     openModal(`${numberOf(task)} ${bdi(item?.title || repoOf(task))}`);
-    $("modalbody").innerHTML = `<div class="actions">${item ? badge(item.column) : ""}<span class="muted">${t("no_pr")}</span></div>${proposal ? splitBox(task, proposal) : ""}${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}`;
+    $("modalbody").innerHTML = `<div class="actions">${item ? badge(item.column) : ""}<span class="muted">${t("no_pr")}</span></div>${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}`;
     return;
   }
-  openModal(`${numberOf(task)} ${bdi(r.pr.title)}`);
+  openModal(`${numberOf(task)} ${bdi(item?.title || r.pr.title)}`);
   $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? badge(item.column) : ""}</div>
-    ${proposal ? splitBox(task, proposal) : ""}
+    ${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}
     <div class="actions">${approval(task, r.pr)}${link(r.pr.url, t("open_github"))}</div>
     ${r.rounds.slice().reverse().map((round, i) => roundBox(round, i === 0)).join("")}`;
 }
