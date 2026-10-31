@@ -205,7 +205,7 @@ Note on the trade-off: a container does not by itself use more tokens, since tok
 v1:
 - No container, no separate OS user. Kandu runs as the user.
 - A separate work folder for Kandu's clones, never mixed with the user's own working copies.
-- Free guards: a command allowlist built in code for each run ([kandu/agents.py](kandu/agents.py)), `--permission-mode dontAsk` so anything else is refused, a list of forbidden paths (e.g. `~/.ssh`, other projects' private data), and never `--dangerously-skip-permissions`.
+- Free guards: a command allowlist built in code for each run ([kandu/agents.py](kandu/agents.py)), `--permission-mode dontAsk` so anything else is refused, `--setting-sources user` so a repo's own `.claude/settings.json` cannot widen that allowlist, a list of forbidden paths (e.g. `~/.ssh`, other projects' private data), and never `--dangerously-skip-permissions`. The same flag stops the repo's `CLAUDE.md` loading by itself, so the prompt tells an agent to search it for what its task needs.
 - In the code, running a worker sits behind its own layer ([kandu/runner.py](kandu/runner.py)), so isolation can be added later by swapping only that layer.
 - Stopping an agent over SSH ends the local connection; the remote process dies at its next write to it, not at once.
 

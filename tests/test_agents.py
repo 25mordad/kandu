@@ -61,7 +61,8 @@ class PromptTest(unittest.TestCase):
 
     def test_first_run_has_the_facts_and_the_pr_template(self):
         text = self.worker()
-        for part in ("`o/r`", "#12", "`kandu/12-a`", "`r-1`", "`npm test`", "migrations/", "## Blast radius"):
+        for part in ("`o/r`", "#12", "`kandu/12-a`", "`r-1`", "`npm test`", "migrations/", "## Blast radius",
+                     "`CLAUDE.md`"):
             self.assertIn(part, text)
 
     def test_a_fix_round_has_the_findings_and_no_template(self):

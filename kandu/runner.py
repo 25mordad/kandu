@@ -176,6 +176,8 @@ class Runner:
         """
         command = ["claude", "-p", "--output-format", "stream-json", "--verbose",
                    "--no-session-persistence", "--permission-mode", "dontAsk",
+                   # A repo's own allow list must not widen what this run may do.
+                   "--setting-sources", "user",
                    *(["--model", model] if model else []),
                    "--allowedTools", *allowed, "--disallowedTools", *denied]
         self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
