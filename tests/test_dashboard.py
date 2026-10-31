@@ -532,6 +532,10 @@ class HiveTest(unittest.TestCase):
             if column != "Blocked":  # It wilts, and that is its sign.
                 self.assertIn(f'"{column}":', signs)
 
+    def test_technical_debt_is_counted_and_its_weeds_are_not_called_unsized(self):
+        self.assertIn('columns["Technical debt"].length', self.page)
+        self.assertIn('size || item.column === "Technical debt"', self.page)
+
     def test_every_action_shows_it_is_working(self):
         self.assertEqual(self.page.count("post("), 2)  # Its definition, and the one call in `act`.
         self.assertIn("() => post(path)", self.page)

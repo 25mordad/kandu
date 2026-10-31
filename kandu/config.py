@@ -18,7 +18,8 @@ DEFAULT_LOCAL_DIR = Path(__file__).resolve().parent.parent / "local"
 SSH_REACH = re.compile(r"ssh \w[\w.@-]*")
 ROLES = ("worker", "reviewer", "splitter", "live_check", "queen")
 MODEL = re.compile(r"[a-z][\w.\[\]-]*")  # It reaches `claude --model`, so it cannot be a flag.
-BOARD_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", "Done")
+TECHNICAL_DEBT = "Technical debt"
+BOARD_COLUMNS = ("Backlog", TECHNICAL_DEBT, "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", "Done")
 BOARD_FIELDS = {"Priority": ("High", "Medium", "Low"), "Kind": ("Bug", "Feature", "Chore"),
                 "Size": ("Small", "Medium", "Large")}
 DEADLINE_FIELD = "Deadline"

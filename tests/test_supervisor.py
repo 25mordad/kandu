@@ -509,6 +509,12 @@ class QueenPacesTest(Base):
         self.assertEqual(self.events("queen_decided")[0]["action"], "release")
         self.assertIn("Mind the old links.", self.runner.runs[1].prompt)
 
+    def test_no_agent_sees_a_parked_task(self):
+        self.github.add(1, "Technical debt", size="")
+        self.cycle()
+        self.assertEqual(self.runner.runs, [])
+        self.assertEqual(self.github.status(1), "Technical debt")
+
     def test_she_sees_fields_and_never_a_task_body(self):
         self.github.add(1, "Backlog", body="SECRET BODY", priority="High", deadline="2030-01-02")
         self.runner.steps = [self.reply()]

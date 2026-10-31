@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import queen, questions, review, split, timer
-from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
+from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .github import AGENT_LABEL, GitHub, GitHubError
 from .runner import DEFAULT_LOGS_DIR
 from .state import StateStore
@@ -34,7 +34,7 @@ EVENT_PAGE = 500
 RUN_ID = re.compile(r"r-[\w-]+")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 MERGEABLE_COLUMNS = ("Ready", "In progress", "In review")  # the columns a cycle picks up
-QUEUE_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked")
+QUEUE_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", TECHNICAL_DEBT)
 TOOL_DETAIL_KEYS = ("file_path", "path", "pattern", "command")
 MAX_DETAIL = 200
 USER_DECIDES = "the user decides next"

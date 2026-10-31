@@ -202,6 +202,9 @@ class GitHub:
         return self._run(["issue", "create", "--repo", repo, "--title", title, "--body", body,
                           "--label", AGENT_LABEL]).strip()
 
+    def edit_issue(self, repo, number, title, body):
+        self._run(["issue", "edit", str(number), "--repo", repo, "--title", title, "--body", body])
+
     def repo_is_public(self, repo):
         return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"
 
