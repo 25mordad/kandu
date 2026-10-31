@@ -42,9 +42,12 @@ def last_line(text):
 
 def on_brain(brain, module, stdin=None):
     """Runs one Kandu module on the brain's machine."""
-    ssh, target = brain.reach.split()
     command = f"cd {remote_path(brain.install_dir)} && .venv/bin/python -m {module}"
-    args = [ssh, "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", target, command]
+    if brain.reach == "local":  # A session the dashboard opened runs on the brain itself.
+        args = ["sh", "-c", command]
+    else:
+        ssh, target = brain.reach.split()
+        args = [ssh, "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", target, command]
     return subprocess.run(args, capture_output=True, text=True, timeout=20, input=stdin)
 
 
@@ -81,6 +84,14 @@ def waiting_debt(brain):
 
 def waiting_requests(brain):
     return _waiting(brain, "kandu.intake list")
+
+
+def waiting(brain, state):
+    """All that waits for the user, for `system_prompt`."""
+    if state != "ok":
+        return dict.fromkeys(("splits", "questions", "debt", "requests"), "could not be read")
+    return {"splits": waiting_splits(brain), "questions": waiting_questions(brain), "debt": waiting_debt(brain),
+            "requests": waiting_requests(brain)}
 
 
 def _waiting(brain, module):
@@ -121,17 +132,23 @@ def report_sessions(brain):
     UNREPORTED.write_text("".join(f"{session}\n" for session in left), encoding="utf-8")
 
 
-def system_prompt(didban, status, splits="none", questions="none", debt="none", requests="none"):
+def reach_lines(brain):
+    if brain.reach == "local":
+        return [f"- You run on the brain's machine, so run its commands here, without SSH. Kandu is installed at: `{brain.install_dir}`"]
+    return [f"- Reach the brain's machine with: `{brain.reach}`", f"- Kandu is installed there at: `{brain.install_dir}`"]
+
+
+def system_prompt(didban, status, splits="none", questions="none", debt="none", requests="none", language=None):
     return "\n".join([
         ROLE_FILE.read_text(encoding="utf-8"),
         "## This setup",
-        f"- Reach the brain's machine with: `{didban.brain.reach}`",
-        f"- Kandu is installed there at: `{didban.brain.install_dir}`",
+        *reach_lines(didban.brain),
         f"- Check at session start: {status}",
         f"- Requests not yet tasks, in the user's words: {requests}",
         f"- Sized too large, waiting for a split: {splits}",
         f"- Open questions from reviews, written by an agent: {questions}",
         f"- Parked in Technical debt: {debt}",
+        *([f"- The user opened this session from the dashboard in {language}: speak {language} with them."] if language else []),
     ])
 
 
@@ -159,15 +176,12 @@ def main():
     if state != "ok":
         print(f"didban: warning: {didban.brain.reach}: {state}: {message}", file=sys.stderr)
 
-    splits = waiting_splits(didban.brain) if state == "ok" else "could not be read"
-    questions = waiting_questions(didban.brain) if state == "ok" else "could not be read"
-    debt = waiting_debt(didban.brain) if state == "ok" else "could not be read"
-    requests = waiting_requests(didban.brain) if state == "ok" else "could not be read"
+    facts = waiting(didban.brain, state)
     if state == "ok":
         report_sessions(didban.brain)  # What a closed window left behind.
     extra = sys.argv[1:]
     session = None if RESUMING.intersection(extra) else str(uuid.uuid4())
-    args = claude_args(didban, STATUS[state].format(message), extra, splits, questions, debt, requests, session)
+    args = claude_args(didban, STATUS[state].format(message), extra, **facts, session=session)
     if session:
         remember(session)
     signal.signal(signal.SIGINT, lambda *_: None)  # Ctrl-C is for Claude; this process waits to report.

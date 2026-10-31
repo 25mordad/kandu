@@ -93,6 +93,8 @@ class StateStore:
         self.splits_dir = self.root / "splits"
         self.requests_dir = self.root / "requests"
         self.didban_dir = self.root / "didban"
+        self.flights_dir = self.root / "flights"
+        self.flown_dir = self.root / "flown"
         self.listeners = []  # Called with each event once it is in the log.
 
     def _make_dirs(self):
@@ -271,6 +273,49 @@ class StateStore:
             return []
         sessions = [json.loads(path.read_text(encoding="utf-8")) for path in self.didban_dir.glob("*.json")]
         return sorted(sessions, key=lambda s: s.get("started") or "")
+
+    def _write_private(self, directory, name, text):
+        """In one step, as a page may read the file at any moment."""
+        self._make_dirs()
+        directory.mkdir(mode=0o700, exist_ok=True)
+        path = directory / name
+        spare = path.with_suffix(".tmp")
+        spare.write_text(text, encoding="utf-8")
+        spare.chmod(0o600)
+        spare.replace(path)
+        return path
+
+    def flight_socket(self, key):
+        return self.flights_dir / f"{key}.sock"
+
+    def write_flight(self, record):
+        self._write_private(self.flights_dir, f"{record['key']}.json", json.dumps(record, ensure_ascii=False))
+
+    def write_flight_prompt(self, key, text):
+        return self._write_private(self.flights_dir, f"{key}.md", text)
+
+    def flight(self, key):
+        path = self.flights_dir / f"{key}.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def flights(self):
+        if not self.flights_dir.exists():
+            return []
+        found = [json.loads(path.read_text(encoding="utf-8")) for path in self.flights_dir.glob("*.json")]
+        return sorted(found, key=lambda f: f["started"])
+
+    def forget_flight(self, key):
+        for name in (f"{key}.json", f"{key}.md", f"{key}.sock"):
+            (self.flights_dir / name).unlink(missing_ok=True)
+
+    def write_flown(self, summary):
+        self._write_private(self.flown_dir, f"{summary['id']}.json", json.dumps(summary, ensure_ascii=False))
+
+    def flown(self):
+        if not self.flown_dir.exists():
+            return []
+        found = [json.loads(path.read_text(encoding="utf-8")) for path in self.flown_dir.glob("*.json")]
+        return sorted(found, key=lambda s: s.get("started") or "")
 
     def worker_stop_file(self, run_id):
         return self.worker_stops_dir / run_id

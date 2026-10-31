@@ -8,6 +8,8 @@ state/
   events/2026-10-30.jsonl what happened that day, one JSON event per line
   requests/<id>.json      what the user asked for, until it is tasks
   didban/<session>.json   what one Didban session spent and did
+  flights/<key>.json      a session opened from the dashboard: its link, with its tmux socket and prompt beside it
+  flown/<session>.json    what one free flight spent and did, after it ended
 ```
 
 ## Rules
