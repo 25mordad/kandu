@@ -51,6 +51,7 @@ Every task is designed and checked against harness, context and memory (§14).
 42. [x] Didban takes each request, keeps it until it is tasks, and reads the code before scoping; a `Large` task does not reach the board (§2, §13)
 43. [x] Change the 5-hour and weekly limits on the dashboard at any time (§7)
 44. [x] The dashboard shows each Didban session: when, tokens and what it did, in no project's limits (§13)
+45. [x] A flower changes when its task moves, without the board-read button: the page follows the shared copy, at most once a minute (§7)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

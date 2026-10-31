@@ -99,6 +99,13 @@ class BoardCache:
         temporary.write_text(json.dumps({"read_at": read_at, "items": [asdict(i) for i in items]}), encoding="utf-8")
         os.replace(temporary, self._path(board))
 
+    def version(self, board):
+        """Changes with every write of the copy, whichever process made it."""
+        try:
+            return self._path(board).stat().st_mtime_ns
+        except OSError:
+            return None
+
     def fresh(self, board):
         """The board's items, or None if the copy is missing or too old."""
         found = self._load(board)
@@ -180,6 +187,10 @@ class GitHub:
 
     def _json(self, args):
         return json.loads(self._run(args))
+
+    def board_version(self, board):
+        """Changes when any process changes the shared copy of the board. Asks GitHub nothing."""
+        return None if self._cache is None else self._cache.version(board)
 
     def board_items(self, board):
         """Returns the issues on a board, from the shared copy while it is fresh."""

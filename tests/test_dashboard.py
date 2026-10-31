@@ -159,6 +159,35 @@ class ReadTest(Base):
         self.get("/api/v1/queue")
         self.assertEqual(self.github.board_items.call_count, reads)
 
+    def test_a_moved_task_shows_within_a_minute(self):
+        self.github.board_version.return_value = 1
+        self.github.board_items.return_value = [
+            BoardItem(repo=REPO, number=1, title="t", url="u", status="Ready", labels=["agent"], body="")]
+        self.assertEqual(len(self.get("/api/v1/queue")[1]["projects"]["website"]["Ready"]), 1)
+        self.github.board_version.return_value = 2
+        self.github.board_items.return_value = [
+            BoardItem(repo=REPO, number=1, title="t", url="u", status="In progress", labels=["agent"], body="")]
+        self.time[0] = 59
+        self.assertEqual(len(self.get("/api/v1/queue")[1]["projects"]["website"]["Ready"]), 1)
+        self.time[0] = 60
+        self.assertEqual(len(self.get("/api/v1/queue")[1]["projects"]["website"]["In progress"]), 1)
+
+    def test_an_unmoved_board_is_not_read_again(self):
+        self.github.board_version.return_value = 1
+        self.github.board_items.return_value = []
+        self.get("/api/v1/queue")
+        self.time[0] = 899
+        self.get("/api/v1/queue")
+        self.assertEqual(self.github.board_items.call_count, 1)
+
+    def test_a_read_that_writes_the_copy_does_not_ask_for_another(self):
+        self.github.board_version.side_effect = [None, 7, 7, 7]
+        self.github.board_items.return_value = []
+        self.get("/api/v1/queue")
+        self.time[0] = 899
+        self.get("/api/v1/queue")
+        self.assertEqual(self.github.board_items.call_count, 1)
+
     def test_fresh_queue_is_limited_to_one_read_a_minute(self):
         self.github.board_items.return_value = []
         self.get("/api/v1/queue")
