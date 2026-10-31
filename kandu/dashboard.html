@@ -185,6 +185,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     <span class="spacer"></span>
     <button id="stop" class="btn danger" data-t="stop"></button>
     <button id="resume" class="btn primary" data-t="resume" hidden></button>
+    <button id="reload" class="btn plain" data-t="read_board"></button>
     <button id="lang" class="btn plain" lang="" data-t="other_language"></button>
   </div>
   <nav class="tabs" role="tablist">
@@ -233,6 +234,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "other_language": "فارسی",
   "loading": "loading",
   "control_token": "control token",
+  "read_board": "Read the board",
   "stop": "Stop",
   "resume": "Resume",
   "pause_project": "Pause project",
@@ -307,6 +309,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "other_language": "English",
   "loading": "در حال بارگذاری",
   "control_token": "توکن کنترل",
+  "read_board": "خواندن تخته",
   "stop": "توقف",
   "resume": "ادامه",
   "pause_project": "توقف پروژه",
@@ -847,11 +850,12 @@ function renderProjects() {
     || `<div class="card empty">${t(words.length ? "no_match" : "empty_meadow")}</div>`;
 }
 
-async function refreshQueue(state) {
+async function refreshQueue(state, fresh) {
   try {
-    lastQueue = await get("/queue");
+    lastQueue = await get(fresh ? "/queue?fresh=1" : "/queue");
     renderProjects();
     renderScene(state, lastQueue);
+    if (lastQueue.stale) toast(t("github_unreadable"));
   } catch { toast(t("github_unreadable")); }
 }
 
@@ -1004,6 +1008,7 @@ document.addEventListener("toggle", e => {
 $("modal").addEventListener("close", () => { shownRun = shownTask = null; confirming = false; });
 $("stop").onclick = () => post("/stop");
 $("resume").onclick = () => post("/resume");
+$("reload").onclick = () => refreshQueue(lastState, true);
 $("day").onchange = refreshDays;
 $("search").oninput = renderProjects;
 $("lang").onclick = () => setLanguage(lang === "fa" ? "en" : "fa");
@@ -1013,18 +1018,29 @@ async function refresh() {
   try { const s = await refreshState(); await refreshQueue(s); await refreshDays(); }
   catch { toast(t("api_unreachable")); }
 }
-new EventSource("/api/v1/stream").onmessage = m => {
-  live = [JSON.parse(m.data), ...live].slice(0, LIVE_LINES);
-  renderLive();
-  refreshState();
-};
+let stream = null;
+function follow() {  // A page nobody is looking at asks for nothing, and catches up when it is seen again.
+  if (document.hidden) {
+    stream?.close();
+    stream = null;
+  } else if (!stream) {
+    stream = new EventSource("/api/v1/stream");
+    stream.onmessage = m => {
+      live = [JSON.parse(m.data), ...live].slice(0, LIVE_LINES);
+      renderLive();
+      refreshState();
+    };
+    loadLive().catch(() => {});
+    refresh();
+  }
+}
 applyLanguage();
 showTab(tab);
 renderLive();
-loadLive().catch(() => {});
-refresh();
-setInterval(refresh, 30000);
-setInterval(() => { if (shownRun) showRun(shownRun).catch(() => {}); }, 5000);
+document.addEventListener("visibilitychange", follow);
+follow();
+setInterval(() => { if (!document.hidden) refresh(); }, 30000);
+setInterval(() => { if (shownRun && !document.hidden) showRun(shownRun).catch(() => {}); }, 5000);
 </script>
 </body>
 </html>

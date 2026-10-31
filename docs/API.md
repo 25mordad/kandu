@@ -11,7 +11,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | Method | Path | Answer |
 |---|---|---|
 | GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `language` and `limits` |
-| GET | `/api/v1/queue` | each project's board columns; cached for 60 seconds |
+| GET | `/api/v1/queue` | each project's board columns, read from GitHub at most every 15 minutes, however many pages ask |
 | GET | `/api/v1/days` | dates that have events |
 | GET | `/api/v1/days/{day}` | one day's tokens by task, model and role, and its finished tasks |
 | GET | `/api/v1/events` | a page of events; `day` (default: the last) and `after` (default: 0) |
@@ -42,8 +42,9 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 ```json
 {"projects": {"website": {"Ready": [{"task": "acme-org/website#13", "title": "Add search",
   "url": "https://github.com/acme-org/website/issues/13"}], "In progress": [], "In review": [],
-  "Needs info": [], "Blocked": []}}}
+  "Needs info": [], "Blocked": []}}, "stale": false}
 ```
+`?fresh=1` reads the board now, at most once a minute. If GitHub fails, the answer is the last good one with `"stale": true`, and the next read waits 5 minutes; with no good one it is a `502`.
 
 `GET /api/v1/days/2026-10-30`
 ```json

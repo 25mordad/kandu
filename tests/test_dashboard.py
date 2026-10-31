@@ -65,7 +65,7 @@ class ReadTest(Base):
     def test_queue_shows_only_registered_agent_tasks(self):
         def item(repo, number, status, labels=("agent",)):
             return BoardItem(repo, number, "t", "u", status, list(labels), "")
-        self.github.board_items.return_value = [
+        self.github.board_queue.return_value = [
             item(REPO, 1, "Ready"), item(REPO, 2, "Blocked"), item(REPO, 3, "Ready", ()), item("x/y", 4, "Ready"),
             item(REPO, 5, "Done"),
         ]
@@ -74,16 +74,61 @@ class ReadTest(Base):
         self.assertEqual([t["task"] for t in projects["website"]["Blocked"]], [f"{REPO}#2"])
 
     def test_queue_reads_one_board_once_and_is_cached(self):
-        self.github.board_items.return_value = []
+        self.github.board_queue.return_value = []
         self.get("/api/v1/queue")
+        self.time[0] = 899
         self.get("/api/v1/queue")
-        self.assertEqual(self.github.board_items.call_count, 1)
-        self.time[0] = 61
+        self.assertEqual(self.github.board_queue.call_count, 1)
+        self.time[0] = 900
         self.get("/api/v1/queue")
-        self.assertEqual(self.github.board_items.call_count, 2)
+        self.assertEqual(self.github.board_queue.call_count, 2)
+        self.github.board_items.assert_not_called()
+
+    def test_pages_sharing_a_cold_queue_read_the_board_once(self):
+        started, go = threading.Event(), threading.Event()
+
+        def slow_read(board):
+            started.set()
+            go.wait(5)
+            return []
+
+        self.github.board_queue.side_effect = slow_read
+        first = threading.Thread(target=self.get, args=("/api/v1/queue",))
+        first.start()
+        started.wait(5)
+        second = threading.Thread(target=self.get, args=("/api/v1/queue",))
+        second.start()
+        go.set()
+        first.join(5)
+        second.join(5)
+        self.assertEqual(self.github.board_queue.call_count, 1)
+
+    def test_fresh_queue_is_limited_to_one_read_a_minute(self):
+        self.github.board_queue.return_value = []
+        self.get("/api/v1/queue")
+        self.time[0] = 59
+        self.get("/api/v1/queue?fresh=1")
+        self.assertEqual(self.github.board_queue.call_count, 1)
+        self.time[0] = 60
+        self.get("/api/v1/queue?fresh=1")
+        self.assertEqual(self.github.board_queue.call_count, 2)
+
+    def test_failed_read_keeps_the_last_answer_and_waits(self):
+        self.github.board_queue.return_value = []
+        self.assertFalse(self.get("/api/v1/queue")[1]["stale"])
+        self.github.board_queue.side_effect = GitHubError("limit")
+        self.time[0] = 900
+        status, body = self.get("/api/v1/queue")
+        self.assertEqual((status, body["stale"]), (200, True))
+        self.time[0] = 1199
+        self.get("/api/v1/queue?fresh=1")
+        self.assertEqual(self.github.board_queue.call_count, 2)
+        self.github.board_queue.side_effect = None
+        self.time[0] = 1200
+        self.assertFalse(self.get("/api/v1/queue")[1]["stale"])
 
     def test_github_failure_says_so_without_details(self):
-        self.github.board_items.side_effect = GitHubError("private detail")
+        self.github.board_queue.side_effect = GitHubError("private detail")
         status, body = self.get("/api/v1/queue")
         self.assertEqual(status, 502)
         self.assertNotIn("private", body["error"])
@@ -158,7 +203,7 @@ class ReviewPageTest(Base):
                   "summary": "s"}
         self.store.record("review_finished", task=f"{REPO}#1", project="site", run_id="r", round=1, head_sha="abc",
                           findings=0, blockers=0, door="two-way", criteria_met=True, wait_for_user=[], user_brief="کوتاه")
-        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "In review", ["agent"], "")]
+        self.github.board_queue.return_value = [BoardItem(REPO, 1, "t", "u", "In review", ["agent"], "")]
         self.github.find_pr.return_value = self.pr(review.comment_for(report, 1, []))
         body = self.get(f"/api/v1/reviews/{REPO}/1")[1]
         self.assertEqual(body["pr"]["number"], 7)
@@ -195,7 +240,7 @@ class ControlTest(Base):
                           wait_for_user=["Merge?"], user_brief=None)
         self.github.find_pr.return_value = {"number": 7, "title": "T", "url": "u", "state": "OPEN", "headRefOid": "abc",
                                             "comments": []}
-        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", status, ["agent"], "")]
+        self.github.board_queue.return_value = [BoardItem(REPO, 1, "t", "u", status, ["agent"], "")]
 
     def test_a_task_no_cycle_would_pick_up_is_not_approved(self):
         self.reviewed(status="Blocked")

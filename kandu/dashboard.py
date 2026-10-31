@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,7 +26,9 @@ PAGE = Path(__file__).with_name("dashboard.html")
 FONT = Path(__file__).with_name("vazirmatn.woff2")
 TOKEN_ENV = "KANDU_DASHBOARD_TOKEN"
 API = "/api/v1"
-QUEUE_CACHE_SECONDS = 60
+QUEUE_CACHE_SECONDS = 900  # GitHub's hourly limit is shared with all else on the account, however many pages are open.
+QUEUE_FRESH_SECONDS = 60
+QUEUE_RETRY_SECONDS = 300
 STREAM_POLL_SECONDS = 2
 EVENT_PAGE = 500
 RUN_ID = re.compile(r"r-[\w-]+")
@@ -86,6 +89,8 @@ class Api:
         self.local_dir = local_dir
         self._queue = None
         self._queue_time = None
+        self._queue_failed = False
+        self._queue_lock = threading.Lock()
 
     def state(self, query):
         limits = self.config.settings.claude.limits
@@ -109,9 +114,22 @@ class Api:
                          "limit": self.config.settings.supervisor.queen_daily_token_limit}
 
     def queue(self, query):
-        """Each project's columns, read from its board. Cached: `gh` calls are not free of time."""
-        if self._queue is not None and self.clock() - self._queue_time < QUEUE_CACHE_SECONDS:
-            return self._queue
+        """Each project's columns. All pages share one read, and a failed read keeps the last good answer."""
+        fresh = query.get("fresh") == ["1"]
+        with self._queue_lock:  # A page that arrives during a read gets its result.
+            wait = QUEUE_RETRY_SECONDS if self._queue_failed else QUEUE_FRESH_SECONDS if fresh else QUEUE_CACHE_SECONDS
+            if self._queue_time is None or self.clock() - self._queue_time >= wait:
+                self._queue_time = self.clock()
+                try:
+                    self._queue = self._read_queue()
+                    self._queue_failed = False
+                except GitHubError:
+                    self._queue_failed = True
+            if self._queue is None:
+                raise ApiError(502, "GitHub could not be read")
+            return self._queue | {"stale": self._queue_failed}
+
+    def _read_queue(self):
         projects = {p.name: {c: [] for c in QUEUE_COLUMNS} for p in self.config.projects}
         boards = {}
         for project in self.config.projects:
@@ -119,15 +137,13 @@ class Api:
                 boards.setdefault((project.board.owner, project.board.number), project.board)
         by_repo = {repo: p.name for p in self.config.projects for repo in p.repos}
         for board in boards.values():
-            for item in self.github.board_items(board):
+            for item in self.github.board_queue(board):
                 name = by_repo.get(item.repo)
                 if name is None or AGENT_LABEL not in item.labels or item.status not in QUEUE_COLUMNS:
                     continue
                 projects[name][item.status].append({"task": f"{item.repo}#{item.number}", "title": item.title,
                                                      "url": item.url})
-        self._queue = {"projects": projects}
-        self._queue_time = self.clock()
-        return self._queue
+        return {"projects": projects}
 
     def days(self, query):
         return {"days": self.store.days()}
@@ -197,7 +213,7 @@ class Api:
         project = next(p for p in self.config.projects if repo in p.repos)
         if project.name in self._paused() or project.board is None:
             return "no cycle looks at its project"
-        status = next((i.status for i in self.github.board_items(project.board)
+        status = next((i.status for i in self.github.board_queue(project.board)
                        if i.repo == repo and i.number == int(number)), None)
         if status not in MERGEABLE_COLUMNS:
             return f"its task is in {status or 'no column'}, so no cycle would pick it up"

@@ -82,6 +82,20 @@ class GitHubTest(unittest.TestCase):
         items = GitHub(gh).board_items(BOARD)
         self.assertEqual([(i.repo, i.number, i.status, i.labels) for i in items], [("o/r", 3, "Ready", ["agent"])])
 
+    def test_board_queue_is_issues_only_across_pages(self):
+        issue = {"number": 3, "title": "t", "url": "u", "repository": {"nameWithOwner": "o/r"},
+                 "labels": {"nodes": [{"name": "agent"}]}}
+        board_page = lambda nodes, more: {"data": {"repositoryOwner": {"projectV2": {"items": {
+            "pageInfo": {"hasNextPage": more, "endCursor": "c"}, "nodes": nodes}}}}}
+        gh = FakeGh(
+            board_page([{"content": issue, "fieldValueByName": {"name": "Ready"}}, {"content": {}}], True),
+            board_page([{"content": issue | {"number": 4}, "fieldValueByName": None}], False),
+        )
+        items = GitHub(gh).board_queue(BOARD)
+        self.assertEqual([(i.repo, i.number, i.status, i.labels) for i in items],
+                         [("o/r", 3, "Ready", ["agent"]), ("o/r", 4, "", ["agent"])])
+        self.assertEqual(gh.calls[1][-2:], ["-f", "after=c"])
+
     def test_set_status(self):
         gh = FakeGh()
         GitHub(gh).set_status(BOARD, "https://x/1", "In progress")
