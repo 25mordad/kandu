@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
-from kandu import agents, boards, didban, queen, sizing, split, supervisor
+from kandu import agents, boards, didban, priority, queen, sizing, split, supervisor
 from kandu.config import BOARD_COLUMNS, Board
 from kandu.github import GitHub, GitHubError, blockers_in
 from kandu.tasks import TaskError, check_size
@@ -153,6 +153,29 @@ class SizingTest(Base):
         self.assertEqual(self.github.status(1), "In review")
 
 
+class PriorityTest(unittest.TestCase):
+    def task(self, number, status="Ready", priority="Medium", rank=1):
+        return supervisor.Task(mock.Mock(priority=rank), REPO, number, "t", "u", status, "b", priority)
+
+    def test_high_goes_first_but_after_what_has_begun(self):
+        tasks = [self.task(1), self.task(2, "Ready", "High", rank=2), self.task(3, "In progress")]
+        self.assertEqual([t.number for t in sorted(tasks, key=lambda t: t.order)], [3, 2, 1])
+
+    def test_raising_a_task_sets_its_field_and_wakes_the_queen(self):
+        project = mock.Mock(repos=[REPO], board=Board("o", 1))
+        project.name = "website"
+        github, store = mock.Mock(), mock.Mock()
+        github.board_items.return_value = [mock.Mock(repo=REPO, number=7, url="u")]
+        priority.raise_task(mock.Mock(projects=[project]), github, store, f"{REPO}#7")
+        github.set_field.assert_called_once_with(project.board, "u", "Priority", "High")
+        store.record.assert_called_once_with("priority_raised", task=f"{REPO}#7", project="website")
+
+    def test_a_raised_task_is_worth_a_look_the_same_day(self):
+        looked = [{"type": "queen_finished", "ts": "2026-10-31T01:00:00+01:00", "backlog": [f"{REPO}#7"]}]
+        self.assertFalse(queen.worth_a_look(looked, [], [f"{REPO}#7"], "2026-10-31"))
+        self.assertTrue(queen.worth_a_look(looked, [{"type": "priority_raised"}], [f"{REPO}#7"], "2026-10-31"))
+
+
 class QueenLockTest(unittest.TestCase):
     item = mock.Mock(status="Backlog", size="Small")
 
@@ -258,16 +281,142 @@ class GroupTest(Base):
         with self.assertRaises(TaskError):
             self.approve()
 
+    def group_ahead(self, number, released=()):
+        sup = self.new_supervisor()
+        items = {f"{item.repo}#{item.number}": (project, item) for project, item in sup._board_items()}
+        return sup._group_ahead(self.config.projects[0], f"{REPO}#{number}", items, released)
+
+    def set_status(self, number, status):
+        self.github.statuses[f"https://github.com/{REPO}/issues/{number}"] = status
+
+    def second_group(self):
+        """A group made after the first, as the board had it when a later split was approved."""
+        self.github.add(30, "Backlog", size="Medium")
+        self.github.add(31, "Backlog", size="Medium")
+        self.store.record("task_split", task=f"{REPO}#29", project=self.config.projects[0].name,
+                          children=[f"{REPO}#30", f"{REPO}#31"])
+
     def test_nothing_else_starts_in_the_project_until_the_group_is_done(self):
         self.approve()
         self.github.add(30, "Backlog", size="Small")
+        self.set_status(11, "In progress")
+        self.assertEqual(self.group_ahead(30), self.key)
+        self.assertIsNone(self.group_ahead(12))
+        self.github.open_issues.discard((REPO, 11))
+        self.set_status(11, "Done")
+        self.assertEqual(self.group_ahead(30), self.key)
+        self.github.open_issues.discard((REPO, 12))
+        self.assertIsNone(self.group_ahead(30))
+
+    def test_a_group_nothing_started_holds_nothing_whatever_its_age(self):
+        self.approve()
+        self.second_group()
+        self.assertIsNone(self.group_ahead(30))
+        self.assertIsNone(self.group_ahead(11))
+
+    def test_a_slice_in_any_column_past_backlog_means_its_group_started(self):
+        self.approve()
+        self.second_group()
+        for status in ("Ready", "In progress", "In review", "Needs info", "Blocked"):
+            self.set_status(30, status)
+            self.assertEqual(self.group_ahead(11), f"{REPO}#29", status)
+
+    def test_a_group_the_user_parked_holds_nothing(self):
+        self.approve()
+        self.second_group()
+        self.set_status(11, "Technical debt")
+        self.set_status(12, "Technical debt")
+        self.assertIsNone(self.group_ahead(30))
+
+    def test_a_slice_left_after_a_parked_one_still_counts_once_the_group_started(self):
+        self.approve()
+        self.second_group()
+        self.github.add(13, "Backlog", size="Small")
+        self.store.record("task_split", task=self.key, project=self.config.projects[0].name,
+                          children=[f"{REPO}#11", f"{REPO}#12", f"{REPO}#13"])
+        self.github.open_issues.discard((REPO, 11))
+        self.set_status(11, "Done")
+        self.set_status(12, "Technical debt")
+        self.assertEqual(self.group_ahead(30), self.key)
+
+    def test_one_look_cannot_start_two_groups(self):
+        self.approve()
+        self.second_group()
+        self.assertEqual(self.group_ahead(30, released=[f"{REPO}#11"]), self.key)
+
+    def release(self, *numbers):
+        decisions = [{"task": f"{REPO}#{n}", "action": "release", "note": "Go."} for n in numbers]
+        return self.new_supervisor()._carry_out(decisions, [])
+
+    def first_in_line(self):
+        sup = self.new_supervisor()
+        pairs = list(sup._board_items())
+        items = {f"{item.repo}#{item.number}": (project, item) for project, item in pairs}
+        return sup._first_in_line(self.config.projects[0], items, sup._startable(pairs))
+
+    def finish_first_slice(self):
+        self.github.open_issues.discard((REPO, 11))
+        self.set_status(11, "Done")
+
+    def test_the_next_slice_of_a_chain_comes_before_any_other_task(self):
+        self.approve()
+        self.second_group()
+        self.github.add(40, "Backlog", size="Small")
+        self.sized(f"{REPO}#30")
+        self.sized(f"{REPO}#40")
+        self.finish_first_slice()
+        self.assertEqual(self.first_in_line(), [f"{REPO}#12"])
+        refused, released = self.release(40, 30, 12)
+        self.assertEqual(released, [f"{REPO}#12"])
+        self.assertEqual(len(refused), 2)
+
+    def test_high_comes_between_two_slices_once_the_worker_is_done(self):
+        self.approve()
+        self.github.add(40, "Backlog", size="Small", priority="High")
+        self.sized(f"{REPO}#40")
+        self.finish_first_slice()
+        self.assertEqual(self.first_in_line(), [f"{REPO}#40"])
+        refused, released = self.release(12, 40)
+        self.assertEqual(released, [f"{REPO}#40"])
+        self.assertIn(f"{REPO}#40 goes first", refused[0])
+
+    def test_high_does_not_cut_in_on_a_slice_at_work(self):
+        self.approve()
+        self.github.add(40, "Backlog", size="Small", priority="High")
+        self.sized(f"{REPO}#40")
+        self.set_status(11, "In progress")
+        self.assertEqual(self.first_in_line(), [])
+        refused, released = self.release(40)
+        self.assertEqual(released, [])
+        self.assertIn("group of", refused[0])
+
+    def test_two_groups_left_half_done_do_not_wait_for_each_other(self):
+        self.approve()
+        self.second_group()
+        self.finish_first_slice()
+        self.github.open_issues.discard((REPO, 30))
+        self.set_status(30, "Done")
+        self.assertIsNone(self.group_ahead(12))
+        self.assertIsNone(self.group_ahead(31))
+
+    def test_a_task_nothing_can_start_goes_before_nothing(self):
+        self.approve()
+        self.github.add(40, "Backlog", size="Large", priority="High")
+        self.sized(f"{REPO}#40", "Large")
+        self.github.open_issues.discard(("acme-org/website", 2))
+        self.assertEqual(self.release(11), ([], [f"{REPO}#11"]))
+
+    def test_the_queen_can_release_past_a_parked_group(self):
+        self.approve()
+        self.second_group()
+        self.set_status(11, "Technical debt")
+        self.set_status(12, "Technical debt")
         self.sized(f"{REPO}#30")
         sup = self.new_supervisor()
-        project = self.config.projects[0]
-        self.assertEqual(sup._group_ahead(project, f"{REPO}#30"), self.key)
-        self.assertIsNone(sup._group_ahead(project, f"{REPO}#12"))
-        self.github.open_issues -= {(REPO, 11), (REPO, 12)}
-        self.assertIsNone(sup._group_ahead(project, f"{REPO}#30"))
+        decision = {"task": f"{REPO}#30", "action": "release", "note": "Go."}
+        refused, released = sup._carry_out([decision], [])
+        self.assertEqual((refused, released), ([], [f"{REPO}#30"]))
+        self.assertEqual(self.github.status(30), "Ready")
 
     def test_the_parent_closes_with_the_last_slice(self):
         self.approve()

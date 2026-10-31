@@ -29,6 +29,7 @@ EVENT_FIELDS = {
     "debt_reported": TASK_FIELDS + ("finding", "title", "body", "size", "reason"),
     "debt_parked": TASK_FIELDS + ("finding", "url", "note"),
     "user_approved": TASK_FIELDS + ("head_sha",),
+    "priority_raised": TASK_FIELDS,
     "task_sized": TASK_FIELDS + ("run_id", "size", "files", "door", "criteria", "slices"),
     "slice_created": TASK_FIELDS + ("parent",),
     "task_split": TASK_FIELDS + ("children",),

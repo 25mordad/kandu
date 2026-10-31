@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import agents, debt, merge, queen, questions, review, sizing, split
-from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
+from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError, blockers_in, branch_for
 from .notify import notifier_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
@@ -50,6 +50,7 @@ class Task:
     url: str
     status: str
     branch: str
+    priority: str = ""
 
     @property
     def key(self):
@@ -57,7 +58,9 @@ class Task:
 
     @property
     def order(self):
-        return (self.project.priority, self.status not in RESUMED, self.number)
+        """Work already begun, then `High`. Nothing that is running gives way."""
+        rank = 0 if self.status in RESUMED else 1 if self.priority == queen.HIGH else 2
+        return (rank, self.project.priority, self.number)
 
 
 class CycleStop(Exception):
@@ -107,7 +110,7 @@ def read_tasks(config, github, paused=()):
 
 def _task(project, item):
     return Task(project, item.repo, item.number, item.title, item.url, item.status,
-                branch_for(item.number, item.title))
+                branch_for(item.number, item.title), item.priority)
 
 
 def _can_start(github, item):
@@ -533,16 +536,55 @@ class Supervisor:
         repo, number = key.split("#")
         return self.github.issue_is_open(repo, int(number))
 
-    def _group_ahead(self, project, key):
-        """Returns the parent of the group that must finish before `key` may start, or None."""
-        for event in queen.all_events(self.store):
-            if event["type"] != "task_split" or event["project"] != project.name:
+    def _groups(self, project, items, released):
+        """Yields (group, under way, a slice is at work) for each group of `project` still open.
+
+        The board decides, not the order the groups were made in. A group none of
+        whose slices started is not under way, and a slice in `Technical debt` does not count.
+        `items` is the board by task, and `released` what this look already released.
+        """
+        events = queen.all_events(self.store)
+        closed = {e["task"] for e in events if e["type"] == "group_closed"}
+        status = lambda child: items[child][1].status if child in items else None
+        for event in events:
+            if event["type"] != "task_split" or event["project"] != project.name or event["task"] in closed:
                 continue
-            if key in event["children"]:
-                return None
-            if any(self._is_open(child) for child in event["children"]):
+            slices = [child for child in event["children"] if status(child) != TECHNICAL_DEBT]
+            remaining = [child for child in slices if self._is_open(child)]
+            unstarted = [child for child in remaining if status(child) == BACKLOG and child not in released]
+            at_work = any(status(child) in (READY, *RESUMED) or child in released for child in remaining)
+            yield event, bool(remaining) and unstarted != slices, at_work
+
+    def _group_ahead(self, project, key, items, released=()):
+        """Returns the parent of a group that must finish before `key` may start, or None.
+
+        A `High` task waits only for the slice at work, never for the rest of its group.
+        So does a slice of a group under way, or two groups `High` left half done would wait for each other.
+        """
+        groups = list(self._groups(project, items, released))
+        high = key in items and items[key][1].priority == queen.HIGH
+        began = any(under_way and key in event["children"] for event, under_way, _ in groups)
+        for event, under_way, at_work in groups:
+            if key not in event["children"] and (at_work if high or began else under_way):
                 return event["task"]
         return None
+
+    def _first_in_line(self, project, items, backlog, released=()):
+        """Returns the tasks of `project` nothing else may go before: what is `High`, else the next slice of its group."""
+        may_go = [(f"{item.repo}#{item.number}", item) for owner, item in backlog
+                  if owner is project and queen.LARGE not in (item.size, self._sized_as(item))]
+        may_go = [(key, item) for key, item in may_go if key not in released
+                  and self._group_ahead(project, key, items, released) is None]
+        high = [key for key, item in may_go if item.priority == queen.HIGH]
+        if high:
+            return high
+        under_way = {child for event, going, _ in self._groups(project, items, released) if going
+                     for child in event["children"]}
+        return [key for key, _ in may_go if key in under_way]
+
+    def _sized_as(self, item):
+        sized = split.current_size(self.store, f"{item.repo}#{item.number}")
+        return sized["size"] if sized else None
 
     # The splitter. It sees each task once, before the queen may release it.
 
@@ -583,7 +625,7 @@ class Supervisor:
         """Runs before the queen looks, so a task is sized before she can see it."""
         today = self.store.today()
         sized = 0
-        for project, item in self._board_items():
+        for project, item in sorted(self._board_items(), key=lambda pair: pair[1].priority != queen.HIGH):
             key = f"{item.repo}#{item.number}"
             if self._is_paused(project) or item.status != BACKLOG or split.current_size(self.store, key) is not None:
                 continue
@@ -692,9 +734,15 @@ class Supervisor:
         spent = self.store.tokens_counted(self.store.today(), role="queen")
         return "the queen reached her daily token limit" if spent >= settings.queen_daily_token_limit else None
 
+    def _startable(self, items):
+        """The Backlog tasks nothing blocks and the splitter has sized."""
+        return [(project, item) for project, item in items if item.status == BACKLOG and _can_start(self.github, item)
+                and self.store.last_event("task_sized", task=f"{item.repo}#{item.number}") is not None]
+
     def _project_view(self, items, backlog):
         """What she sees of every project: fields, not task bodies, so a long Backlog stays cheap."""
         today = self.store.today()
+        board = {f"{item.repo}#{item.number}": (project, item) for project, item in items}
         view = []
         for project in self.config.projects:
             if self._is_paused(project):
@@ -706,6 +754,7 @@ class Supervisor:
                 "daily_token_limit": project.daily_token_limit,
                 "max_parallel_workers": project.max_parallel_workers,
                 "at_work": sum(1 for item in ours if item.status in (READY, *RESUMED)),
+                "first_in_line": self._first_in_line(project, board, backlog),
                 "backlog": [{"task": f"{item.repo}#{item.number}", "title": item.title, "priority": item.priority,
                              "kind": item.kind, "size": item.size, "deadline": item.deadline}
                             for owner, item in backlog if owner is project],
@@ -718,8 +767,7 @@ class Supervisor:
         if not settings.queen or self.halt_reason is not None:
             return False
         items = list(self._board_items())
-        backlog = [(project, item) for project, item in items if item.status == BACKLOG and _can_start(self.github, item)
-                   and self.store.last_event("task_sized", task=f"{item.repo}#{item.number}") is not None]
+        backlog = self._startable(items)
         keys = [f"{item.repo}#{item.number}" for _, item in backlog]
         before, news = queen.since_last_look(self.store)
         paused = [p for p in self.config.projects if self._is_paused(p)]
@@ -772,6 +820,7 @@ class Supervisor:
         items = {f"{item.repo}#{item.number}": (project, item) for project, item in self._board_items()}
         refused, released = [], []
         today = self.store.today()
+        backlog = self._startable(items.values()) if any(d["action"] == "release" for d in decisions) else []
         for decision in decisions:
             task, action, note = decision["task"], decision["action"], decision["note"]
             if task not in items:
@@ -787,7 +836,8 @@ class Supervisor:
                 why = "it was already released" if task in released else queen.why_no_release(
                     item, _can_start(self.github, item), self.store.tokens_counted(today, project=project.name),
                     project.daily_token_limit, split.current_size(self.store, task),
-                    self._group_ahead(project, task))
+                    self._group_ahead(project, task, items, released),
+                    self._first_in_line(project, items, backlog, released))
                 if why is not None:
                     refused.append(f"release of {task}: {why}")
                     continue
@@ -875,7 +925,7 @@ class Supervisor:
                 done, _ = wait(running, return_when=FIRST_COMPLETED)
                 for future in done:
                     del running[future]
-                pending += self._what_she_released(seen)
+                pending = sorted(pending + self._what_she_released(seen), key=lambda t: t.order)
 
     def cycle(self):
         """Runs one cycle and returns why it ended."""
