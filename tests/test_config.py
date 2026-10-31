@@ -83,6 +83,16 @@ class ConfigTest(unittest.TestCase):
         self.edit("kandu.yaml", lambda d: d["didban"]["knowledge"][0].update(machine="ghost"))
         self.assertIn("didban.knowledge[0].machine", self.problems())
 
+    def test_language_is_english_unless_the_config_says_otherwise(self):
+        self.edit("kandu.yaml", lambda d: d.pop("language"))
+        self.assertEqual(load_config(self.local).settings.language, "en")
+        self.edit("kandu.yaml", lambda d: d.update(language="fa"))
+        self.assertEqual(load_config(self.local).settings.language, "fa")
+
+    def test_the_old_language_key_is_refused(self):
+        self.edit("kandu.yaml", lambda d: d["notify"].update(language="fa"))
+        self.assertIn("notify.language: unknown key", self.problems())
+
     def test_a_model_is_chosen_per_role(self):
         self.assertEqual(load_config(self.local).settings.claude.models["splitter"], "claude-sonnet-5-5")
         self.edit("kandu.yaml", lambda d: d["claude"].pop("models"))

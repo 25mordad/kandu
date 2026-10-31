@@ -45,6 +45,7 @@ Every task is designed and checked against harness, context and memory (§14).
 34. [x] See a split proposal on the dashboard and accept it there; declining or changing it stays in Didban (§2, §7)
 35. [x] Choose a model per role in `claude.models` (§1A)
 36. [x] Read a split proposal whole in the user's language on the dashboard; the issues stay in English (§2, §7)
+37. [x] One `language` for all Kandu says to the user, English by default (§1A, §7)
 
 ## Technical debt
-37. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)
+38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

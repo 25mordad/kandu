@@ -57,6 +57,7 @@ class ReadTest(Base):
         status, body = self.get("/api/v1/state")
         self.assertEqual((status, body["supervisor"], body["stop_requested"]), (200, "asleep", False))
         self.assertEqual(body["limits"], {"session": 70, "week": 60})
+        self.assertEqual(body["language"], "en")
 
     def test_state_before_any_cycle(self):
         self.assertEqual(self.get("/api/v1/state")[0], 200)

@@ -796,6 +796,7 @@ function renderQueen(s) {
 async function refreshState() {
   const s = await get("/state");
   lastState = s;
+  if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
   const name = s.stop_requested ? "stopped" : (s.supervisor || "never ran");
   $("pulse").className = `pulse ${s.stop_requested ? "stopped" : s.supervisor === "awake" ? "awake" : ""}`;
   $("state").textContent = tr(name) + (s.last_reason ? " · " + tr(s.last_reason) : "");

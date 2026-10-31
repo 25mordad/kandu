@@ -294,7 +294,7 @@ class Supervisor:
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
         companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
         prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head,
-                                        self.config.settings.notify.language, companions, still_open, first_n,
+                                        self.config.settings.language, companions, still_open, first_n,
                                         local_dir=self.local_dir)
         result = self._agent(task, "reviewer", cwd, prompt, agents.reviewer_tools(), run_id)
         try:
@@ -479,7 +479,7 @@ class Supervisor:
         try:
             base = self.github.default_branch(task.repo)
             cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/size-{task.number}", f"origin/{base}")
-            prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.config.settings.notify.language,
+            prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.config.settings.language,
                                             self.local_dir)
             result = self._agent(task, "splitter", cwd, prompt, agents.splitter_tools(), run_id)
             report = split.parse_report(result.text)
@@ -659,7 +659,7 @@ class Supervisor:
         tasks = sorted({e["task"] for e in news if e.get("task")})
         retries = {task: queen.retries_used(events, task) for task in tasks}
         prompt = agents.queen_prompt(queen.prompt_events(news), self._project_view(items, backlog), retries,
-                                     settings.queen_max_retries, self.config.settings.notify.language,
+                                     settings.queen_max_retries, self.config.settings.language,
                                      DEFAULT_LOGS_DIR, self.store.today())
         allowed, denied = agents.queen_tools()
         run_id = new_run_id(self.now())

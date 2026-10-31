@@ -85,7 +85,6 @@ class Telegram:
 @dataclass
 class Notify:
     adapter: str
-    language: str
     telegram: Telegram | None = None
 
 
@@ -156,6 +155,7 @@ class Settings:
     github: GitHub
     notify: Notify
     dashboard: Dashboard
+    language: str = "en"           # what Kandu says to the user; everything on GitHub stays in English
     supervisor: Supervisor = field(default_factory=Supervisor)
     didban: Didban = field(default_factory=Didban)
 

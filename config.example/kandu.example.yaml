@@ -39,7 +39,6 @@ github:
 
 notify:
   adapter: telegram            # telegram | none
-  language: en                 # language of notification messages
   telegram:
     bot_token_env: KANDU_TELEGRAM_BOT_TOKEN   # names of variables in local/.env, not the values
     chat_id_env: KANDU_TELEGRAM_CHAT_ID
@@ -54,6 +53,8 @@ supervisor:                    # optional; these are the defaults
   queen: true                  # true = an LLM runs the cycle for every project; it wakes only when needed
   queen_max_retries: 2         # how many times the queen may send one task back
   queen_daily_token_limit: 2000000   # her own limit; past it, running work ends and nothing new starts
+
+language: en                   # optional; what Kandu says to you: messages, briefs, split proposals, the page's first view. Default en. GitHub stays in English
 
 dashboard:
   bind: 127.0.0.1             # stay on this machine; reach it from another through an SSH tunnel
