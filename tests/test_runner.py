@@ -226,6 +226,34 @@ class RunnerTest(unittest.TestCase):
         self.assertIn("OTHER=shown", seen)
         self.assertNotIn("hidden", seen)
 
+    def token_agent(self, text, names):
+        install(self.home / ".local" / "bin" / "claude", "#!/bin/sh\nenv > \"$HOME/claude.env\"\n" + FAKE_CLAUDE.split("\n", 1)[1])
+        (self.home / "vars").write_text(text)
+        return self.runner.run_agent("box", str(self.home), "p", ["Read"], ["Edit"], "r-1", lambda: False, None,
+                                     (str(self.home / "vars"), names))
+
+    def test_a_token_task_gets_only_the_named_tokens(self):
+        self.token_agent('A_KEY=one\nexport B_KEY="two"\nC_KEY=\'three\'\r\nOTHER_KEY=hidden\nexport MORE=hidden\n',
+                         ["A_KEY", "B_KEY", "C_KEY"])
+        seen = (self.home / "claude.env").read_text().splitlines()
+        self.assertIn("A_KEY=one", seen)
+        self.assertIn("B_KEY=two", seen)
+        self.assertIn("C_KEY=three", seen)
+        self.assertNotIn("hidden", "\n".join(seen))
+
+    def test_a_missing_token_ends_the_run_without_starting_claude(self):
+        self.assertTrue(self.token_agent("OTHER=1\n", ["A_KEY"]).is_error)
+        self.assertFalse((self.home / "claude.env").exists())
+
+    def test_token_values_are_not_on_the_command_line(self):
+        self.token_agent("A_KEY=topsecret\n", ["A_KEY"])
+        self.assertNotIn("topsecret", (self.home / "claude.args").read_text())
+
+    def test_other_agents_get_no_tokens(self):
+        install(self.home / ".local" / "bin" / "claude", "#!/bin/sh\nenv > \"$HOME/claude.env\"\n" + FAKE_CLAUDE.split("\n", 1)[1])
+        self.agent()
+        self.assertNotIn("A_KEY", (self.home / "claude.env").read_text())
+
     def test_stop_ends_a_running_agent(self):
         install(self.home / ".local" / "bin" / "claude", "#!/bin/sh\nexec sleep 60\n")
         started = time.monotonic()

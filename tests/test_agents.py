@@ -13,6 +13,24 @@ def project(**changes):
 
 
 class ToolsTest(unittest.TestCase):
+    def test_no_agent_reads_a_secrets_file(self):
+        for _, denied in (agents.worker_tools(project(), "kandu/1-a"), agents.reviewer_tools(), agents.splitter_tools()):
+            self.assertIn("Read(**/.env)", denied)
+            self.assertIn("Read(**/.dev.vars)", denied)
+            self.assertIn("Read(//proc/**)", denied)
+
+    def test_a_worker_cannot_read_the_project_secrets(self):
+        _, denied = agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a")
+        self.assertIn("Read(~/s/keys.txt)", denied)
+        _, denied = agents.worker_tools(project(secrets_from="/s/keys.txt"), "kandu/1-a")
+        self.assertIn("Read(//s/keys.txt)", denied)
+
+    def test_only_a_token_task_is_told_of_its_tokens(self):
+        item = project(task_tokens={"A_KEY": "making images"})
+        prompt = agents.worker_prompt(item, "o/r", 1, "kandu/1-a", "r-1", tokens=True)
+        self.assertIn("`A_KEY`: making images", prompt)
+        self.assertNotIn("A_KEY", agents.worker_prompt(item, "o/r", 1, "kandu/1-a", "r-1"))
+
     def test_worker_may_push_only_its_own_branch(self):
         allowed, _ = agents.worker_tools(project(), "kandu/1-a")
         pushes = [t for t in allowed if "git push" in t]

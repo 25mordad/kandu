@@ -42,6 +42,19 @@ class TaskTest(unittest.TestCase):
         self.assertIn("split", str(caught.exception))
         self.github.create_issue.assert_not_called()
 
+    def test_a_token_task_says_so(self):
+        self.config.projects[0].task_tokens = {"A_KEY": "images"}
+        tasks.create_task(self.config, self.github, "site", None, "T", BODY, self.local, "High", "Bug", "Small",
+                          tokens=True)
+        self.assertTrue(self.github.create_issue.call_args.kwargs["tokens"])
+
+    def test_a_token_task_needs_a_project_with_tokens(self):
+        self.config.projects[0].task_tokens = {}
+        with self.assertRaises(tasks.TaskError):
+            tasks.create_task(self.config, self.github, "site", None, "T", BODY, self.local, "High", "Bug", "Small",
+                              tokens=True)
+        self.github.create_issue.assert_not_called()
+
     def test_a_task_for_a_person_says_so(self):
         tasks.create_task(self.config, self.github, "site", None, "T", BODY, self.local, "High", "Bug", "Small",
                           by_hand=True)
@@ -178,20 +191,27 @@ class DoctorTest(unittest.TestCase):
         self.assertEqual(doctor.check_machine(Machine("a", "local", False), runner)[0], doctor.WARN)
         self.assertEqual(doctor.check_machine(Machine("a", "local", True), runner)[0], doctor.FAIL)
 
-    def check_project(self, copy=True, run="clone", tool=True, columns=BOARD_COLUMNS, github_error=False,
-                      fields=(*BOARD_FIELDS, DEADLINE_FIELD)):
+    def check_project(self, copy=True, run="clone", tool=True, token=True, columns=BOARD_COLUMNS, github_error=False,
+                      fields=(*BOARD_FIELDS, DEADLINE_FIELD), task_tokens=None):
+        task_tokens = task_tokens or {}
         host = mock.Mock()
         host.absolute.side_effect = lambda p: p
-        host.succeeds.side_effect = lambda command, cwd=None: copy if command[0] == "test" else tool
+        host.succeeds.side_effect = lambda command, cwd=None: (token if command[0] == "grep" else
+                                                               copy if command[0] == "test" else tool)
         runner = mock.Mock(hosts={"m": host})
         github = mock.Mock()
         github.board_columns.return_value = list(columns)
         github.board_fields.return_value = list(fields)
         if github_error:
             github.board_columns.side_effect = GitHubError("x")
-        item = mock.Mock(path="~/p", repos=["o/r"], run=run, machine="m", test="npm test", board=Board("o", 1))
+        item = mock.Mock(path="~/p", repos=["o/r"], run=run, machine="m", test="npm test", board=Board("o", 1),
+                         secrets_from="~/p/.env", task_tokens=task_tokens)
         item.name = "site"
         return doctor.check_project(item, runner, github)
+
+    def test_a_token_missing_from_the_secrets_file_fails(self):
+        self.assertIn(doctor.FAIL, {r[0] for r in self.check_project(task_tokens={"A_KEY": "images"}, token=False)})
+        self.assertEqual({r[0] for r in self.check_project(task_tokens={"A_KEY": "images"})}, {doctor.OK})
 
     def test_healthy_project(self):
         self.assertEqual({r[0] for r in self.check_project()}, {doctor.OK})

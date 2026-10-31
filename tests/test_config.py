@@ -67,6 +67,14 @@ class ConfigTest(unittest.TestCase):
         self.edit("projects.yaml", lambda d: d["projects"][0].update(machine="laptop"))
         self.assertIn("run: clone must be on the brain's machine", self.problems())
 
+    def test_tokens_need_a_file_a_name_and_a_purpose(self):
+        self.edit("projects.yaml", lambda d: d["projects"][1].update(task_tokens={"A_KEY": "images"}))
+        self.assertIn("task_tokens: needs secrets_from", self.problems())
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(task_tokens={"A KEY; rm": ""}))
+        problems = self.problems()
+        self.assertIn("not a variable name", problems)
+        self.assertIn("say what it is for", problems)
+
     def test_unknown_machine(self):
         self.edit("projects.yaml", lambda d: d["projects"][1].update(machine="ghost"))
         self.assertIn("unknown machine 'ghost'", self.problems())

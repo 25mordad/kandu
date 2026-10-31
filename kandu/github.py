@@ -13,6 +13,7 @@ from .config import BOARD_FIELDS, DEADLINE_FIELD
 
 KANDU_LABEL = "kandu"
 AGENT_LABEL = "agent"
+TOKENS_LABEL = "uses-tokens"
 FALLBACK_SLUG = "task"
 TIMEOUT_SECONDS = 60
 BOARD_ITEM_LIMIT = 500
@@ -286,14 +287,21 @@ class GitHub:
                  "{ clientMutationId } }" % (json.dumps(status["id"]), ", ".join(kept + added)))
         self._run(["api", "graphql", "-f", f"query={query}"])
 
-    def create_issue(self, repo, title, body, by_hand=False):
-        """Creates an issue and returns its URL. It is labelled `agent` unless a person will do it."""
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False):
+        """Creates an issue and returns its URL. It is labelled `agent` unless a person will do it.
+
+        `tokens` also labels it `uses-tokens`, which gives its worker the project's `task_tokens`.
+        """
         if by_hand:
             return self._run(["issue", "create", "--repo", repo, "--title", title, "--body", body]).strip()
         self._run(["label", "create", AGENT_LABEL, "--repo", repo, "--force",
                    "--description", "Kandu may work on this"])
-        return self._run(["issue", "create", "--repo", repo, "--title", title, "--body", body,
-                          "--label", AGENT_LABEL]).strip()
+        labels = ["--label", AGENT_LABEL]
+        if tokens:
+            self._run(["label", "create", TOKENS_LABEL, "--repo", repo, "--force",
+                       "--description", "Its worker gets the project's task_tokens"])
+            labels += ["--label", TOKENS_LABEL]
+        return self._run(["issue", "create", "--repo", repo, "--title", title, "--body", body, *labels]).strip()
 
     def edit_issue(self, repo, number, title, body):
         self._run(["issue", "edit", str(number), "--repo", repo, "--title", title, "--body", body])

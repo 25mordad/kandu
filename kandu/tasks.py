@@ -112,11 +112,15 @@ def set_fields(github, board, url, priority, kind, size, deadline):
 
 
 def create_task(config, github, project_name, repo, title, body, local_dir, priority, kind, size, deadline=None,
-                by_hand=False):
+                by_hand=False, tokens=False):
     """Creates the issue, puts it on the board in `Backlog` and returns its URL."""
     project, repo = find_project(config, project_name, repo)
+    if tokens and not project.task_tokens:
+        raise TaskError(f"{project_name} has no task_tokens")
+    if tokens and by_hand:
+        raise TaskError("a task done by hand runs no worker, so it takes no tokens")
     check_task(github, repo, title, body, local_dir, priority, kind, size, deadline)
-    url = github.create_issue(repo, title, body, by_hand=by_hand)
+    url = github.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens)
     github.add_to_board(project.board, url)
     github.set_status(project.board, url, "Backlog")
     set_fields(github, project.board, url, priority, kind, size, deadline)
@@ -134,13 +138,14 @@ def main():
     parser.add_argument("--size", required=True, choices=BOARD_FIELDS["Size"])
     parser.add_argument("--deadline", help="the date it must be done by, YYYY-MM-DD")
     parser.add_argument("--by-hand", action="store_true", help="a person does this: no `agent` label")
+    parser.add_argument("--tokens", action="store_true", help="its worker gets the project's task_tokens")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
     args = parser.parse_args()
     try:
         config = load_config(args.local)
         body = Path(args.body_file).read_text(encoding="utf-8")
         print(create_task(config, GitHub(cache=BoardCache()), args.project, args.repo, args.title, body, args.local,
-                          args.priority, args.kind, args.size, args.deadline, args.by_hand))
+                          args.priority, args.kind, args.size, args.deadline, args.by_hand, args.tokens))
     except ConfigError as e:
         print(f"tasks: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1

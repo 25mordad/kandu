@@ -73,7 +73,7 @@ class FakeGitHub:
     def issue_text(self, repo, number):
         return {"body": next((i.body for i in self.items if i.number == number), "")}
 
-    def create_issue(self, repo, title, body, by_hand=False):
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False):
         self.created.append((repo, title, body))
         return f"https://github.com/{repo}/issues/{900 + len(self.created)}"
 
@@ -165,13 +165,13 @@ class FakeRunner:
         self.commands.append((command, secrets))
         return 1 if command in self.failing else 0
 
-    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None):
+    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None):
         with self.lock:
             self.running += 1
             self.most_running = max(self.most_running, self.running)
             step = self.steps.pop(0)
         self.runs.append(SimpleNamespace(machine=machine, cwd=cwd, prompt=prompt, allowed=allowed, denied=denied,
-                                         model=model))
+                                         model=model, tokens=tokens))
         result = step() if callable(step) else step
         with self.lock:
             self.running -= 1
@@ -254,6 +254,25 @@ class PausedOnTheDashboardTest(Base):
         self.assertEqual(len(self.runner.runs), 1)
         self.assertEqual(self.events("review_finished"), [])
 
+
+    def test_only_a_labelled_task_gets_the_tokens(self):
+        self.github.add(1, labels=("agent", "uses-tokens"))
+        self.github.add(2)
+        first, second = read_tasks(self.config, self.github)
+        for task in (first, second):
+            self.sup.workers[task.key] = {}
+            self.runner.steps = ["done"]
+            self.sup._work(task)
+        token_run, plain_run = self.runner.runs
+        self.assertEqual(token_run.tokens, ("~/projects/website/.env", ["IMAGE_API_KEY"]))
+        self.assertIn("IMAGE_API_KEY", token_run.prompt)
+        self.assertIsNone(plain_run.tokens)
+        self.assertNotIn("IMAGE_API_KEY", plain_run.prompt)
+
+    def test_the_label_gives_nothing_in_a_project_without_tokens(self):
+        self.config.projects[0].task_tokens = {}
+        self.github.add(1, labels=("agent", "uses-tokens"))
+        self.assertFalse(read_tasks(self.config, self.github)[0].tokens)
 
     def test_each_role_runs_on_its_own_model(self):
         self.config.settings.claude.models = {"live_check": "claude-sonnet-5-5"}

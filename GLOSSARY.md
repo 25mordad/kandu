@@ -19,6 +19,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Board** | The GitHub Project of a family |
 | **Registry** | `local/projects.yaml`; a project not in it is never touched |
 | **Task** | A GitHub issue on a board; only those with the label `agent` enter the loop |
+| **Token task** | An `agent` task labelled `uses-tokens`; its worker gets the project's `task_tokens` |
 | **Ready task** | An `agent` task in `Ready` whose blockers are all done |
 | **Slice** | A task that delivers a complete path that can be verified alone |
 | **Blocker** | A review finding that the worker fixes and that stops the merge until it is gone |

@@ -91,6 +91,17 @@ def repo_path(project, repo):
     return posixpath.join(project.path, repo.split("/")[1])
 
 
+def tokens_script(path, names):
+    """Shell that exports only `names` from the file at `path`, which is read, never run."""
+    unquote = shlex.quote(r"""s/^"(.*)"$/\1/; s/^'(.*)'$/\1/""")
+    lines = []
+    for name in names:
+        pick = shlex.quote(rf"s/^(export +)?{name} *= *//p")
+        lines.append(f"{name}=$(sed -n -E {pick} {shlex.quote(path)} | tail -n 1 | tr -d '\r' | sed -E {unquote}); "
+                     f'[ -n "${name}" ] || {{ echo "token {name} is missing" >&2; exit 1; }}; export {name}')
+    return "; ".join(lines)
+
+
 def _worktree_dir(path, name):
     # Beside the copy, never inside it: a worktree in the user's copy would show up in their `git status`.
     return f"{path.rstrip('/')}.kandu-worktrees/{name}"
@@ -173,12 +184,14 @@ class Runner:
             except subprocess.TimeoutExpired as e:
                 raise RunnerError(f"a project command timed out on {host.name}") from e
 
-    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None):
+    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None):
         """Runs one `claude` process to its end; `should_stop` is polled while it runs.
 
         Over SSH, stopping ends the local `ssh`; the remote process then dies at
         its next write to the closed connection, not at once. With no `model`,
-        `claude` picks its own default.
+        `claude` picks its own default. `tokens` is (file, names): those
+        values alone reach this process, in its environment. If one is
+        missing the run ends with an error.
         """
         command = ["claude", "-p", "--output-format", "stream-json", "--verbose",
                    "--no-session-persistence", "--permission-mode", "dontAsk",
@@ -186,6 +199,10 @@ class Runner:
                    "--setting-sources", "user",
                    *(["--model", model] if model else []),
                    "--allowedTools", *allowed, "--disallowedTools", *denied]
+        if tokens:
+            path, names = tokens
+            script = tokens_script(self.hosts[machine].absolute(path), names)
+            command = ["sh", "-c", f'{script}; exec "$@"', "sh", *command]
         self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd = os.open(self.logs_dir / f"{run_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         process = subprocess.Popen(self.hosts[machine].argv(command, cwd), stdin=subprocess.PIPE,

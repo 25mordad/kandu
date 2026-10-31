@@ -143,6 +143,7 @@ class Project:
     run_local: str | None = None
     deploy: Deploy | None = None
     secrets_from: str | None = None
+    task_tokens: dict[str, str] = field(default_factory=dict)  # token name -> what it is for
     forbidden: list[str] = field(default_factory=list)
     repo_rules: str = ""
     queen_rules: str = ""
@@ -352,6 +353,13 @@ def _check_projects(projects, s, problems):
         if p.run == "clone" and not _is_inside(p.path, s.brain.work_dir):
             problems.append(f"{where}.path: run: clone must be inside brain.work_dir {s.brain.work_dir!r}, "
                             f"written the same way, got {p.path!r}")
+        if p.task_tokens and not p.secrets_from:
+            problems.append(f"{where}.task_tokens: needs secrets_from, the file they are read from")
+        for name, purpose in p.task_tokens.items():
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                problems.append(f"{where}.task_tokens: not a variable name: {name!r}")
+            if not purpose.strip():
+                problems.append(f"{where}.task_tokens.{name}: say what it is for")
         if p.deploy is not None:
             _check_one_of(p.deploy.mode, ("direct", "preview"), f"{where}.deploy.mode", problems)
         _check_positive(p.priority, f"{where}.priority", problems)
