@@ -73,6 +73,12 @@ def install(config, units_dir=UNITS_DIR):
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
 
 
+def timer_on():
+    """Whether `systemd` will wake the supervisor by itself."""
+    active = subprocess.run(["systemctl", "--user", "is-active", f"{UNIT_NAME}.timer"], capture_output=True, text=True)
+    return active.stdout.strip() == "active"
+
+
 def start_cycle():
     """Asks `systemd` for a cycle now. Returns False if it could not, or None if one is already running."""
     unit = f"{UNIT_NAME}.service"

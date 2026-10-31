@@ -112,7 +112,7 @@ class ApiError(Exception):
 
 class Api:
     def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic, start_cycle=timer.start_cycle,
-                 local_dir=DEFAULT_LOCAL_DIR):
+                 local_dir=DEFAULT_LOCAL_DIR, timer_on=timer.timer_on):
         self.config = config
         self.store = store
         self.github = github
@@ -120,15 +120,18 @@ class Api:
         self.token = token
         self.clock = clock
         self.start_cycle = start_cycle
+        self.timer_on = timer_on
         self.local_dir = local_dir
         self._queue = None
         self._queue_time = None
         self._queue_failed = False
+        self._queue_finished = None
         self._queue_lock = threading.Lock()
 
     def state(self, query):
         limits = self.config.settings.claude.limits
         return self.store.read_current() | {
+            "timer_on": self.timer_on(),
             "stop_requested": self.store.stop_file.exists(),
             "paused_projects": sorted(self._paused()),
             "paused_in_config": sorted(p.name for p in self.config.projects if p.paused),
@@ -149,12 +152,17 @@ class Api:
                          "limit": self.config.settings.supervisor.queen_daily_token_limit}
 
     def queue(self, query):
-        """Each project's columns. All pages share one read, and a failed read keeps the last good answer."""
-        fresh = query.get("fresh") == ["1"]
+        """Each project's columns. All pages share one read, and a failed read keeps the last good answer.
+
+        A task that finished moved on the board, so it counts as asking for a fresh read.
+        """
         with self._queue_lock:  # A page that arrives during a read gets its result.
+            finished = self.store.last_event("task_finished")
+            fresh = query.get("fresh") == ["1"] or finished != self._queue_finished
             wait = QUEUE_RETRY_SECONDS if self._queue_failed else QUEUE_FRESH_SECONDS if fresh else QUEUE_CACHE_SECONDS
             if self._queue_time is None or self.clock() - self._queue_time >= wait:
                 self._queue_time = self.clock()
+                self._queue_finished = finished
                 try:
                     self._queue = self._read_queue()
                     self._queue_failed = False
@@ -219,12 +227,13 @@ class Api:
         if pr is None:
             return {"task": f"{full}#{number}", "pr": None, "rounds": []}
         task, head = f"{full}#{number}", pr["headRefOid"]
+        why_not = self._why_no_approval(task, pr)
         rounds = review.reviews_on(pr, self.config.settings.github.account)
         return {"task": task, "pr": {"number": pr["number"], "title": pr["title"], "url": pr["url"],
                                      "state": pr["state"], "head_sha": head,
                                      "approved": self.store.last_event("user_approved", task=task,
                                                                        head_sha=head) is not None,
-                                     "can_approve": self._why_no_approval(task, pr) is None},
+                                     "can_approve": why_not is None, "why_not": why_not},
                 "rounds": [r | {"recommendation": recommendation(r), "user_brief": self._user_brief(full, number, r)}
                            for r in rounds]}
 
@@ -246,8 +255,10 @@ class Api:
             return "an acceptance criterion is not met"
         repo, number = task.split("#")
         project = next(p for p in self.config.projects if repo in p.repos)
-        if project.name in self._paused() or project.board is None:
-            return "no cycle looks at its project"
+        if project.name in self._paused():
+            return "this project is paused: resume it first"
+        if project.board is None:
+            return "this project has no board"
         status = next((i.status for i in self.github.board_queue(project.board)
                        if i.repo == repo and i.number == int(number)), None)
         if status not in MERGEABLE_COLUMNS:

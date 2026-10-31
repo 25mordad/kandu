@@ -10,8 +10,8 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `language`, `limits`, `queen` and `flowers` |
-| GET | `/api/v1/queue` | each project's board columns, read from GitHub at most every 15 minutes, however many pages ask |
+| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `timer_on`, `language`, `limits`, `queen` and `flowers` |
+| GET | `/api/v1/queue` | each project's board columns, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes |
 | GET | `/api/v1/days` | dates that have events |
 | GET | `/api/v1/days/{day}` | one day's tokens by task, model and role, and its finished tasks |
 | GET | `/api/v1/events` | a page of events; `day` (default: the last) and `after` (default: 0) |
@@ -39,7 +39,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
  "flowers": {"acme-org/website#12": {"size": "Medium", "door": "two-way", "sent_back": false, "slice": false,
                                      "pr": null, "questions": 0}}}
 ```
-`flowers` holds what the page draws on a task beyond its column, read from the local log, so it costs GitHub nothing. `pr` is `"waits"` when the merge waits for the user, `"approved"` after the user's yes, otherwise null. A task that ended is left out.
+`timer_on` says whether `systemd` wakes the supervisor by itself; while it is false, `next_wake` will not happen. `queen.questions` leaves out a task that the user or a cycle moved on since she asked. `flowers` holds what the page draws on a task beyond its column, read from the local log, so it costs GitHub nothing. `pr` is `"waits"` when the merge waits for the user, `"approved"` after the user's yes, otherwise null. A task that ended is left out.
 
 `GET /api/v1/queue`
 ```json
@@ -47,7 +47,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
   "url": "https://github.com/acme-org/website/issues/13"}], "In progress": [], "In review": [],
   "Needs info": [], "Blocked": []}}, "stale": false}
 ```
-`?fresh=1` reads the board now, at most once a minute. If GitHub fails, the answer is the last good one with `"stale": true`, and the next read waits 5 minutes; with no good one it is a `502`.
+`?fresh=1` reads the board now, at most once a minute, and a task that finished does the same. If GitHub fails, the answer is the last good one with `"stale": true`, and the next read waits 5 minutes; with no good one it is a `502`.
 
 `GET /api/v1/days/2026-10-30`
 ```json
@@ -80,7 +80,7 @@ data: {"v": 1, "ts": "2026-10-30T12:00:00+01:00", "type": "supervisor_woke"}
  "rounds": [{"round": 1, "head_sha": "abc123", "door": "two-way", "summary": "...", "brief": "...", "user_brief": "...", "blast_radius": "...",
              "criteria": [{"criterion": "...", "result": "met"}], "open": [], "recommendation": "ready to merge"}]}
 ```
-The `pr` object also has `approved`, true once the user said yes to this head, and `can_approve`, true when the page may offer that.
+The `pr` object also has `approved`, true once the user said yes to this head, `can_approve`, true when the page may offer that, and `why_not`, which says in English why not, otherwise null.
 
 `POST /api/v1/reviews/acme-org/website/12/approve?head=abc123` answers `{"approved": "abc123", "cycle_started": true}`. `cycle_started` is `null` if a cycle is already running, and `false` if `systemd` refused. Either way the yes is saved, and the next cycle uses it. The answer is `409` if `head` is no longer the PR's head, if the local log shows no review of it, an open blocker or an unmet criterion, or if no cycle would pick the task up: its project is paused, or its column is not `Ready`, `In progress` or `In review`. The yes answers the review's questions and a one-way door. Every other merge condition still applies, including the tests.
 

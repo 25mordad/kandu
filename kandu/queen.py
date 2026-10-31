@@ -8,6 +8,7 @@ the user. She cannot merge, deploy or pass a lock.
 RETRYABLE = ("failed", "blocked")
 LARGE = "Large"
 NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed", "sizing_failed")
+MOVED_ON = ("user_approved", "task_picked", "task_finished")
 PROMPT_EVENTS = ("task_finished", "decision", "project_checked", "review_finished", "deployed", "run_finished")
 
 
@@ -105,14 +106,18 @@ def why_no_retry(events, task, limit, blocked, merged, sized=None):
 
 
 def last_report(store):
-    """Her newest brief and the questions from that look, or None."""
+    """Her newest brief and the questions from that look that still wait, or None.
+
+    A task the user or a cycle moved on since she asked has no question left.
+    """
     events = all_events(store)
     looks = [i for i, e in enumerate(events) if e["type"] == "queen_finished"]
     if not looks:
         return None
     start = looks[-2] + 1 if len(looks) > 1 else 0
+    moved_on = {e["task"] for e in events[looks[-1]:] if e["type"] in MOVED_ON}
     questions = [{"task": e["task"], "question": e["note"]} for e in events[start:looks[-1]]
-                 if e["type"] == "queen_decided" and e["action"] == "ask_user"]
+                 if e["type"] == "queen_decided" and e["action"] == "ask_user" and e["task"] not in moved_on]
     run_id = events[looks[-1]]["run_id"]
     run = next((e for e in events if e["type"] == "run_finished" and e["run_id"] == run_id), None)
     usage = run["models"].values() if run else ()
