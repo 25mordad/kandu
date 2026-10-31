@@ -184,8 +184,10 @@ class Api:
                 name = by_repo.get(item.repo)
                 if name is None or AGENT_LABEL not in item.labels or item.status not in QUEUE_COLUMNS:
                     continue
-                projects[name][item.status].append({"task": f"{item.repo}#{item.number}", "title": item.title,
-                                                     "url": item.url})
+                task = f"{item.repo}#{item.number}"
+                if item.status == split.NEEDS_SPLIT and self.store.last_event("task_split", task=task) is not None:
+                    continue  # Accepted: it waits for nobody, and its slices stand for it until the last one closes it.
+                projects[name][item.status].append({"task": task, "title": item.title, "url": item.url})
         return {"projects": projects}
 
     def days(self, query):

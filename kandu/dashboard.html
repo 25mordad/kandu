@@ -31,6 +31,8 @@ bdi { unicode-bidi:isolate; }
 .btn.plain { border-color:transparent; background:none; }
 .btn.plain:hover { background:var(--sunken); }
 .btn:disabled { opacity:.5; cursor:default; }
+.btn.busy:disabled { opacity:.85; }
+.btn.busy::before { content:""; width:14px; height:14px; border:2px solid currentColor; border-top-color:transparent; border-radius:50%; animation:spin .8s linear infinite; }
 input, select { font:400 14px/1.4 var(--sans); min-height:36px; padding:6px 12px; border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--ink); max-width:100%; min-width:0; }
 
 .top { position:sticky; top:0; z-index:5; background:color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter:blur(10px); border-bottom:1px solid var(--line); }
@@ -166,6 +168,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 @keyframes rise { 0% { opacity:0; transform:translateY(8px); } 30% { opacity:.9; } 100% { opacity:0; transform:translateY(-26px); } }
 .sway { transform-box:fill-box; transform-origin:50% 100%; animation:sway 5s ease-in-out infinite; }
 .sway.alt { animation-delay:-2.4s; }
+@keyframes spin { to { transform:rotate(360deg); } }
 @keyframes sway { 0%,100% { transform:rotate(-2.5deg); } 50% { transform:rotate(2.5deg); } }
 .wing { fill:#fff; opacity:.75; stroke:#7c6238; stroke-width:.6; transform-box:fill-box; transform-origin:50% 100%; animation:flap .16s ease-in-out infinite alternate; }
 .wing.low { transform-origin:50% 0; }
@@ -181,7 +184,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .speech text { fill:#3a2608; font:600 13px var(--sans); text-anchor:middle; unicode-bidi:plaintext; }
 .speech.back rect, .speech.back path { fill:#fde2c4; stroke:#b4580f; }
 .paused * { animation-play-state:paused !important; }
-@media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz, .halo, .wait-ring { animation:none; } .btn, .meter i { transition:none; } }
+@media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz, .halo, .wait-ring, .btn.busy::before { animation:none; } .btn, .meter i { transition:none; } }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width: 640px) {
@@ -271,6 +274,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "approve": "Approve and merge",
   "approve_sure": "Merge this PR? Kandu runs the tests first, then merges and deploys.",
   "approve_split": "Accept this split",
+  "split_creating": "Creating the tasks…",
+  "working": "Working…",
+  "reading_board": "Reading the boards…",
   "english_text": "English text",
   "approve_split_sure": "Create these slices as tasks on the board? Each one runs after the one before it.",
   "split_approved": "The slices are on the board.",
@@ -355,6 +361,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "approve": "تأیید و ادغام",
   "approve_sure": "این PR ادغام شود؟ کندو اول تست‌ها را اجرا می‌کند و بعد ادغام و مستقر می‌کند.",
   "approve_split": "قبول این شکستن",
+  "split_creating": "در حال ساختن تسک‌ها…",
+  "working": "در حال انجام…",
+  "reading_board": "در حال خواندن بردها…",
   "english_text": "متن انگلیسی",
   "approve_split_sure": "این تکه‌ها به‌صورت تسک روی برد ساخته شوند؟ هر کدام بعد از قبلی اجرا می‌شود.",
   "split_approved": "تکه‌ها روی برد ساخته شدند.",
@@ -642,9 +651,33 @@ async function post(path) {
   return r.ok;
 }
 
+// A click always answers while the server works, in any button.
+async function busy(button, work, text = t("working")) {
+  const group = [...(button.closest(".actions")?.querySelectorAll("button") || [button])].filter(b => !b.disabled);
+  const label = button.textContent;
+  group.forEach(b => { b.disabled = true; });
+  button.classList.add("busy");
+  button.textContent = text;
+  try {
+    return await work();
+  } catch {
+    toast(t("request_failed"));
+    return false;
+  } finally {
+    group.forEach(b => { b.disabled = false; });
+    button.classList.remove("busy");
+    button.textContent = label;
+  }
+}
+
+async function act(button, path, text) {
+  if (!token && !await askToken()) return false;
+  return busy(button, () => post(path), text);
+}
+
 async function approve(button) {
   const [repo, number] = button.dataset.approve.split("#");
-  await post(`/reviews/${repo}/${number}/approve?head=${encodeURIComponent(button.dataset.head)}`);
+  await act(button, `/reviews/${repo}/${number}/approve?head=${encodeURIComponent(button.dataset.head)}`);
   confirming = false;
   showReviews(button.dataset.approve);
 }
@@ -822,7 +855,7 @@ function renderScene(state, queue) {
   const projects = fields(state, queue);
   const stopped = state.stop_requested;
   const asleep = stopped || state.supervisor !== "awake";
-  const key = JSON.stringify([narrow, lang, stopped, asleep, projects, state.workers, state.queen_run]);
+  const key = JSON.stringify([narrow, lang, stopped, asleep, !queue, projects, state.workers, state.queen_run]);
   if (key === sceneKey) return;
   sceneKey = key;
   const width = narrow ? 420 : 1200;
@@ -850,7 +883,7 @@ function renderScene(state, queue) {
     const spot = spots[worker.task];
     return speech(spot.x, spot.y - 46 - (i % 2) * 28, `${isFix(worker.phase) ? "↩ " : ""}${tr(worker.phase)}`, isFix(worker.phase));
   }).join("");
-  const note = projects.some(p => p.tasks.length) ? "" : `<text class="meadow-note" x="${width / 2}" y="${height - 30}">${t("empty_meadow")}</text>`;
+  const note = projects.some(p => p.tasks.length) ? "" : `<text class="meadow-note" x="${width / 2}" y="${height - 30}">${t(queue ? "empty_meadow" : "reading_board")}</text>`;
   box.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${t("hive")}" class="${stopped ? "paused" : ""}">
     <defs><linearGradient id="sky" x2="0" y2="1"><stop class="sky-top" offset="0"/><stop class="sky-low" offset="1"/></linearGradient></defs>
     <rect width="${width}" height="${height}" fill="url(#sky)"/>
@@ -1063,12 +1096,11 @@ function splitBox(task, proposal) {
 }
 
 async function approveSplit(button) {
-  button.disabled = true;
   const task = button.dataset.split;
   const [repo, number] = task.split("#");
-  const done = await post(`/splits/${repo}/${number}/approve?proposal=${encodeURIComponent(button.dataset.fingerprint)}`);
+  const path = `/splits/${repo}/${number}/approve?proposal=${encodeURIComponent(button.dataset.fingerprint)}`;
+  if (await act(button, path, t("split_creating"))) toast(t("split_approved"));
   confirming = false;
-  if (done) toast(t("split_approved"));
   showReviews(task);
 }
 
@@ -1101,13 +1133,13 @@ document.addEventListener("click", e => {
   if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
   if (pause) {  // It sits in the project's summary, which would fold.
     e.preventDefault();
-    post(`/projects/${encodeURIComponent(pause.dataset.pause)}/${pause.dataset.paused === "true" ? "resume" : "pause"}`);
+    act(pause, `/projects/${encodeURIComponent(pause.dataset.pause)}/${pause.dataset.paused === "true" ? "resume" : "pause"}`);
     return;
   }
   if (yes) { approve(yes); return; }
   if (acceptSplit) { approveSplit(acceptSplit); return; }
   if (tabButton) { showTab(tabButton.dataset.tab); return; }
-  if (stop) { post(`/workers/${encodeURIComponent(stop.dataset.stop)}/stop`); return; }
+  if (stop) { act(stop, `/workers/${encodeURIComponent(stop.dataset.stop)}/stop`); return; }
   if (run) { showRun(run.dataset.run); return; }
   const review = hit("review");
   if (review) { confirming = false; showReviews(review.dataset.review); }
@@ -1120,9 +1152,9 @@ document.addEventListener("toggle", e => {
   save(CLOSED_KEY, JSON.stringify([...closed]));
 }, true);
 $("modal").addEventListener("close", () => { shownRun = shownTask = null; confirming = false; });
-$("stop").onclick = () => post("/stop");
-$("resume").onclick = () => post("/resume");
-$("reload").onclick = () => refreshQueue(lastState, true);
+$("stop").onclick = e => act(e.currentTarget, "/stop");
+$("resume").onclick = e => act(e.currentTarget, "/resume");
+$("reload").onclick = e => busy(e.currentTarget, () => refreshQueue(lastState, true));
 $("day").onchange = refreshDays;
 $("search").oninput = renderProjects;
 $("lang").onclick = () => setLanguage(lang === "fa" ? "en" : "fa");

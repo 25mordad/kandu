@@ -74,6 +74,13 @@ class ReadTest(Base):
         self.assertEqual([t["task"] for t in projects["website"]["Ready"]], [f"{REPO}#1"])
         self.assertEqual([t["task"] for t in projects["website"]["Blocked"]], [f"{REPO}#2"])
 
+    def test_an_accepted_split_stops_waiting(self):
+        self.github.board_queue.return_value = [BoardItem(REPO, 1, "Big", "u", "Needs split", ["agent"], ""),
+                                                BoardItem(REPO, 2, "Bigger", "u", "Needs split", ["agent"], "")]
+        self.store.record("task_split", task=f"{REPO}#1", project="website", children=[])
+        tasks = self.get("/api/v1/queue")[1]["projects"]["website"]["Needs split"]
+        self.assertEqual([t["task"] for t in tasks], [f"{REPO}#2"])
+
     def test_queue_reads_one_board_once_and_is_cached(self):
         self.github.board_queue.return_value = []
         self.get("/api/v1/queue")
@@ -524,6 +531,14 @@ class HiveTest(unittest.TestCase):
             self.assertIn(f'"{column}"', kinds)
             if column != "Blocked":  # It wilts, and that is its sign.
                 self.assertIn(f'"{column}":', signs)
+
+    def test_every_action_shows_it_is_working(self):
+        self.assertEqual(self.page.count("post("), 2)  # Its definition, and the one call in `act`.
+        self.assertIn("() => post(path)", self.page)
+        self.assertIn('t("split_creating")', self.page)
+
+    def test_an_unread_board_is_not_called_empty(self):
+        self.assertIn('t(queue ? "empty_meadow" : "reading_board")', self.page)
 
     def test_the_page_shows_the_queen_and_a_task_sent_back(self):
         self.assertIn("state.queen_run", self.page)
