@@ -16,8 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import queen, questions, review, split, timer
-from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
+from . import queen, questions, review, sessions, split, timer
+from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config, set_limits
 from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError
 from .runner import DEFAULT_LOGS_DIR
 from .state import StateStore
@@ -205,6 +205,9 @@ class Api:
     def days(self, query):
         return {"days": self.store.days()}
 
+    def didban(self, query):
+        return {"sessions": sessions.recent(self.store)}
+
     def day(self, query, day):
         if not DAY.fullmatch(day):
             raise ApiError(404, "no such day")
@@ -339,6 +342,20 @@ class Api:
         self.store.stop_file.unlink(missing_ok=True)
         return {"stop_requested": False}
 
+    def change_limits(self, query):
+        """Reaches the next cycle through `kandu.yaml`; a cycle already running keeps the limits it read."""
+        try:
+            session, week = int(query["session"][0]), int(query["week"][0])
+            set_limits(session, week, self.local_dir)
+        except (KeyError, ValueError):
+            raise ApiError(400, "give both limits, as whole percents") from None
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        limits = self.config.settings.claude.limits
+        limits.session_5h_percent, limits.weekly_percent = session, week
+        self.store.record("limits_changed", session=session, week=week)
+        return {"limits": {"session": session, "week": week}}
+
     def _project(self, name):
         project = next((p for p in self.config.projects if p.name == name), None)
         if project is None:
@@ -376,6 +393,7 @@ ROUTES = [
     ("GET", "/queue", Api.queue),
     ("GET", "/days", Api.days),
     ("GET", "/days/{day}", Api.day),
+    ("GET", "/didban", Api.didban),
     ("GET", "/events", Api.events),
     ("GET", "/stream", None),
     ("GET", "/runs/{run_id}", Api.run),
@@ -386,6 +404,7 @@ ROUTES = [
     ("POST", "/splits/{owner}/{repo}/{number}/approve", Api.approve_split),
     ("POST", "/stop", Api.stop),
     ("POST", "/resume", Api.resume),
+    ("POST", "/limits", Api.change_limits),
     ("POST", "/workers/{run_id}/stop", Api.stop_worker),
     ("POST", "/projects/{name}/pause", Api.pause_project),
     ("POST", "/projects/{name}/resume", Api.resume_project),

@@ -6,6 +6,8 @@ Kandu keeps its runtime record in `state/` (gitignored, readable only by its use
 state/
   current.json            what is happening now
   events/2026-10-30.jsonl what happened that day, one JSON event per line
+  requests/<id>.json      what the user asked for, until it is tasks
+  didban/<session>.json   what one Didban session spent and did
 ```
 
 ## Rules
@@ -50,6 +52,7 @@ state/
 | `notification_failed` | `kind`, `key`, `reason` |
 | `project_paused` | `project` |
 | `project_resumed` | `project` |
+| `limits_changed` | `session`, `week` |
 | `group_closed` | `task`, `project` |
 | `deployed` | `task`, `project`, `run_id` |
 | `project_checked` | `project`, `passed`, `detail` |
