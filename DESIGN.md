@@ -253,9 +253,17 @@ The brain runs on an always-on machine, which is usually not the machine the use
 - **Knowledge:** project locations come from the registry. Other sources are listed in `didban.knowledge` in the brain's `kandu.yaml`. The role prompt tells Didban to read them there, on the machine that holds each one, read-only, and never to copy them.
 - **Source of truth:** `local/` on the brain's machine. Didban reads and writes it over SSH, so there are never two diverging copies. The only local file is `local/didban.yaml`, which says how to reach the brain ([example](config.example/didban.example.yaml)). The list of sources is in `didban:` in the brain's `kandu.yaml`.
 - **Limits:** it does not write code, does not change the knowledge sources it reads and keeps no memory of its own; all state stays on the board, or on the brain until a request is a task. `Edit`, `Write` and `NotebookEdit` are blocked in code. `Bash` stays open because Didban needs SSH, so these limits rest on the role prompt there, and a mistake is possible: do not treat Didban as a security boundary. Its sessions count against the same usage limits as the supervisor (§6).
+- **From the dashboard:** a button opens Didban on the brain's machine, in the dashboard's language, with a Remote Control link on the page, so it needs no window on the user's machine. One stays open at a time: the button then shows the open one. It is the same role, with the same limits, and its report is made on the brain when it ends.
 - **When the brain's machine is off:** tasks can still be defined; live state and commands wait until it is back.
 
 A review can meet what the task never settled. Its question in `wait_for_user` stays open until the user answers it: Didban opens by saying what is open, and `python -m kandu.questions answer` saves the answer in the local log and the project's memory, where the next worker and reviewer read it. An answer is not the merge yes.
+
+### Free flights
+Every task on the dashboard, `Done` included, has a button that opens a **free flight**: a Claude Code session on the brain's machine with a Remote Control link, for the user to work by hand on a task or ask about it. It speaks the dashboard's language and is told only where things are: the task, the project, its worktree, its logs. One stays open per task.
+
+A free flight has full access, with no permission prompts, because the person driving it is the owner and chose this. It is not an agent: the harness of §14 does not apply to it, no gate watches it, and the queen and the workers keep running beside it. Where its task goes afterwards is the user's call. The button needs the dashboard's token, as every control does, and nothing else stands between that token and full access to the machine.
+
+Code sums up each flight when it ends, for a list under daily usage, apart from Didban's sessions. It counts against no project's limits, though it spends the same account's usage (§6). A session nobody spoke to spends nothing and leaves no row.
 
 ## 14. Harness, context and memory
 Every part of Kandu is designed and reviewed against these three. The result depends on them as much as on the model.

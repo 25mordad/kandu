@@ -31,6 +31,7 @@ bdi { unicode-bidi:isolate; }
 .btn.plain { border-color:transparent; background:none; }
 .btn.plain:hover { background:var(--sunken); }
 .btn:disabled { opacity:.5; cursor:default; }
+.flightbox { display:inline-flex; gap:6px; }
 .btn.busy:disabled { opacity:.85; }
 .btn.busy::before { content:""; width:14px; height:14px; border:2px solid currentColor; border-top-color:transparent; border-radius:50%; animation:spin .8s linear infinite; }
 input, select { font:400 14px/1.4 var(--sans); min-height:36px; padding:6px 12px; border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--ink); max-width:100%; min-width:0; }
@@ -213,6 +214,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     <button id="stop" class="btn danger" data-t="stop"></button>
     <button id="resume" class="btn primary" data-t="resume" hidden></button>
     <button id="reload" class="btn plain" data-t="read_board"></button>
+    <span id="didbanbox" class="flightbox"></span>
     <button id="lang" class="btn plain" lang="" data-t="other_language"></button>
   </div>
   <nav class="tabs" role="tablist">
@@ -240,6 +242,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     <div class="toolbar"><select id="day" data-t-attr="aria-label" data-t="day"></select><div id="daytotals" class="chips"></div></div>
     <div id="byday" class="card"></div>
     <div id="didbansessions" class="card"></div>
+    <div id="freeflights" class="card"></div>
   </section>
   <section data-panel="activity" class="card" hidden><div id="live" class="feed-scroll"></div></section>
 </main>
@@ -341,6 +344,14 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "cancel": "Cancel",
   "didban_sessions": "Didban sessions",
   "no_didban_sessions": "No Didban session reported yet",
+  "open_didban": "Open Didban",
+  "open_flight": "Open a free flight",
+  "flight_opening": "Opening…",
+  "flight_go": "Go to the session",
+  "flight_close": "End the session",
+  "flight_open_now": "open now",
+  "free_flights": "Free flights",
+  "no_free_flights": "No free flight yet",
   "session_title": "Session",
   "session_did": "Did",
   "when": "When",
@@ -449,6 +460,14 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "cancel": "انصراف",
   "didban_sessions": "جلسه‌های دیدبان",
   "no_didban_sessions": "هنوز جلسه‌ای از دیدبان گزارش نشده",
+  "open_didban": "باز کردن دیدبان",
+  "open_flight": "باز کردن پرواز آزاد",
+  "flight_opening": "در حال باز شدن…",
+  "flight_go": "رفتن به جلسه",
+  "flight_close": "بستن جلسه",
+  "flight_open_now": "الان باز است",
+  "free_flights": "پروازهای آزاد",
+  "no_free_flights": "هنوز پرواز آزادی نبوده",
   "session_title": "جلسه",
   "session_did": "کارها",
   "when": "زمان",
@@ -510,6 +529,8 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "wait: a blocker is open": "صبر کن: یک مانع باز است",
   "this head has no review": "این نسخه از PR بازبینی نشده است",
   "a blocker is open": "یک مانع باز است",
+  "the session's link did not come in time": "لینک جلسه به‌موقع نیامد",
+  "the session did not start": "جلسه باز نشد",
   "an acceptance criterion is not met": "یک معیار پذیرش برآورده نشده است",
   "this project is paused: resume it first": "این پروژه متوقف است: اول از توقف درش بیاور",
   "this project has no board": "این پروژه تخته ندارد",
@@ -622,6 +643,8 @@ const LIVE_LINES = 200;
 const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // What needs the user comes first.
 const COLUMN_ORDER = ["Your approval", "Needs info", "Needs split", "Approved", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog", "Technical debt", "Done"];
+let flights = {open: [], flown: []};
+const flightsWarned = new Set();
 let lang = "en", tab = "meadow", shownRun = null, shownTask = null, confirming = false, live = [], token = "";
 let lastState = null, lastQueue = null, sceneKey = null, listKey = null, briefOpen = false, closed = new Set();
 const saved = key => { try { return localStorage.getItem(key); } catch { return null; } };
@@ -1123,6 +1146,43 @@ async function refreshDidban() {
     : `<div class="empty">${t("no_didban_sessions")}</div>`);
 }
 
+function flightControls(flight, target, label) {
+  if (flight?.status === "opening") return `<button class="btn busy" disabled>${t("flight_opening")}</button>`;
+  if (flight?.status === "open") return `<a class="btn primary" href="${esc(flight.url)}" target="_blank" rel="noopener">${t("flight_go")} ↗</a><button class="btn" data-land="${esc(flight.key)}">${t("flight_close")}</button>`;
+  return `<button class="btn" data-fly="${esc(target)}">${label}</button>`;
+}
+
+function renderFlights() {
+  $("didbanbox").innerHTML = flightControls(flights.open.find(f => f.kind === "didban"), "didban", t("open_didban"));
+  if ($("taskflight") && shownTask) $("taskflight").innerHTML = flightControls(flights.open.find(f => f.task === shownTask), shownTask, t("open_flight"));
+  const task = s => `<button class="textlink" data-review="${esc(s.task)}">${bdi(repoOf(s.task))} ${numberOf(s.task)}</button>`;
+  const open = flights.open.filter(f => f.kind === "task" && f.status === "open").map(f => `<tr><td class="fit number">${esc(when(f.started))}</td><td>${task(f)}</td>
+    <td dir="auto"><a class="textlink" href="${esc(f.url)}" target="_blank" rel="noopener">${t("flight_go")} ↗</a></td><td class="fit end">${t("flight_open_now")}</td></tr>`);
+  const flown = flights.flown.map(s => `<tr><td class="fit number">${esc(s.started ? when(s.started) : "—")}</td><td>${task(s)}</td><td dir="auto">${esc(s.title || "—")}</td>
+    <td class="fit end" title="${esc(num(s.tokens.input + s.tokens.output + s.tokens.cache_read + s.tokens.cache_creation))}">${esc(short(s.tokens.input + s.tokens.output + s.tokens.cache_creation))}</td></tr>`);
+  const rows = [...open, ...flown].join("");
+  $("freeflights").innerHTML = `<h3>${t("free_flights")}</h3>` + (rows ? `<table class="rows"><thead><tr><th class="fit">${t("when")}</th><th>${t("number")}</th><th>${t("session_title")}</th><th class="fit end">${t("tokens")}</th></tr></thead><tbody>${rows}</tbody></table>`
+    : `<div class="empty">${t("no_free_flights")}</div>`);
+}
+
+async function refreshFlights() {
+  flights = await get("/flights");
+  for (const f of flights.open.filter(f => f.status === "failed" && !flightsWarned.has(f.session))) {
+    flightsWarned.add(f.session);
+    toast(tr(f.error));
+  }
+  renderFlights();
+  clearTimeout(refreshFlights.timer);
+  if (flights.open.some(f => f.status === "opening")) refreshFlights.timer = setTimeout(() => refreshFlights().catch(() => {}), 2000);
+}
+
+async function openFlight(button) {
+  const target = button.dataset.fly;
+  const path = target === "didban" ? "/flights/didban" : `/flights/tasks/${target.replace("#", "/")}`;
+  await act(button, `${path}?language=${lang}`, t("flight_opening"));
+  await refreshFlights();
+}
+
 async function refreshDays() {
   refreshDidban();
   const {days} = await get("/days");
@@ -1243,20 +1303,25 @@ async function showReviews(task) {
   const link = (url, label) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${label} ↗</a>`;
   if (!r.pr) {
     openModal(`${numberOf(task)} ${bdi(item?.title || repoOf(task))}`);
-    $("modalbody").innerHTML = `<div class="actions">${item ? badge(item.column) : ""}<span class="muted">${t("no_pr")}</span></div>${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}`;
+    $("modalbody").innerHTML = `<div class="actions">${item ? badge(item.column) : ""}<span class="muted">${t("no_pr")}</span></div>${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}<div id="taskflight" class="actions"></div>`;
+    renderFlights();
     return;
   }
   openModal(`${numberOf(task)} ${bdi(item?.title || r.pr.title)}`);
   $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? badge(item.column) : ""}</div>
     ${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}
     <div class="actions">${approval(task, r.pr)}${link(r.pr.url, t("open_github"))}</div>
+    <div id="taskflight" class="actions"></div>
     ${r.rounds.slice().reverse().map((round, i) => roundBox(round, i === 0)).join("")}`;
+  renderFlights();
 }
 
 document.addEventListener("click", e => {
   const hit = name => e.target.closest(`[data-${name}]`);
   const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
   if (hit("close")) { $("modal").close(); return; }
+  if (hit("fly")) { openFlight(hit("fly")); return; }
+  if (hit("land")) { act(hit("land"), `/flights/${encodeURIComponent(hit("land").dataset.land)}/close`); return; }
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); showReviews(shownTask); return; }
   if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
@@ -1290,7 +1355,7 @@ $("lang").onclick = () => setLanguage(lang === "fa" ? "en" : "fa");
 addEventListener("resize", () => { if (lastState) renderScene(lastState, lastQueue); });
 
 async function refresh() {
-  try { const s = await refreshState(); await refreshQueue(s); await refreshDays(); }
+  try { const s = await refreshState(); await refreshQueue(s); await refreshDays(); await refreshFlights(); }
   catch { toast(t("api_unreachable")); }
 }
 let stream = null;

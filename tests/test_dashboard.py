@@ -13,7 +13,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from kandu import dashboard, review, sessions, split
+from kandu import flights, dashboard, review, sessions, split
 from kandu.config import load_config
 from kandu.dashboard import Api, actions_in, dispatch, make_handler, new_events, recommendation
 from kandu.github import BoardItem, GitHubError
@@ -438,6 +438,28 @@ class ControlTest(Base):
 
     def test_changing_limits_needs_the_token(self):
         self.assertEqual(self.set_limits("?session=85&week=40", "wrong")[0], 403)
+
+    def test_opening_a_session_needs_the_token(self):
+        self.assertEqual(dashboard.dispatch(self.api, "POST", "/api/v1/flights/didban?language=fa")[0], 403)
+
+    def test_a_task_flight_opens_in_the_language_of_the_page(self):
+        self.api.flights = mock.Mock()
+        status, body = dashboard.dispatch(self.api, "POST", f"/api/v1/flights/tasks/{REPO}/7?language=fa", TOKEN)
+        self.assertEqual(status, 200)
+        project, repo, number, language = self.api.flights.open_task.call_args.args
+        self.assertEqual((REPO in project.repos, repo, number, language), (True, REPO, 7, "fa"))
+        self.assertEqual(body["opening"], flights.task_key(f"{REPO}#7"))
+
+    def test_a_flight_on_an_unknown_repo_or_language_is_refused(self):
+        self.api.flights = mock.Mock()
+        self.assertEqual(dashboard.dispatch(self.api, "POST", "/api/v1/flights/tasks/acme-org/other/7", TOKEN)[0], 404)
+        self.assertEqual(dashboard.dispatch(self.api, "POST", "/api/v1/flights/didban?language=xx", TOKEN)[0], 400)
+        self.api.flights.open_didban.assert_not_called()
+
+    def test_closing_a_session_that_is_gone_is_a_404(self):
+        self.api.flights = mock.Mock()
+        self.api.flights.close.return_value = False
+        self.assertEqual(dashboard.dispatch(self.api, "POST", "/api/v1/flights/t-none/close", TOKEN)[0], 404)
 
     def test_didban_sessions_come_newest_first_and_count_in_no_day(self):
         sessions.save(self.store, {"id": SESSION_A, "started": "2026-10-30T10:00:00Z"})

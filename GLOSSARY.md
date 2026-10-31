@@ -13,6 +13,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Group** | The slices of one split task: chained by `Blocked by`, each with its own PR, run one after another |
 | **Reviewer** | A fresh agent that reviews a PR, knowing nothing of how it was built |
 | **Didban** | The control role, run from the machine the user sits at |
+| **Free flight** | A session the user opens on a task from the dashboard, with full access; Kandu's agents keep running beside it |
 | **Request** | What the user wants done, in their words, before it is a task; Didban keeps it until its tasks exist |
 | **Family** | A group of repos that share one board |
 | **Board** | The GitHub Project of a family |

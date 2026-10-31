@@ -16,11 +16,14 @@ from .usage import UsageError, read_usage
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 REQUIRED_TOOLS = ("claude", "gh", "git")
+SESSION_TOOLS = ("tmux", "systemd-run")
 OK, WARN, FAIL = "ok", "warn", "FAIL"
 
 
 def check_tools(which=shutil.which):
-    return [(OK if which(t) else FAIL, f"tool {t}") for t in REQUIRED_TOOLS]
+    results = [(OK if which(t) else FAIL, f"tool {t}") for t in REQUIRED_TOOLS]
+    results += [(OK if which(t) else WARN, f"tool {t}: the dashboard opens sessions with it") for t in SESSION_TOOLS]
+    return results
 
 
 def check_gh_scope(auth_text):

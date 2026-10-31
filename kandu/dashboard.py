@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import queen, questions, review, sessions, split, timer
+from . import flights, queen, questions, review, sessions, split, timer
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config, set_limits
 from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError
 from .runner import DEFAULT_LOGS_DIR
@@ -122,7 +122,7 @@ class ApiError(Exception):
 
 class Api:
     def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic, start_cycle=timer.start_cycle,
-                 local_dir=DEFAULT_LOCAL_DIR, timer_on=timer.timer_on):
+                 local_dir=DEFAULT_LOCAL_DIR, timer_on=timer.timer_on, flights_=None):
         self.config = config
         self.store = store
         self.github = github
@@ -132,6 +132,7 @@ class Api:
         self.start_cycle = start_cycle
         self.timer_on = timer_on
         self.local_dir = local_dir
+        self.flights = flights_ or flights.Flights(config, store, logs_dir)
         self._queue = None
         self._queue_time = None
         self._queue_failed = False
@@ -217,6 +218,32 @@ class Api:
 
     def didban(self, query):
         return {"sessions": sessions.recent(self.store)}
+
+    def list_flights(self, query):
+        return self.flights.list()
+
+    def _language(self, query):
+        language = query.get("language", [self.config.settings.language])[0]
+        if language not in flights.LANGUAGES:
+            raise ApiError(400, "no such language")
+        return language
+
+    def open_didban(self, query):
+        """Answers at once: the session's link appears in `GET /flights`."""
+        self.flights.open_didban(self._language(query))
+        return {"opening": flights.DIDBAN}
+
+    def open_flight(self, query, owner, repo, number):
+        task = self._split_task(owner, repo, number)
+        full = f"{owner}/{repo}"
+        project = next(p for p in self.config.projects if full in p.repos)
+        self.flights.open_task(project, full, int(number), self._language(query))
+        return {"opening": flights.task_key(task)}
+
+    def close_flight(self, query, key):
+        if not self.flights.close(key):
+            raise ApiError(404, "no such session")
+        return {"closed": key}
 
     def day(self, query, day):
         if not DAY.fullmatch(day):
@@ -404,6 +431,10 @@ ROUTES = [
     ("GET", "/days", Api.days),
     ("GET", "/days/{day}", Api.day),
     ("GET", "/didban", Api.didban),
+    ("GET", "/flights", Api.list_flights),
+    ("POST", "/flights/didban", Api.open_didban),
+    ("POST", "/flights/tasks/{owner}/{repo}/{number}", Api.open_flight),
+    ("POST", "/flights/{key}/close", Api.close_flight),
     ("GET", "/events", Api.events),
     ("GET", "/stream", None),
     ("GET", "/runs/{run_id}", Api.run),
