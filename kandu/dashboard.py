@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import queen, review, split, timer
+from . import queen, questions, review, split, timer
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import AGENT_LABEL, GitHub, GitHubError
 from .runner import DEFAULT_LOGS_DIR
@@ -37,6 +37,7 @@ MERGEABLE_COLUMNS = ("Ready", "In progress", "In review")  # the columns a cycle
 QUEUE_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked")
 TOOL_DETAIL_KEYS = ("file_path", "path", "pattern", "command")
 MAX_DETAIL = 200
+USER_DECIDES = "the user decides next"
 
 
 def recommendation(record):
@@ -50,6 +51,39 @@ def recommendation(record):
     if record["open"]:
         return "ready to merge, with notes"
     return "ready to merge"
+
+
+def flower_marks(store):
+    """What each task's flower shows beyond its column. The local log alone, so it costs GitHub nothing."""
+    events = queen.all_events(store)
+    marks = {}
+    for event in events:
+        task, kind = event.get("task"), event["type"]
+        if task is None:
+            continue
+        mark = marks.setdefault(task, {"size": None, "door": None, "sent_back": False, "slice": False, "pr": None,
+                                       "questions": 0})
+        if kind == "task_sized":
+            mark |= {"size": event["size"], "door": event["door"]}
+        elif kind == "slice_created":
+            mark["slice"] = True
+        elif kind == "review_finished":
+            mark |= {"door": event["door"], "sent_back": bool(event["blockers"])}
+        elif kind == "decision" and (event["decision"] == "merge_waits" or event["reason"] == USER_DECIDES):
+            mark["pr"] = "waits"
+        elif kind == "user_approved":
+            mark["pr"] = "approved"
+        elif kind == "task_picked":
+            mark["pr"] = None
+        elif kind == "task_finished":
+            if event["outcome"] in questions.ENDED:
+                del marks[task]
+            else:
+                mark["pr"] = None
+    for question in questions.open_questions(store, events):
+        if question["task"] in marks:
+            marks[question["task"]]["questions"] += 1
+    return marks
 
 
 def actions_in(line):
@@ -101,6 +135,7 @@ class Api:
             "language": self.config.settings.language,
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
             "queen": self._queen_report(),
+            "flowers": flower_marks(self.store),
         }
 
     def _paused(self):

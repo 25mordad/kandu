@@ -10,7 +10,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `language` and `limits` |
+| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `language`, `limits`, `queen` and `flowers` |
 | GET | `/api/v1/queue` | each project's board columns, read from GitHub at most every 15 minutes, however many pages ask |
 | GET | `/api/v1/days` | dates that have events |
 | GET | `/api/v1/days/{day}` | one day's tokens by task, model and role, and its finished tasks |
@@ -35,8 +35,11 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
  "usage": {"session": 28, "week": 41}, "limits": {"session": 70, "week": 60},
  "workers": [{"task": "acme-org/website#12", "project": "website", "machine": "server",
               "started": "2026-10-30T12:00:00+01:00", "phase": "implement", "run_id": "r-20261030120000-a1b2c3"}],
- "waiting_for_machine": [], "queen_run": null, "stop_requested": false}
+ "waiting_for_machine": [], "queen_run": null, "stop_requested": false,
+ "flowers": {"acme-org/website#12": {"size": "Medium", "door": "two-way", "sent_back": false, "slice": false,
+                                     "pr": null, "questions": 0}}}
 ```
+`flowers` holds what the page draws on a task beyond its column, read from the local log, so it costs GitHub nothing. `pr` is `"waits"` when the merge waits for the user, `"approved"` after the user's yes, otherwise null. A task that ended is left out.
 
 `GET /api/v1/queue`
 ```json

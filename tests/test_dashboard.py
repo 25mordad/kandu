@@ -182,6 +182,68 @@ class ReadTest(Base):
         self.assertEqual(len(actions_in(assistant_line(("Bash", {"command": "x" * 999})))[0]["detail"]), 200)
 
 
+class FlowerMarksTest(Base):
+    def task_event(self, kind, **fields):
+        self.store.record(kind, task=f"{REPO}#1", project="website", **fields)
+
+    def marks(self):
+        return self.get("/api/v1/state")[1]["flowers"].get(f"{REPO}#1")
+
+    def review(self, blockers=0, door="two-way", wait_for_user=()):
+        self.task_event("review_finished", run_id="r-1", round=1, head_sha="abc", findings=blockers, blockers=blockers,
+                        door=door, criteria_met=True, wait_for_user=list(wait_for_user), user_brief=None)
+
+    def test_size_and_door_come_from_the_log(self):
+        self.task_event("task_sized", run_id="r-1", size="Large", files=20, door="two-way", criteria=9, slices=[])
+        self.assertEqual(self.marks()["size"], "Large")
+        self.review(door="one-way")
+        self.assertEqual((self.marks()["size"], self.marks()["door"]), ("Large", "one-way"))
+
+    def test_a_merge_that_waits_is_marked_until_the_task_is_picked_again(self):
+        self.task_event("decision", decision="merge_waits", reason="this is a one-way door")
+        self.assertEqual(self.marks()["pr"], "waits")
+        self.task_event("task_picked")
+        self.assertIsNone(self.marks()["pr"])
+
+    def test_a_review_left_to_the_user_waits_too(self):
+        self.task_event("decision", decision="approved", reason=dashboard.USER_DECIDES)
+        self.assertEqual(self.marks()["pr"], "waits")
+
+    def test_another_decision_does_not_wait(self):
+        self.task_event("decision", decision="review_voided", reason="the head moved during the review")
+        self.assertIsNone(self.marks()["pr"])
+
+    def test_the_users_yes_shows(self):
+        self.task_event("decision", decision="merge_waits", reason="x")
+        self.task_event("user_approved", head_sha="abc")
+        self.assertEqual(self.marks()["pr"], "approved")
+
+    def test_a_clean_review_ends_sent_back(self):
+        self.review(blockers=1)
+        self.assertTrue(self.marks()["sent_back"])
+        self.review()
+        self.assertFalse(self.marks()["sent_back"])
+
+    def test_open_questions_are_counted(self):
+        self.review(wait_for_user=["one?", "two?"])
+        self.assertEqual(self.marks()["questions"], 2)
+
+    def test_a_slice_is_marked(self):
+        self.task_event("slice_created", parent=f"{REPO}#9")
+        self.assertTrue(self.marks()["slice"])
+
+    def test_a_task_that_ended_is_left_out(self):
+        self.task_event("task_sized", run_id="r-1", size="Small", files=1, door="two-way", criteria=1, slices=[])
+        self.task_event("task_finished", outcome="merged")
+        self.assertIsNone(self.marks())
+
+    def test_a_task_that_can_come_back_keeps_its_marks(self):
+        self.task_event("task_sized", run_id="r-1", size="Small", files=1, door="two-way", criteria=1, slices=[])
+        self.task_event("decision", decision="merge_waits", reason="x")
+        self.task_event("task_finished", outcome="blocked")
+        self.assertEqual((self.marks()["size"], self.marks()["pr"]), ("Small", None))
+
+
 class QueenReportTest(Base):
     def test_state_holds_her_newest_brief_and_questions(self):
         self.assertIsNone(self.api.state({})["queen"])
@@ -394,6 +456,20 @@ class HiveTest(unittest.TestCase):
         flowers = re.search(r"const FLOWERS = \{(.*?)\n\};", self.page, re.DOTALL).group(1)
         for column in dashboard.QUEUE_COLUMNS:
             self.assertIn(f'"{column}":', flowers)
+
+    def test_the_meadow_is_the_first_tab(self):
+        tabs = re.findall(r'data-tab="(\w+)"', self.page)
+        self.assertEqual(tabs[0], "meadow")
+        self.assertIn('tab = "meadow"', self.page)
+
+    def test_every_flower_has_a_sign_and_a_place_in_the_legend(self):
+        signs = re.search(r"const SIGNS = \{(.*?)\n\};", self.page, re.DOTALL).group(1)
+        kinds = re.search(r"const kinds = \[(.*?)\];", self.page).group(1)
+        flowers = re.findall(r'^  "([\w ]+)":', re.search(r"const FLOWERS = \{(.*?)\n\};", self.page, re.DOTALL).group(1), re.MULTILINE)
+        for column in flowers:
+            self.assertIn(f'"{column}"', kinds)
+            if column != "Blocked":  # It wilts, and that is its sign.
+                self.assertIn(f'"{column}":', signs)
 
     def test_the_page_shows_the_queen_and_a_task_sent_back(self):
         self.assertIn("state.queen_run", self.page)
