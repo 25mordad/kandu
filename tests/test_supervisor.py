@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from kandu import agents, queen, review, supervisor
+from kandu import agents, queen, review, split, supervisor
 from kandu.config import load_config
 from kandu.github import BoardItem, GitHubError
 from kandu.runner import AgentResult, RunnerError
@@ -27,8 +27,8 @@ OTHER_REPO = "acme-org/internal-tool"
 NOW = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 SHA1, SHA2, SHA3 = "a" * 8, "b" * 8, "c" * 8
 PR_OPENED = '{"status": "pr_opened", "pr": 7}'
-BLOCKER = {"n": 1, "path": "a.py", "line": 3, "blocker": True, "body": "This breaks."}
-NOTE = {"n": 1, "path": "a.py", "line": 3, "blocker": False, "body": "Confusing."}
+BLOCKER = {"n": 1, "path": "a.py", "line": 3, "blocker": True, "criterion": None, "body": "This breaks."}
+NOTE = {"n": 1, "path": "a.py", "line": 3, "blocker": False, "criterion": None, "body": "Confusing."}
 
 
 def report(head, findings=(), earlier=(), door="two-way", wait=()):
@@ -37,6 +37,12 @@ def report(head, findings=(), earlier=(), door="two-way", wait=()):
         "findings": list(findings), "checked_ok": [], "door": door, "blast_radius": "b", "brief": "b", "user_brief": "ب",
         "wait_for_user": list(wait),
     })
+
+
+def sized(*notes):
+    """The splitter's reply: (n, size, door) for each note."""
+    return json.dumps({"notes": [{"n": n, "size": size, "files": 1, "door": door, "reason": "r",
+                                  "title": f"Note {n}", "body": f"Note {n} in English."} for n, size, door in notes]})
 
 
 class FakeGitHub:
@@ -53,6 +59,7 @@ class FakeGitHub:
         self.closed = []
         self.created = []
         self.on_add = lambda key, size: None
+        self.boarded = []
 
     def add(self, number, status="Ready", repo=REPO, labels=("agent",), body="", priority="Medium", size="Small", deadline=""):
         url = f"https://github.com/{repo}/issues/{number}"
@@ -62,6 +69,16 @@ class FakeGitHub:
         self.statuses[url] = status
         if status == "Backlog":
             self.on_add(f"{repo}#{number}", size)
+
+    def issue_text(self, repo, number):
+        return {"body": next((i.body for i in self.items if i.number == number), "")}
+
+    def create_issue(self, repo, title, body):
+        self.created.append((repo, title, body))
+        return f"https://github.com/{repo}/issues/{900 + len(self.created)}"
+
+    def add_to_board(self, board, url):
+        self.boarded.append(url)
 
     def set_field(self, board, url, field, value):
         self.fields.append((url, field, value))
@@ -94,7 +111,7 @@ class FakeGitHub:
 
     def open_pr(self, repo, issue, head=SHA1, state="OPEN"):
         pr = {"number": 7, "state": state, "headRefOid": head, "headRefName": f"kandu/{issue}-task", "labels": [],
-              "comments": [], "body": "", "url": "u", "isDraft": False, "mergeable": "MERGEABLE", "statusCheckRollup": []}
+              "comments": [], "body": "", "files": [{"path": "a.py"}], "url": "u", "isDraft": False, "mergeable": "MERGEABLE", "statusCheckRollup": []}
         self.prs[(repo, issue)] = pr
         return pr
 
@@ -339,6 +356,48 @@ class QueenTest(Base):
 
     def retry(self, note="The test needs a fixture."):
         return {"task": f"{REPO}#1", "action": "retry", "note": note}
+
+    def report_debt(self, finding=1):
+        self.store.record("debt_reported", task=f"{REPO}#1", project="website", finding=finding, title="Rename it",
+                          body="The name misleads.", size="Medium", reason="Too large for the PR.")
+
+    def park(self, finding=1):
+        return {"task": f"{REPO}#1", "action": "park", "finding": finding, "note": "It was too large for the PR."}
+
+    def test_a_reported_note_wakes_her_and_she_parks_it(self):
+        self.github.statuses[self.github.items[0].url] = "Done"
+        self.report_debt()
+        self.runner.steps = [self.reply(self.park())]
+        self.cycle()
+        self.assertIn("Rename it", self.runner.runs[0].prompt)
+        self.assertEqual(self.github.created, [(REPO, "Rename it", "The name misleads.")])
+        url = self.events("debt_parked")[0]["url"]
+        self.assertEqual(self.github.statuses[url], "Technical debt")
+
+    def test_she_can_park_only_what_the_splitter_reported(self):
+        self.github.statuses[self.github.items[0].url] = "Done"
+        self.report_debt()
+        self.runner.steps = [self.reply(self.park(2))]
+        self.cycle()
+        self.assertEqual(self.github.created, [])
+        self.assertIn("no note 2 waits", self.events("queen_finished")[0]["brief"])
+
+    def test_a_note_is_parked_once(self):
+        self.github.statuses[self.github.items[0].url] = "Done"
+        self.report_debt()
+        self.runner.steps = [self.reply(self.park(), self.park())]
+        self.cycle()
+        self.assertEqual(len(self.github.created), 1)
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+
+    def test_a_note_she_left_waits_for_the_next_day(self):
+        self.github.statuses[self.github.items[0].url] = "Done"
+        self.report_debt()
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
 
     def test_a_quiet_cycle_never_wakes_her(self):
         self.github.items.clear()
@@ -873,29 +932,100 @@ class ReviewRoundsTest(Base):
         self.assertIn("This breaks.", self.runner.runs[3].prompt)
         self.assertEqual([e["findings"] for e in self.events("review_finished")], [1, 0])
 
-    def test_rounds_run_out_on_a_blocker(self):
+    def test_a_blocker_not_fixed_at_the_second_review_blocks_the_task(self):
         not_fixed = [{"n": 1, "result": "not_fixed", "body": "still"}]
-        self.runner.steps = [
-            self.worker_makes_pr(), report(SHA1, [BLOCKER]),
-            self.worker_pushes(SHA2), report(SHA2, earlier=not_fixed),
-            self.worker_pushes(SHA3), report(SHA3, earlier=not_fixed),
-        ]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), self.worker_pushes(SHA2),
+                             report(SHA2, earlier=not_fixed)]
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
-        self.assertEqual(len(self.runner.runs), 6)
         self.assertEqual(self.runner.steps, [])
-        self.assertIn("2 fix rounds", self.comments()[-1]["body"])
+        self.assertEqual(len(self.runner.runs), 4)
+        self.assertIn("the second review found it not done", self.comments()[-1]["body"])
 
-    def test_rounds_run_out_on_a_note(self):
+    def test_all_done_ends_the_review_even_if_it_found_something_new(self):
+        fixed = [{"n": 1, "result": "fixed", "body": "ok"}]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), self.worker_pushes(SHA2),
+                             report(SHA2, [BLOCKER | {"n": 2, "body": "Something new."}], earlier=fixed)]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "In review")
+        self.assertEqual(len(self.runner.runs), 4)
+        self.assertEqual(self.events("review_finished")[-1]["findings"], 0)
+        self.assertEqual(self.events("decision")[-2]["decision"], "findings_dropped")
+        self.assertEqual(self.events("decision")[-1]["decision"], "approved")
+
+    def test_a_second_review_reads_the_items_not_the_review_rules(self):
+        fixed = [{"n": 1, "result": "fixed", "body": "ok"}]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), self.worker_pushes(SHA2),
+                             report(SHA2, earlier=fixed)]
+        self.cycle()
+        self.assertIn("# Reviewer", self.runner.runs[1].prompt)
+        self.assertIn("# Second review", self.runner.runs[3].prompt)
+        self.assertNotIn("## Blockers", self.runner.runs[3].prompt)
+
+    def test_a_note_too_large_goes_to_the_queen_with_no_second_review(self):
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [NOTE]), sized((1, "Medium", "two-way"))]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 3)
+        self.assertEqual(self.github.status(1), "In review")
+        self.assertEqual(self.events("decision")[-1]["decision"], "approved_with_notes")
+        self.assertEqual([(e["finding"], e["size"]) for e in self.events("debt_reported")], [(1, "Medium")])
+
+    def test_a_small_note_with_an_outside_effect_goes_to_the_queen(self):
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [NOTE]), sized((1, "Small", "one-way"))]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 3)
+        self.assertEqual(len(self.events("debt_reported")), 1)
+
+    def test_a_small_note_is_fixed_in_the_pr_and_checked(self):
+        fixed = [{"n": 1, "result": "fixed", "body": "ok"}]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [NOTE]), sized((1, "Small", "two-way")),
+                             self.worker_pushes(SHA2), report(SHA2, earlier=fixed)]
+        self.cycle()
+        self.assertIn("Confusing.", self.runner.runs[3].prompt)
+        self.assertEqual(self.events("debt_reported"), [])
+        self.assertEqual(self.events("decision")[-1]["decision"], "approved")
+
+    def test_the_worker_gets_only_what_stays_in_the_pr(self):
+        big = NOTE | {"n": 2, "body": "Too big for here."}
+        small = NOTE | {"n": 3, "body": "Small enough."}
+        fixed = [{"n": n, "result": "fixed", "body": "ok"} for n in (1, 3)]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER, big, small]),
+                             sized((2, "Large", "two-way"), (3, "Small", "two-way")),
+                             self.worker_pushes(SHA2), report(SHA2, earlier=fixed)]
+        self.cycle()
+        fix, second = self.runner.runs[3].prompt, self.runner.runs[4].prompt
+        for prompt in (fix, second):
+            self.assertIn("This breaks.", prompt)
+            self.assertIn("Small enough.", prompt)
+            self.assertNotIn("Too big for here.", prompt)
+        self.assertEqual([e["finding"] for e in self.events("debt_reported")], [2])
+
+    def test_a_small_note_not_done_does_not_hold_the_pr(self):
         not_fixed = [{"n": 1, "result": "not_fixed", "body": "still"}]
-        self.runner.steps = [
-            self.worker_makes_pr(), report(SHA1, [NOTE]),
-            self.worker_pushes(SHA2), report(SHA2, earlier=not_fixed),
-            self.worker_pushes(SHA3), report(SHA3, earlier=not_fixed),
-        ]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [NOTE]), sized((1, "Small", "two-way")),
+                             self.worker_pushes(SHA2), report(SHA2, earlier=not_fixed)]
         self.cycle()
         self.assertEqual(self.github.status(1), "In review")
         self.assertEqual(self.events("decision")[-1]["decision"], "approved_with_notes")
+        self.assertEqual(self.events("debt_reported")[0]["title"], "Note 1")
+
+    def test_notes_are_sized_once_and_reported_once(self):
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [NOTE]), sized((1, "Medium", "two-way"))]
+        self.cycle()
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 3)
+        self.assertEqual(len(self.events("debt_reported")), 1)
+
+    def test_notes_that_cannot_be_sized_do_not_hold_the_pr(self):
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [NOTE]), "not json"]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "In review")
+        self.assertEqual(self.events("debt_reported")[0]["body"], "Confusing.")
+
+    def test_a_wrong_note_number_does_not_hold_the_pr(self):
+        for bad in ('{"notes": [{"n": "one"}]}', '{"notes": ["x"]}', '{"notes": [{"n": 9}]}'):
+            with self.assertRaises(split.ReportError):
+                split.validate_notes(json.loads(bad), [NOTE])
 
     def test_a_blocker_answered_with_no_code_waits_for_the_user(self):
         self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), PR_OPENED]
@@ -903,12 +1033,46 @@ class ReviewRoundsTest(Base):
         self.assertEqual(self.github.status(1), "Blocked")
         self.assertEqual(len(self.runner.runs), 3)
 
-    def test_a_note_answered_with_no_code_stays_and_is_not_retried(self):
-        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [NOTE]), PR_OPENED]
+    def test_a_note_answered_with_no_code_goes_to_the_queen_and_is_not_retried(self):
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [NOTE]), sized((1, "Small", "two-way")), PR_OPENED]
         self.cycle()
         self.assertEqual(self.github.status(1), "In review")
+        self.assertEqual(len(self.events("debt_reported")), 1)
         self.cycle()
-        self.assertEqual(len(self.runner.runs), 3)
+        self.assertEqual(len(self.runner.runs), 4)
+
+    def test_a_criterion_the_issue_does_not_have_stops_the_report(self):
+        self.github.items.clear()
+        self.github.add(1, body="## Acceptance criteria\n- [ ] It stops\n- [ ] It says why\n")
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(self.comments(), [])
+
+    def test_the_reviewer_is_given_the_criteria_of_the_issue(self):
+        self.github.items.clear()
+        self.github.add(1, body="## Acceptance criteria\n- [ ] It stops\n")
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertIn("1. It stops", self.runner.runs[1].prompt)
+        self.assertIn("- It stops: met", self.comments()[-1]["body"])
+
+    def test_a_finding_outside_the_pr_is_dropped_and_logged(self):
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [NOTE | {"path": "elsewhere.py"}])]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
+        self.assertEqual(self.events("review_finished")[0]["findings"], 0)
+        self.assertIn("findings_dropped", [e["decision"] for e in self.events("decision")])
+
+    def test_a_commit_after_an_approved_second_review_is_reviewed_in_full(self):
+        fixed = [{"n": 1, "result": "fixed", "body": "ok"}]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), self.worker_pushes(SHA2),
+                             report(SHA2, earlier=fixed)]
+        self.cycle()
+        self.github.prs[(REPO, 1)]["headRefOid"] = SHA3
+        self.runner.steps = [report(SHA3)]
+        self.cycle()
+        self.assertIn("# Reviewer", self.runner.runs[-1].prompt)
 
     def test_an_invalid_report_is_blocked_and_posts_nothing(self):
         self.runner.steps = [self.worker_makes_pr(), "looks fine to me"]

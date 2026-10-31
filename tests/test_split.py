@@ -35,6 +35,7 @@ LARGE = sized("Large", 40, "mixed", [part("First"), part("Second", door="one-way
 class ScaleTest(unittest.TestCase):
     def test_the_criteria_are_counted_in_their_own_section(self):
         self.assertEqual(sizing.criteria_in(body(4) + "\n## Notes\n- [ ] not a criterion\n"), 4)
+        self.assertEqual(sizing.criteria_list("## Acceptance criteria\n- [ ] One thing\n- [x]  Two\n"), ["One thing", "Two"])
 
     def test_the_smallest_size_comes_from_the_facts(self):
         self.assertEqual(sizing.smallest(3, 5, "two-way"), "Small")

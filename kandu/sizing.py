@@ -6,12 +6,17 @@ ORDER = (SMALL, MEDIUM, LARGE)
 LIMITS = {SMALL: {"criteria": 3, "files": 5}, MEDIUM: {"criteria": 5, "files": 15}}
 DOORS = ("two-way", "one-way", "mixed")  # `mixed`: easy work and work that is hard to undo in one task.
 CRITERIA = re.compile(r"^## Acceptance criteria\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
-CRITERION = re.compile(r"^\s*[-*] \[[ xX]\]", re.MULTILINE)
+CRITERION = re.compile(r"^[ \t]*[-*] \[[ xX]\][ \t]*(.*)$", re.MULTILINE)
+
+
+def criteria_list(body):
+    """Returns the text of each acceptance criterion in an issue."""
+    section = CRITERIA.search(body or "")
+    return [text.strip() for text in CRITERION.findall(section.group(1))] if section else []
 
 
 def criteria_in(body):
-    section = CRITERIA.search(body or "")
-    return len(CRITERION.findall(section.group(1))) if section else 0
+    return len(criteria_list(body))
 
 
 def fits(size, criteria, files):

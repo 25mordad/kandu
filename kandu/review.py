@@ -9,7 +9,7 @@ import re
 
 REPORT_KEYS = {"head_sha", "summary", "criteria", "earlier", "findings", "checked_ok", "door",
                "blast_radius", "brief", "user_brief", "wait_for_user"}
-FINDING_KEYS = {"n", "path", "line", "blocker", "body"}
+FINDING_KEYS = {"n", "path", "line", "blocker", "body", "criterion"}
 DOORS = ("two-way", "one-way")
 CRITERION_RESULTS = ("met", "not_met", "not_shown")
 EARLIER_RESULTS = ("fixed", "not_fixed", "partly_fixed")
@@ -44,12 +44,14 @@ def _check_finding(finding):
         raise ReportError("a finding's n and line must be numbers")
     if not isinstance(finding["path"], str) or type(finding["blocker"]) is not bool:
         raise ReportError("a finding has a wrong path or blocker")
+    if finding["criterion"] is not None and type(finding["criterion"]) is not int:
+        raise ReportError("a finding's criterion must be a number or null")
     if not isinstance(finding["body"], str) or not finding["body"].strip():
         raise ReportError("a finding has no body")
 
 
-def validate_report(report, still_open):
-    """Checks a report against the findings left open by the last review."""
+def validate_report(report, still_open, second=False):
+    """Checks a report against the items left by the last review. A second review judges no criteria and adds nothing."""
     if set(report) != REPORT_KEYS:
         raise ReportError("report has the wrong keys")
     if not isinstance(report["head_sha"], str) or not report["head_sha"]:
@@ -63,13 +65,14 @@ def validate_report(report, still_open):
     for name in ("criteria", "earlier", "findings"):
         if not isinstance(report[name], list):
             raise ReportError(f"{name} must be a list")
-    if not report["criteria"]:
-        raise ReportError("no acceptance criterion has a result")
-    for criterion in report["criteria"]:
-        if not isinstance(criterion, dict) or criterion.get("result") not in CRITERION_RESULTS:
-            raise ReportError("a criterion has no valid result")
-    for finding in report["findings"]:
-        _check_finding(finding)
+    if not second:
+        if not report["criteria"]:
+            raise ReportError("no acceptance criterion has a result")
+        for criterion in report["criteria"]:
+            if not isinstance(criterion, dict) or criterion.get("result") not in CRITERION_RESULTS:
+                raise ReportError("a criterion has no valid result")
+        for finding in report["findings"]:
+            _check_finding(finding)
     for item in report["earlier"]:
         if not isinstance(item, dict) or item.get("result") not in EARLIER_RESULTS:
             raise ReportError("an earlier finding has no valid result")
@@ -77,11 +80,50 @@ def validate_report(report, still_open):
     answered = [e.get("n") for e in report["earlier"]]
     if len(answered) != len(used) or set(answered) != used:
         raise ReportError("every open finding needs exactly one result")
-    new = [f["n"] for f in report["findings"]]
-    if len(set(new)) != len(new) or used & set(new):
-        raise ReportError("finding numbers must not repeat")
-    if any(c["result"] != "met" for c in report["criteria"]) and not open_after(report, still_open):
-        raise ReportError("a criterion is not met, but no finding says so")
+    if not second:
+        new = [f["n"] for f in report["findings"]]
+        if len(set(new)) != len(new) or used & set(new):
+            raise ReportError("finding numbers must not repeat")
+
+
+def _in_scope(finding, criteria, changed):
+    number = finding["criterion"]
+    if number is not None and 1 <= number <= len(criteria) and criteria[number - 1]["result"] != "met":
+        return True
+    return finding["path"] in changed
+
+
+def hold_to_scope(report, criteria, changed):
+    """Holds a first review to the issue and the PR, and returns how many findings fell outside them.
+
+    The criteria come from the issue, so a reviewer cannot add one or reword one. An issue with no such section
+    has none to hold it to. A finding must name a criterion that is not met, or sit in a file of this PR.
+    """
+    if criteria:
+        if len(report["criteria"]) != len(criteria):
+            raise ReportError("every acceptance criterion of the issue needs exactly one result")
+        report["criteria"] = [c | {"criterion": text} for c, text in zip(report["criteria"], criteria)]
+    kept = [f for f in report["findings"] if _in_scope(f, report["criteria"], changed)]
+    dropped = len(report["findings"]) - len(kept)
+    report["findings"] = kept
+    if any(c["result"] != "met" for c in report["criteria"]) and not blockers(kept):
+        raise ReportError("a criterion is not met, but no blocker says so")
+    return dropped
+
+
+def carry_over(report, previous, still_open):
+    """Ends a second review, and returns how many findings it wrongly added.
+
+    It may not raise anything new, so the criteria stand as the first review left them: its blockers were what
+    stood in their way. A door stays one-way once it was.
+    """
+    dropped = len(report["findings"])
+    report["findings"] = []
+    if previous["door"] == "one-way":
+        report["door"] = "one-way"
+    done = not blockers(open_after(report, still_open))
+    report["criteria"] = [c | {"result": "met"} if done else c for c in previous["criteria"]]
+    return dropped
 
 
 def open_after(report, still_open):
@@ -101,9 +143,9 @@ def _finding_line(finding):
     return f"- **{kind} {finding['n']}** `{place}`: {finding['body']}"
 
 
-def comment_for(report, round_number, findings):
+def comment_for(report, round_number, findings, second=False):
     """Renders one review round: readable text, then the marker the supervisor reads back."""
-    record = {"round": round_number, "head_sha": report["head_sha"], "door": report["door"], "open": findings,
+    record = {"round": round_number, "second": second, "head_sha": report["head_sha"], "door": report["door"], "open": findings,
               "summary": report["summary"], "brief": report["brief"], "blast_radius": report["blast_radius"],
               "criteria": report["criteria"], "wait_for_user": report["wait_for_user"]}
     # `>` only occurs inside JSON strings, so this keeps `-->` in a finding from ending the marker.

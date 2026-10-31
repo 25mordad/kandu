@@ -193,7 +193,7 @@ class ConfigTest(unittest.TestCase):
         self.edit("kandu.yaml", lambda d: d.pop("supervisor"))
         supervisor = load_config(self.local).settings.supervisor
         self.assertEqual((supervisor.wake_every_minutes, supervisor.max_cycle_minutes), (60, 50))
-        self.assertEqual((supervisor.max_review_rounds, supervisor.auto_merge), (2, False))
+        self.assertFalse(supervisor.auto_merge)
 
     def test_one_supervisor_key_can_be_set_alone(self):
         self.edit("kandu.yaml", lambda d: d.update(supervisor={"wake_every_minutes": 30}))

@@ -20,11 +20,12 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, merge, queen, questions, review, sizing, split
+from . import agents, debt, merge, queen, questions, review, sizing, split
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError, blockers_in, branch_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
 from .state import StateStore
+from .tasks import TaskError
 from .usage import UsageError, over_limit, read_usage
 
 BACKLOG, READY, IN_PROGRESS, IN_REVIEW = "Backlog", "Ready", "In progress", "In review"
@@ -288,33 +289,85 @@ class Supervisor:
         head = pr["headRefOid"]
         round_number = len(reviews) + 1
         self._phase(task, f"review round {round_number}")
-        still_open = reviews[-1]["open"] if reviews else []
-        first_n = 1 + max((f["n"] for r in reviews for f in r["open"]), default=0)
+        to_fix = self._to_fix(task, reviews[-1]) if reviews else []
+        language = self.config.settings.language
         run_id = new_run_id(self.now())
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
-        companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
-        prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head,
-                                        self.config.settings.language, companions, still_open, first_n,
-                                        local_dir=self.local_dir)
+        if to_fix:
+            prompt = agents.second_review_prompt(task.repo, task.number, pr["number"], head, language, to_fix)
+        else:
+            criteria = sizing.criteria_list(self.github.issue_text(task.repo, task.number)["body"])
+            first_n = 1 + max((f["n"] for r in reviews for f in r["open"]), default=0)
+            companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
+            prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head, language,
+                                            companions, criteria, first_n, local_dir=self.local_dir)
         result = self._agent(task, "reviewer", cwd, prompt, agents.reviewer_tools(), run_id)
         try:
             report = review.parse_report(result.text)
-            review.validate_report(report, still_open)
+            review.validate_report(report, to_fix, second=bool(to_fix))
+            dropped = (review.carry_over(report, reviews[-1], to_fix) if to_fix else
+                       review.hold_to_scope(report, criteria, [f["path"] for f in pr["files"]]))
         except review.ReportError as e:
             raise TaskFailed(f"reviewer run {run_id}: {e}") from e
         if report["head_sha"] != head:
             self._decide(task, "review_voided", "the head moved during the review")
             return
-        findings = review.open_after(report, still_open)
-        self.github.comment_pr(task.repo, pr["number"], review.comment_for(report, round_number, findings))
+        if dropped:
+            self._decide(task, "findings_dropped", f"{dropped} outside what this review may report")
+        findings = review.open_after(report, to_fix)
+        self.github.comment_pr(task.repo, pr["number"],
+                               review.comment_for(report, round_number, findings, second=bool(to_fix)))
         self.store.record("review_finished", task=task.key, project=task.project.name, run_id=run_id,
                           round=round_number, head_sha=head, findings=len(findings),
                           blockers=len(review.blockers(findings)), door=report["door"],
                           criteria_met=all(c["result"] == "met" for c in report["criteria"]),
                           wait_for_user=report["wait_for_user"], user_brief=report["user_brief"])
 
+    def _sized_notes(self, task, pr, last):
+        """The splitter sizes a review's notes once. If it cannot, they must still not hold the PR."""
+        head = pr["headRefOid"]
+        sized = self.store.last_event("notes_sized", task=task.key, head_sha=head)
+        notes = [f for f in last["open"] if not f["blocker"]]
+        if sized is not None or not notes:
+            return sized["notes"] if sized else []
+        self._phase(task, "sizing notes")
+        run_id = new_run_id(self.now())
+        try:
+            cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
+            prompt = agents.notes_prompt(task.project, task.repo, task.number, pr["number"], notes, self.local_dir)
+            result = self._agent(task, "splitter", cwd, prompt, agents.splitter_tools(), run_id)
+            report = split.parse_report(result.text)
+            split.validate_notes(report, notes)
+            sized = report["notes"]
+        except StoppedByUser:
+            raise
+        except (TaskFailed, split.ReportError, GitHubError, RunnerError) as e:
+            self._decide(task, "notes_not_sized", str(e))
+            sized = split.unsized_notes(notes)
+        self.store.record("notes_sized", task=task.key, project=task.project.name, run_id=run_id, head_sha=head,
+                          notes=sized)
+        return sized
+
+    def _to_fix(self, task, last):
+        """What a review leaves for the worker: its blockers, and the notes that stay in the PR."""
+        if last.get("second"):
+            return review.blockers(last["open"])
+        sized = self.store.last_event("notes_sized", task=task.key, head_sha=last["head_sha"])
+        here = {note["n"] for note in sized["notes"] if split.stays_in_pr(note)} if sized else set()
+        return [f for f in last["open"] if f["blocker"] or f["n"] in here]
+
+    def _to_debt(self, task, notes):
+        """Reports notes to the queen, who parks them. Reported once, so a restart repeats nothing."""
+        for note in notes:
+            if self.store.last_event("debt_reported", task=task.key, finding=note["n"]) is None:
+                self.store.record("debt_reported", task=task.key, project=task.project.name, finding=note["n"],
+                                  title=note["title"], body=note["body"], size=note["size"], reason=note["reason"])
+
     def _settle(self, task, pr, findings, reason):
-        """No more fix rounds: a blocker stops the task, a note stays on the PR for the user."""
+        """No more rounds: a blocker stops the task, a note left undone goes to the queen and holds nothing."""
+        sized = self.store.last_event("notes_sized", task=task.key)
+        left = {f["n"] for f in findings if not f["blocker"]}
+        self._to_debt(task, [note for note in (sized["notes"] if sized else []) if note["n"] in left])
         if not review.blockers(findings):
             return "approved_with_notes"
         self.github.comment_pr(task.repo, pr["number"], f"Kandu stopped here: {reason}. A blocker is still open.")
@@ -324,14 +377,17 @@ class Supervisor:
     def _outcome(self, task, pr, reviews):
         """Returns where a reviewed head leaves the task, or None if a fix round should run."""
         account = self.config.settings.github.account
-        limit = self.config.settings.supervisor.max_review_rounds
-        findings = reviews[-1]["open"]
-        if not findings:
+        last = reviews[-1]
+        if not last["open"]:
             return "approved"
-        if len(reviews) > limit:
-            return self._settle(task, pr, findings, f"{limit} fix rounds are used up")
+        if last.get("second"):
+            return self._settle(task, pr, last["open"], "the second review found it not done")
+        self._to_debt(task, [n for n in self._sized_notes(task, pr, last) if not split.stays_in_pr(n)])
+        to_fix = self._to_fix(task, last)
+        if not to_fix:
+            return "approved_with_notes"
         if review.fix_tried(pr, account, pr["headRefOid"]):
-            return self._settle(task, pr, findings, "the last fix round changed no code")
+            return self._settle(task, pr, to_fix, "the fix round changed no code")
         return None
 
     def _fix(self, task, pr, reviews):
@@ -339,7 +395,7 @@ class Supervisor:
         head = pr["headRefOid"]
         self._pick(task)
         self._phase(task, f"fix round {len(reviews)}")
-        self._work(task, findings=reviews[-1]["open"], pr=pr["number"])
+        self._work(task, findings=self._to_fix(task, reviews[-1]), pr=pr["number"])
         if self.github.pr(task.repo, pr["number"])["headRefOid"] == head:
             self.github.comment_pr(task.repo, pr["number"], review.fix_comment(head))
 
@@ -660,7 +716,7 @@ class Supervisor:
         retries = {task: queen.retries_used(events, task) for task in tasks}
         prompt = agents.queen_prompt(queen.prompt_events(news), self._project_view(items, backlog), retries,
                                      settings.queen_max_retries, self.config.settings.language,
-                                     DEFAULT_LOGS_DIR, self.store.today())
+                                     DEFAULT_LOGS_DIR, self.store.today(), queen.unparked(events))
         allowed, denied = agents.queen_tools()
         run_id = new_run_id(self.now())
         self.queen_run = run_id
@@ -704,6 +760,11 @@ class Supervisor:
                 refused.append(f"{task}: not a task of a running project")
                 continue
             project, item = items[task]
+            if action == "park":
+                why = self._park(project, item, task, decision, events)
+                if why is not None:
+                    refused.append(f"park of {task}: {why}")
+                continue
             if action == "release":
                 why = "it was already released" if task in released else queen.why_no_release(
                     item, _can_start(self.github, item), self.store.tokens_counted(today, project=project.name),
@@ -725,6 +786,22 @@ class Supervisor:
             self.store.record("queen_decided", task=task, project=project.name, action=action, note=note)
             events.append({"type": "queen_decided", "task": task, "action": action})
         return refused, released
+
+    def _park(self, project, item, task, decision, events):
+        """Only a note the splitter reported may become a task. Returns why not, or None."""
+        finding = decision["finding"]
+        note = next((e for e in queen.unparked(events) if e["task"] == task and e["finding"] == finding), None)
+        if note is None:
+            return f"no note {finding} waits to be parked"
+        try:
+            url = debt.add(self.config, self.github, project.name, item.repo, note["title"], note["body"],
+                           self.local_dir)
+        except (TaskError, GitHubError) as e:
+            return str(e)
+        self.store.record("debt_parked", task=task, project=project.name, finding=finding, url=url,
+                          note=decision["note"])
+        events.append({"type": "debt_parked", "task": task, "finding": finding})
+        return None
 
     # One cycle.
 

@@ -31,6 +31,9 @@ state/
 | `supervisor_woke` | none |
 | `supervisor_slept` | `reason`, `next_wake` |
 | `queen_decided` | `task`, `project`, `action`, `note` |
+| `notes_sized` | `task`, `project`, `run_id`, `head_sha`, `notes` |
+| `debt_reported` | `task`, `project`, `finding`, `title`, `body`, `size`, `reason` |
+| `debt_parked` | `task`, `project`, `finding`, `url`, `note` |
 | `queen_finished` | `run_id`, `brief`, `backlog` |
 | `task_picked` | `task`, `project` |
 | `phase_changed` | `task`, `project`, `phase` |
@@ -77,7 +80,7 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 | `queen_run` | the run id of the queen while she is awake, otherwise null |
 | `waiting_for_machine` | tasks whose machine was off in the last cycle |
 
-`phase` is `implement`, `review round N` or `fix round N`.
+`phase` is `implement`, `review round N`, `sizing notes` or `fix round N`.
 
 ## Other files
 `state/stopped` exists while the user has stopped the supervisor. `state/paused/<project>` exists while the user has paused that project. `state/supervisor.lock` is held during a cycle, `state/split.lock` while a split is accepted. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.
