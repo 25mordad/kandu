@@ -49,3 +49,4 @@ Every task is designed and checked against harness, context and memory (§14).
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)
+39. [x] An open dashboard spent GitHub's hourly limit: one heavy board read a minute. It now shares one light read every 15 minutes, and a hidden page asks for nothing (§7)

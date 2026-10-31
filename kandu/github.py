@@ -22,6 +22,16 @@ THREADS_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   } } } }
 }"""
 
+BOARD_QUEUE_QUERY = """query($owner: String!, $number: Int!, $after: String) {
+  repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $number) { items(first: 100, after: $after) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+      content { ... on Issue { number title url repository { nameWithOwner } labels(first: 50) { nodes { name } } } }
+    }
+  } } } }
+}"""
+
 
 class GitHubError(Exception):
     pass
@@ -111,6 +121,26 @@ class GitHub:
                 size=item.get("size", ""), deadline=item.get("deadline", ""),
             ))
         return items
+
+    def board_queue(self, board):
+        """The same issues with only their column and labels, for what reads a board often: `board_items` costs 100 points."""
+        names = {theirs: ours for ours, theirs in board.columns.items()}
+        items, after = [], []
+        while True:
+            data = self._json(["api", "graphql", "-f", f"query={BOARD_QUEUE_QUERY}", "-f", f"owner={board.owner}",
+                               "-F", f"number={board.number}", *after])
+            page = data["data"]["repositoryOwner"]["projectV2"]["items"]
+            for node in page["nodes"]:
+                content = node.get("content") or {}
+                if "number" not in content:
+                    continue
+                status = (node.get("fieldValueByName") or {}).get("name", "")
+                items.append(BoardItem(repo=content["repository"]["nameWithOwner"], number=content["number"],
+                                       title=content["title"], url=content["url"], status=names.get(status, status),
+                                       labels=[label["name"] for label in content["labels"]["nodes"]], body=""))
+            if not page["pageInfo"]["hasNextPage"] or len(items) >= BOARD_ITEM_LIMIT:
+                return items
+            after = ["-f", f"after={page['pageInfo']['endCursor']}"]
 
     def set_status(self, board, url, status):
         self._run(["project", "item-edit", str(board.number), "--owner", board.owner,
