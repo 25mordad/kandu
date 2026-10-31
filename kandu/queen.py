@@ -9,6 +9,7 @@ RETRYABLE = ("failed", "blocked")
 LARGE = "Large"
 NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed", "sizing_failed")
 MOVED_ON = ("user_approved", "task_picked", "task_finished")
+COULD_NOT_FINISH = "The queen could not finish this look"
 PROMPT_EVENTS = ("task_finished", "decision", "project_checked", "review_finished", "deployed", "run_finished")
 
 

@@ -8,7 +8,7 @@ from unittest import mock
 
 import yaml
 
-from kandu.config import ConfigError, load_config, main
+from kandu.config import NOTIFY_EVENTS, ConfigError, load_config, main
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "config.example"
 
@@ -89,9 +89,19 @@ class ConfigTest(unittest.TestCase):
         self.edit("kandu.yaml", lambda d: d.update(language="fa"))
         self.assertEqual(load_config(self.local).settings.language, "fa")
 
-    def test_the_old_language_key_is_refused(self):
+    def test_notifications_have_their_own_language(self):
         self.edit("kandu.yaml", lambda d: d["notify"].update(language="fa"))
-        self.assertIn("notify.language: unknown key", self.problems())
+        self.assertEqual(load_config(self.local).settings.notify.language, "fa")
+        self.edit("kandu.yaml", lambda d: d["notify"].update(language="xx"))
+        self.assertIn("notify.language", self.problems())
+
+    def test_notifications_are_every_event_unless_the_config_lists_them(self):
+        self.edit("kandu.yaml", lambda d: d["notify"].pop("events"))
+        self.assertEqual(load_config(self.local).settings.notify.events, list(NOTIFY_EVENTS))
+        self.edit("kandu.yaml", lambda d: d["notify"].update(events=["failure"]))
+        self.assertEqual(load_config(self.local).settings.notify.events, ["failure"])
+        self.edit("kandu.yaml", lambda d: d["notify"].update(events=["everything"]))
+        self.assertIn("notify.events", self.problems())
 
     def test_a_model_is_chosen_per_role(self):
         self.assertEqual(load_config(self.local).settings.claude.models["splitter"], "claude-sonnet-5-5")

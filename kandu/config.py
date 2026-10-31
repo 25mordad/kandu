@@ -23,6 +23,8 @@ BOARD_COLUMNS = ("Backlog", TECHNICAL_DEBT, "Ready", "In progress", "In review",
 BOARD_FIELDS = {"Priority": ("High", "Medium", "Low"), "Kind": ("Bug", "Feature", "Chore"),
                 "Size": ("Small", "Medium", "Large")}
 DEADLINE_FIELD = "Deadline"
+NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "usage_limit", "claude_login")
+NOTIFY_LANGUAGES = ("en", "fa")
 
 
 class ConfigError(Exception):
@@ -87,6 +89,8 @@ class Telegram:
 class Notify:
     adapter: str
     telegram: Telegram | None = None
+    events: list[str] = field(default_factory=lambda: list(NOTIFY_EVENTS))
+    language: str | None = None    # the language of notifications only; without it, top-level `language`
 
 
 @dataclass
@@ -301,6 +305,10 @@ def _check_settings(s, problems):
     _check_one_of(s.notify.adapter, ("telegram", "none"), "notify.adapter", problems)
     if s.notify.adapter == "telegram" and s.notify.telegram is None:
         problems.append("notify.telegram: required when notify.adapter is telegram")
+    for event in s.notify.events:
+        _check_one_of(event, NOTIFY_EVENTS, "notify.events", problems)
+    if s.notify.language is not None:
+        _check_one_of(s.notify.language, NOTIFY_LANGUAGES, "notify.language", problems)
 
     for name in ("wake_every_minutes", "max_cycle_minutes", "max_parallel_workers",
                  "queen_max_retries", "queen_daily_token_limit"):

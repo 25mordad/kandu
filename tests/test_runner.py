@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from kandu.config import Config, Machine, Project
-from kandu.runner import Host, Runner, RunnerError, repo_path
+from kandu.runner import Host, Runner, RunnerError, child_env, repo_path
 
 RESULT = {"type": "result", "result": "the reply", "duration_ms": 5, "is_error": False,
           "modelUsage": {"model-a": {"inputTokens": 1, "outputTokens": 2}}}
@@ -200,6 +200,31 @@ class RunnerTest(unittest.TestCase):
     def test_a_failing_exit_is_an_error_even_with_a_result(self):
         install(self.home / ".local" / "bin" / "claude", FAKE_CLAUDE + "exit 1\n")
         self.assertTrue(self.agent().is_error)
+
+    def test_kandu_secrets_stay_out_of_project_commands(self):
+        project = self.project()
+        self.runner.prepare_worktree(project, "o/site", "kandu/1-x", "main")
+        seen = self.root / "seen"
+        project.test = f"env > {seen}"
+        with mock.patch.dict(os.environ, {"KANDU_TELEGRAM_BOT_TOKEN": "hidden", "OTHER": "shown"}):
+            cwd = self.runner.prepare_review(project, "o/site", "kandu/1-x", "origin/main")
+            self.assertEqual(self.runner.run_command(project, cwd, project.test, "run-env"), 0)
+        self.assertIn("OTHER=shown", seen.read_text())
+        self.assertNotIn("hidden", seen.read_text())
+
+    def test_kandu_secrets_stay_out_of_every_child(self):
+        with mock.patch.dict(os.environ, {"KANDU_DASHBOARD_TOKEN": "hidden", "OTHER": "shown"}):
+            env = child_env()
+        self.assertEqual(env["OTHER"], "shown")
+        self.assertFalse([name for name in env if name.startswith("KANDU_")])
+
+    def test_kandu_secrets_stay_out_of_agents(self):
+        install(self.home / ".local" / "bin" / "claude", "#!/bin/sh\nenv > \"$HOME/claude.env\"\n" + FAKE_CLAUDE.split("\n", 1)[1])
+        with mock.patch.dict(os.environ, {"KANDU_TELEGRAM_BOT_TOKEN": "hidden", "OTHER": "shown"}):
+            self.agent()
+        seen = (self.home / "claude.env").read_text()
+        self.assertIn("OTHER=shown", seen)
+        self.assertNotIn("hidden", seen)
 
     def test_stop_ends_a_running_agent(self):
         install(self.home / ".local" / "bin" / "claude", "#!/bin/sh\nexec sleep 60\n")

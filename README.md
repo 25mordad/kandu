@@ -110,6 +110,8 @@ You can also bind it to a keyboard shortcut in your desktop's settings. On GNOME
 
 Only the important things, for example the supervisor stopped, something broke, a task needs your decision, a usage limit was reached. Everything else stays on the dashboard. Telegram is the first adapter; the notifier is pluggable.
 
+The config decides what is sent and in which language: `notify.events` lists the important events, and `notify.language` sets the language of these messages alone. Without it they use `language`.
+
 ## Recommended: run Kandu from your own private copy
 
 This repo is the public template. The best way to use Kandu is to keep your own private repo and use this one as `upstream`. Your tasks, issues and PRs on Kandu itself stay private, and a push by mistake goes to a private repo. (A GitHub fork of a public repo cannot be private, so this is a new repo, not a fork.)
