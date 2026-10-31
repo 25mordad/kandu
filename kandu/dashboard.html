@@ -931,7 +931,8 @@ function approval(task, pr) {
 }
 
 function splitBox(task, proposal) {
-  const own = lang === "en" ? null : proposal.user_text;  // The user's language; the English is what reaches the issue.
+  // The user's language, also one the page has no text for. The English is what reaches the issue.
+  const own = lang === "en" && TEXT[lastState.language] ? null : proposal.user_text;
   const original = slice => own ? `<details><summary class="muted">${t("english_text")}</summary><div class="slice-body" dir="auto">${esc(slice.body)}</div></details>` : "";
   const slices = proposal.slices.map((slice, i) => `<details class="round"${i === 0 ? " open" : ""}><summary>${num(i + 1)}. <span dir="auto">${esc(own?.slices[i].title || slice.title)}</span></summary><div class="round-body">
     <div class="chips"><span class="chip">${esc(tr(slice.size))}</span><span class="chip">${num(slice.files)} ${t("files_touched")}</span><span class="chip">${esc(tr(slice.door))}</span></div>
