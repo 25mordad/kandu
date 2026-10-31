@@ -120,9 +120,9 @@ def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, s
     return "\n".join(parts)
 
 
-def splitter_prompt(project, repo, number, local_dir=DEFAULT_LOCAL_DIR):
+def splitter_prompt(project, repo, number, language, local_dir=DEFAULT_LOCAL_DIR):
     facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- Read it with: `gh issue view {number} --repo {repo}`",
-             *_project_facts(project)]
+             f"- Language of `user_text`: {language}", *_project_facts(project)]
     return "\n".join([_read("splitter.md"), "## This task", *facts, "## The size scale", *sizing.describe(),
                       "## Issue template", _read("templates/issue.md"), *_memory(project, local_dir)])
 

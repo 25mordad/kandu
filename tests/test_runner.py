@@ -157,9 +157,16 @@ class RunnerTest(unittest.TestCase):
         self.runner.prepare_review(self.project(), "o/site", "kandu/1-a", second)
         self.assertEqual(git("rev-parse", "HEAD", cwd=directory), second)
 
-    def agent(self, should_stop=lambda: False, prompt="the prompt"):
+    def agent(self, should_stop=lambda: False, prompt="the prompt", model=None):
         return self.runner.run_agent("box", str(self.home), prompt, ["Read", "Bash(npm test *)"], ["Edit"], "r-1",
-                                     should_stop)
+                                     should_stop, model)
+
+    def test_a_model_is_passed_only_when_one_is_set(self):
+        self.agent()
+        self.assertNotIn("--model", (self.home / "claude.args").read_text().splitlines())
+        self.agent(model="claude-sonnet-5-5")
+        args = (self.home / "claude.args").read_text().splitlines()
+        self.assertEqual(args[args.index("--model") + 1], "claude-sonnet-5-5")
 
     def test_agent_result_and_arguments(self):
         result = self.agent()

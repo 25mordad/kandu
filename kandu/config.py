@@ -16,6 +16,8 @@ import yaml
 
 DEFAULT_LOCAL_DIR = Path(__file__).resolve().parent.parent / "local"
 SSH_REACH = re.compile(r"ssh \w[\w.@-]*")
+ROLES = ("worker", "reviewer", "splitter", "live_check", "queen")
+MODEL = re.compile(r"[a-z][\w.\[\]-]*")  # It reaches `claude --model`, so it cannot be a flag.
 BOARD_COLUMNS = ("Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", "Done")
 BOARD_FIELDS = {"Priority": ("High", "Medium", "Low"), "Kind": ("Bug", "Feature", "Chore"),
                 "Size": ("Small", "Medium", "Large")}
@@ -65,6 +67,7 @@ class Claude:
     auth: str
     limits: ClaudeLimits
     login_warn_days: int = 7
+    models: dict[str, str] = field(default_factory=dict)  # role -> model; a role not named runs on Claude's default
 
 
 @dataclass
@@ -82,7 +85,6 @@ class Telegram:
 @dataclass
 class Notify:
     adapter: str
-    language: str
     telegram: Telegram | None = None
 
 
@@ -153,6 +155,7 @@ class Settings:
     github: GitHub
     notify: Notify
     dashboard: Dashboard
+    language: str = "en"           # what Kandu says to the user; everything on GitHub stays in English
     supervisor: Supervisor = field(default_factory=Supervisor)
     didban: Didban = field(default_factory=Didban)
 
@@ -290,6 +293,10 @@ def _check_settings(s, problems):
     _check_percent(s.claude.limits.session_5h_percent, "claude.limits.session_5h_percent", problems)
     _check_percent(s.claude.limits.weekly_percent, "claude.limits.weekly_percent", problems)
     _check_positive(s.claude.login_warn_days, "claude.login_warn_days", problems)
+    for role, model in s.claude.models.items():
+        _check_one_of(role, ROLES, "claude.models", problems)
+        if not MODEL.fullmatch(model):
+            problems.append(f"claude.models.{role}: not a model name: {model!r}")
 
     _check_one_of(s.notify.adapter, ("telegram", "none"), "notify.adapter", problems)
     if s.notify.adapter == "telegram" and s.notify.telegram is None:

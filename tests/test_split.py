@@ -208,6 +208,12 @@ class GroupTest(Base):
     def approve(self, slices=None):
         return split.approve(self.config, self.github, self.store, self.key, self.local, slices)
 
+    def test_the_users_text_stays_out_of_the_issues(self):
+        text = {"reason": "R", "slices": [{"title": "Yek", "body": "B1"}, {"title": "Do", "body": "B2"}]}
+        self.store.write_split(self.key, self.store.read_split(self.key) | {"user_text": text})
+        self.approve()
+        self.assertNotIn("Yek", "".join(f"{issue.title}{issue.body}" for issue in self.created))
+
     def test_a_yes_holds_only_for_the_proposal_it_saw(self):
         for seen in ("", "old"):
             with self.assertRaisesRegex(TaskError, "changed since"):
@@ -435,6 +441,21 @@ class ColumnTest(unittest.TestCase):
         self.assertEqual(code, 0)
         github.add_columns.assert_not_called()
         self.assertIn("nothing is missing", out)
+
+
+
+class UserTextTest(unittest.TestCase):
+    def report(self, text):
+        return {"slices": [{}, {}], "user_text": text}
+
+    def test_a_whole_text_is_kept(self):
+        text = {"reason": "R", "slices": [{"title": "A", "body": "B"}, {"title": "C", "body": "D"}]}
+        self.assertEqual(split.user_text(self.report(text)), text)
+
+    def test_a_bad_one_falls_back_to_the_english(self):
+        for text in (None, "text", {"reason": "R"}, {"reason": "R", "slices": [{"title": "A", "body": "B"}]},
+                     {"reason": "R", "slices": [{"title": "A"}, {"title": "C", "body": "D"}]}):
+            self.assertIsNone(split.user_text(self.report(text)))
 
 
 if __name__ == "__main__":

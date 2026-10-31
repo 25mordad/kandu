@@ -10,10 +10,11 @@ Read `docs/COMMANDS.md`, then set up this install, once. The result is `local/ka
    2. Which other machines exist, how are they reached, and which are always on?
    3. Subscription or API key? The 5-hour and weekly limits, in percent. Point out that a shared subscription needs a margin.
    4. The GitHub account, and the owners Kandu may work in.
-   5. Notifications: Telegram or none, and in which language?
+   5. Notifications: Telegram or none? In which language should Kandu talk to the user (`language`, default `en`)?
    6. Parallel workers, wake interval, auto-merge, and the queen. Recommend leaving auto-merge off and the queen on: she costs tokens only when there is something to decide. Ask for her daily token limit (`queen_daily_token_limit`).
    7. Which sources may Didban read, and on which machine? From the user's own machine, how is the brain reached?
    8. Which port does the dashboard use? The default is 8790; `ss -ltn` on the brain's machine must not show it in use.
+   9. Which model does each role use (`claude.models`)? Recommend a cheaper model for the splitter and the live check, and Claude's default for the worker, reviewer and queen, who judge the work.
 4. Write `local/kandu.yaml`. For Didban, write `local/didban.yaml` on the user's own machine, from `config.example/didban.example.yaml`.
 5. Write `local/.env` from `config.example/example.env`, mode 600. Fill `KANDU_DASHBOARD_TOKEN` with `openssl rand -hex 32`, without showing it. The user fills in the Telegram values themselves.
 6. Ask for the words that must never reach a public repo, and write them to `local/private-words.txt`, one per line.

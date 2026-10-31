@@ -148,12 +148,13 @@ class FakeRunner:
         self.commands.append((command, secrets))
         return 1 if command in self.failing else 0
 
-    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop):
+    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None):
         with self.lock:
             self.running += 1
             self.most_running = max(self.most_running, self.running)
             step = self.steps.pop(0)
-        self.runs.append(SimpleNamespace(machine=machine, cwd=cwd, prompt=prompt, allowed=allowed, denied=denied))
+        self.runs.append(SimpleNamespace(machine=machine, cwd=cwd, prompt=prompt, allowed=allowed, denied=denied,
+                                         model=model))
         result = step() if callable(step) else step
         with self.lock:
             self.running -= 1
@@ -236,6 +237,16 @@ class PausedOnTheDashboardTest(Base):
         self.assertEqual(len(self.runner.runs), 1)
         self.assertEqual(self.events("review_finished"), [])
 
+
+    def test_each_role_runs_on_its_own_model(self):
+        self.config.settings.claude.models = {"live_check": "claude-sonnet-5-5"}
+        self.github.add(1)
+        task = read_tasks(self.config, self.github)[0]
+        self.sup.workers[task.key] = {}
+        self.runner.steps = ["one", "two"]
+        self.sup._agent(task, "live_check", "/tmp", "prompt", ((), ()), "r-1")
+        self.sup._agent(task, "worker", "/tmp", "prompt", ((), ()), "r-2")
+        self.assertEqual([run.model for run in self.runner.runs], ["claude-sonnet-5-5", None])
 
     def test_no_new_agent_starts_once_it_is_paused(self):
         self.github.add(1)

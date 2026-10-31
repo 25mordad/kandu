@@ -206,6 +206,9 @@ class Supervisor:
 
     # Running agents.
 
+    def _model(self, role):
+        return self.config.settings.claude.models.get(role)
+
     def _agent(self, task, role, cwd, prompt, tools, run_id):
         reason = self._gate()
         if reason is not None:
@@ -218,7 +221,7 @@ class Supervisor:
         self._snapshot("awake")
         stop_one = self.store.worker_stop_file(run_id)
         result = self.runner.run_agent(task.project.machine, cwd, prompt, allowed, denied, run_id,
-                                       lambda: self._hard_stop() or stop_one.exists())
+                                       lambda: self._hard_stop() or stop_one.exists(), self._model(role))
         self.store.record("run_finished", task=task.key, project=task.project.name, run_id=run_id, role=role,
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
         if stop_one.exists():
@@ -291,7 +294,7 @@ class Supervisor:
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
         companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
         prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head,
-                                        self.config.settings.notify.language, companions, still_open, first_n,
+                                        self.config.settings.language, companions, still_open, first_n,
                                         local_dir=self.local_dir)
         result = self._agent(task, "reviewer", cwd, prompt, agents.reviewer_tools(), run_id)
         try:
@@ -476,7 +479,8 @@ class Supervisor:
         try:
             base = self.github.default_branch(task.repo)
             cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/size-{task.number}", f"origin/{base}")
-            prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.local_dir)
+            prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.config.settings.language,
+                                            self.local_dir)
             result = self._agent(task, "splitter", cwd, prompt, agents.splitter_tools(), run_id)
             report = split.parse_report(result.text)
             split.validate_report(report, item.body)
@@ -490,7 +494,8 @@ class Supervisor:
             return
         slices = report.get("slices") or []
         if slices:
-            self.store.write_split(task.key, {"title": task.title, "reason": report["reason"], "slices": slices})
+            self.store.write_split(task.key, {"title": task.title, "reason": report["reason"], "slices": slices,
+                                              "user_text": split.user_text(report)})
         self.github.set_field(task.project.board, task.url, "Size", report["size"])
         self.store.record("task_sized", task=task.key, project=task.project.name, run_id=run_id, size=report["size"],
                           files=report["files"], door=report["door"], criteria=sizing.criteria_in(item.body),
@@ -654,7 +659,7 @@ class Supervisor:
         tasks = sorted({e["task"] for e in news if e.get("task")})
         retries = {task: queen.retries_used(events, task) for task in tasks}
         prompt = agents.queen_prompt(queen.prompt_events(news), self._project_view(items, backlog), retries,
-                                     settings.queen_max_retries, self.config.settings.notify.language,
+                                     settings.queen_max_retries, self.config.settings.language,
                                      DEFAULT_LOGS_DIR, self.store.today())
         allowed, denied = agents.queen_tools()
         run_id = new_run_id(self.now())
@@ -662,7 +667,7 @@ class Supervisor:
         self._snapshot("awake")
         try:
             result = self.runner.run_agent(self.config.settings.brain.machine, str(ROOT), prompt, allowed, denied,
-                                           run_id, self._hard_stop)
+                                           run_id, self._hard_stop, self._model("queen"))
         finally:
             self.queen_run = None
             self._snapshot("awake")

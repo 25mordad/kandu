@@ -158,6 +158,12 @@ Everything personal goes into `local/`, which is gitignored: your config, projec
 
 ## Choices you can change
 
+All of these live in `local/kandu.yaml`; `/kandu-config` changes them by conversation. A complete example is in [config.example/](config.example/).
+
+**Language.** Kandu is in English unless you say otherwise. Set `language: fa` at the top level, and its messages, briefs and split proposals come in that language, and the dashboard opens in it. The page itself has English and Persian; agent-written text works in any language. Everything on GitHub stays in English: issues, PRs and commits. A split proposal is stored locally with its whole text in your language, and only the English becomes issues. Updating from an older version: move `notify.language` to the top-level `language`.
+
+**Model per role.** `claude.models` names a model for `worker`, `reviewer`, `splitter`, `live_check` or `queen`. A role not named runs on Claude's default, so you can put cheap, mechanical roles on a smaller model and keep judgment on a stronger one.
+
 **Isolation.** Version 1 runs without a container or a separate OS user, with a separate work folder and per-project allowlists. A container does not by itself cost more tokens; the cost is the setup and upkeep of passing every tool and credential into it. If you want isolation, you can use a separate Linux user (simple, little overhead) or Docker (strongest, more upkeep). See [DESIGN.md §9](DESIGN.md#9-isolation--none-in-this-version).
 
 **GitHub identity.** Version 1 works with your own GitHub account. Everything Kandu does is marked: branch `kandu/...`, label `kandu`, and a line in the commit message. If you want Kandu's work separated from yours, set up a bot account or GitHub App with a token limited to your registered repos. See [DESIGN.md §10](DESIGN.md#10-github-identity--the-users-own-account).

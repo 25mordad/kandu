@@ -30,11 +30,12 @@ Everything is configured by talking to an LLM in a Claude Code session. There ar
 2. Which other machines are on the network, how are they reached (SSH alias), and which of them are always on?
 3. Claude access: subscription or API key? Usage limits: 5-hour window %, weekly %.
 4. GitHub account, and the owners (users / orgs) Kandu may work in.
-5. Where notifications go (Telegram or nowhere), and in which language.
+5. Where notifications go (Telegram or nowhere), and which language Kandu talks to you in (`language`, default English).
 6. Defaults: number of parallel workers, wake interval, auto-merge on or off.
 7. Prerequisites: `claude`, `gh`, `git`, `python` installed and logged in; `gh` needs the `project` scope for boards. Kandu says what is missing.
 8. Didban (§13): which other sources may it read, and on which machine? On the machine you sit at, how is the brain reached?
 9. Which port does the dashboard use (default 8790)?
+10. Which model does each role use? A role not named runs on Claude's default.
 
 The dashboard itself is always Kandu's own (§7); only its port is a choice.
 
@@ -185,7 +186,7 @@ The user must be able to see exactly what is happening: the supervisor and every
 - **Controls from day one:** stop / resume the supervisor, stop one worker, pause / resume one project. Stop ends the whole cycle. A paused project keeps its board and tasks, and code keeps every agent away from it, the queen and the merge included, across cycles. A step already running finishes and nothing after it starts. `paused: true` in the config does the same and only a config change lifts it.
 - **Internal API:** the page reads and acts only through Kandu's own HTTP API (`/api/v1`), which covers state, tasks, tokens by day, an event stream and stop / resume. No outside system depends on it. To show the dashboard inside another app, that app's server proxies the page into a frame, so no new port opens. `docs/API.md` documents every endpoint and event with real examples, and tests check it against the code.
 - **Look:** a plain, modern page in `Vazirmatn`, which ships with Kandu, so Persian reads well and nothing loads from outside. In Persian every number the page writes uses Persian digits. Tasks are a table per project, which folds, is searchable and shows what needs the user first, so many projects stay readable. A click opens the task or run in a dialog instead of adding to the page. The token is asked for when a control first needs it. A tab keeps the hive: the queen is the oversight agent, each other agent is a bee (worker, reviewer, scout, splitter), each task is a flower in its project's patch, the queen glows and speaks while she decides, a reviewer carries a lens, and a task sent back from review shows a note. Every bee and flower comes from real state: a bee flies only while a real agent runs, and with reduced motion on nothing flies. It is inline `SVG` and `CSS`, with no library and no outside request.
-- **Languages:** the page is in English by default, with a switch to Persian that goes right to left; each browser remembers its choice. The API stays in English and the page translates the values it knows. Tests check that both languages have every text. Agent-written text, such as a review brief, stays in the language chosen at setup.
+- **Languages:** the page opens in `language` from the config, English by default, with a switch to Persian that goes right to left; each browser remembers its choice. The API stays in English and the page translates the values it knows. Tests check that both languages have every text. Agent-written text, such as a review brief or a split proposal's `user_text`, is in `language`. Only the English of a proposal becomes an issue.
 - **Access control:** reading is open on the bound address. Stop and resume need `KANDU_DASHBOARD_TOKEN` from `local/.env`; with none set, controls are refused.
 - **Port:** the dashboard takes `dashboard.port`, default 8790, on the brain's machine; keep it free for Kandu. `python -m kandu.timer --dashboard` starts it as a user service that comes back after a restart, without starting the supervisor's timer. The service needs `loginctl enable-linger` to start at boot.
 - Binds to `127.0.0.1` by default. From another machine use an SSH tunnel: `ssh -L 8790:127.0.0.1:8790 server`, then open `http://127.0.0.1:8790`. To keep the tunnel up, run it as a user service on that machine. A system on the same machine calls the API directly. Exposing it further (private network, tunnel, reverse proxy) is the user's choice.
@@ -193,7 +194,7 @@ The user must be able to see exactly what is happening: the supervisor and every
 ## 8. Notifications
 - Only the important things: the supervisor stopped, something broke, a task is stuck and needs a decision, a usage limit was hit, the Claude login expires soon (`claude.login_warn_days`, default 7) or has stopped working, and things of similar weight. Everything else only on the dashboard.
 - The login check never calls `claude`, so the warning still goes out when Claude itself is down.
-- The notifier is pluggable; Telegram is the first adapter. Messages are sent in the language chosen at setup.
+- The notifier is pluggable; Telegram is the first adapter. Messages are sent in `language`.
 
 ## 9. Isolation — none in this version
 Considered and deliberately left out of v1.
