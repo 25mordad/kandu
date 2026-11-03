@@ -24,6 +24,10 @@ Fix exactly the findings you are given, and change nothing else. If you think on
 3. Reduce the case until it is small, form one hypothesis, and test it. Fix the cause.
 4. Keep the command as a regression test. Finish when it passes and the full test suite still passes.
 
+## Commands
+- Run one command per call, with no `;`, `&&` or `|`: a call runs only if every command in it is allowed.
+- A refused command refuses only that command, not the shell. Reach the step another way, and report `blocked` only when a step the task needs cannot run at all.
+
 ## Stay inside the task
 - Write commits, PRs and comments in English.
 - Change only what the issue asks. Anything else you notice goes in your report, not in the diff.

@@ -43,6 +43,10 @@ class ToolsTest(unittest.TestCase):
         self.assertIn("Bash(npm test)", allowed)
         self.assertIn("Bash(npm test *)", allowed)
 
+    def test_worker_may_look_for_its_own_pr(self):
+        allowed, _ = agents.worker_tools(project(), "kandu/1-a")
+        self.assertIn("Bash(gh pr list *)", allowed)
+
     def test_project_tools_are_added(self):
         allowed, _ = agents.worker_tools(project(allowed_tools=["Bash(npm install)"]), "kandu/1-a")
         self.assertIn("Bash(npm install)", allowed)
