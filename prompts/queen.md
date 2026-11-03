@@ -24,6 +24,6 @@ Never release a `Large` task, and never split one: the splitter proposes and the
 ## Last message
 End with one JSON object and nothing else:
 
-`{"brief": "...", "decisions": [{"task": "owner/repo#1", "action": "release", "note": "..."}, {"task": "owner/repo#1", "action": "park", "finding": 2, "note": "..."}]}`
+`{"brief": "...", "decisions": [{"task": "owner/repo#1", "action": "release", "note": "..."}, {"task": "owner/repo#1", "action": "approve", "head_sha": "...", "note": "..."}, {"task": "owner/repo#1", "action": "park", "finding": 2, "note": "..."}]}`
 
 `brief` is a few plain lines for the user, in the language you were given: what happened, what you decided and why. `decisions` may be empty.

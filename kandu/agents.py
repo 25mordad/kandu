@@ -13,7 +13,7 @@ from .config import DEFAULT_LOCAL_DIR
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
 LIVE_RESULTS = ("pass", "fail")
-QUEEN_ACTIONS = ("release", "retry", "ask_user", "park")
+QUEEN_ACTIONS = ("release", "retry", "approve", "ask_user", "park")
 # Given to `claude`, so her reply is always one JSON object. parse_queen_report still checks the rest.
 QUEEN_SCHEMA = {
     "type": "object",
@@ -22,7 +22,7 @@ QUEEN_SCHEMA = {
         "decisions": {"type": "array", "items": {
             "type": "object", "required": ["task", "action", "note"], "additionalProperties": False, "properties": {
                 "task": {"type": "string"}, "action": {"enum": list(QUEEN_ACTIONS)}, "note": {"type": "string"},
-                "finding": {"type": "integer"}}}},
+                "finding": {"type": "integer"}, "head_sha": {"type": "string"}}}},
     },
     "required": ["brief", "decisions"],
     "additionalProperties": False,
@@ -210,6 +210,8 @@ def parse_queen_report(text):
             raise ReplyError("queen decision has no task or note")
         if decision["action"] == "park" and type(decision.get("finding")) is not int:
             raise ReplyError("a park decision has no finding")
+        if decision["action"] == "approve" and not isinstance(decision.get("head_sha"), str):
+            raise ReplyError("an approve decision has no head_sha")
     return report
 
 

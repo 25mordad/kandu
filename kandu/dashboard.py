@@ -74,7 +74,7 @@ def flower_marks(store):
             mark |= {"door": event["door"], "sent_back": bool(event["blockers"])}
         elif kind == "decision" and (event["decision"] == "merge_waits" or event["reason"] == USER_DECIDES):
             mark["pr"] = "waits"
-        elif kind == "user_approved":
+        elif kind in ("user_approved", "queen_approved"):
             mark["pr"] = "approved"
         elif kind == "task_picked":
             mark["pr"] = None

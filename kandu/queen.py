@@ -3,13 +3,15 @@
 She decides what starts and judges what stopped. Code decides when she wakes,
 so a quiet cycle costs no tokens, and code checks each decision before it
 happens. She can release a task from Backlog, send a stopped task back, ask
-the user or park a note the splitter reported. She cannot merge, deploy or pass a lock.
+the user, answer a merge's questions for one head, or park a note the
+splitter reported. She cannot merge, deploy or pass a lock: the merge gate still decides.
 """
 RETRYABLE = ("failed", "blocked")
 LARGE = "Large"
 HIGH = "High"
 NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed", "sizing_failed")
-MOVED_ON = ("user_approved", "task_picked", "task_finished")
+MOVED_ON = ("user_approved", "queen_approved", "task_picked", "task_finished")
+APPROVALS = ("user_approved", "queen_approved")
 COULD_NOT_FINISH = "The queen could not finish this look"
 PROMPT_EVENTS = ("task_finished", "decision", "project_checked", "review_finished", "deployed", "run_finished")
 
@@ -98,6 +100,21 @@ def why_no_release(item, startable, spent, limit, sized, first=()):
         return f"{first[0]} goes first"
     if spent >= limit:
         return "its project reached its daily token limit"
+    return None
+
+
+def why_no_approval(pr, reviewed, head_sha):
+    """Returns why she may not answer this head's questions, or None. `reviewed` is the head's review in the local log."""
+    if pr is None or pr["state"] != "OPEN":
+        return "it has no open PR"
+    if pr["headRefOid"] != head_sha:
+        return "its PR has a newer head than the one she judged"
+    if reviewed is None:
+        return "this head has no review"
+    if reviewed["blockers"]:
+        return "a blocker is open"
+    if not reviewed["criteria_met"]:
+        return "an acceptance criterion is not met"
     return None
 
 

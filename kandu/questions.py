@@ -32,12 +32,12 @@ def open_questions(store, events=None):
 
     A question stays open across heads, even if a later review does not repeat it.
     An answer holds for the head it was given on: the next reviewer reads it in the
-    memory, so the same question on a new head is a new one. The user's yes settles
-    all that is open then, and a task that ended asks nothing.
+    memory, so the same question on a new head is a new one. The user's yes, or the
+    queen's, settles all that is open then, and a task that ended asks nothing.
     """
     events = all_events(store) if events is None else events
     answered = {(e["head_sha"], e["question"]) for e in events if e["type"] == "question_answered"}
-    approved = {(e["task"], e["head_sha"]) for e in events if e["type"] == "user_approved"}
+    approved = {(e["task"], e["head_sha"]) for e in events if e["type"] in ("user_approved", "queen_approved")}
     waiting = {}
     for event in events:
         task = event.get("task")
@@ -47,7 +47,7 @@ def open_questions(store, events=None):
                     waiting.setdefault(task, {})[question] = event
         elif event["type"] == "question_answered":
             waiting.get(task, {}).pop(event["question"], None)
-        elif event["type"] == "user_approved" or (event["type"] == "task_finished" and event["outcome"] in ENDED):
+        elif event["type"] in ("user_approved", "queen_approved") or (event["type"] == "task_finished" and event["outcome"] in ENDED):
             waiting.pop(task, None)
     return [{"task": task, "project": review["project"], "head_sha": review["head_sha"], "question": question,
              "id": question_id(question)}
