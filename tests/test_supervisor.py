@@ -169,13 +169,14 @@ class FakeRunner:
         self.commands.append((command, secrets))
         return 1 if command in self.failing else 0
 
-    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None):
+    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
+                  schema=None):
         with self.lock:
             self.running += 1
             self.most_running = max(self.most_running, self.running)
             step = self.steps.pop(0)
         self.runs.append(SimpleNamespace(machine=machine, cwd=cwd, prompt=prompt, allowed=allowed, denied=denied,
-                                         model=model, tokens=tokens))
+                                         model=model, tokens=tokens, schema=schema))
         result = step() if callable(step) else step
         with self.lock:
             self.running -= 1
@@ -451,6 +452,7 @@ class QueenTest(Base):
         run = [e for e in self.events("run_finished") if e["role"] == "queen"]
         self.assertEqual(len(run), 1)
         self.assertIsNone(run[0]["task"])
+        self.assertEqual(self.runner.runs[-1].schema, agents.QUEEN_SCHEMA)
 
     def test_she_cannot_send_back_what_the_user_stopped(self):
         def user_stops():
@@ -927,6 +929,8 @@ class ReviewRoundsTest(Base):
         self.assertIn("Edit", run.denied)
         self.assertNotIn("Edit", run.allowed)
         self.assertIn(SHA1, run.prompt)
+        self.assertEqual(run.schema, review.REPORT_SCHEMA)
+        self.assertIsNone(self.runner.runs[0].schema)
 
     def test_waiting_costs_nothing(self):
         self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
