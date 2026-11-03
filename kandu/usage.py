@@ -23,11 +23,15 @@ class Usage:
 
 
 def parse_usage(text):
-    """Takes the text of `/usage`; returns Usage, or raises UsageError."""
+    """Takes the text of `/usage`; returns Usage, or raises UsageError.
+
+    The weekly line must be there. Some plans have no 5-hour window, and then `/usage` shows no
+    session line: that counts as 0%.
+    """
     session, week = SESSION.search(text), WEEK.search(text)
-    if session is None or week is None:
+    if week is None:
         raise UsageError("usage text has an unknown shape")
-    return Usage(int(session.group(1)), int(week.group(1)))
+    return Usage(int(session.group(1)) if session else 0, int(week.group(1)))
 
 
 def read_usage():
