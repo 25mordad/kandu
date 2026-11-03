@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shutil
 import socket
@@ -48,7 +49,7 @@ class Base(unittest.TestCase):
         self.github = mock.Mock()
         self.time = [0]
         self.api = Api(self.config, self.store, self.github, self.root / "logs", TOKEN, clock=lambda: self.time[0],
-                       timer_on=lambda: True)
+                       timer_on=lambda: True, local_dir=local)
 
     def get(self, target):
         return dispatch(self.api, "GET", target)
@@ -438,6 +439,35 @@ class ControlTest(Base):
 
     def test_changing_limits_needs_the_token(self):
         self.assertEqual(self.set_limits("?session=85&week=40", "wrong")[0], 403)
+
+    def test_a_new_project_in_the_config_shows_without_a_restart(self):
+        self.github.board_items.return_value = []
+        projects = self.root / "local" / "projects.yaml"
+        text = projects.read_text(encoding="utf-8").replace("name: internal-tool", "name: renamed-tool")
+        projects.write_text(text, encoding="utf-8")
+        os.utime(projects, ns=(1, 1))
+        self.assertIn("renamed-tool", self.get("/api/v1/queue")[1]["projects"])
+        self.assertIs(self.api.flights.config, self.api.config)
+
+    def test_a_broken_config_keeps_the_last_good_one(self):
+        projects = self.root / "local" / "projects.yaml"
+        projects.write_text("projects: [", encoding="utf-8")
+        os.utime(projects, ns=(1, 1))
+        self.assertEqual(self.get("/api/v1/state")[0], 200)
+        self.assertIn("website", [p.name for p in self.api.config.projects])
+
+    def test_restart_applies_the_config_and_is_logged(self):
+        self.api.restart_kandu = mock.Mock()
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/restart", TOKEN), (200, {"restarting": True}))
+        self.assertEqual(self.api.restart_kandu.call_args.args[0].projects[0].name, "website")
+        self.assertIsNotNone(self.store.last_event("kandu_restarted"))
+
+    def test_restart_needs_the_token_and_a_good_config(self):
+        self.api.restart_kandu = mock.Mock()
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/restart", "wrong")[0], 403)
+        (self.root / "local" / "projects.yaml").write_text("projects: [", encoding="utf-8")
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/restart", TOKEN)[0], 409)
+        self.api.restart_kandu.assert_not_called()
 
     def test_opening_a_session_needs_the_token(self):
         self.assertEqual(dashboard.dispatch(self.api, "POST", "/api/v1/flights/didban?language=fa")[0], 403)

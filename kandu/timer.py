@@ -73,6 +73,18 @@ def install(config, units_dir=UNITS_DIR):
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
 
 
+def restart(config):
+    """Applies the config: writes the units again and re-arms the timer if it runs, so a new wake interval counts.
+
+    The dashboard restarts a second later from a unit of its own, so this answer reaches the page first.
+    A running cycle is left to finish.
+    """
+    install(config)
+    subprocess.run(["systemctl", "--user", "try-restart", f"{UNIT_NAME}.timer"], check=True)
+    subprocess.run(["systemd-run", "--user", "--on-active=1", "--collect", "systemctl", "--user", "restart",
+                    f"{UNIT_NAME}-dashboard.service"], check=True, capture_output=True)
+
+
 def timer_on():
     """Whether `systemd` will wake the supervisor by itself."""
     active = subprocess.run(["systemctl", "--user", "is-active", f"{UNIT_NAME}.timer"], capture_output=True, text=True)
