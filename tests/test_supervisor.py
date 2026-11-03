@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from kandu import agents, queen, review, split, supervisor
+from kandu import agents, queen, questions, review, split, supervisor
 from kandu.config import Rules, load_config
 from kandu.github import BoardItem, GitHubError
 from kandu.runner import AgentResult, RunnerError
@@ -396,6 +396,38 @@ class QueenTest(Base):
 
     def park(self, finding=1):
         return {"task": f"{REPO}#1", "action": "park", "finding": finding, "note": "It was too large for the PR."}
+
+    def approve(self, head=SHA1):
+        return {"task": f"{REPO}#1", "action": "approve", "head_sha": head, "note": "Deferring it is fine."}
+
+    def reviewed(self, head=SHA1, blockers=0, criteria_met=True):
+        self.store.record("review_finished", task=f"{REPO}#1", project="website", run_id="r", round=1,
+                          head_sha=head, findings=0, blockers=blockers, door="one-way", criteria_met=criteria_met,
+                          wait_for_user=["Deferred work?"], user_brief=None)
+
+    def test_her_yes_to_a_reviewed_head_is_recorded(self):
+        self.github.open_pr(REPO, 1, SHA1)
+        self.reviewed()
+        refused, _ = self.sup._carry_out([self.approve()], [])
+        self.assertEqual(refused, [])
+        self.assertIsNotNone(self.store.last_event("queen_approved", task=f"{REPO}#1", head_sha=SHA1))
+        self.assertEqual(questions.open_questions(self.store), [])
+
+    def test_her_yes_needs_the_current_head_and_a_clean_review(self):
+        cases = (("0" * 40, {}, "newer head"), (SHA1, {"blockers": 1}, "blocker"),
+                 (SHA1, {"criteria_met": False}, "criterion"))
+        for head, review_fields, why in cases:
+            with self.subTest(why=why):
+                self.github.open_pr(REPO, 1, SHA1)
+                self.reviewed(**review_fields)
+                refused, _ = self.sup._carry_out([self.approve(head)], [])
+                self.assertIn(why, refused[0])
+        self.assertIsNone(self.store.last_event("queen_approved"))
+
+    def test_her_yes_needs_a_review_of_that_head(self):
+        self.github.open_pr(REPO, 1, SHA1)
+        refused, _ = self.sup._carry_out([self.approve()], [])
+        self.assertIn("no review", refused[0])
 
     def test_a_reported_note_wakes_her_and_she_parks_it(self):
         self.github.statuses[self.github.items[0].url] = "Done"
@@ -1285,6 +1317,24 @@ class MergeTest(Base):
     def test_a_yes_to_another_head_does_not_count(self):
         self.approve("0" * 40)
         self.waits("one-way", report(SHA1, door="one-way"))
+
+    def queen_approves(self, sha=SHA1):
+        self.store.record("queen_approved", task=f"{REPO}#1", project="website", head_sha=sha, note="Fine.")
+
+    def test_the_queens_yes_passes_a_one_way_door_and_the_questions(self):
+        self.waits("one-way", report(SHA1, door="one-way", wait=["Deferred work?"]))
+        self.queen_approves()
+        self.runner.steps = [self.PASS]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+
+    def test_the_queens_yes_never_stands_in_for_auto_merge(self):
+        self.config.projects[0].auto_merge = False
+        self.runner.steps = [report(SHA1, door="one-way")]
+        self.cycle()
+        self.queen_approves()
+        self.cycle()
+        self.assertEqual(self.github.merges, [])
 
     def test_the_users_yes_still_needs_the_tests(self):
         self.waits("one-way", report(SHA1, door="one-way"))

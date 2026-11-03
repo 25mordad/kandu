@@ -108,6 +108,12 @@ class QueenReportTest(unittest.TestCase):
         with self.assertRaises(agents.ReplyError):
             agents.parse_queen_report(text.replace('"finding": 2, ', ""))
 
+    def test_an_approve_decision_names_its_head(self):
+        text = '{"brief": "b", "decisions": [{"task": "o/r#1", "action": "approve", "head_sha": "abc", "note": "n"}]}'
+        self.assertEqual(agents.parse_queen_report(text)["decisions"][0]["head_sha"], "abc")
+        with self.assertRaises(agents.ReplyError):
+            agents.parse_queen_report(text.replace('"head_sha": "abc", ', ""))
+
     def test_a_bad_report_is_refused(self):
         for text in ('no', '{}', '{"brief": "", "decisions": []}', '{"brief": "b"}',
                      '{"brief": "b", "decisions": [{"task": "o/r#1", "action": "merge", "note": "n"}]}',

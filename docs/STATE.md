@@ -46,6 +46,7 @@ state/
 | `run_finished` | `task`, `project`, `run_id`, `role`, `models`, `duration_ms`, `is_error` |
 | `review_finished` | `task`, `project`, `run_id`, `round`, `head_sha`, `findings`, `blockers`, `door`, `criteria_met`, `wait_for_user`, `user_brief` |
 | `user_approved` | `task`, `project`, `head_sha` |
+| `queen_approved` | `task`, `project`, `head_sha`, `note` |
 | `priority_raised` | `task`, `project` |
 | `task_sized` | `task`, `project`, `run_id`, `size`, `files`, `door`, `criteria`, `slices` |
 | `slice_created` | `task`, `project`, `parent` |

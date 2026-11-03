@@ -451,6 +451,11 @@ class Supervisor:
         """Only the local log counts, and only for this head: a new commit voids the user's yes as well."""
         return self.store.last_event("user_approved", task=task.key, head_sha=pr["headRefOid"]) is not None
 
+    def _answered(self, task, pr):
+        """The user's yes or the queen's, for this head: either settles the review's questions and the door."""
+        return self._approved(task, pr) or self.store.last_event(
+            "queen_approved", task=task.key, head_sha=pr["headRefOid"]) is not None
+
     def _merge_waits(self, task, pr):
         """Returns why Kandu may not merge. The tests run last: they are the slow check."""
         head = pr["headRefOid"]
@@ -458,7 +463,7 @@ class Supervisor:
         threads = self.github.review_threads(task.repo, pr["number"])
         asked = [q["question"] for q in questions.open_questions(self.store) if q["task"] == task.key]
         reasons = merge.merge_waits(task.project, pr, reviewed, threads, self._unreviewed_companions(task, pr),
-                                    self._approved(task, pr), asked)
+                                    self._answered(task, pr), asked)
         body = self.github.issue_text(task.repo, task.number)["body"]
         reasons += [f"blocker {key} is not merged yet" for key in open_blockers(self.github, task.repo, body)]
         if reasons:
@@ -872,9 +877,27 @@ class Supervisor:
                     refused.append(f"retry of {task}: {why}")
                     continue
                 self.github.set_status(project.board, item.url, READY)
+            if action == "approve":
+                why = self._queen_approve(project, item, task, decision)
+                if why is not None:
+                    refused.append(f"approve of {task}: {why}")
+                    continue
             self.store.record("queen_decided", task=task, project=project.name, action=action, note=note)
             events.append({"type": "queen_decided", "task": task, "action": action})
         return refused, released
+
+    def _queen_approve(self, project, item, task, decision):
+        """Her yes to one head answers its questions and its door. The merge gate still checks everything else,
+        and `auto_merge` stays the user's: she never merges a project the user merges by hand. Returns why not, or None.
+        """
+        pr = self.github.find_pr(item.repo, item.number)
+        head = decision["head_sha"]
+        reviewed = self.store.last_event("review_finished", task=task, head_sha=head)
+        why = queen.why_no_approval(pr, reviewed, head)
+        if why is not None:
+            return why
+        self.store.record("queen_approved", task=task, project=project.name, head_sha=head, note=decision["note"])
+        return None
 
     def _park(self, project, item, task, decision, events):
         """Only a note the splitter reported may become a task. Returns why not, or None."""
