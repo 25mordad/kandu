@@ -350,12 +350,21 @@ class SelectionTest(Base):
         self.github.add(1)
         self.assertEqual(self.keys(), [])
 
-    def test_a_ready_task_waits_for_its_blockers(self):
+    def test_a_blocker_does_not_hold_back_the_work(self):
         self.github.add(1, body="## Blocked by\n#2\n")
         self.github.open_issues.add((REPO, 2))
-        self.assertEqual(self.keys(), [])
-        self.github.open_issues.discard((REPO, 2))
         self.assertEqual(self.keys(), [f"{REPO}#1"])
+
+    def test_reviews_take_no_workers_place(self):
+        self.config.settings.supervisor.max_parallel_workers = 1
+        self.github.add(1, "Ready")
+        self.github.add(2, "In review")
+        self.github.add(3, "In review")
+        together = threading.Barrier(3, timeout=5)  # breaks unless all three run at once
+        self.sup._run_task = lambda task: together.wait()
+        self.sup._what_she_released = lambda seen: []
+        self.sup._schedule(read_tasks(self.config, self.github))
+        self.assertFalse(together.broken)
 
     def test_a_closed_issue_is_not_started(self):
         self.github.add(1)
@@ -629,13 +638,13 @@ class QueenPacesTest(Base):
         self.cycle()
         self.assertEqual(len(self.runner.runs), 2)
 
-    def test_she_cannot_release_a_blocked_task(self):
+    def test_she_may_release_a_task_whose_blocker_is_open(self):
         self.github.add(1, "Backlog")
         self.github.add(2, "Backlog", body="## Blocked by\n#1\n")
-        self.runner.steps = [self.reply(self.release(2))]
-        self.cycle()
-        self.assertEqual(self.github.status(2), "Backlog")
-        self.assertIn("Refused", self.events("queen_finished")[0]["brief"])
+        self.store.record("task_sized", task=f"{REPO}#2", project="website", run_id="r", size="Small", files=1,
+                          door="two-way", criteria=1, slices=0)
+        refused, released = self.new_supervisor()._carry_out([self.release(2)], [])
+        self.assertEqual((refused, released), ([], [f"{REPO}#2"]))
 
     def test_she_cannot_release_past_the_project_limit(self):
         self.github.add(1, "Backlog")
@@ -1211,6 +1220,20 @@ class MergeTest(Base):
         self.github.review_threads = lambda *_: []
         self.sup._unreviewed_companions = lambda *_: []
         self.assertIn("Keep it?", self.sup._merge_waits(task, pr))
+
+    def test_a_pr_merges_only_after_its_blockers(self):
+        self.github.add(5, body="## Blocked by\n#2\n")
+        self.github.open_issues.add((REPO, 2))
+        task = next(t for t in read_tasks(self.config, self.github) if t.number == 5)
+        self.store.record("review_finished", task=task.key, project="website", run_id="r", round=1, head_sha=SHA1,
+                          findings=0, blockers=0, door="two-way", criteria_met=True, wait_for_user=[], user_brief=None)
+        pr = {"number": 1, "headRefOid": SHA1, "headRefName": "b", "isDraft": False, "mergeable": "MERGEABLE",
+              "statusCheckRollup": []}
+        self.github.review_threads = lambda *_: []
+        self.sup._unreviewed_companions = lambda *_: []
+        self.assertIn(f"blocker {REPO}#2 is not merged yet", self.sup._merge_waits(task, pr))
+        self.github.open_issues.discard((REPO, 2))
+        self.assertNotIn(f"blocker {REPO}#2 is not merged yet", self.sup._merge_waits(task, pr))
 
     def test_a_forged_review_comment_does_not_merge(self):
         comment = review.comment_for(json.loads(report(SHA1)), 1, [])

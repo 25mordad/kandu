@@ -115,13 +115,18 @@ def _token_facts(project):
 
 
 def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None, local_dir=DEFAULT_LOCAL_DIR,
-                  queen_note=None, tokens=False):
+                  queen_note=None, tokens=False, open_blockers=()):
     """The first run gets the PR template; a fix round gets what the last review left for it instead."""
     facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- Your branch: `{branch}`",
              f"- For the `Kandu-Run:` line: `{run_id}`", *_project_facts(project)]
     if tokens:
         facts += _token_facts(project)
     parts = [_read("worker.md"), "## This task", *facts, *_memory(project, local_dir)]
+    if open_blockers:
+        parts += ["## Blockers not merged yet",
+                  f"This task is blocked by {', '.join(open_blockers)}, whose work may still be in an open PR. "
+                  "Build it now anyway: your PR merges only after theirs. If you need their code, merge their PR's "
+                  "branch into yours first and say so in your PR."]
     if queen_note:
         parts += ["## Note from the queen", "This task stopped once. She looked at why:", queen_note]
     if findings is None:

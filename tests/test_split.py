@@ -211,8 +211,8 @@ class PriorityTest(unittest.TestCase):
 class QueenLockTest(unittest.TestCase):
     item = mock.Mock(status="Backlog", size="Small")
 
-    def why(self, item=None, sized=None, group=None):
-        return queen.why_no_release(item or self.item, True, 0, 100, sized if sized is not None else {"size": "Small"}, group)
+    def why(self, item=None, sized=None):
+        return queen.why_no_release(item or self.item, True, 0, 100, sized if sized is not None else {"size": "Small"})
 
     def test_a_sized_task_may_go(self):
         self.assertIsNone(self.why())
@@ -222,9 +222,6 @@ class QueenLockTest(unittest.TestCase):
 
     def test_the_log_beats_a_board_field_someone_edited(self):
         self.assertIn("Large", self.why(sized={"size": "Large"}))
-
-    def test_a_group_comes_first(self):
-        self.assertIn("group", self.why(group="acme-org/website#9"))
 
     def retry(self, sized, role=None):
         events = [{"type": "task_finished", "task": "a/b#1", "outcome": "failed"}]
@@ -333,11 +330,6 @@ class GroupTest(Base):
         with self.assertRaises(TaskError):
             self.approve()
 
-    def group_ahead(self, number, released=()):
-        sup = self.new_supervisor()
-        items = {f"{item.repo}#{item.number}": (project, item) for project, item in sup._board_items()}
-        return sup._group_ahead(self.config.projects[0], f"{REPO}#{number}", items, released)
-
     def set_status(self, number, status):
         self.github.statuses[f"https://github.com/{REPO}/issues/{number}"] = status
 
@@ -347,54 +339,6 @@ class GroupTest(Base):
         self.github.add(31, "Backlog", size="Medium")
         self.store.record("task_split", task=f"{REPO}#29", project=self.config.projects[0].name,
                           children=[f"{REPO}#30", f"{REPO}#31"])
-
-    def test_nothing_else_starts_in_the_project_until_the_group_is_done(self):
-        self.approve()
-        self.github.add(30, "Backlog", size="Small")
-        self.set_status(11, "In progress")
-        self.assertEqual(self.group_ahead(30), self.key)
-        self.assertIsNone(self.group_ahead(12))
-        self.github.open_issues.discard((REPO, 11))
-        self.set_status(11, "Done")
-        self.assertEqual(self.group_ahead(30), self.key)
-        self.github.open_issues.discard((REPO, 12))
-        self.assertIsNone(self.group_ahead(30))
-
-    def test_a_group_nothing_started_holds_nothing_whatever_its_age(self):
-        self.approve()
-        self.second_group()
-        self.assertIsNone(self.group_ahead(30))
-        self.assertIsNone(self.group_ahead(11))
-
-    def test_a_slice_in_any_column_past_backlog_means_its_group_started(self):
-        self.approve()
-        self.second_group()
-        for status in ("Ready", "In progress", "In review", "Needs info", "Blocked"):
-            self.set_status(30, status)
-            self.assertEqual(self.group_ahead(11), f"{REPO}#29", status)
-
-    def test_a_group_the_user_parked_holds_nothing(self):
-        self.approve()
-        self.second_group()
-        self.set_status(11, "Technical debt")
-        self.set_status(12, "Technical debt")
-        self.assertIsNone(self.group_ahead(30))
-
-    def test_a_slice_left_after_a_parked_one_still_counts_once_the_group_started(self):
-        self.approve()
-        self.second_group()
-        self.github.add(13, "Backlog", size="Small")
-        self.store.record("task_split", task=self.key, project=self.config.projects[0].name,
-                          children=[f"{REPO}#11", f"{REPO}#12", f"{REPO}#13"])
-        self.github.open_issues.discard((REPO, 11))
-        self.set_status(11, "Done")
-        self.set_status(12, "Technical debt")
-        self.assertEqual(self.group_ahead(30), self.key)
-
-    def test_one_look_cannot_start_two_groups(self):
-        self.approve()
-        self.second_group()
-        self.assertEqual(self.group_ahead(30, released=[f"{REPO}#11"]), self.key)
 
     def release(self, *numbers):
         decisions = [{"task": f"{REPO}#{n}", "action": "release", "note": "Go."} for n in numbers]
@@ -410,17 +354,15 @@ class GroupTest(Base):
         self.github.open_issues.discard((REPO, 11))
         self.set_status(11, "Done")
 
-    def test_the_next_slice_of_a_chain_comes_before_any_other_task(self):
+    def test_slices_and_other_tasks_go_side_by_side(self):
         self.approve()
         self.second_group()
         self.github.add(40, "Backlog", size="Small")
         self.sized(f"{REPO}#30")
         self.sized(f"{REPO}#40")
-        self.finish_first_slice()
-        self.assertEqual(self.first_in_line(), [f"{REPO}#12"])
-        refused, released = self.release(40, 30, 12)
-        self.assertEqual(released, [f"{REPO}#12"])
-        self.assertEqual(len(refused), 2)
+        self.assertEqual(self.first_in_line(), [])
+        refused, released = self.release(40, 30, 11, 12)
+        self.assertEqual((refused, sorted(released)), ([], sorted(f"{REPO}#{n}" for n in (40, 30, 11, 12))))
 
     def test_high_comes_between_two_slices_once_the_worker_is_done(self):
         self.approve()
@@ -431,25 +373,6 @@ class GroupTest(Base):
         refused, released = self.release(12, 40)
         self.assertEqual(released, [f"{REPO}#40"])
         self.assertIn(f"{REPO}#40 goes first", refused[0])
-
-    def test_high_does_not_cut_in_on_a_slice_at_work(self):
-        self.approve()
-        self.github.add(40, "Backlog", size="Small", priority="High")
-        self.sized(f"{REPO}#40")
-        self.set_status(11, "In progress")
-        self.assertEqual(self.first_in_line(), [])
-        refused, released = self.release(40)
-        self.assertEqual(released, [])
-        self.assertIn("group of", refused[0])
-
-    def test_two_groups_left_half_done_do_not_wait_for_each_other(self):
-        self.approve()
-        self.second_group()
-        self.finish_first_slice()
-        self.github.open_issues.discard((REPO, 30))
-        self.set_status(30, "Done")
-        self.assertIsNone(self.group_ahead(12))
-        self.assertIsNone(self.group_ahead(31))
 
     def test_a_task_nothing_can_start_goes_before_nothing(self):
         self.approve()

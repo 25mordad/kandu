@@ -97,7 +97,10 @@ def board_items(config, github, paused=()):
 
 
 def read_tasks(config, github, paused=()):
-    """Returns the tasks the loop may work on: registered, not paused, and not waiting on a blocker."""
+    """Returns the tasks the loop may work on: registered, not paused, and open.
+
+    A blocker does not hold back the work, only the merge (`_merge_waits`).
+    """
     tasks = []
     for project, item in board_items(config, github, paused):
         if item.status not in (READY, *RESUMED):
@@ -115,9 +118,12 @@ def _task(project, item):
 
 
 def _can_start(github, item):
-    if not github.issue_is_open(item.repo, item.number):
-        return False
-    return not any(github.issue_is_open(repo, n) for repo, n in blockers_in(item.body, item.repo))
+    return github.issue_is_open(item.repo, item.number)
+
+
+def open_blockers(github, repo, body):
+    """The blockers of a task still open: its PR may not merge before theirs."""
+    return [f"{r}#{n}" for r, n in blockers_in(body, repo) if github.issue_is_open(r, n)]
 
 
 class Supervisor:
@@ -265,9 +271,10 @@ class Supervisor:
         base = self.github.default_branch(task.repo)
         cwd = self.runner.prepare_worktree(task.project, task.repo, task.branch, base)
         note = queen.note_for(queen.all_events(self.store), task.key)
+        blockers = open_blockers(self.github, task.repo, self.github.issue_text(task.repo, task.number)["body"])
         prompt = agents.worker_prompt(task.project, task.repo, task.number, task.branch, run_id,
                                       findings=findings, pr=pr, local_dir=self.local_dir,
-                                      queen_note=note, tokens=task.tokens)
+                                      queen_note=note, tokens=task.tokens, open_blockers=blockers)
         project = task.project
         tokens = (project.secrets_from, list(project.task_tokens)) if task.tokens else None
         return self._agent(task, "worker", cwd, prompt, agents.worker_tools(project, task.branch), run_id, tokens)
@@ -448,6 +455,8 @@ class Supervisor:
         asked = [q["question"] for q in questions.open_questions(self.store) if q["task"] == task.key]
         reasons = merge.merge_waits(task.project, pr, reviewed, threads, self._unreviewed_companions(task, pr),
                                     self._approved(task, pr), asked)
+        body = self.github.issue_text(task.repo, task.number)["body"]
+        reasons += [f"blocker {key} is not merged yet" for key in open_blockers(self.github, task.repo, body)]
         if reasons:
             return reasons
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
@@ -560,32 +569,11 @@ class Supervisor:
             at_work = any(status(child) in (READY, *RESUMED) or child in released for child in remaining)
             yield event, bool(remaining) and unstarted != slices, at_work
 
-    def _group_ahead(self, project, key, items, released=()):
-        """Returns the parent of a group that must finish before `key` may start, or None.
-
-        A `High` task waits only for the slice at work, never for the rest of its group.
-        So does a slice of a group under way, or two groups `High` left half done would wait for each other.
-        """
-        groups = list(self._groups(project, items, released))
-        high = key in items and items[key][1].priority == queen.HIGH
-        began = any(under_way and key in event["children"] for event, under_way, _ in groups)
-        for event, under_way, at_work in groups:
-            if key not in event["children"] and (at_work if high or began else under_way):
-                return event["task"]
-        return None
-
     def _first_in_line(self, project, items, backlog, released=()):
-        """Returns the tasks of `project` nothing else may go before: what is `High`, else the next slice of its group."""
-        may_go = [(f"{item.repo}#{item.number}", item) for owner, item in backlog
-                  if owner is project and queen.LARGE not in (item.size, self._sized_as(item))]
-        may_go = [(key, item) for key, item in may_go if key not in released
-                  and self._group_ahead(project, key, items, released) is None]
-        high = [key for key, item in may_go if item.priority == queen.HIGH]
-        if high:
-            return high
-        under_way = {child for event, going, _ in self._groups(project, items, released) if going
-                     for child in event["children"]}
-        return [key for key, _ in may_go if key in under_way]
+        """Returns the `High` tasks of `project`: nothing else there may go before them. Groups do not wait."""
+        return [f"{item.repo}#{item.number}" for owner, item in backlog
+                if owner is project and item.priority == queen.HIGH and f"{item.repo}#{item.number}" not in released
+                and queen.LARGE not in (item.size, self._sized_as(item))]
 
     def _sized_as(self, item):
         sized = split.current_size(self.store, f"{item.repo}#{item.number}")
@@ -865,7 +853,6 @@ class Supervisor:
                 why = "it was already released" if task in released else queen.why_no_release(
                     item, _can_start(self.github, item), self.store.tokens_counted(today, project=project.name),
                     project.daily_token_limit, split.current_size(self.store, task),
-                    self._group_ahead(project, task, items, released),
                     self._first_in_line(project, items, backlog, released))
                 if why is not None:
                     refused.append(f"release of {task}: {why}")
@@ -934,17 +921,19 @@ class Supervisor:
         pending = list(tasks)
         seen = {task.key for task in tasks}
         running = {}
-        with ThreadPoolExecutor(max_workers=limit) as pool:
+        building = lambda t: t.status != IN_REVIEW  # A review only reads, so it takes no worker's place.
+        with ThreadPoolExecutor(max_workers=limit + sum(1 for t in tasks if not building(t))) as pool:
             while pending or running:
                 self.halt_reason = self.halt_reason or (self._queen_limit() if pending else None)
                 for task in list(pending):
                     if self.halt_reason is not None:
                         break
-                    if len(running) >= limit:
-                        break
-                    in_project = sum(1 for t in running.values() if t.project is task.project)
-                    if in_project >= task.project.max_parallel_workers:
-                        continue
+                    if building(task):
+                        if sum(1 for t in running.values() if building(t)) >= limit:
+                            continue
+                        in_project = sum(1 for t in running.values() if t.project is task.project and building(t))
+                        if in_project >= task.project.max_parallel_workers:
+                            continue
                     pending.remove(task)
                     if self._over_budget(task):
                         continue
