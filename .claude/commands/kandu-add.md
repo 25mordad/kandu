@@ -11,7 +11,7 @@ Read `docs/COMMANDS.md`, then add one project to `local/projects.yaml`, in the s
    4. May Kandu clone it into its work folder (`clone`), or must it work on that machine in a separate `git worktree` (`in-place`)? Always ask this.
    5. Which board? An existing board may have other column names: map them under `board.columns`. If there is none, should one be created?
    6. The test and local run commands, and, if `permissions` in `kandu.yaml` limits the workers, any extra tools they need here (`allowed_tools`).
-   7. `direct` or `preview` deploy, and the live URL. Leave the URL out if the live software is behind a login.
+   7. `direct` or `preview` deploy, and the live URL. Leave the URL out if the live software is behind a login. A deploy that pulls into a live checkout runs `<kandu>/.venv/bin/python -I <kandu>/kandu/pull.py <checkout>`, with Kandu's own path on that machine, never a plain `git pull`, so a conflict leaves the copy as it was.
    8. Where are its secrets? Store the location only. Which tokens may its tasks use, and what is each for (`task_tokens`)?
    9. Forbidden areas, such as migrations or payments.
    10. Repo rules: CI, PR bots, other people on the repo, and any freeze on merges (`frozen`).

@@ -205,6 +205,12 @@ class ReadTest(Base):
         self.get("/api/v1/queue?fresh=1")
         self.assertEqual(self.github.board_items.call_count, 2)
 
+    def test_a_fresh_read_also_sends_what_waits_after_reading(self):
+        self.github.board_items.return_value = []
+        self.get("/api/v1/queue?fresh=1")
+        calls = [name for name, *_ in self.github.mock_calls if name in ("refresh", "send")]
+        self.assertEqual(calls, ["refresh", "send"])
+
     def test_failed_read_keeps_the_last_answer_and_waits(self):
         self.github.board_items.return_value = []
         self.assertFalse(self.get("/api/v1/queue")[1]["stale"])

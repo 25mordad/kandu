@@ -32,3 +32,5 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Blast radius** | What a merge can break if it is wrong |
 | **Cycle** | One wake of the supervisor, from waking to sleep |
 | **Live check** | Seeing the result in the deployed software, not only in tests |
+| **Check** | A read-only run the queen sends to find one thing out about a task; the run is the checker |
+| **Loop guard** | The per-task limit on each of the queen's steps; past it the task stops for the user |

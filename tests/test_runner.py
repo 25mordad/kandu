@@ -187,6 +187,18 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(json.loads(args[args.index("--json-schema") + 1]), schema)
         self.assertEqual(json.loads(result.text), {"a": "x", "b": []})
 
+    def test_a_session_is_kept_so_a_broken_reply_can_be_asked_for_again(self):
+        held = dict(RESULT, session_id="s-1")
+        install(self.home / ".local" / "bin" / "claude", FAKE_CLAUDE.replace(json.dumps(RESULT), json.dumps(held)))
+        result = self.agent()
+        args = (self.home / "claude.args").read_text().splitlines()
+        self.assertEqual(result.session_id, "s-1")
+        self.assertNotIn("--no-session-persistence", args)
+        self.assertNotIn("--resume", args)
+        self.runner.run_agent("box", str(self.home), "again", ["Read"], [], "r-2", lambda: False, resume="s-1")
+        args = (self.home / "claude.args").read_text().splitlines()
+        self.assertEqual(args[args.index("--resume") + 1], "s-1")
+
     def test_a_model_is_passed_only_when_one_is_set(self):
         self.agent()
         self.assertNotIn("--model", (self.home / "claude.args").read_text().splitlines())

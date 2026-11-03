@@ -202,7 +202,9 @@ class Api:
                 self._queue_finished = finished
                 try:
                     if query.get("fresh") == ["1"] and hasattr(self.github, "refresh"):
-                        self.github.refresh(self.config)  # the user asked: read GitHub into the copy first
+                        # The user asked: read GitHub into the copy, then send what waits, in the cycle's order.
+                        self.github.refresh(self.config)
+                        self.github.send()
                     self._queue = self._read_queue()
                     self._queue_failed = False
                     self._queue_versions = self._board_versions()  # After the read, which may write the copy itself.

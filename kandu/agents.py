@@ -8,12 +8,15 @@ import json
 from pathlib import Path
 
 from . import sizing
-from .config import DEFAULT_LOCAL_DIR
+from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR
+from .review import CODE_FENCE
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
 LIVE_RESULTS = ("pass", "fail")
-QUEEN_ACTIONS = ("release", "retry", "approve", "ask_user", "park")
+QUEEN_ACTIONS = ("release", "retry", "rework", "verify", "new_task", "block_on", "approve", "ask_user", "park")
+CHECK_RESULTS = ("pass", "fail", "unclear")
+NEW_TASK_FIELDS = ("title", "body", "priority", "kind", "size")
 # Given to `claude`, so her reply is always one JSON object. parse_queen_report still checks the rest.
 QUEEN_SCHEMA = {
     "type": "object",
@@ -22,15 +25,54 @@ QUEEN_SCHEMA = {
         "decisions": {"type": "array", "items": {
             "type": "object", "required": ["task", "action", "note"], "additionalProperties": False, "properties": {
                 "task": {"type": "string"}, "action": {"enum": list(QUEEN_ACTIONS)}, "note": {"type": "string"},
-                "finding": {"type": "integer"}, "head_sha": {"type": "string"}}}},
+                "finding": {"type": "integer"}, "head_sha": {"type": "string"}, "on": {"type": "string"},
+                "blocks": {"type": "boolean"}, "title": {"type": "string"}, "body": {"type": "string"},
+                **{name.lower(): {"enum": list(values)} for name, values in BOARD_FIELDS.items()}}}},
     },
     "required": ["brief", "decisions"],
     "additionalProperties": False,
 }
 
 
+# Given to `claude`, so a worker or a live check ends on one object. The parsers still check what a schema cannot.
+_TEXT = {"type": "string"}
+WORKER_SCHEMA = {
+    "type": "object", "required": ["status"],
+    "properties": {"status": {"enum": list(WORKER_STATUSES)}, "pr": {"type": "integer"}, "question": _TEXT,
+                   "reason": _TEXT},
+}
+CHECK_SCHEMA = {
+    "type": "object", "required": ["result", "summary"], "additionalProperties": False,
+    "properties": {"result": {"enum": list(CHECK_RESULTS)}, "summary": _TEXT},
+}
+LIVE_CHECK_SCHEMA = {
+    "type": "object", "required": ["result", "summary"], "additionalProperties": False,
+    "properties": {"result": {"enum": list(LIVE_RESULTS)}, "summary": _TEXT},
+}
+_FACTS = {"size": {"enum": list(sizing.ORDER)}, "files": {"type": "integer"}, "door": _TEXT}
+SPLIT_SCHEMA = {
+    "type": "object", "required": ["size", "files", "door", "reason", "slices"],
+    "properties": {**_FACTS, "reason": _TEXT,
+                   "slices": {"type": "array", "items": {"type": "object", "required": ["title", "body", *_FACTS],
+                                                         "properties": {**_FACTS, "title": _TEXT, "body": _TEXT}}},
+                   "user_text": {"type": ["object", "null"]}},
+}
+NOTES_SCHEMA = {
+    "type": "object", "required": ["notes"],
+    "properties": {"notes": {"type": "array", "items": {
+        "type": "object", "required": ["n", "title", "body", "reason", *_FACTS],
+        "properties": {**_FACTS, "n": {"type": "integer"}, "title": _TEXT, "body": _TEXT, "reason": _TEXT}}}},
+}
+
+
 class ReplyError(Exception):
     pass
+
+
+def reask_prompt(error):
+    """Goes to the same session: the work is done, only its last message could not be read."""
+    return (f"Kandu could not read your last message: {error}. Do not redo or change any work. "
+            "Reply now with only the JSON object that the \"Last message\" part of your instructions asks for.")
 
 
 def _limits(rules, extra_allowed=(), extra_denied=(), branch=""):
@@ -65,6 +107,13 @@ def worker_tools(project, branch, rules=None):
     return _limits(rules, allowed, denied + _forbidden(project), branch)
 
 
+def reviewer_tools(project, rules=None):
+    """Returns (allowed, denied) for a reviewer, which runs the project's tests and commands itself."""
+    if rules is None:
+        return _limits(None)
+    return _limits(rules, [f"Bash({project.test})", f"Bash({project.test} *)"] + project.allowed_tools)
+
+
 def live_check_tools(project, rules=None):
     """Returns (allowed, denied) for a live check."""
     return _limits(rules, project.allowed_tools)
@@ -90,6 +139,9 @@ def _project_facts(project):
     facts = [f"- Test command: `{project.test}`",
              "- Repo guides: `CLAUDE.md` and `AGENTS.md` are not loaded for you. If the repo has them, search them "
              "for what concerns this task and read those parts."]
+    commands = [rule[len("Bash("):-1] for rule in project.allowed_tools if rule.startswith("Bash(")]
+    if commands:
+        facts.append(f"- The project's own commands: {', '.join(f'`{c}`' for c in commands)}")
     if project.forbidden:
         facts.append(f"- Forbidden areas: {', '.join(project.forbidden)}")
     if project.repo_rules:
@@ -104,8 +156,9 @@ def _token_facts(project):
 
 
 def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None, local_dir=DEFAULT_LOCAL_DIR,
-                  queen_note=None, tokens=False, open_blockers=()):
-    """The first run gets the PR template; a fix round gets what the last review left for it instead."""
+                  queen_note=None, tokens=False, open_blockers=(), order=None):
+    """The first run gets the PR template; a fix round gets what the last review left for it instead, and a
+    worker the queen sends back to a PR gets her order."""
     facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- Your branch: `{branch}`",
              f"- For the `Kandu-Run:` line: `{run_id}`", *_project_facts(project)]
     if tokens:
@@ -116,6 +169,10 @@ def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None,
                   f"This task is blocked by {', '.join(open_blockers)}, whose work may still be in an open PR. "
                   "Build it now anyway: your PR merges only after theirs. If you need their code, merge their PR's "
                   "branch into yours first and say so in your PR."]
+    if order is not None:
+        return "\n".join(parts + [f"## Work the queen sends you on PR #{pr}",
+                                  "The queen looked at this PR and sends you back to it. Do exactly this on the "
+                                  "same branch, push, and end as after a fix round:", order])
     if queen_note:
         parts += ["## Note from the queen", "This task stopped once. She looked at why:", queen_note]
     if findings is None:
@@ -161,16 +218,38 @@ def notes_prompt(project, repo, number, pr, notes, local_dir=DEFAULT_LOCAL_DIR):
                       *_memory(project, local_dir)])
 
 
-def queen_prompt(events, projects, retries, retry_limit, language, logs_dir, today, debts=()):
+def queen_prompt(events, projects, steps, step_limit, language, logs_dir, today, debts=()):
     facts = [f"- Today: {today}", f"- Language of the brief: {language}", f"- Logs folder: `{logs_dir}`",
-             f"- Retries a task may have: {retry_limit}"]
+             f"- Each of {', '.join(f'`{a}`' for a in ('retry', 'rework', 'verify', 'new_task', 'block_on'))} "
+             f"may be taken {step_limit} times per task"]
     parts = [_read("queen.md"), "## This look", *facts, "## Projects", "```json",
-             json.dumps(projects, ensure_ascii=False, indent=2), "```", "## Retries used", "```json",
-             json.dumps(retries, ensure_ascii=False), "```", "## Events since your last look", "```json",
+             json.dumps(projects, ensure_ascii=False, indent=2), "```", "## Your steps so far on these tasks", "```json",
+             json.dumps(steps, ensure_ascii=False, indent=2), "```", "## Events since your last look", "```json",
              json.dumps(events, ensure_ascii=False, indent=2), "```"]
     if debts:
         parts += ["## Notes to park", "```json", json.dumps(list(debts), ensure_ascii=False, indent=2), "```"]
     return "\n".join(parts)
+
+
+def check_prompt(project, repo, number, pr, head_sha, question, local_dir=DEFAULT_LOCAL_DIR):
+    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", *_project_facts(project)]
+    facts += [f"- PR: #{pr}", f"- Your checkout is its head `{head_sha}`", f"- Diff: `gh pr diff {pr} --repo {repo}`"] \
+        if pr else ["- The task has no open PR: your checkout is the default branch"]
+    return "\n".join([_read("check.md"), "## This check", *facts, "## The queen's question", question,
+                      *_memory(project, local_dir)])
+
+
+def parse_check(text):
+    """Takes a checker's last message; returns its result object."""
+    try:
+        reply = _final_json(text)
+    except json.JSONDecodeError as e:
+        raise ReplyError("check reply is not JSON") from e
+    if not isinstance(reply, dict) or reply.get("result") not in CHECK_RESULTS:
+        raise ReplyError("check reply has no known result")
+    if not isinstance(reply.get("summary"), str) or not reply["summary"].strip():
+        raise ReplyError("check reply has no summary")
+    return reply
 
 
 def live_check_prompt(project, repo, number, local_dir=DEFAULT_LOCAL_DIR):
@@ -181,7 +260,7 @@ def live_check_prompt(project, repo, number, local_dir=DEFAULT_LOCAL_DIR):
 def parse_live_check(text):
     """Takes a live check's last message; returns its result object."""
     try:
-        reply = json.loads(text.strip())
+        reply = _final_json(text)
     except json.JSONDecodeError as e:
         raise ReplyError("live check reply is not JSON") from e
     if not isinstance(reply, dict) or reply.get("result") not in LIVE_RESULTS:
@@ -212,16 +291,26 @@ def parse_queen_report(text):
             raise ReplyError("a park decision has no finding")
         if decision["action"] == "approve" and not isinstance(decision.get("head_sha"), str):
             raise ReplyError("an approve decision has no head_sha")
+        if decision["action"] == "block_on" and not isinstance(decision.get("on"), str):
+            raise ReplyError("a block_on decision has no task it waits on")
+        if decision["action"] == "new_task" and not all(isinstance(decision.get(name), str) and decision[name].strip()
+                                                         for name in NEW_TASK_FIELDS):
+            raise ReplyError(f"a new_task decision needs {', '.join(NEW_TASK_FIELDS)}")
     return report
 
 
 def _final_json(text):
-    """The reply's JSON: the whole text, or else its last line, since a worker may sum up its work above it."""
+    """The reply's JSON: the whole text, else a code block or a line that ends it, since an agent may sum up its
+    work above it."""
     text = text.strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return json.loads(text.rsplit("\n", 1)[-1].strip())
+    fence = CODE_FENCE.search(text)
+    for candidate in (text, fence and fence.group(1), text.rsplit("\n", 1)[-1]):
+        if candidate:
+            try:
+                return json.loads(candidate.strip())
+            except json.JSONDecodeError:
+                pass
+    raise json.JSONDecodeError("no JSON at the end of the reply", text, 0)
 
 
 def parse_worker_reply(text):
