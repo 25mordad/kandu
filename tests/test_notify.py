@@ -56,7 +56,7 @@ class WhatIsImportantTest(unittest.TestCase):
         for outcome, kind in (("failed", "failure"), ("deploy_failed", "failure"), ("live_check_failed", "failure"),
                               ("sizing_failed", "failure"), ("blocked", "needs_decision"),
                               ("needs_info", "needs_decision"), ("pr_closed", "needs_decision"),
-                              ("merged", None), ("stopped_by_user", None)):
+                              ("merged", "task_done"), ("stopped_by_user", None)):
             self.assertEqual(self.kind_of("task_finished", outcome=outcome, **ON_TASK), kind, outcome)
 
     def test_every_way_a_cycle_ends(self):
@@ -107,6 +107,14 @@ class NotifierTest(Base):
         self.assertIn(TASK, self.adapter.sent[0])
         self.assertTrue(self.adapter.sent[0].endswith("https://github.com/o/r/issues/7"))
         self.assertEqual(self.logged("notification_sent")[0]["kind"], "needs_decision")
+
+    def test_the_first_line_says_how_soon_to_act(self):
+        self.finished("blocked")
+        self.store.record("decision", task=TASK, project="site", decision="approved", reason="")
+        self.finished("merged")
+        firsts = [text.splitlines()[0] for text in self.adapter.sent]
+        self.assertEqual([line[0] for line in firsts], ["🔴", "🟡", "🟢"])
+        self.assertIn("ادغام شد و تمام شد", self.adapter.sent[2])
 
     def test_changing_the_language_changes_only_the_message(self):
         self.use(list(NOTIFY_EVENTS), "en")

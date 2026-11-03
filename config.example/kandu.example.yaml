@@ -48,6 +48,7 @@ notify:
     - failure
     - needs_decision
     - pr_ready
+    - task_done
     - usage_limit
     - claude_login
 
