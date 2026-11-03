@@ -1036,6 +1036,22 @@ class ReviewRoundsTest(Base):
         self.assertEqual(len(self.runner.runs), 4)
         self.assertIn("the second review found it not done", self.comments()[-1]["body"])
 
+    def test_a_queen_retry_after_the_second_review_gives_one_more_fix_round(self):
+        not_fixed = [{"n": 1, "result": "not_fixed", "body": "still"}]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), self.worker_pushes(SHA2),
+                             report(SHA2, earlier=not_fixed)]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        later = datetime.now().astimezone() + timedelta(seconds=2)  # the log counts whole seconds
+        self.store.record("queen_decided", task=f"{REPO}#1", project="website", action="retry",
+                          note="The PR text is wrong: rewrite it.", now=later)
+        self.github.statuses[f"https://github.com/{REPO}/issues/1"] = "Ready"
+        self.runner.steps = [self.worker_pushes(SHA3), report(SHA3, earlier=[{"n": 1, "result": "fixed", "body": "ok"}])]
+        self.cycle()
+        self.assertIn("This breaks.", self.runner.runs[4].prompt)
+        self.assertEqual(self.events("review_finished")[-1]["head_sha"], SHA3)
+        self.assertNotEqual(self.github.status(1), "Blocked")
+
     def test_all_done_ends_the_review_even_if_it_found_something_new(self):
         fixed = [{"n": 1, "result": "fixed", "body": "ok"}]
         self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), self.worker_pushes(SHA2),
@@ -1374,9 +1390,25 @@ class MergeTest(Base):
         self.github.prs[(REPO, 1)]["isDraft"] = True
         self.waits("draft")
 
-    def test_conflicts_wait(self):
+    def test_a_conflict_goes_to_a_worker_and_the_new_head_is_reviewed(self):
         self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
-        self.waits("conflicts")
+
+        def merge_base_in():
+            self.github.prs[(REPO, 1)] |= {"headRefOid": SHA2, "mergeable": "MERGEABLE"}
+            return PR_OPENED
+        self.runner.steps = [report(SHA1), merge_base_in, report(SHA2), self.PASS]
+        self.cycle()
+        self.assertIn("conflicts with", self.runner.runs[1].prompt)
+        self.assertEqual(self.github.merges, [SHA2])
+
+    def test_conflicts_wait_once_an_update_round_changed_nothing(self):
+        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.runner.steps = [report(SHA1), lambda: PR_OPENED]
+        self.cycle()
+        self.assertEqual(self.github.merges, [])
+        self.assertIn("conflicts", self.events("decision")[-1]["reason"])
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
 
     def test_a_frozen_project_waits(self):
         self.config.projects[0].frozen = True
