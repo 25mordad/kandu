@@ -20,6 +20,10 @@ from kandu.state import StateStore
 from kandu.supervisor import CycleStop, Supervisor, read_tasks
 from kandu.usage import Usage, UsageError
 
+import tempfile as _tempfile
+from kandu import ghmeter as _ghmeter
+_ghmeter.LOG_DIR = Path(_tempfile.mkdtemp())  # the meter's lines stay out of state/
+
 EXAMPLES = Path(__file__).resolve().parent.parent / "config.example"
 ACCOUNT = "your-github-login"
 REPO = "acme-org/website"

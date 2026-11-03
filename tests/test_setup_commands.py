@@ -11,6 +11,10 @@ from kandu.config import BOARD_COLUMNS, BOARD_FIELDS, DEADLINE_FIELD, Board, Mac
 from kandu.github import GitHub, GitHubError
 from kandu.usage import Usage, UsageError
 
+import tempfile as _tempfile
+from kandu import ghmeter as _ghmeter
+_ghmeter.LOG_DIR = Path(_tempfile.mkdtemp())  # the meter's lines stay out of state/
+
 ROOT = Path(__file__).resolve().parent.parent
 COMMANDS = ROOT / ".claude" / "commands"
 BODY = "\n\n".join(f"## {s}\ntext" for s in tasks.required_sections())

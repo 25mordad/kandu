@@ -14,6 +14,10 @@ from kandu.tasks import TaskError, check_size
 
 from test_supervisor import PR_OPENED, REPO, SHA1, Base, ok, report
 
+import tempfile as _tempfile
+from kandu import ghmeter as _ghmeter
+_ghmeter.LOG_DIR = Path(_tempfile.mkdtemp())  # the meter's lines stay out of state/
+
 
 def body(criteria=1):
     boxes = "\n".join(f"- [ ] criterion {n}" for n in range(criteria))

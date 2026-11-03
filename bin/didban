@@ -3,6 +3,6 @@
 set -euo pipefail
 
 repo="$(dirname "$(dirname "$(readlink -f "$0")")")"
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$repo/meter:$HOME/.local/bin:$PATH" GH_METER_CALLER=didban  # each gh call is counted
 cd "$repo"
 exec .venv/bin/python -m kandu.didban "$@"

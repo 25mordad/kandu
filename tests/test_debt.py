@@ -9,6 +9,10 @@ from kandu.config import TECHNICAL_DEBT, Board
 from kandu.github import BoardItem
 from kandu.tasks import TaskError, required_sections
 
+import tempfile as _tempfile
+from kandu import ghmeter as _ghmeter
+_ghmeter.LOG_DIR = Path(_tempfile.mkdtemp())  # the meter's lines stay out of state/
+
 BODY = "\n\n".join(f"## {s}\ntext" for s in required_sections())
 TASK = "o/r#1"
 

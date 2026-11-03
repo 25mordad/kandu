@@ -15,6 +15,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import ghmeter
 from .didban import remote_path
 from .state import usage_from_result
 
@@ -31,9 +32,13 @@ class RunnerError(Exception):
     pass
 
 
-def child_env():
-    """What an agent or a project's command may see: a worker's code runs here, so none of Kandu's own secrets."""
-    return {name: value for name, value in os.environ.items() if not name.startswith(SECRET_PREFIX)}
+def child_env(run_id=None):
+    """What an agent or a project's command may see: a worker's code runs here, so none of Kandu's own secrets.
+
+    Its `gh` is the meter, so each call is counted under this process and the run.
+    """
+    return ghmeter.env(run=run_id, base={name: value for name, value in os.environ.items()
+                                        if not name.startswith(SECRET_PREFIX)})
 
 
 @dataclass
@@ -55,7 +60,7 @@ class Host:
 
     def argv(self, command, cwd=None):
         change_dir = f"cd {remote_path(cwd)} && " if cwd else ""
-        script = f'export PATH="$HOME/.local/bin:$PATH"; {change_dir}exec {shlex.join(command)}'
+        script = f'{ghmeter.path_line()}; {change_dir}exec {shlex.join(command)}'
         if self.ssh_target is None:
             return ["sh", "-c", script]
         return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", self.ssh_target, script]
@@ -206,7 +211,7 @@ class Runner:
         self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd = os.open(self.logs_dir / f"{run_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         process = subprocess.Popen(self.hosts[machine].argv(command, cwd), stdin=subprocess.PIPE,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=child_env())
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=child_env(run_id))
         stopped = threading.Event()
         threading.Thread(target=self._feed, args=(process, prompt), daemon=True).start()
         threading.Thread(target=self._watch, args=(process, should_stop, stopped), daemon=True).start()
