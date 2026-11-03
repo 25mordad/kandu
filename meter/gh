@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Counts one `gh` call in state/gh/<day>.jsonl, then runs the real `gh` (docs/STATE.md).
+# Only the caller, the run and the first two words are kept: never a body, a query or a token.
+here="$(dirname "$(readlink -f "$0")")"
+real=""
+IFS=: read -ra dirs <<< "$PATH"
+for dir in "${dirs[@]}"; do
+  [ -n "$dir" ] && [ -x "$dir/gh" ] || continue
+  [ "$(readlink -f "$dir/gh")" = "$here/gh" ] && continue
+  real="$dir/gh"
+  break
+done
+if [ -z "$real" ]; then
+  echo "gh: the real gh is not on PATH" >&2
+  exit 127
+fi
+
+"$real" "$@"
+code=$?
+
+word() { printf '%s' "${1//[^a-z-]/}"; }
+first="$(word "${1:-}")"
+case "$first" in
+  api) [ "${2:-}" = graphql ] && command="api graphql" || command="api rest" ;;
+  *) command="$first $(word "${2:-}")" ;;
+esac
+case "$first" in
+  api) [ "${2:-}" = graphql ] && kind=graphql || kind=rest ;;
+  run|release|workflow|secret|variable|cache|gist|ssh-key|gpg-key|auth|attestation|extension|alias|config|ruleset) kind=rest ;;
+  *) kind=graphql ;;
+esac
+caller="${GH_METER_CALLER:-other}"
+run="${GH_METER_RUN:-}"
+log="${GH_METER_LOG:-$(dirname "$here")/state/gh}"
+{
+  mkdir -p -m 700 "$log" &&
+  printf '{"v": 1, "ts": "%s", "type": "call", "caller": "%s", "run": "%s", "command": "%s", "kind": "%s", "exit": %d}\n' \
+    "$(date -Iseconds)" "${caller//[^A-Za-z0-9:_.-]/}" "${run//[^A-Za-z0-9:_.-]/}" "${command% }" "$kind" "$code" \
+    >> "$log/$(date +%F).jsonl"
+} 2>/dev/null
+exit $code

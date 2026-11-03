@@ -10,6 +10,7 @@ state/
   didban/<session>.json   what one Didban session spent and did
   flights/<key>.json      a session opened from the dashboard: its link, with its tmux socket and prompt beside it
   flown/<session>.json    what one free flight spent and did, after it ended
+  gh/2026-11-03.jsonl     each gh call Kandu and its agents made that day, and samples of GitHub's limit
 ```
 
 ## Rules
@@ -90,6 +91,20 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 | `waiting_for_machine` | tasks whose machine was off in the last cycle |
 
 `phase` is `implement`, `review round N`, `sizing notes` or `fix round N`.
+
+## gh/<day>.jsonl
+`meter/gh` stands first on the PATH of Kandu, its agents, Didban and dashboard sessions. It runs the real `gh` and writes one line per call:
+
+| Field | Meaning |
+|---|---|
+| `type` | `call` |
+| `caller` | the process that ran it: `supervisor`, `dashboard`, `didban`, `flight-<key>`, … |
+| `run` | the agent run it came from, if any; `run_finished` names its role and task |
+| `command` | the first two words, such as `pr view`; `api graphql` or `api rest` for `gh api` |
+| `kind` | `graphql` or `rest`: the hourly limit it counts against |
+| `exit` | the exit code of `gh` |
+
+No other argument is kept. The dashboard adds a `limit` line every five minutes with `graphql_used`, `graphql_reset`, `rest_used` and `rest_reset` as GitHub reports them, so points that no counted call explains came from outside Kandu. `.venv/bin/python -m kandu.ghmeter` shows a day by hour, caller and command.
 
 ## Other files
 `state/stopped` exists while the user has stopped the supervisor. `state/paused/<project>` exists while the user has paused that project. `state/supervisor.lock` is held during a cycle, `state/split.lock` while a split is accepted. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.

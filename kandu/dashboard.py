@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import flights, queen, questions, review, sessions, split, timer
+from . import flights, ghmeter, queen, questions, review, sessions, split, timer
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config, set_limits
 from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError
 from .runner import DEFAULT_LOGS_DIR
@@ -613,6 +613,7 @@ def main():
         return 1
     api = Api(config, StateStore(), GitHub(cache=BoardCache()), DEFAULT_LOGS_DIR, os.environ.get(TOKEN_ENV), local_dir=args.local)
     bind, port = config.settings.dashboard.bind, config.settings.dashboard.port
+    ghmeter.sample_forever()  # the limit as GitHub sees it, beside the calls the meter counts
     server = ThreadingHTTPServer((bind, port), make_handler(api))
     print(f"dashboard: http://{bind}:{port}")
     server.serve_forever()

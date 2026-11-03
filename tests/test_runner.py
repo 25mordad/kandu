@@ -9,8 +9,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from kandu import ghmeter
 from kandu.config import Config, Machine, Project
 from kandu.runner import Host, Runner, RunnerError, child_env, repo_path
+
+import tempfile as _tempfile
+from kandu import ghmeter as _ghmeter
+_ghmeter.LOG_DIR = Path(_tempfile.mkdtemp())  # the meter's lines stay out of state/
 
 RESULT = {"type": "result", "result": "the reply", "duration_ms": 5, "is_error": False,
           "modelUsage": {"model-a": {"inputTokens": 1, "outputTokens": 2}}}
@@ -48,7 +53,17 @@ class HostTest(unittest.TestCase):
         self.assertEqual(argv[:6], ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "box"])
 
     def test_tools_in_the_users_home_are_found(self):
-        self.assertIn('export PATH="$HOME/.local/bin:$PATH"', Host(Machine("a", "local", True)).argv(["true"])[2])
+        self.assertIn(':$HOME/.local/bin:$PATH"', Host(Machine("a", "local", True)).argv(["true"])[2])
+
+    def test_gh_is_the_meter_first(self):
+        script = Host(Machine("a", "local", True)).argv(["true"])[2]
+        self.assertIn(f'export PATH="{ghmeter.METER_DIR}:', script)
+
+    def test_a_child_names_its_run_for_the_meter(self):
+        env = child_env("r-7")
+        self.assertTrue(env["PATH"].startswith(f"{ghmeter.METER_DIR}:"))
+        self.assertEqual(env[ghmeter.RUN_ENV], "r-7")
+        self.assertIn(ghmeter.CALLER_ENV, env)
 
 
 class RepoPathTest(unittest.TestCase):

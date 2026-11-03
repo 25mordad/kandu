@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from . import ghmeter
 from .config import BOARD_FIELDS, DEADLINE_FIELD
 
 KANDU_LABEL = "kandu"
@@ -138,7 +139,7 @@ class BoardCache:
 
 def run_gh(args):
     try:
-        result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=TIMEOUT_SECONDS)
+        result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=TIMEOUT_SECONDS, env=ghmeter.env())
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         raise GitHubError(f"gh {args[0]}: {type(e).__name__}") from e
     if result.returncode != 0:

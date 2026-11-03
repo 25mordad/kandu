@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import didban, queen, sessions
+from . import didban, ghmeter, queen, sessions
 from .config import DidbanBrain, DidbanConfig
 from .runner import DEFAULT_LOGS_DIR, repo_path
 
@@ -98,7 +98,7 @@ class Flights:
             # Type=forking: tmux's client exits once its server is up, and the server keeps the unit alive.
             started = self.run(["systemd-run", "--user", "--quiet", "--collect", "--property=Type=forking",
                                 f"--unit=kandu-flight-{key}-{int(self.clock())}",
-                                f"--setenv=PATH={os.environ.get('PATH', '')}", *tmux],
+                                f"--setenv=PATH={ghmeter.env()['PATH']}", f"--setenv={ghmeter.CALLER_ENV}=flight-{key}", *tmux],
                                capture_output=True, text=True, timeout=START_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL)
             if started.returncode != 0 or not self.alive(key):
                 record["error"] = (started.stderr or "the session did not start").strip()[:300]
