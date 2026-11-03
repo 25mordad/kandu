@@ -1,7 +1,8 @@
 """What each agent is given: its prompt and its permissions (DESIGN §5, §9, §14).
 
-Permissions are set here, in code, per run. An agent gets only the context it
-needs: the facts of one task, never the history of others.
+Permissions come from the config (`permissions` in kandu.yaml) and are passed
+per run; with none, a role may do everything. An agent gets only the context
+it needs: the facts of one task, never the history of others.
 """
 import json
 from pathlib import Path
@@ -10,8 +11,6 @@ from . import sizing
 from .config import DEFAULT_LOCAL_DIR
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
-ALWAYS_DENIED = ["Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)", "Read(**/.env)", "Read(**/.dev.vars)",
-                 "Read(//proc/**)", "Bash(git push --force*)", "Bash(git push -f*)"]
 WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
 LIVE_RESULTS = ("pass", "fail")
 QUEEN_ACTIONS = ("release", "retry", "ask_user", "park")
@@ -34,56 +33,46 @@ class ReplyError(Exception):
     pass
 
 
-def _command(text):
-    return [f"Bash({text})", f"Bash({text} *)"]
+def _limits(rules, extra_allowed=(), extra_denied=(), branch=""):
+    """Returns (allowed, denied) for one run, from the role's rules in the config.
 
-
-def worker_tools(project, branch):
-    """Returns (allowed, denied) for a worker on `branch`."""
-    allowed = ["Read", "Glob", "Grep", "Edit", "Write"]
-    for command in ("git add", "git rm", "rm", "git status", "git diff", "git log", "git commit", "gh pr create",
-                    "gh pr view", "gh pr list", "gh pr comment", "gh issue view", project.test):
-        allowed += _command(command)
-    allowed += [f"Bash(git push origin {branch})", f"Bash(git push -u origin {branch})"]
-    allowed += project.allowed_tools
-    denied = list(ALWAYS_DENIED)
-    if project.secrets_from:
-        path = project.secrets_from
-        denied.append(f"Read({'/' + path if path.startswith('/') else path})")
-    for area in project.forbidden:
-        pattern = f"./{area.rstrip('/')}/**" if area.endswith("/") else f"./{area}"
-        denied += [f"Edit({pattern})", f"Write({pattern})"]
+    With no rules the role may do everything: `allowed` is None, and only
+    `extra_denied`, which also comes from the config, still holds.
+    `{branch}` in a rule becomes the run's branch.
+    """
+    if rules is None:
+        return None, list(extra_denied)
+    allowed = [rule.replace("{branch}", branch) for rule in rules.allow] + list(extra_allowed)
+    denied = [rule.replace("{branch}", branch) for rule in rules.deny] + list(extra_denied)
     return allowed, denied
 
 
-def reviewer_tools():
-    """Returns (allowed, denied) for a reviewer, who reads and changes nothing."""
-    allowed = ["Read", "Glob", "Grep"]
-    for command in ("gh pr diff", "gh pr view", "gh issue view", "git log", "git diff"):
-        allowed += _command(command)
-    return allowed, ["Edit", "Write", "NotebookEdit"] + ALWAYS_DENIED
+def _forbidden(project):
+    # Edit rules cover every tool that changes a file; Claude Code ignores Write(path).
+    return [f"Edit(./{area.rstrip('/')}/**)" if area.endswith("/") else f"Edit(./{area})"
+            for area in project.forbidden]
 
 
-def live_check_tools(project):
-    """Returns (allowed, denied) for a live check, which looks and changes nothing."""
-    allowed = ["Read", "Glob", "Grep", "WebFetch"] + _command("curl") + _command("gh issue view") + project.allowed_tools
-    return allowed, ["Edit", "Write", "NotebookEdit"] + ALWAYS_DENIED
+def worker_tools(project, branch, rules=None):
+    """Returns (allowed, denied) for a worker on `branch`."""
+    if rules is None:
+        return _limits(None, extra_denied=_forbidden(project))
+    allowed = [f"Bash({project.test})", f"Bash({project.test} *)"] + project.allowed_tools
+    denied = []
+    if project.secrets_from:
+        path = project.secrets_from
+        denied.append(f"Read({'/' + path if path.startswith('/') else path})")
+    return _limits(rules, allowed, denied + _forbidden(project), branch)
 
 
-def splitter_tools():
-    """Returns (allowed, denied) for the splitter, which reads and changes nothing."""
-    allowed = ["Read", "Glob", "Grep"]
-    for command in ("gh issue view", "git log"):
-        allowed += _command(command)
-    return allowed, ["Edit", "Write", "NotebookEdit"] + ALWAYS_DENIED
+def live_check_tools(project, rules=None):
+    """Returns (allowed, denied) for a live check."""
+    return _limits(rules, project.allowed_tools)
 
 
-def queen_tools():
-    """Returns (allowed, denied) for the queen, who reads and changes nothing."""
-    allowed = ["Read", "Glob", "Grep"]
-    for command in ("gh pr diff", "gh pr view", "gh issue view"):
-        allowed += _command(command)
-    return allowed, ["Edit", "Write", "NotebookEdit", "Read(./local/**)"] + ALWAYS_DENIED
+def role_tools(rules=None):
+    """Returns (allowed, denied) for the reviewer, the splitter or the queen."""
+    return _limits(rules)
 
 
 def _read(name):

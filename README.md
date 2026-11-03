@@ -151,7 +151,7 @@ Everything personal goes into `local/`, which is gitignored: your config, projec
 
 ## Safety
 
-- Never runs with `--dangerously-skip-permissions`; each project has its own command allowlist.
+- Agents may do what `permissions` in `kandu.yaml` allows each role. With nothing set, they may do everything; `config.example/kandu.example.yaml` has a strict set to start from.
 - Never touches a project you have not registered, or your own working copy.
 - Never copies or logs secret values.
 - Never sends email or messages, makes payments or uses paid services without your approval.
@@ -166,7 +166,7 @@ All of these live in `local/kandu.yaml`; `/kandu-config` changes them by convers
 
 **Model per role.** `claude.models` names a model for `worker`, `reviewer`, `splitter`, `live_check` or `queen`. A role not named runs on Claude's default, so you can put cheap, mechanical roles on a smaller model and keep judgment on a stronger one.
 
-**Isolation.** Version 1 runs without a container or a separate OS user, with a separate work folder and per-project allowlists. A container does not by itself cost more tokens; the cost is the setup and upkeep of passing every tool and credential into it. If you want isolation, you can use a separate Linux user (simple, little overhead) or Docker (strongest, more upkeep). See [DESIGN.md §9](DESIGN.md#9-isolation--none-in-this-version).
+**Isolation.** Version 1 runs without a container or a separate OS user, with a separate work folder and the permissions you set in `kandu.yaml`. A container does not by itself cost more tokens; the cost is the setup and upkeep of passing every tool and credential into it. If you want isolation, you can use a separate Linux user (simple, little overhead) or Docker (strongest, more upkeep). See [DESIGN.md §9](DESIGN.md#9-isolation--none-in-this-version).
 
 **GitHub identity.** Version 1 works with your own GitHub account. Everything Kandu does is marked: branch `kandu/...`, label `kandu`, and a line in the commit message. If you want Kandu's work separated from yours, set up a bot account or GitHub App with a token limited to your registered repos. See [DESIGN.md §10](DESIGN.md#10-github-identity--the-users-own-account).
 

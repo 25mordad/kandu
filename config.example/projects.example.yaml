@@ -16,7 +16,7 @@ projects:
     machine: server
     path: ~/kandu-work/website
     test: npm test
-    allowed_tools: ["Bash(npm install)"]   # extra tools for this project's workers
+    allowed_tools: ["Bash(npm install)"]   # extra tools for this project's workers, when kandu.yaml limits them (permissions)
     # To let workers check a page or a demo in a headless browser (kandu/look.py, it changes nothing),
     # add a Python that has Playwright, for example:
     #   "Bash(/path/to/venv/bin/python /path/to/kandu/kandu/look.py *)"

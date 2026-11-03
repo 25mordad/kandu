@@ -10,7 +10,7 @@ Read `docs/COMMANDS.md`, then add one project to `local/projects.yaml`, in the s
    3. Which machine and path?
    4. May Kandu clone it into its work folder (`clone`), or must it work on that machine in a separate `git worktree` (`in-place`)? Always ask this.
    5. Which board? An existing board may have other column names: map them under `board.columns`. If there is none, should one be created?
-   6. The test and local run commands, and any extra tools its workers need (`allowed_tools`).
+   6. The test and local run commands, and, if `permissions` in `kandu.yaml` limits the workers, any extra tools they need here (`allowed_tools`).
    7. `direct` or `preview` deploy, and the live URL. Leave the URL out if the live software is behind a login.
    8. Where are its secrets? Store the location only. Which tokens may its tasks use, and what is each for (`task_tokens`)?
    9. Forbidden areas, such as migrations or payments.
