@@ -16,6 +16,8 @@ from test_supervisor import PR_OPENED, REPO, SHA1, Base, ok, report
 
 import tempfile as _tempfile
 from kandu import ghmeter as _ghmeter
+
+SMALL, MEDIUM = sizing.LIMITS[sizing.SMALL], sizing.LIMITS[sizing.MEDIUM]
 _ghmeter.LOG_DIR = Path(_tempfile.mkdtemp())  # the meter's lines stay out of state/
 
 
@@ -42,19 +44,20 @@ class ScaleTest(unittest.TestCase):
         self.assertEqual(sizing.criteria_list("## Acceptance criteria\n- [ ] One thing\n- [x]  Two\n"), ["One thing", "Two"])
 
     def test_the_smallest_size_comes_from_the_facts(self):
-        self.assertEqual(sizing.smallest(3, 5, "two-way"), "Small")
-        self.assertEqual(sizing.smallest(3, 6, "two-way"), "Medium")
-        self.assertEqual(sizing.smallest(6, 1, "two-way"), "Large")
-        self.assertEqual(sizing.smallest(1, 16, "one-way"), "Large")
+        self.assertEqual(sizing.smallest(SMALL["criteria"], SMALL["files"], "two-way"), "Small")
+        self.assertEqual(sizing.smallest(SMALL["criteria"], SMALL["files"] + 1, "two-way"), "Medium")
+        self.assertEqual(sizing.smallest(MEDIUM["criteria"], MEDIUM["files"], "two-way"), "Medium")
+        self.assertEqual(sizing.smallest(MEDIUM["criteria"] + 1, 1, "two-way"), "Large")
+        self.assertEqual(sizing.smallest(1, MEDIUM["files"] + 1, "one-way"), "Large")
 
     def test_a_mixed_door_is_large_however_small(self):
         self.assertEqual(sizing.smallest(1, 1, "mixed"), "Large")
 
     def test_a_task_with_too_many_criteria_cannot_be_called_small(self):
         with self.assertRaises(TaskError):
-            check_size(body(4), "Small")
-        check_size(body(4), "Medium")
-        check_size(body(9), "Large")
+            check_size(body(SMALL["criteria"] + 1), "Small")
+        check_size(body(SMALL["criteria"] + 1), "Medium")
+        check_size(body(MEDIUM["criteria"] + 4), "Large")
 
 
 class ReportTest(unittest.TestCase):
@@ -72,7 +75,7 @@ class ReportTest(unittest.TestCase):
                 split.parse_report(text)
 
     def test_it_cannot_call_a_big_task_small(self):
-        for report in (sized(files=6), sized("Medium", 16), sized("Medium", 2, "mixed")):
+        for report in (sized(files=SMALL["files"] + 1), sized("Medium", MEDIUM["files"] + 1), sized("Medium", 2, "mixed")):
             with self.assertRaises(split.ReportError):
                 split.validate_report(report, body())
 
@@ -82,8 +85,8 @@ class ReportTest(unittest.TestCase):
             split.validate_report(sized(slices=[part(), part()]), body())
 
     def test_a_large_task_needs_slices_that_can_run(self):
-        bad = ([], [part()], [part(), part(size="Large")], [part(), part(door="mixed")], [part(), part(files=6)],
-               [part(), part(criteria=4)], [part(), {"title": "No body", "size": "Small", "files": 1, "door": "two-way"}],
+        bad = ([], [part()], [part(), part(size="Large")], [part(), part(door="mixed")], [part(), part(files=SMALL["files"] + 1)],
+               [part(), part(criteria=SMALL["criteria"] + 1)], [part(), {"title": "No body", "size": "Small", "files": 1, "door": "two-way"}],
                [part(), part() | {"body": "## Goal\nOnly this."}], [part(), part("عنوان")])
         for slices in bad:
             with self.subTest(slices=slices), self.assertRaises(split.ReportError):
