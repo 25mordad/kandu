@@ -622,9 +622,25 @@ class Supervisor:
                           files=report["files"], door=report["door"], criteria=sizing.criteria_in(item.body),
                           slices=len(slices))
         if slices:
-            self.github.comment_issue(task.repo, task.number, f"Kandu sized this {sizing.LARGE}. "
-                                      "A proposal to split it waits for the owner.")
             self._move(task, NEEDS_SPLIT)
+            self._split_or_wait(task, slices)
+
+    def _split_or_wait(self, task, slices):
+        """Slices that can all be undone are made at once; any other proposal waits for the user's yes."""
+        why = None if all(part["door"] == "two-way" for part in slices) else "a slice is not two-way"
+        if why is None:
+            try:
+                children = split.approve(self.config, self.github, self.store, task.key, self.local_dir)
+            except (TaskError, split.ReportError, GitHubError) as e:
+                why = f"could not split it: {e}"
+            else:
+                self._decide(task, "split_approved", f"{len(children)} two-way slices: {', '.join(children)}")
+                self.github.comment_issue(task.repo, task.number, f"Kandu sized this {sizing.LARGE} and split it "
+                                          f"into {', '.join(children)}. Every slice can be undone.")
+                return
+        self._decide(task, "split_waits", why)
+        self.github.comment_issue(task.repo, task.number, f"Kandu sized this {sizing.LARGE}. "
+                                  "A proposal to split it waits for the owner.")
 
     def _size_backlog(self):
         """Runs before the queen looks, so a task is sized before she can see it.

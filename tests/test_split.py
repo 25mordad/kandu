@@ -113,6 +113,24 @@ class SizingTest(Base):
         self.assertEqual(self.events("run_finished")[0]["role"], "splitter")
         self.assertEqual(self.github.status(1), "Backlog")
 
+    def test_slices_that_can_all_be_undone_are_made_at_once(self):
+        self.github.add(1, "Backlog", body=body())
+        two_way = sized("Large", 40, "mixed", [part("First"), part("Second")])
+        self.runner.steps = [ok(json.dumps(two_way))]
+        made = []
+        with mock.patch.object(split, "approve", side_effect=lambda *a, **k: made.append(a[3]) or [f"{REPO}#5", f"{REPO}#6"]):
+            self.cycle()
+        self.assertEqual(made, [f"{REPO}#1"])
+        self.assertEqual(self.events("decision")[0]["decision"], "split_approved")
+
+    def test_a_split_that_cannot_be_made_waits_for_the_user(self):
+        self.github.add(1, "Backlog", body=body())
+        self.runner.steps = [ok(json.dumps(sized("Large", 40, "mixed", [part("First"), part("Second")])))]
+        with mock.patch.object(split, "approve", side_effect=TaskError("no")):
+            self.cycle()
+        self.assertEqual(self.github.status(1), "Needs split")
+        self.assertEqual([e["decision"] for e in self.events("decision")], ["split_waits"])
+
     def test_every_unsized_task_is_sized_in_one_cycle(self):
         for number in range(1, 7):
             self.github.add(number, "Backlog", body=body())

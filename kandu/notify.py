@@ -28,7 +28,7 @@ READY_FOR_USER = ("approved", "approved_with_notes")
 # The first line of every message says how soon the user must act, so a glance sorts them.
 STUCK, YOUR_TURN, DONE, FOR_YOUR_INFO = "stuck", "your_turn", "done", "for_your_info"
 MARKS = {STUCK: "🔴", YOUR_TURN: "🟡", DONE: "🟢", FOR_YOUR_INFO: "⚪"}
-LEVELS = {"pr_ready": YOUR_TURN, "split": YOUR_TURN, "task_done": DONE,
+LEVELS = {"pr_ready": YOUR_TURN, "split": YOUR_TURN, "task_done": DONE, "split_made": FOR_YOUR_INFO,
           "usage_limit": FOR_YOUR_INFO, "project_limit": FOR_YOUR_INFO}  # Everything else stops work: STUCK.
 
 MESSAGES = {
@@ -52,6 +52,7 @@ MESSAGES = {
         "queen_asks": "The queen has a question about {task}. It is on the dashboard.",
         "pr_ready": "The PR of {task} is ready for your approval.",
         "task_done": "{task} is merged and done.",
+        "split_made": "Kandu split {task} into smaller tasks by itself. Every slice can be undone.",
         STUCK: "Stuck: Kandu cannot go on without you",
         YOUR_TURN: "Your turn: it waits for your yes",
         DONE: "Done",
@@ -77,6 +78,7 @@ MESSAGES = {
         "queen_asks": "ملکه درباره‌ی {task} سؤالی دارد. سؤالش در داشبورد است.",
         "pr_ready": "PR مربوط به {task} آماده‌ی تأیید تو است.",
         "task_done": "{task} ادغام شد و تمام شد.",
+        "split_made": "کندو {task} را خودش به تسک‌های کوچک‌تر شکست. همه‌ی تکه‌ها برگشت‌پذیرند.",
         STUCK: "گیر کرده: کندو بدون تو جلو نمی‌رود",
         YOUR_TURN: "نوبت توست: منتظر تأیید تو است",
         DONE: "انجام شد",
@@ -127,8 +129,10 @@ def message_for(event):
             return _task_message("needs_decision", STUCK_OUTCOMES[event["outcome"]], event)
         if event["outcome"] == "merged":
             return _task_message("task_done", "task_done", event)
-    if kind == "task_sized" and event["slices"]:
+    if kind == "decision" and event["decision"] == "split_waits":
         return _task_message("needs_decision", "split", event)
+    if kind == "decision" and event["decision"] == "split_approved":
+        return _task_message("task_done", "split_made", event)
     if kind == "queen_decided" and event["action"] == "ask_user":
         return _task_message("needs_decision", "queen_asks", event)
     if kind == "decision" and event["decision"] in READY_FOR_USER:
