@@ -63,6 +63,12 @@ class ReadTest(Base):
         self.assertEqual(body["limits"], {"session": 70, "week": 60})
         self.assertEqual(body["language"], "en")
 
+    def test_state_lists_every_project_by_priority(self):
+        order = self.get("/api/v1/state")[1]["project_order"]
+        self.assertEqual(sorted(order), sorted(p.name for p in self.config.projects))
+        priorities = {p.name: p.priority for p in self.config.projects}
+        self.assertEqual([priorities[n] for n in order], sorted(priorities.values()))
+
     def test_state_before_any_cycle(self):
         self.assertEqual(self.get("/api/v1/state")[0], 200)
 

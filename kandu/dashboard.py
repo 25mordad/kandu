@@ -168,6 +168,7 @@ class Api:
             "stop_requested": self.store.stop_file.exists(),
             "paused_projects": sorted(self._paused()),
             "paused_in_config": sorted(p.name for p in self.config.projects if p.paused),
+            "project_order": [p.name for p in sorted(self.config.projects, key=lambda p: p.priority)],
             "language": self.config.settings.language,
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
             "queen": self._queen_report(),

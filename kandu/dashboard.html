@@ -1118,6 +1118,12 @@ function projectCard(project, shown, total, searching) {
     <span class="counts">${counts.map(([column, count]) => `<span class="badge" style="--c:${FLOWERS[column].swatch}" title="${esc(tr(column === "waiting" ? "waiting for machine" : column))}">${num(count)}</span>`).join("")}</span>${pause}</summary>${table}</details>`;
 }
 
+// The config's priority, 1 first; a project the config does not name goes last.
+function rank(name) {
+  const at = (lastState.project_order || []).indexOf(name);
+  return at < 0 ? 1e9 : at;
+}
+
 function renderProjects() {
   if (!lastState) return;
   const words = $("search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -1127,7 +1133,7 @@ function renderProjects() {
   listKey = key;
   const cards = projects.map(project => ({project, total: project.tasks.length, shown: project.tasks.filter(item => matches(project.name, item, words))}))
     .filter(card => card.shown.length || !words.length)
-    .sort((a, b) => Boolean(b.shown.length) - Boolean(a.shown.length));
+    .sort((a, b) => rank(a.project.name) - rank(b.project.name));
   $("projects").innerHTML = cards.map(card => projectCard(card.project, card.shown, card.total, words.length)).join("")
     || `<div class="card empty">${t(words.length ? "no_match" : "empty_meadow")}</div>`;
 }
