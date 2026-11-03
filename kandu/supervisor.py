@@ -162,6 +162,7 @@ class Supervisor:
         self.workers = {}
         self.waiting = []
         self.merged = Counter()
+        self.held = {}  # task key -> the head whose merge waited this cycle
         self._lock = threading.Lock()
         self._deploy_locks = defaultdict(threading.Lock)
 
@@ -626,6 +627,8 @@ class Supervisor:
         reasons = self._merge_waits(task, pr)
         if reasons:
             self._decide(task, "merge_waits", "; ".join(reasons))
+            with self._lock:
+                self.held[task.key] = pr["headRefOid"]
             return False
         if self._is_paused(task.project):  # The tests take minutes, and a pause may have come in meanwhile.
             return False
@@ -1210,16 +1213,28 @@ class Supervisor:
         self._decide(task, "over_budget", f"daily limit of {limit} tokens")
         return True
 
-    def _what_she_released(self, seen):
-        """A task ended: she looks again, and what she releases joins this cycle."""
+    def _yes_came(self, key):
+        """A merge that waited this cycle, and a yes for that head that came after: the queen's or the user's."""
+        head = self.held.get(key)
+        return head is not None and any(self.store.last_event(kind, task=key, head_sha=head) is not None
+                                        for kind in ("queen_approved", "user_approved"))
+
+    def _what_she_released(self, seen, busy=()):
+        """A task ended: she looks again. What she releases joins this cycle, and so does a merge she said yes to."""
         try:
             if not self._queen():
                 return []
-            ready = [t for t in self._read_tasks() if t.status == READY] + self._sent_on()
-            tasks = self._reachable_tasks(list({t.key: t for t in ready if t.key not in seen}.values()))
+            read = self._read_tasks()
+            ready = [t for t in read if t.status == READY] + self._sent_on()
+            ready = [t for t in ready if t.key not in seen]
+            ready += [t for t in read if t.status == IN_REVIEW and t.key not in busy and self._yes_came(t.key)]
+            tasks = self._reachable_tasks(list({t.key: t for t in ready}.values()))
         except (GitHubError, RunnerError) as e:
             self.queen_trouble = type(e).__name__
             return []
+        with self._lock:
+            for task in tasks:
+                self.held.pop(task.key, None)  # one more drive for each yes
         seen.update(task.key for task in tasks)
         return tasks
 
@@ -1250,12 +1265,14 @@ class Supervisor:
                 done, _ = wait(running, return_when=FIRST_COMPLETED)
                 for future in done:
                     del running[future]
-                pending = sorted(pending + self._what_she_released(seen), key=lambda t: t.order)
+                busy = {t.key for t in pending} | {t.key for t in running.values()}
+                pending = sorted(pending + self._what_she_released(seen, busy), key=lambda t: t.order)
 
     def cycle(self):
         """Runs one cycle and returns why it ended."""
         woke = self.now()
         self.merged.clear()
+        self.held.clear()
         self.store.record("supervisor_woke")
         self._snapshot("awake")
         settings = self.config.settings.supervisor
