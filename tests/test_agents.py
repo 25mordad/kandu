@@ -141,5 +141,16 @@ class WorkerReplyTest(unittest.TestCase):
                 agents.parse_worker_reply(text)
 
 
+
+class WorkerReplyAfterSummaryTest(unittest.TestCase):
+    def test_a_summary_above_the_json_line_is_read(self):
+        reply = agents.parse_worker_reply('Opened the PR.\n\n- one change\n\n{"status": "pr_opened", "pr": 6}\n')
+        self.assertEqual(reply, {"status": "pr_opened", "pr": 6})
+
+    def test_text_with_no_json_line_is_still_refused(self):
+        with self.assertRaises(agents.ReplyError):
+            agents.parse_worker_reply('Opened the PR.\nAll done.')
+
+
 if __name__ == "__main__":
     unittest.main()
