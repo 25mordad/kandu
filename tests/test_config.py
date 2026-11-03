@@ -8,7 +8,7 @@ from unittest import mock
 
 import yaml
 
-from kandu.config import NOTIFY_EVENTS, ConfigError, load_config, main
+from kandu.config import NOTIFY_EVENTS, ROLES, ConfigError, load_config, main
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "config.example"
 
@@ -31,6 +31,31 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaises(ConfigError) as caught:
             load_config(self.local)
         return "\n".join(caught.exception.problems)
+
+    def test_with_no_permissions_every_role_may_do_everything(self):
+        permissions = load_config(self.local).settings.permissions
+        self.assertEqual([getattr(permissions, role) for role in ROLES], [None] * len(ROLES))
+
+    def test_the_example_permissions_are_valid(self):
+        path = self.local / "kandu.yaml"
+        lines = path.read_text(encoding="utf-8").splitlines()
+        start = lines.index(next(line for line in lines if line.startswith("# permissions:")))
+        block = []
+        for line in lines[start:]:
+            if not line.startswith("#"):
+                break
+            block.append(line[2:])
+        path.write_text("\n".join(lines[:start] + block + lines[start + len(block):]), encoding="utf-8")
+        permissions = load_config(self.local).settings.permissions
+        for role in ROLES:
+            self.assertIn("Read", getattr(permissions, role).allow)
+        self.assertIn("Bash(git push origin {branch})", permissions.worker.allow)
+
+    def test_a_role_that_does_not_exist_is_refused(self):
+        path = self.local / "kandu.yaml"
+        path.write_text(path.read_text(encoding="utf-8") + "\npermissions:\n  painter:\n    allow: [Read]\n",
+                        encoding="utf-8")
+        self.assertIn("permissions.painter: unknown key", self.problems())
 
     def test_examples_are_valid(self):
         config = load_config(self.local)

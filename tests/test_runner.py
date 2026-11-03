@@ -201,11 +201,20 @@ class RunnerTest(unittest.TestCase):
         args = (self.home / "claude.args").read_text().splitlines()
         self.assertIn("Bash(npm test *)", args)
         self.assertEqual(args[args.index("--permission-mode") + 1], "dontAsk")
+        self.assertEqual(args[args.index("--disallowedTools") + 1], "Edit")
         self.assertEqual(args[args.index("--setting-sources") + 1], "user")
         self.assertEqual(args[args.index("--output-format") + 1], "stream-json")
         self.assertNotIn("--dangerously-skip-permissions", args)
         self.assertEqual((self.home / "claude.stdin").read_text(), "the prompt")
         self.assertEqual((self.home / "claude.cwd").read_text().strip(), str(self.home))
+
+    def test_with_no_allow_list_the_run_may_do_everything(self):
+        self.runner.run_agent("box", str(self.home), "p", None, [], "r-1", lambda: False)
+        args = (self.home / "claude.args").read_text().splitlines()
+        self.assertEqual(args[args.index("--permission-mode") + 1], "bypassPermissions")
+        self.assertEqual(args[args.index("--setting-sources") + 1], "user")
+        self.assertNotIn("--allowedTools", args)
+        self.assertNotIn("--disallowedTools", args)
 
     def test_a_large_prompt_does_not_hang(self):
         prompt = "x" * 1_000_000

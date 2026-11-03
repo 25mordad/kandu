@@ -15,6 +15,7 @@ Read `docs/COMMANDS.md`, then set up this install, once. The result is `local/ka
    7. Which sources may Didban read, and on which machine? From the user's own machine, how is the brain reached?
    8. Which port does the dashboard use? The default is 8790; `ss -ltn` on the brain's machine must not show it in use.
    9. Which model does each role use (`claude.models`)? Recommend a cheaper model for the splitter and the live check, and Claude's default for the worker, reviewer and queen, who judge the work.
+   10. May the agents do everything, or should some roles be limited (`permissions`)? Without `permissions` every role may run any command, use the network and SSH, and read secrets files. To limit a role, start from the commented set in `config.example/kandu.example.yaml`.
 4. Write `local/kandu.yaml`. For Didban, write `local/didban.yaml` on the user's own machine, from `config.example/didban.example.yaml`.
 5. Write `local/.env` from `config.example/example.env`, mode 600. Fill `KANDU_DASHBOARD_TOKEN` with `openssl rand -hex 32`, without showing it. The user fills in the Telegram values themselves.
 6. Ask for the words that must never reach a public repo, and write them to `local/private-words.txt`, one per line.

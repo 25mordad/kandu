@@ -238,6 +238,9 @@ class Supervisor:
     def _model(self, role):
         return self.config.settings.claude.models.get(role)
 
+    def _rules(self, role):
+        return getattr(self.config.settings.permissions, role)
+
     def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None):
         reason = self._gate()
         if reason is not None:
@@ -277,7 +280,8 @@ class Supervisor:
                                       queen_note=note, tokens=task.tokens, open_blockers=blockers)
         project = task.project
         tokens = (project.secrets_from, list(project.task_tokens)) if task.tokens else None
-        return self._agent(task, "worker", cwd, prompt, agents.worker_tools(project, task.branch), run_id, tokens)
+        tools = agents.worker_tools(project, task.branch, self._rules("worker"))
+        return self._agent(task, "worker", cwd, prompt, tools, run_id, tokens)
 
     def _implement(self, task):
         """First run. Returns the new PR, or None if the worker gave the task back."""
@@ -333,7 +337,7 @@ class Supervisor:
             companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
             prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head, language,
                                             companions, criteria, first_n, local_dir=self.local_dir)
-        result = self._agent(task, "reviewer", cwd, prompt, agents.reviewer_tools(), run_id,
+        result = self._agent(task, "reviewer", cwd, prompt, agents.role_tools(self._rules("reviewer")), run_id,
                              schema=review.REPORT_SCHEMA)
         try:
             report = review.parse_report(result.text)
@@ -368,7 +372,7 @@ class Supervisor:
         try:
             cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
             prompt = agents.notes_prompt(task.project, task.repo, task.number, pr["number"], notes, self.local_dir)
-            result = self._agent(task, "splitter", cwd, prompt, agents.splitter_tools(), run_id)
+            result = self._agent(task, "splitter", cwd, prompt, agents.role_tools(self._rules("splitter")), run_id)
             report = split.parse_report(result.text)
             split.validate_notes(report, notes)
             sized = report["notes"]
@@ -505,7 +509,8 @@ class Supervisor:
         base = self.github.default_branch(task.repo)
         cwd = self.runner.prepare_review(project, task.repo, "kandu/live-check", f"origin/{base}")
         prompt = agents.live_check_prompt(project, task.repo, task.number, self.local_dir)
-        result = self._agent(task, "live_check", cwd, prompt, agents.live_check_tools(project), run_id)
+        tools = agents.live_check_tools(project, self._rules("live_check"))
+        result = self._agent(task, "live_check", cwd, prompt, tools, run_id)
         try:
             reply = agents.parse_live_check(result.text)
         except agents.ReplyError as e:
@@ -590,7 +595,7 @@ class Supervisor:
             cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/size-{task.number}", f"origin/{base}")
             prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.config.settings.language,
                                             self.local_dir)
-            result = self._agent(task, "splitter", cwd, prompt, agents.splitter_tools(), run_id)
+            result = self._agent(task, "splitter", cwd, prompt, agents.role_tools(self._rules("splitter")), run_id)
             report = split.parse_report(result.text)
             split.validate_report(report, item.body)
         except StoppedByUser:
@@ -799,7 +804,7 @@ class Supervisor:
         prompt = agents.queen_prompt(queen.prompt_events(news), self._project_view(items, backlog), retries,
                                      settings.queen_max_retries, self.config.settings.language,
                                      DEFAULT_LOGS_DIR, self.store.today(), queen.unparked(events))
-        allowed, denied = agents.queen_tools()
+        allowed, denied = agents.role_tools(self._rules("queen"))
         run_id = new_run_id(self.now())
         self.queen_run = run_id
         self._snapshot("awake")

@@ -36,6 +36,7 @@ Everything is configured by talking to an LLM in a Claude Code session. There ar
 8. Didban (§13): which other sources may it read, and on which machine? On the machine you sit at, how is the brain reached?
 9. Which port does the dashboard use (default 8790)?
 10. Which model does each role use? A role not named runs on Claude's default.
+11. May every role do everything, or should some be limited (`permissions`)? A role not named may do everything.
 
 The dashboard itself is always Kandu's own (§7); only its port is a choice.
 
@@ -45,7 +46,7 @@ The dashboard itself is always Kandu's own (§7); only its port is a choice.
 3. Where exactly it is: which machine, which path.
 4. Permission to run: may Kandu clone it into its own work folder and run it there (`clone`), or must it work on that machine, in a separate `git worktree` (`in-place`)? **Always asked, never inferred.**
 5. Does it have a board? Which one, and how do its columns map to Kandu's standard columns? If none, should one be created?
-6. How is it tested and run locally, and which extra tools do its workers need (`allowed_tools`)? (The LLM proposes, the user confirms.)
+6. How is it tested and run locally, and, if `kandu.yaml` limits the workers, which extra tools do they need here (`allowed_tools`)? (The LLM proposes, the user confirms.)
 7. How is it deployed: `direct` or `preview`? Which live URL is used for the final check?
 8. Which secrets does it need and where are they? Kandu only stores the location, never copies or logs secret values.
 9. Forbidden areas: e.g. migrations, payments, files that must never be touched.
@@ -111,7 +112,7 @@ One entry per project in `local/projects.yaml`, written by `/kandu-add`. **A pro
 - **run location**, set by the user per project, never inferred:
   - `clone` — Kandu may clone it into its own work folder on the brain's machine and run it there;
   - `in-place` — must run on a named machine, in a separate `git worktree`, never in the user's own working copy.
-- machine, path, test command, local run command, extra `allowed_tools` for its workers
+- machine, path, test command, local run command, extra `allowed_tools` for its workers (used only when `permissions` limits the worker)
 - a project with several repos keeps each at `<path>/<repo name>`
 - `deploy`: `mode` (`direct` or `preview`), `command`, `live_url` (leave it out when the live software is behind a login: the task is then done after the deploy, with no live check)
 - where its secrets are, the `task_tokens` its tasks may use with what each is for, forbidden areas, repo rules, merge mode, priority, max parallel workers, daily token limit, the queen's rules for this project, paused
@@ -133,7 +134,7 @@ supervisor ─┬─ worker 1  →  reviewer
 ```
 
 - **Supervisor:** a code loop on the always-on machine ([kandu/supervisor.py](kandu/supervisor.py)), not an LLM session. Everything that needs no judgment runs there, at no token cost, and still works when Claude is down: gates, task selection, starting agents, review rounds, the `SHA` check. It **writes no code**. A headless `claude -p` session is started only where judgment is needed, such as the final check (task 12). It never grades its own work.
-- **Queen:** the LLM that runs the cycle for every project ([kandu/queen.py](kandu/queen.py), [prompts/queen.md](prompts/queen.md)). There is one queen, and each look covers all projects. She is a fresh `claude` process on the brain's machine with read-only tools, not one long session, so the cost of a waiting queen is nothing.
+- **Queen:** the LLM that runs the cycle for every project ([kandu/queen.py](kandu/queen.py), [prompts/queen.md](prompts/queen.md)). There is one queen, and each look covers all projects. She is a fresh `claude` process on the brain's machine, told to change nothing, not one long session, so the cost of a waiting queen is nothing.
   - **When:** at the start of a cycle, and each time a task ends, if code finds something to decide: a new or changed `Backlog`, a stopped task, a failed project check or a new reason for a merge to wait. She sees an unchanged `Backlog` once a day. A quiet cycle costs no tokens. `supervisor.queen: false` turns her off, and only `Ready` tasks then run.
   - **What she sees:** each project's fields, `queen_rules`, tokens used and limit, and the events since her last look. She reads no task body until a task is a candidate, so a long `Backlog` stays cheap.
   - **What she decides:** `release` moves a task from `Backlog` to `Ready`; `retry` sends a `Blocked` task back to `Ready`; both carry a note the next worker reads. `ask_user` puts a question on the dashboard. Her brief goes to the dashboard. Her notes stay local, since an issue may be public.
@@ -217,7 +218,7 @@ Note on the trade-off: a container does not by itself use more tokens, since tok
 v1:
 - No container, no separate OS user. Kandu runs as the user.
 - A separate work folder for Kandu's clones, never mixed with the user's own working copies.
-- Free guards: a command allowlist built in code for each run ([kandu/agents.py](kandu/agents.py)), `--permission-mode dontAsk` so anything else is refused, `--setting-sources user` so a repo's own `.claude/settings.json` cannot widen that allowlist, a list of forbidden paths (e.g. `~/.ssh`, other projects' private data), and never `--dangerously-skip-permissions`. The same flag stops the repo's `CLAUDE.md` loading by itself, so the prompt tells an agent to search it for what its task needs.
+- Permissions live in the config, not in Kandu's code. `permissions` in `kandu.yaml` may give each role (worker, reviewer, splitter, live check, queen) an `allow` and a `deny` list. A role named there runs with `--permission-mode dontAsk`, so anything not allowed is refused. A role not named there may do everything (`--permission-mode bypassPermissions`): Bash, the network, SSH, secrets files. That is the default. [kandu/agents.py](kandu/agents.py) only fills in each run's branch (`{branch}`) and adds a project's own facts: its test command and `allowed_tools` to a limited worker's list, its `forbidden` areas to every worker's deny list. `config.example/kandu.example.yaml` holds a strict set to start from. `--setting-sources user` stays on every run, so a repo's own `.claude/settings.json` cannot change what a run may do. The same flag stops the repo's `CLAUDE.md` loading by itself, so the prompt tells an agent to search it for what its task needs.
 - In the code, running a worker sits behind its own layer ([kandu/runner.py](kandu/runner.py)), so isolation can be added later by swapping only that layer.
 - Stopping an agent over SSH ends the local connection; the remote process dies at its next write to it, not at once.
 
@@ -231,7 +232,7 @@ If you want isolation now, two options:
 - If you want Kandu's work separated from your own: create a bot account or a GitHub App, give it a fine-grained token limited to the registered repos, and point `gh` for Kandu at that token. Repo rules that count PRs per author then stay unaffected by Kandu.
 
 ## 11. Safety rules
-- Never `--dangerously-skip-permissions`.
+- An agent may do only what `permissions` in `kandu.yaml` allows its role; with nothing there, everything. Choose the rules before Kandu sees a project whose machine or secrets need them.
 - Never touch an unregistered project, and never touch a user's own working copy.
 - Never copy or log secret values.
 - Never take external actions (sending email or messages, payments, paid services) without the user's approval.

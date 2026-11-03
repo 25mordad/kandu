@@ -107,6 +107,22 @@ class Supervisor:
 
 
 @dataclass
+class Rules:
+    allow: list[str] = field(default_factory=list)
+    deny: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Permissions:
+    """What each role may do. A role not named here may do everything (DESIGN §9)."""
+    worker: Rules | None = None
+    reviewer: Rules | None = None
+    splitter: Rules | None = None
+    live_check: Rules | None = None
+    queen: Rules | None = None
+
+
+@dataclass
 class Dashboard:
     bind: str
     port: int
@@ -150,7 +166,7 @@ class Project:
     queen_rules: str = ""
     auto_merge: bool | None = None
     frozen: bool = False
-    allowed_tools: list[str] = field(default_factory=list)
+    allowed_tools: list[str] = field(default_factory=list)   # added to the worker's and live check's rules, if they have any
 
 
 @dataclass
@@ -163,6 +179,7 @@ class Settings:
     dashboard: Dashboard
     language: str = "en"           # what Kandu says to the user; everything on GitHub stays in English
     supervisor: Supervisor = field(default_factory=Supervisor)
+    permissions: Permissions = field(default_factory=Permissions)
     didban: Didban = field(default_factory=Didban)
 
 

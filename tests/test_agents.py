@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from kandu import agents
-from kandu.config import Project
+from kandu.config import Project, Rules
 
 
 def project(**changes):
@@ -12,63 +12,46 @@ def project(**changes):
     return Project(**(values | changes))
 
 
+RULES = Rules(allow=["Read", "Bash(git push origin {branch})"], deny=["Read(**/.env)"])
+
+
 class ToolsTest(unittest.TestCase):
-    def test_no_agent_reads_a_secrets_file(self):
-        for _, denied in (agents.worker_tools(project(), "kandu/1-a"), agents.reviewer_tools(), agents.splitter_tools()):
-            self.assertIn("Read(**/.env)", denied)
-            self.assertIn("Read(**/.dev.vars)", denied)
-            self.assertIn("Read(//proc/**)", denied)
+    def test_with_no_rules_a_role_may_do_everything(self):
+        for allowed, denied in (agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a"),
+                                agents.live_check_tools(project(allowed_tools=["Bash(npm install)"])),
+                                agents.role_tools()):
+            self.assertIsNone(allowed)
+            self.assertEqual(denied, [])
 
-    def test_a_worker_cannot_read_the_project_secrets(self):
-        _, denied = agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a")
-        self.assertIn("Read(~/s/keys.txt)", denied)
-        _, denied = agents.worker_tools(project(secrets_from="/s/keys.txt"), "kandu/1-a")
-        self.assertIn("Read(//s/keys.txt)", denied)
+    def test_forbidden_areas_hold_even_with_no_rules(self):
+        for rules in (None, RULES):
+            _, denied = agents.worker_tools(project(forbidden=["migrations/", "src/pay.py"]), "kandu/1-a", rules)
+            self.assertIn("Edit(./migrations/**)", denied)
+            self.assertIn("Edit(./src/pay.py)", denied)
 
-    def test_only_a_token_task_is_told_of_its_tokens(self):
-        item = project(task_tokens={"A_KEY": "making images"})
-        prompt = agents.worker_prompt(item, "o/r", 1, "kandu/1-a", "r-1", tokens=True)
-        self.assertIn("`A_KEY`: making images", prompt)
-        self.assertNotIn("A_KEY", agents.worker_prompt(item, "o/r", 1, "kandu/1-a", "r-1"))
+    def test_rules_come_from_the_config_with_the_branch_filled_in(self):
+        allowed, denied = agents.worker_tools(project(), "kandu/1-a", RULES)
+        self.assertIn("Bash(git push origin kandu/1-a)", allowed)
+        self.assertIn("Read(**/.env)", denied)
+        self.assertEqual(agents.role_tools(RULES), (["Read", "Bash(git push origin )"], ["Read(**/.env)"]))
 
-    def test_worker_may_push_only_its_own_branch(self):
-        allowed, _ = agents.worker_tools(project(), "kandu/1-a")
-        pushes = [t for t in allowed if "git push" in t]
-        self.assertEqual(pushes, ["Bash(git push origin kandu/1-a)", "Bash(git push -u origin kandu/1-a)"])
-
-    def test_worker_runs_the_projects_tests(self):
-        allowed, _ = agents.worker_tools(project(), "kandu/1-a")
-        self.assertIn("Bash(git rm *)", allowed)
-        self.assertIn("Bash(rm *)", allowed)
-        self.assertIn("Bash(npm test)", allowed)
-        self.assertIn("Bash(npm test *)", allowed)
-
-    def test_worker_may_look_for_its_own_pr(self):
-        allowed, _ = agents.worker_tools(project(), "kandu/1-a")
-        self.assertIn("Bash(gh pr list *)", allowed)
-
-    def test_project_tools_are_added(self):
-        allowed, _ = agents.worker_tools(project(allowed_tools=["Bash(npm install)"]), "kandu/1-a")
+    def test_a_limited_worker_runs_the_projects_tests_and_tools(self):
+        allowed, _ = agents.worker_tools(project(allowed_tools=["Bash(npm install)"]), "kandu/1-a", RULES)
+        for tool in ("Bash(npm test)", "Bash(npm test *)", "Bash(npm install)"):
+            self.assertIn(tool, allowed)
+        allowed, _ = agents.live_check_tools(project(allowed_tools=["Bash(npm install)"]), RULES)
         self.assertIn("Bash(npm install)", allowed)
 
-    def test_forbidden_areas_are_denied(self):
-        _, denied = agents.worker_tools(project(forbidden=["migrations/", "src/pay.py"]), "kandu/1-a")
-        for rule in ("Edit(./migrations/**)", "Write(./migrations/**)", "Edit(./src/pay.py)"):
-            self.assertIn(rule, denied)
+    def test_a_limited_worker_cannot_read_the_project_secrets(self):
+        _, denied = agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a", RULES)
+        self.assertIn("Read(~/s/keys.txt)", denied)
+        _, denied = agents.worker_tools(project(secrets_from="/s/keys.txt"), "kandu/1-a", RULES)
+        self.assertIn("Read(//s/keys.txt)", denied)
 
-    def test_secrets_are_denied_to_both_roles(self):
-        for _, denied in (agents.worker_tools(project(), "kandu/1-a"), agents.reviewer_tools()):
-            self.assertIn("Read(~/.ssh/**)", denied)
-            self.assertIn("Read(**/.env)", denied)
-            self.assertIn("Bash(git push --force*)", denied)
-
-    def test_reviewer_cannot_change_anything(self):
-        allowed, denied = agents.reviewer_tools()
-        self.assertFalse({"Edit", "Write"} & set(allowed))
-        self.assertTrue({"Edit", "Write", "NotebookEdit"} <= set(denied))
-        for tool in allowed:
-            for word in ("commit", "push", "comment", "merge"):
-                self.assertNotIn(word, tool)
+    def test_rules_are_not_changed_by_a_run(self):
+        rules = Rules(allow=["Read"], deny=[])
+        agents.worker_tools(project(allowed_tools=["Bash(x)"]), "kandu/1-a", rules)
+        self.assertEqual(rules.allow, ["Read"])
 
 
 class PromptTest(unittest.TestCase):

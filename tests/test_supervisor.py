@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from kandu import agents, queen, review, split, supervisor
-from kandu.config import load_config
+from kandu.config import Rules, load_config
 from kandu.github import BoardItem, GitHubError
 from kandu.runner import AgentResult, RunnerError
 from kandu.state import StateStore
@@ -450,7 +450,6 @@ class QueenTest(Base):
         self.assertEqual(self.github.status(1), "Ready")
         self.assertEqual(self.events("queen_decided")[0]["action"], "retry")
         self.assertIn("Blocked", self.runner.runs[1].prompt)
-        self.assertNotIn("Edit", self.runner.runs[1].allowed)
         self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
         self.cycle()
         self.assertIn("The test needs a fixture.", self.runner.runs[2].prompt)
@@ -572,9 +571,12 @@ class QueenTest(Base):
         self.cycle()
         self.assertEqual(len(self.runner.runs), 1)
 
-    def test_she_merges_nothing(self):
-        self.assertFalse({"Edit", "Write"} & set(agents.queen_tools()[0]))
-        self.assertFalse(any("merge" in tool or "push" in tool for tool in agents.queen_tools()[0]))
+    def test_she_gets_the_queens_rules(self):
+        self.config.settings.permissions.queen = Rules(allow=["Read"], deny=["Edit"])
+        self.runner.steps = ["not json", self.reply(self.retry("why"))]
+        self.cycle()
+        self.assertIsNone(self.runner.runs[0].allowed)
+        self.assertEqual((self.runner.runs[1].allowed, self.runner.runs[1].denied), (["Read"], ["Edit"]))
 
 
 class QueenPacesTest(Base):
@@ -864,13 +866,21 @@ class FirstRunTest(Base):
         self.assertEqual(self.github.issue_comments, [supervisor.FAILURE_COMMENT])
         self.assertIn("/home/someone/private", self.events("decision")[0]["reason"])
 
-    def test_worker_gets_its_permissions(self):
+    def test_worker_may_do_everything_but_forbidden_areas(self):
         self.runner.steps = ['{"status": "blocked", "reason": "r"}']
         self.cycle()
         run = self.runner.runs[0]
         self.assertEqual((run.machine, run.cwd), ("server", "/worktree"))
-        self.assertIn("Bash(npm test)", run.allowed)
+        self.assertIsNone(run.allowed)
         self.assertIn("Edit(./migrations/**)", run.denied)
+
+    def test_worker_gets_the_rules_in_the_config(self):
+        self.config.settings.permissions.worker = Rules(allow=["Read", "Bash(git push origin {branch})"])
+        self.runner.steps = ['{"status": "blocked", "reason": "r"}']
+        self.cycle()
+        run = self.runner.runs[0]
+        self.assertIn("Bash(npm test)", run.allowed)
+        self.assertTrue(any(tool.startswith("Bash(git push origin kandu/1-") for tool in run.allowed))
 
     def test_tokens_are_recorded_for_the_task(self):
         self.runner.steps = ['{"status": "blocked", "reason": "r"}']
@@ -930,13 +940,11 @@ class ReviewRoundsTest(Base):
         event = self.events("review_finished")[0]
         self.assertEqual((event["round"], event["head_sha"], event["findings"]), (1, SHA1, 0))
 
-    def test_reviewer_is_fresh_and_read_only(self):
+    def test_reviewer_is_fresh(self):
         self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
         self.cycle()
         run = self.runner.runs[1]
         self.assertEqual(run.cwd, f"/review/{SHA1}")
-        self.assertIn("Edit", run.denied)
-        self.assertNotIn("Edit", run.allowed)
         self.assertIn(SHA1, run.prompt)
         self.assertEqual(run.schema, review.REPORT_SCHEMA)
         self.assertIsNone(self.runner.runs[0].schema)

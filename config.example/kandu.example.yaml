@@ -63,6 +63,30 @@ supervisor:                    # optional; these are the defaults
   queen_max_retries: 2         # how many times the queen may send one task back
   queen_daily_token_limit: 2000000   # her own limit; past it, running work ends and nothing new starts
 
+# permissions:                 # optional; what each role may do. Without it every role may do everything:
+#                              # Bash, the network, SSH, secrets files. A role named here may do only what its
+#                              # allow list says, and nothing its deny list says. Uncomment to limit them, for example:
+#   worker:                    # the project's test command and allowed_tools are added; forbidden areas are always denied
+#     allow: ["Read", "Glob", "Grep", "Edit", "Write", "Bash(git add *)", "Bash(git rm *)", "Bash(rm *)",
+#             "Bash(git status *)", "Bash(git diff *)", "Bash(git log *)", "Bash(git commit *)", "Bash(git fetch *)",
+#             "Bash(gh pr create *)", "Bash(gh pr view *)", "Bash(gh pr list *)", "Bash(gh pr comment *)",
+#             "Bash(gh issue view *)", "Bash(git push origin {branch})", "Bash(git push -u origin {branch})"]
+#     deny: ["Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)", "Read(**/.env)", "Read(**/.dev.vars)",
+#            "Read(//proc/**)", "Bash(git push --force*)", "Bash(git push -f*)"]
+#   reviewer:                  # reads the PR and changes nothing
+#     allow: ["Read", "Glob", "Grep", "Bash(gh pr diff *)", "Bash(gh pr view *)", "Bash(gh issue view *)",
+#             "Bash(git log *)", "Bash(git diff *)"]
+#     deny: ["Edit", "Write", "NotebookEdit", "Read(**/.env)", "Read(~/.ssh/**)"]
+#   splitter:
+#     allow: ["Read", "Glob", "Grep", "Bash(gh issue view *)", "Bash(git log *)"]
+#     deny: ["Edit", "Write", "NotebookEdit"]
+#   live_check:                # the project's allowed_tools are added
+#     allow: ["Read", "Glob", "Grep", "WebFetch", "Bash(curl *)", "Bash(gh issue view *)"]
+#     deny: ["Edit", "Write", "NotebookEdit"]
+#   queen:
+#     allow: ["Read", "Glob", "Grep", "Bash(gh pr diff *)", "Bash(gh pr view *)", "Bash(gh issue view *)"]
+#     deny: ["Edit", "Write", "NotebookEdit", "Read(./local/**)"]
+
 language: en                   # optional; what Kandu says to you: messages, briefs, split proposals, the page's first view. Default en. GitHub stays in English
 
 dashboard:

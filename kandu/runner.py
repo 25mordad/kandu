@@ -200,13 +200,15 @@ class Runner:
         missing the run ends with an error. With a `schema`, `claude` holds the
         reply to that JSON Schema, and the text is the object it returns.
         """
-        command = ["claude", "-p", "--output-format", "stream-json", "--verbose",
-                   "--no-session-persistence", "--permission-mode", "dontAsk",
-                   # A repo's own allow list must not widen what this run may do.
+        # With no allow list the run may do everything; the deny list still holds.
+        mode = ["--permission-mode", "bypassPermissions"] if allowed is None else \
+            ["--permission-mode", "dontAsk", "--allowedTools", *allowed]
+        command = ["claude", "-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence", *mode,
+                   # A repo's own settings must not change what this run may do.
                    "--setting-sources", "user",
                    *(["--model", model] if model else []),
                    *(["--json-schema", json.dumps(schema)] if schema else []),
-                   "--allowedTools", *allowed, "--disallowedTools", *denied]
+                   *(["--disallowedTools", *denied] if denied else [])]
         if tokens:
             path, names = tokens
             script = tokens_script(self.hosts[machine].absolute(path), names)

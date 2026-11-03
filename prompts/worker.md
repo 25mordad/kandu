@@ -25,7 +25,7 @@ Fix exactly the findings you are given, and change nothing else. If you think on
 4. Keep the command as a regression test. Finish when it passes and the full test suite still passes.
 
 ## Commands
-- Run one command per call, with no `;`, `&&` or `|`: a call runs only if every command in it is allowed.
+- If a command is refused, your commands are limited: from then on run one command per call, with no `;`, `&&` or `|`, since a call runs only if every command in it is allowed.
 - A refused command refuses only that command, not the shell. Reach the step another way, and report `blocked` only when a step the task needs cannot run at all.
 
 ## Stay inside the task

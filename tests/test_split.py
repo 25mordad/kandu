@@ -103,14 +103,12 @@ class SizingTest(Base):
         super().setUp()
         self.github.on_add = lambda key, size: None
 
-    def test_a_task_is_sized_once_and_read_only(self):
+    def test_a_task_is_sized_once(self):
         self.github.add(1, "Backlog", body=body())
         self.runner.steps = [ok(json.dumps(sized("Medium")))]
         self.cycle()
         self.cycle()
         self.assertEqual(len(self.runner.runs), 1)
-        self.assertNotIn("Edit", self.runner.runs[0].allowed)
-        self.assertIn("Edit", self.runner.runs[0].denied)
         self.assertEqual(self.github.fields[-1][1:], ("Size", "Medium"))
         self.assertEqual(self.events("task_sized")[0]["run_id"][:2], "r-")
         self.assertEqual(self.events("run_finished")[0]["role"], "splitter")
@@ -508,12 +506,6 @@ class SplitterPromptTest(Base):
         prompt = agents.splitter_prompt(self.config.projects[0], REPO, 1, self.local)
         self.assertIn(f"and {sizing.LIMITS['Medium']['files']} changed files", prompt)
         self.assertIn("## Acceptance criteria", prompt)
-
-    def test_it_changes_nothing(self):
-        allowed, denied = agents.splitter_tools()
-        self.assertFalse({"Edit", "Write"} & set(allowed))
-        self.assertTrue({"Edit", "Write", "NotebookEdit"} <= set(denied))
-        self.assertFalse([a for a in allowed if "push" in a or "comment" in a])
 
 
 class DidbanTest(unittest.TestCase):
