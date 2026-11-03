@@ -338,6 +338,14 @@ class PausedOnTheDashboardTest(Base):
         self.assertEqual(self.runner.runs, [])
 
 
+class CopyNotReadTest(Base):
+    def test_a_copy_github_could_not_give_is_recorded_and_the_cycle_goes_on(self):
+        self.github.refresh = lambda config, max_age=0: ["rate limit"]
+        self.cycle()
+        self.assertEqual(self.events("copy_not_read")[0]["detail"], "rate limit")
+        self.assertTrue(self.events("supervisor_slept"))
+
+
 class SelectionTest(Base):
     def keys(self):
         return [t.key for t in read_tasks(self.config, self.github)]
