@@ -25,6 +25,11 @@ FAILED_OUTCOMES = {"failed": "task_failed", "deploy_failed": "deploy_failed",
                    "live_check_failed": "live_check_failed", "sizing_failed": "sizing_failed"}
 STUCK_OUTCOMES = {"blocked": "blocked", "needs_info": "needs_info", "pr_closed": "pr_closed"}
 READY_FOR_USER = ("approved", "approved_with_notes")
+# The first line of every message says how soon the user must act, so a glance sorts them.
+STUCK, YOUR_TURN, DONE, FOR_YOUR_INFO = "stuck", "your_turn", "done", "for_your_info"
+MARKS = {STUCK: "🔴", YOUR_TURN: "🟡", DONE: "🟢", FOR_YOUR_INFO: "⚪"}
+LEVELS = {"pr_ready": YOUR_TURN, "split": YOUR_TURN, "task_done": DONE,
+          "usage_limit": FOR_YOUR_INFO, "project_limit": FOR_YOUR_INFO}  # Everything else stops work: STUCK.
 
 MESSAGES = {
     "en": {
@@ -46,6 +51,11 @@ MESSAGES = {
         "split": "A proposal to split {task} waits for you.",
         "queen_asks": "The queen has a question about {task}. It is on the dashboard.",
         "pr_ready": "The PR of {task} is ready for your approval.",
+        "task_done": "{task} is merged and done.",
+        STUCK: "Stuck: Kandu cannot go on without you",
+        YOUR_TURN: "Your turn: it waits for your yes",
+        DONE: "Done",
+        FOR_YOUR_INFO: "For your information",
     },
     "fa": {
         "stopped": "ناظر کندو متوقف است و تا ادامه ندهی هیچ تسکی شروع نمی‌شود.",
@@ -66,6 +76,11 @@ MESSAGES = {
         "split": "پیشنهاد تقسیم {task} منتظر تو است.",
         "queen_asks": "ملکه درباره‌ی {task} سؤالی دارد. سؤالش در داشبورد است.",
         "pr_ready": "PR مربوط به {task} آماده‌ی تأیید تو است.",
+        "task_done": "{task} ادغام شد و تمام شد.",
+        STUCK: "گیر کرده: کندو بدون تو جلو نمی‌رود",
+        YOUR_TURN: "نوبت توست: منتظر تأیید تو است",
+        DONE: "انجام شد",
+        FOR_YOUR_INFO: "برای اطلاع",
     },
 }
 
@@ -110,6 +125,8 @@ def message_for(event):
             return _task_message("failure", FAILED_OUTCOMES[event["outcome"]], event)
         if event["outcome"] in STUCK_OUTCOMES:
             return _task_message("needs_decision", STUCK_OUTCOMES[event["outcome"]], event)
+        if event["outcome"] == "merged":
+            return _task_message("task_done", "task_done", event)
     if kind == "task_sized" and event["slices"]:
         return _task_message("needs_decision", "split", event)
     if kind == "queen_decided" and event["action"] == "ask_user":
@@ -127,7 +144,9 @@ def message_for(event):
 
 
 def _render(message, language):
-    text = MESSAGES.get(language, MESSAGES["en"])[message.text].format(**message.values)
+    words = MESSAGES.get(language, MESSAGES["en"])
+    level = LEVELS.get(message.text, STUCK)
+    text = f"{MARKS[level]} {words[level]}\n" + words[message.text].format(**message.values)
     task = message.values.get("task")
     if task is None:
         return text

@@ -23,7 +23,7 @@ BOARD_COLUMNS = ("Backlog", TECHNICAL_DEBT, "Ready", "In progress", "In review",
 BOARD_FIELDS = {"Priority": ("High", "Medium", "Low"), "Kind": ("Bug", "Feature", "Chore"),
                 "Size": ("Small", "Medium", "Large")}
 DEADLINE_FIELD = "Deadline"
-NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "usage_limit", "claude_login")
+NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "task_done", "usage_limit", "claude_login")
 NOTIFY_LANGUAGES = ("en", "fa")
 
 
