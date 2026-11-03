@@ -49,6 +49,7 @@ EVENT_FIELDS = {
     "queen_finished": ("run_id", "brief", "backlog"),
     "notification_sent": ("kind", "key"),
     "notification_failed": ("kind", "key", "reason"),
+    "copy_not_read": ("detail",),
 }
 NO_TASK_ROLES = ("supervisor", "queen")
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
