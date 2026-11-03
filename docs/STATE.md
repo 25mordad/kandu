@@ -58,6 +58,7 @@ state/
 | `project_resumed` | `project` |
 | `limits_changed` | `session`, `week` |
 | `kandu_restarted` | none |
+| `wake_requested` | none |
 | `group_closed` | `task`, `project` |
 | `deployed` | `task`, `project`, `run_id` |
 | `project_checked` | `project`, `passed`, `detail` |

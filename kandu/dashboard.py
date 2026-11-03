@@ -410,6 +410,18 @@ class Api:
         self.store.record("kandu_restarted")
         return {"restarting": True}
 
+    def wake(self, query):
+        """Starts a cycle now, as the timer would: the queen looks and the bees go out."""
+        if self.store.stop_file.exists():
+            raise ApiError(409, "Kandu is stopped: resume it first")
+        started = self.start_cycle()
+        if started is None:
+            raise ApiError(409, "a cycle is already running")
+        if not started:
+            raise ApiError(500, "systemd could not start a cycle")
+        self.store.record("wake_requested")
+        return {"cycle_started": True}
+
     def change_limits(self, query):
         """Reaches the next cycle through `kandu.yaml`; a cycle already running keeps the limits it read."""
         try:
@@ -478,6 +490,7 @@ ROUTES = [
     ("POST", "/resume", Api.resume),
     ("POST", "/limits", Api.change_limits),
     ("POST", "/restart", Api.restart),
+    ("POST", "/wake", Api.wake),
     ("POST", "/workers/{run_id}/stop", Api.stop_worker),
     ("POST", "/projects/{name}/pause", Api.pause_project),
     ("POST", "/projects/{name}/resume", Api.resume_project),

@@ -214,6 +214,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     <button id="stop" class="btn danger" data-t="stop"></button>
     <button id="resume" class="btn primary" data-t="resume" hidden></button>
     <button id="reload" class="btn plain" data-t="read_board"></button>
+    <button id="wake" class="btn plain" data-t="wake_queen"></button>
     <button id="restart" class="btn plain" data-t="restart_kandu"></button>
     <span id="didbanbox" class="flightbox"></span>
     <button id="lang" class="btn plain" lang="" data-t="other_language"></button>
@@ -274,6 +275,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "control_token": "control token",
   "read_board": "Read the board",
   "restart_kandu": "Restart Kandu",
+  "wake_queen": "Wake the queen",
   "stop": "Stop",
   "resume": "Resume",
   "pause_project": "Pause project",
@@ -391,6 +393,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "control_token": "توکن کنترل",
   "read_board": "خواندن تخته",
   "restart_kandu": "ری‌استارت کندو",
+  "wake_queen": "بیدار کردن ملکه",
   "stop": "توقف",
   "resume": "ادامه",
   "pause_project": "توقف پروژه",
@@ -593,6 +596,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "project_paused": "پروژه متوقف شد",
   "limits_changed": "سقف مصرف تغییر کرد",
   "kandu_restarted": "کندو ری‌استارت شد",
+  "wake_requested": "ملکه دستی بیدار شد",
   "notification_sent": "اعلان فرستاده شد",
   "notification_failed": "اعلان فرستاده نشد",
   "project_resumed": "پروژه ادامه یافت",
@@ -1355,6 +1359,7 @@ $("modal").addEventListener("close", () => { shownRun = shownTask = null; confir
 $("stop").onclick = e => act(e.currentTarget, "/stop");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
 $("restart").onclick = e => act(e.currentTarget, "/restart");
+$("wake").onclick = e => act(e.currentTarget, "/wake");
 $("reload").onclick = e => busy(e.currentTarget, () => refreshQueue(lastState, true));
 $("day").onchange = refreshDays;
 $("search").oninput = renderProjects;
