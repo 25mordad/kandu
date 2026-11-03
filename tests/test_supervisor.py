@@ -508,7 +508,7 @@ class SelectionTest(Base):
         self.github.add(3, "In review")
         together = threading.Barrier(3, timeout=5)  # breaks unless all three run at once
         self.sup._run_task = lambda task: together.wait()
-        self.sup._what_she_released = lambda seen: []
+        self.sup._what_she_released = lambda seen, busy=(): []
         self.sup._schedule(read_tasks(self.config, self.github))
         self.assertFalse(together.broken)
 
@@ -1565,6 +1565,24 @@ class MergeTest(Base):
         self.runner.steps = [self.PASS]
         self.cycle()
         self.assertEqual(self.github.merges, [SHA1])
+
+    def test_a_merge_she_says_yes_to_lands_in_the_same_cycle(self):
+        self.config.settings.supervisor.queen = True
+        none = json.dumps({"brief": "Nothing.", "decisions": []})
+        yes = json.dumps({"brief": "Fine.", "decisions": [{"task": f"{REPO}#1", "action": "approve",
+                                                            "head_sha": SHA1, "note": "Deferring it is fine."}]})
+        self.runner.steps = [report(SHA1, door="one-way"), yes, self.PASS, none]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+        self.assertEqual(self.github.status(1), "Done")
+
+    def test_a_merge_with_no_yes_is_not_driven_again(self):
+        self.config.settings.supervisor.queen = True
+        none = json.dumps({"brief": "Nothing.", "decisions": []})
+        self.runner.steps = [report(SHA1, door="one-way"), none]
+        self.cycle()
+        self.assertEqual(self.github.merges, [])
+        self.assertEqual(len([e for e in self.events("decision") if e["decision"] == "merge_waits"]), 1)
 
     def test_the_queens_yes_never_stands_in_for_auto_merge(self):
         self.config.projects[0].auto_merge = False
