@@ -189,20 +189,23 @@ class Runner:
             except subprocess.TimeoutExpired as e:
                 raise RunnerError(f"a project command timed out on {host.name}") from e
 
-    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None):
+    def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
+                  schema=None):
         """Runs one `claude` process to its end; `should_stop` is polled while it runs.
 
         Over SSH, stopping ends the local `ssh`; the remote process then dies at
         its next write to the closed connection, not at once. With no `model`,
         `claude` picks its own default. `tokens` is (file, names): those
         values alone reach this process, in its environment. If one is
-        missing the run ends with an error.
+        missing the run ends with an error. With a `schema`, `claude` holds the
+        reply to that JSON Schema, and the text is the object it returns.
         """
         command = ["claude", "-p", "--output-format", "stream-json", "--verbose",
                    "--no-session-persistence", "--permission-mode", "dontAsk",
                    # A repo's own allow list must not widen what this run may do.
                    "--setting-sources", "user",
                    *(["--model", model] if model else []),
+                   *(["--json-schema", json.dumps(schema)] if schema else []),
                    "--allowedTools", *allowed, "--disallowedTools", *denied]
         if tokens:
             path, names = tokens
@@ -225,7 +228,9 @@ class Runner:
         if result is None:
             return AgentResult(stopped=stopped.is_set())
         usage = usage_from_result(result)
-        return AgentResult(text=result.get("result") or "", models=usage["models"], duration_ms=usage["duration_ms"],
+        structured = result.get("structured_output")
+        text = json.dumps(structured, ensure_ascii=False) if structured is not None else result.get("result") or ""
+        return AgentResult(text=text, models=usage["models"], duration_ms=usage["duration_ms"],
                            is_error=usage["is_error"] or process.returncode != 0, stopped=stopped.is_set())
 
     @staticmethod

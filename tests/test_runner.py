@@ -172,9 +172,20 @@ class RunnerTest(unittest.TestCase):
         self.runner.prepare_review(self.project(), "o/site", "kandu/1-a", second)
         self.assertEqual(git("rev-parse", "HEAD", cwd=directory), second)
 
-    def agent(self, should_stop=lambda: False, prompt="the prompt", model=None):
+    def agent(self, should_stop=lambda: False, prompt="the prompt", model=None, schema=None):
         return self.runner.run_agent("box", str(self.home), prompt, ["Read", "Bash(npm test *)"], ["Edit"], "r-1",
-                                     should_stop, model)
+                                     should_stop, model, schema=schema)
+
+    def test_a_schema_is_passed_and_its_object_is_the_text(self):
+        self.agent()
+        self.assertNotIn("--json-schema", (self.home / "claude.args").read_text().splitlines())
+        held = dict(RESULT, result="```json {} ```", structured_output={"a": "x", "b": []})
+        install(self.home / ".local" / "bin" / "claude", FAKE_CLAUDE.replace(json.dumps(RESULT), json.dumps(held)))
+        schema = {"type": "object", "required": ["a"]}
+        result = self.agent(schema=schema)
+        args = (self.home / "claude.args").read_text().splitlines()
+        self.assertEqual(json.loads(args[args.index("--json-schema") + 1]), schema)
+        self.assertEqual(json.loads(result.text), {"a": "x", "b": []})
 
     def test_a_model_is_passed_only_when_one_is_set(self):
         self.agent()

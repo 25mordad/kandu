@@ -233,7 +233,7 @@ class Supervisor:
     def _model(self, role):
         return self.config.settings.claude.models.get(role)
 
-    def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None):
+    def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None):
         reason = self._gate()
         if reason is not None:
             self._halt(reason)
@@ -245,7 +245,8 @@ class Supervisor:
         self._snapshot("awake")
         stop_one = self.store.worker_stop_file(run_id)
         result = self.runner.run_agent(task.project.machine, cwd, prompt, allowed, denied, run_id,
-                                       lambda: self._hard_stop() or stop_one.exists(), self._model(role), tokens)
+                                       lambda: self._hard_stop() or stop_one.exists(), self._model(role), tokens,
+                                       schema)
         self.store.record("run_finished", task=task.key, project=task.project.name, run_id=run_id, role=role,
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
         if stop_one.exists():
@@ -326,7 +327,8 @@ class Supervisor:
             companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
             prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head, language,
                                             companions, criteria, first_n, local_dir=self.local_dir)
-        result = self._agent(task, "reviewer", cwd, prompt, agents.reviewer_tools(), run_id)
+        result = self._agent(task, "reviewer", cwd, prompt, agents.reviewer_tools(), run_id,
+                             schema=review.REPORT_SCHEMA)
         try:
             report = review.parse_report(result.text)
             review.validate_report(report, to_fix, second=bool(to_fix))
@@ -793,7 +795,8 @@ class Supervisor:
         self._snapshot("awake")
         try:
             result = self.runner.run_agent(self.config.settings.brain.machine, str(ROOT), prompt, allowed, denied,
-                                           run_id, self._hard_stop, self._model("queen"))
+                                           run_id, self._hard_stop, self._model("queen"),
+                                           schema=agents.QUEEN_SCHEMA)
         finally:
             self.queen_run = None
             self._snapshot("awake")

@@ -16,6 +16,28 @@ EARLIER_RESULTS = ("fixed", "not_fixed", "partly_fixed")
 REVIEW_MARKER = re.compile(r"<!-- kandu-review (\{.*?\}) -->", re.DOTALL)
 FIX_MARKER = re.compile(r"<!-- kandu-fix ([0-9a-f]+) -->")
 # The last thing in a reply. A model may write a line before it, however clearly it is told not to.
+_TEXT = {"type": "string"}
+_TEXTS = {"type": "array", "items": _TEXT}
+_NUMBER_OR_NULL = {"type": ["integer", "null"]}
+# Given to `claude`, so a report cannot leave a key out. validate_report still checks what a schema cannot.
+REPORT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "head_sha": _TEXT, "summary": _TEXT,
+        "criteria": {"type": "array", "items": {"type": "object", "required": ["result"], "properties": {
+            "criterion": _TEXT, "result": {"enum": list(CRITERION_RESULTS)}}}},
+        "earlier": {"type": "array", "items": {"type": "object", "required": ["n", "result", "body"], "properties": {
+            "n": {"type": "integer"}, "result": {"enum": list(EARLIER_RESULTS)}, "body": _TEXT}}},
+        "findings": {"type": "array", "items": {
+            "type": "object", "required": sorted(FINDING_KEYS), "additionalProperties": False, "properties": {
+                "n": {"type": "integer"}, "path": _TEXT, "line": _NUMBER_OR_NULL, "blocker": {"type": "boolean"},
+                "criterion": _NUMBER_OR_NULL, "body": _TEXT}}},
+        "checked_ok": _TEXTS, "door": {"enum": list(DOORS)}, "wait_for_user": _TEXTS,
+        "blast_radius": _TEXT, "brief": _TEXT, "user_brief": _TEXT,
+    },
+    "required": sorted(REPORT_KEYS),
+    "additionalProperties": False,
+}
 CODE_FENCE = re.compile(r"(?:\A|\n)```(?:json)?\n((?:(?!```).)*)\n```\Z", re.DOTALL)
 
 

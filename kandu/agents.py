@@ -15,6 +15,19 @@ ALWAYS_DENIED = ["Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)", "Read(*
 WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
 LIVE_RESULTS = ("pass", "fail")
 QUEEN_ACTIONS = ("release", "retry", "ask_user", "park")
+# Given to `claude`, so her reply is always one JSON object. parse_queen_report still checks the rest.
+QUEEN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "brief": {"type": "string"},
+        "decisions": {"type": "array", "items": {
+            "type": "object", "required": ["task", "action", "note"], "additionalProperties": False, "properties": {
+                "task": {"type": "string"}, "action": {"enum": list(QUEEN_ACTIONS)}, "note": {"type": "string"},
+                "finding": {"type": "integer"}}}},
+    },
+    "required": ["brief", "decisions"],
+    "additionalProperties": False,
+}
 
 
 class ReplyError(Exception):
