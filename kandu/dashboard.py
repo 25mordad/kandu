@@ -122,7 +122,7 @@ class ApiError(Exception):
 
 class Api:
     def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic, start_cycle=timer.start_cycle,
-                 local_dir=DEFAULT_LOCAL_DIR, timer_on=timer.timer_on, flights_=None):
+                 local_dir=DEFAULT_LOCAL_DIR, timer_on=timer.timer_on, flights_=None, restart=timer.restart):
         self.config = config
         self.store = store
         self.github = github
@@ -133,12 +133,33 @@ class Api:
         self.timer_on = timer_on
         self.local_dir = local_dir
         self.flights = flights_ or flights.Flights(config, store, logs_dir)
+        self.restart_kandu = restart
+        self._config_stamp = config_stamp(local_dir)
+        self._config_lock = threading.Lock()
         self._queue = None
         self._queue_time = None
         self._queue_failed = False
         self._queue_finished = None
         self._queue_versions = None
         self._queue_lock = threading.Lock()
+
+    def refresh_config(self):
+        """Takes a changed config without a restart, so a new project shows in its own patch.
+
+        A config with a problem leaves the last good one in place; `python -m kandu.config` names the problem.
+        """
+        with self._config_lock:
+            stamp = config_stamp(self.local_dir)
+            if stamp == self._config_stamp:
+                return
+            self._config_stamp = stamp
+            try:
+                config = load_config(self.local_dir)
+            except ConfigError:
+                return
+            self.config = config
+            self.flights.config = config
+            self._queue_time = None  # a new project's tasks need a new read
 
     def state(self, query):
         limits = self.config.settings.claude.limits
@@ -379,6 +400,16 @@ class Api:
         self.store.stop_file.unlink(missing_ok=True)
         return {"stop_requested": False}
 
+    def restart(self, query):
+        """Takes the config again, re-arms the timer and restarts the dashboard. A running cycle finishes."""
+        try:
+            config = load_config(self.local_dir)
+        except ConfigError as e:
+            raise ApiError(409, f"the config has a problem: {e.problems[0]}") from None
+        self.restart_kandu(config)
+        self.store.record("kandu_restarted")
+        return {"restarting": True}
+
     def change_limits(self, query):
         """Reaches the next cycle through `kandu.yaml`; a cycle already running keeps the limits it read."""
         try:
@@ -446,6 +477,7 @@ ROUTES = [
     ("POST", "/stop", Api.stop),
     ("POST", "/resume", Api.resume),
     ("POST", "/limits", Api.change_limits),
+    ("POST", "/restart", Api.restart),
     ("POST", "/workers/{run_id}/stop", Api.stop_worker),
     ("POST", "/projects/{name}/pause", Api.pause_project),
     ("POST", "/projects/{name}/resume", Api.resume_project),
@@ -459,8 +491,20 @@ def _pattern(template):
 COMPILED = [(method, _pattern(API + template), handler) for method, template, handler in ROUTES if handler]
 
 
+def config_stamp(local_dir):
+    """When the two config files last changed, so a change is noticed without reading them."""
+    stamp = []
+    for name in ("kandu.yaml", "projects.yaml"):
+        try:
+            stamp.append((Path(local_dir) / name).stat().st_mtime_ns)
+        except OSError:
+            stamp.append(None)
+    return tuple(stamp)
+
+
 def dispatch(api, method, target, supplied_token=None):
     """Answers one request; returns (status, payload)."""
+    api.refresh_config()
     url = urlparse(target)
     allowed = False
     for route_method, pattern, handler in COMPILED:

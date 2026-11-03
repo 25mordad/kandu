@@ -53,6 +53,15 @@ class TimerTest(unittest.TestCase):
                 self.assertIs(timer.timer_on(), expected)
                 self.assertIn("kandu.timer", run.call_args.args[0])
 
+    def test_restart_re_arms_the_timer_and_restarts_the_dashboard_from_outside(self):
+        with mock.patch.object(timer, "install") as install, mock.patch.object(timer.subprocess, "run") as run:
+            timer.restart(self.config)
+        install.assert_called_once_with(self.config)
+        first, second = (c.args[0] for c in run.call_args_list)
+        self.assertEqual(first, ["systemctl", "--user", "try-restart", "kandu.timer"])
+        self.assertEqual(second[:2], ["systemd-run", "--user"])
+        self.assertEqual(second[-1], "kandu-dashboard.service")
+
     def test_dashboard_flag_never_starts_the_timer(self):
         with mock.patch.object(timer, "load_config", return_value=self.config), \
                 mock.patch.object(timer, "install") as install, \

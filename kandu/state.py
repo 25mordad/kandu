@@ -42,6 +42,7 @@ EVENT_FIELDS = {
     "project_paused": ("project",),
     "project_resumed": ("project",),
     "limits_changed": ("session", "week"),
+    "kandu_restarted": (),
     "queen_decided": TASK_FIELDS + ("action", "note"),
     "queen_finished": ("run_id", "brief", "backlog"),
     "notification_sent": ("kind", "key"),

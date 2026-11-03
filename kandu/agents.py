@@ -206,10 +206,19 @@ def parse_queen_report(text):
     return report
 
 
+def _final_json(text):
+    """The reply's JSON: the whole text, or else its last line, since a worker may sum up its work above it."""
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return json.loads(text.rsplit("\n", 1)[-1].strip())
+
+
 def parse_worker_reply(text):
     """Takes a worker's last message; returns the status object it reports."""
     try:
-        reply = json.loads(text.strip())
+        reply = _final_json(text)
     except json.JSONDecodeError as e:
         raise ReplyError("worker reply is not JSON") from e
     if not isinstance(reply, dict) or reply.get("status") not in WORKER_STATUSES:

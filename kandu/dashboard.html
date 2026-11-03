@@ -214,6 +214,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     <button id="stop" class="btn danger" data-t="stop"></button>
     <button id="resume" class="btn primary" data-t="resume" hidden></button>
     <button id="reload" class="btn plain" data-t="read_board"></button>
+    <button id="restart" class="btn plain" data-t="restart_kandu"></button>
     <span id="didbanbox" class="flightbox"></span>
     <button id="lang" class="btn plain" lang="" data-t="other_language"></button>
   </div>
@@ -272,6 +273,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "loading": "loading",
   "control_token": "control token",
   "read_board": "Read the board",
+  "restart_kandu": "Restart Kandu",
   "stop": "Stop",
   "resume": "Resume",
   "pause_project": "Pause project",
@@ -388,6 +390,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "loading": "در حال بارگذاری",
   "control_token": "توکن کنترل",
   "read_board": "خواندن تخته",
+  "restart_kandu": "ری‌استارت کندو",
   "stop": "توقف",
   "resume": "ادامه",
   "pause_project": "توقف پروژه",
@@ -589,6 +592,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "question_answered": "به سؤال جواب داده شد",
   "project_paused": "پروژه متوقف شد",
   "limits_changed": "سقف مصرف تغییر کرد",
+  "kandu_restarted": "کندو ری‌استارت شد",
   "notification_sent": "اعلان فرستاده شد",
   "notification_failed": "اعلان فرستاده نشد",
   "project_resumed": "پروژه ادامه یافت",
@@ -918,8 +922,10 @@ function fields(state, queue) {
   const strays = [...(state.workers || []).filter(w => !seen.has(w.task)).map(w => ({task: w.task, title: "", column: "In progress", project: w.project})),
                   ...(state.waiting_for_machine || []).filter(task => !seen.has(task)).map(task => ({task, title: "", column: "waiting"}))];
   for (const stray of strays) {
-    let patch = projects.find(p => p.name === stray.project) || projects[0];
-    if (!patch) projects.push(patch = {name: stray.project || "", tasks: []});
+    // A task never sits in another project's patch: one the queue does not know gets a patch of its own.
+    const name = stray.project || repoOf(stray.task);
+    let patch = projects.find(p => p.name === name);
+    if (!patch) projects.push(patch = {name, tasks: []});
     patch.tasks.push(stray);
   }
   for (const task of state.waiting_for_machine || []) {
@@ -1348,6 +1354,7 @@ document.addEventListener("toggle", e => {
 $("modal").addEventListener("close", () => { shownRun = shownTask = null; confirming = false; });
 $("stop").onclick = e => act(e.currentTarget, "/stop");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
+$("restart").onclick = e => act(e.currentTarget, "/restart");
 $("reload").onclick = e => busy(e.currentTarget, () => refreshQueue(lastState, true));
 $("day").onchange = refreshDays;
 $("search").oninput = renderProjects;
