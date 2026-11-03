@@ -469,6 +469,22 @@ class ControlTest(Base):
         self.assertEqual(dispatch(self.api, "POST", "/api/v1/restart", TOKEN)[0], 409)
         self.api.restart_kandu.assert_not_called()
 
+    def test_wake_starts_a_cycle_and_is_logged(self):
+        self.api.start_cycle = mock.Mock(return_value=True)
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/wake", "wrong")[0], 403)
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/wake", TOKEN), (200, {"cycle_started": True}))
+        self.api.start_cycle.assert_called_once()
+        self.assertIsNotNone(self.store.last_event("wake_requested"))
+
+    def test_wake_starts_nothing_while_stopped_or_running(self):
+        self.api.start_cycle = mock.Mock(return_value=None)
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/wake", TOKEN)[0], 409)
+        self.store.request_stop()
+        self.api.start_cycle.reset_mock()
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/wake", TOKEN)[0], 409)
+        self.api.start_cycle.assert_not_called()
+        self.assertIsNone(self.store.last_event("wake_requested"))
+
     def test_opening_a_session_needs_the_token(self):
         self.assertEqual(dashboard.dispatch(self.api, "POST", "/api/v1/flights/didban?language=fa")[0], 403)
 

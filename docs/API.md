@@ -30,6 +30,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | POST | `/api/v1/stop` | stop the supervisor; running agents are killed |
 | POST | `/api/v1/resume` | allow the next cycle to run |
 | POST | `/api/v1/limits` | set the 5-hour and weekly usage limits, as `?session=85&week=60`; the next cycle uses them |
+| POST | `/api/v1/wake` | start a cycle now, as the timer would |
 | POST | `/api/v1/restart` | apply the config: write the units again, re-arm the timer, restart the dashboard; a running cycle finishes |
 | POST | `/api/v1/workers/{run_id}/stop` | stop one running agent; its task moves to `Blocked` |
 | POST | `/api/v1/projects/{name}/pause` | pause one project: no new work on it, across cycles, until it is resumed |
@@ -93,6 +94,8 @@ The `pr` object also has `approved`, true once the user said yes to this head, `
 `POST /api/v1/reviews/acme-org/website/12/approve?head=abc123` answers `{"approved": "abc123", "cycle_started": true}`. `cycle_started` is `null` if a cycle is already running, and `false` if `systemd` refused. Either way the yes is saved, and the next cycle uses it. The answer is `409` if `head` is no longer the PR's head, if the local log shows no review of it, an open blocker or an unmet criterion, or if no cycle would pick the task up: its project is paused, or its column is not `Ready`, `In progress` or `In review`. The yes answers the review's questions and a one-way door. Every other merge condition still applies, including the tests.
 
 `POST /api/v1/stop` answers `{"stop_requested": true}`, `POST /api/v1/resume` answers `{"stop_requested": false}`, and `POST /api/v1/workers/{run_id}/stop` answers `{"stopping": "<run_id>"}`.
+
+`POST /api/v1/wake` answers `{"cycle_started": true}` and starts a cycle at once, as the timer would; the timer keeps its own times. It answers `409` while Kandu is stopped or a cycle is already running, and starts nothing.
 
 `POST /api/v1/restart` answers `{"restarting": true}`: it writes the `systemd` units again from the config, re-arms the timer if it runs, so a new `wake_every_minutes` counts, and restarts the dashboard a second later. A running cycle finishes. The answer is `409` if the config has a problem, and then nothing restarts. The dashboard also takes a changed `kandu.yaml` or `projects.yaml` by itself at the next request, so a new project shows without a restart.
 

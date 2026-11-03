@@ -227,12 +227,22 @@ class GroupTest(Base):
         patcher = mock.patch.object(split, "create_task", side_effect=self.create)
         patcher.start()
         self.addCleanup(patcher.stop)
+        self.placed = []
+        placer = mock.patch.object(split, "place_task", side_effect=lambda github, board, url, *rest: self.placed.append(url))
+        placer.start()
+        self.addCleanup(placer.stop)
+        self.board_fails = False
 
-    def create(self, config, github, project, repo, title, text, local_dir, priority, kind, size, deadline):
+    def create(self, config, github, project, repo, title, text, local_dir, priority, kind, size, deadline, created=None):
         number = 11 + len(self.created)
         self.created.append(SlimIssue(number, title, text, priority, size, deadline))
+        url = f"https://github.com/{repo}/issues/{number}"
+        if created is not None:
+            created(url)
+        if self.board_fails:
+            raise GitHubError("gh project item-edit: API rate limit exceeded")
         github.add(number, "Backlog", body=text, size=size)
-        return f"https://github.com/{repo}/issues/{number}"
+        return url
 
     def approve(self, slices=None):
         return split.approve(self.config, self.github, self.store, self.key, self.local, slices)
@@ -264,6 +274,16 @@ class GroupTest(Base):
         self.approve()
         self.assertEqual([e["door"] for e in self.events("task_sized")], ["two-way", "one-way"])
         self.assertIsNotNone(self.store.last_event("task_split", task=self.key))
+
+    def test_a_retry_after_a_board_failure_places_the_slice_and_copies_none(self):
+        self.board_fails = True
+        with self.assertRaises(GitHubError):
+            self.approve()
+        self.assertEqual([e["task"] for e in self.events("slice_created")], [f"{REPO}#11"])
+        self.board_fails = False
+        self.assertEqual(self.approve(), [f"{REPO}#11", f"{REPO}#12"])
+        self.assertEqual([issue.number for issue in self.created], [11, 12])
+        self.assertEqual(self.placed, [f"https://github.com/{REPO}/issues/11"])
 
     def test_it_happens_once_and_only_from_the_column(self):
         self.approve()
@@ -460,10 +480,10 @@ class GroupTest(Base):
 
     def test_a_retry_carries_on_after_the_slices_that_exist(self):
         real = split.create_task.side_effect
-        def fail_on_second(*args):
+        def fail_on_second(*args, **kwargs):
             if len(self.created) == 1:
                 raise TaskError("gh failed")
-            return real(*args)
+            return real(*args, **kwargs)
         split.create_task.side_effect = fail_on_second
         with self.assertRaises(TaskError):
             self.approve()
