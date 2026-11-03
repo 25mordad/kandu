@@ -34,7 +34,6 @@ NEEDS_INFO, BLOCKED, DONE = "Needs info", "Blocked", "Done"
 NEEDS_SPLIT = split.NEEDS_SPLIT
 RESUMED = (IN_PROGRESS, IN_REVIEW)
 MERGEABLE = ("approved", "approved_with_notes")
-SIZED_PER_CYCLE = 3  # A long Backlog must not hold up merges and resumed tasks.
 END_CHECK_MERGES = 2  # This many merges in a project in one cycle earn a check of the whole project.
 LANDING_FAILED = ("deploy_failed", "live_check_failed")
 ROOT = Path(__file__).resolve().parent.parent
@@ -628,25 +627,32 @@ class Supervisor:
             self._move(task, NEEDS_SPLIT)
 
     def _size_backlog(self):
-        """Runs before the queen looks, so a task is sized before she can see it."""
+        """Runs before the queen looks, so a task is sized before she can see it.
+
+        A splitter only reads, so every unsized task goes in this cycle, side by side.
+        """
         today = self.store.today()
-        sized = 0
+        unsized = []
         for project, item in sorted(self._board_items(), key=lambda pair: pair[1].priority != queen.HIGH):
             key = f"{item.repo}#{item.number}"
             if self._is_paused(project) or item.status != BACKLOG or split.current_size(self.store, key) is not None:
                 continue
-            if sized == SIZED_PER_CYCLE:
-                return
             if self.store.tokens_counted(today, project=project.name) >= project.daily_token_limit:
                 continue
             if not self.runner.reachable(project.machine):
                 continue
             task = Task(project, item.repo, item.number, item.title, item.url, item.status,
                         branch_for(item.number, item.title))
-            self._run_task(task, lambda task=task, item=item: self._size(task, item))
-            sized += 1
-            if self.halt_reason is not None:
-                return
+            unsized.append((task, item))
+        if not unsized:
+            return
+        with ThreadPoolExecutor(max_workers=self.config.settings.supervisor.max_parallel_sizers) as pool:
+            futures = [pool.submit(self._size_if_running, task, item) for task, item in unsized]
+            wait(futures)
+
+    def _size_if_running(self, task, item):
+        if self.halt_reason is None:  # A limit reached or a stop meanwhile leaves the rest for the next cycle.
+            self._run_task(task, lambda: self._size(task, item))
 
     def _check_project(self, project):
         """No agent and no tokens: the tests on the default branch, and the live URL answering."""

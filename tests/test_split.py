@@ -113,6 +113,16 @@ class SizingTest(Base):
         self.assertEqual(self.events("run_finished")[0]["role"], "splitter")
         self.assertEqual(self.github.status(1), "Backlog")
 
+    def test_every_unsized_task_is_sized_in_one_cycle(self):
+        for number in range(1, 7):
+            self.github.add(number, "Backlog", body=body())
+        self.runner.steps = [ok(json.dumps(sized("Medium"))) for _ in range(6)]
+        with mock.patch.object(supervisor, "ThreadPoolExecutor", wraps=supervisor.ThreadPoolExecutor) as pool:
+            self.cycle()
+        self.assertEqual(sorted(e["task"] for e in self.events("task_sized")),
+                         sorted(f"{REPO}#{n}" for n in range(1, 7)))
+        self.assertEqual(pool.call_args_list[0].kwargs["max_workers"], self.config.settings.supervisor.max_parallel_sizers)
+
     def test_a_large_task_waits_for_the_user(self):
         self.github.add(1, "Backlog", body=body())
         self.runner.steps = [ok(json.dumps(LARGE))]
