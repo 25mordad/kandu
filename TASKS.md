@@ -50,7 +50,6 @@ Every task is designed and checked against harness, context and memory (§14).
 41. [x] A PR merged while its task is `Blocked` still deploys and reaches `Done` (§5)
 42. [x] Didban takes each request, keeps it until it is tasks, and reads the code before scoping; a `Large` task does not reach the board (§2, §13)
 43. [x] Change the 5-hour and weekly limits on the dashboard at any time (§7)
-44. [ ] A task whose work landed through another task's PR stays `Blocked` after its issue is closed: code moves a card to `Done` only when the task's own PR is merged, and the queen cannot move one. A task whose issue is closed should go to `Done` by itself (§3, §5)
 44. [x] The dashboard shows each Didban session: when, tokens and what it did, in no project's limits (§13)
 45. [x] A flower changes when its task moves, without the board-read button: the page follows the shared copy, at most once a minute (§7)
 46. [x] Kandu works on its own copy of GitHub: reads come from it, changes wait in a queue sent every 10 minutes, a merge and a new issue go at once, and a card the user moved meanwhile keeps the user's move (§3)
@@ -62,3 +61,4 @@ Every task is designed and checked against harness, context and memory (§14).
 41. [x] A deploy whose `git pull` conflicted left the live copy half-merged. `kandu/pull.py` runs the pull and aborts a conflicting merge or rebase, so the copy stays as it was and the deploy ends `deploy_failed` (§5)
 42. [x] The dashboard's "read the board" button read GitHub into the copy but did not send the queue. It now reads, then sends, in the order of `kandu.sync` (§3)
 43. [x] A worker that opened its PR but whose last reply was not JSON ended `failed`. Its reply is asked for again in the same session, and if it is still unreadable but the PR is there, work goes on from the PR (§5)
+44. [ ] A task whose work landed through another task's PR stays `Blocked` after its issue is closed: code moves a card to `Done` only when the task's own PR is merged, and the queen cannot move one. A task whose issue is closed should go to `Done` by itself (§3, §5)
