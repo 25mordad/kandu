@@ -57,3 +57,7 @@ Every task is designed and checked against harness, context and memory (§14).
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)
 39. [x] An open dashboard spent GitHub's hourly limit: one heavy board read a minute. It now shares one light read every 15 minutes, and a hidden page asks for nothing (§7)
+40. [ ] Two merges in one repo in the same cycle: GitHub refuses the second with "Base branch was modified", and the task ends `failed`. It should read the PR again and merge once more, or send a new conflict to a worker (§7)
+41. [ ] A deploy whose `git pull` conflicts leaves the live copy half-merged, with conflict markers in its files. It should run `git merge --abort` first, so the live copy stays as it was, then end `deploy_failed` (§7)
+42. [ ] The dashboard's "read the board" button reads GitHub into the copy but does not send the outbox, so Kandu's own moves stay unsent until the next cycle and the board on GitHub looks behind. It should read, then send, in the cycle's order (§7)
+43. [ ] A worker that finished the work and opened its PR, but whose last reply is not JSON, ends `failed` and costs a queen retry. When the PR is there, go on from the PR (§6)
