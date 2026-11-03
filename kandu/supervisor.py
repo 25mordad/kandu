@@ -397,6 +397,12 @@ class Supervisor:
                           notes=sized)
         return sized
 
+    def _retried_after(self, task, head):
+        """True if the queen sent the task back after this head's review: it gets one more fix round."""
+        seen = self.store.last_event("review_finished", task=task.key, head_sha=head)
+        retry = self.store.last_event("queen_decided", task=task.key, action="retry")
+        return seen is not None and retry is not None and retry["ts"] > seen["ts"]
+
     def _to_fix(self, task, last):
         """What a review leaves for the worker: its blockers, and the notes that stay in the PR."""
         if last.get("second"):
@@ -430,8 +436,10 @@ class Supervisor:
         if not last["open"]:
             return "approved"
         if last.get("second"):
-            return self._settle(task, pr, last["open"], "the second review found it not done")
-        self._to_debt(task, [n for n in self._sized_notes(task, pr, last) if not split.stays_in_pr(n)])
+            if not self._retried_after(task, last["head_sha"]):
+                return self._settle(task, pr, last["open"], "the second review found it not done")
+        else:
+            self._to_debt(task, [n for n in self._sized_notes(task, pr, last) if not split.stays_in_pr(n)])
         to_fix = self._to_fix(task, last)
         if not to_fix:
             return "approved_with_notes"
@@ -440,14 +448,31 @@ class Supervisor:
         return None
 
     def _fix(self, task, pr, reviews):
-        """One fix round by a fresh worker on the same branch. A round that adds no commit is recorded."""
+        """One fix round by a fresh worker on the same branch."""
+        self._round(task, pr, f"fix round {len(reviews)}", self._to_fix(task, reviews[-1]))
+
+    def _round(self, task, pr, phase, findings):
+        """A fresh worker on the same branch. A round that adds no commit is recorded, so it is not run again."""
         head = pr["headRefOid"]
         self._pick(task)
-        self._phase(task, f"fix round {len(reviews)}")
-        self._work(task, findings=self._to_fix(task, reviews[-1]), pr=pr["number"])
+        self._phase(task, phase)
+        self._work(task, findings=findings, pr=pr["number"])
         self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
         if self.github.pr(task.repo, pr["number"])["headRefOid"] == head:
             self.github.comment_pr(task.repo, pr["number"], review.fix_comment(head))
+
+    def _conflicts(self, pr, outcome):
+        """A reviewed PR that only its conflicts hold back, and that no update round has tried on this head."""
+        return (outcome in MERGEABLE and pr["mergeable"] == "CONFLICTING"
+                and not review.fix_tried(pr, self.config.settings.github.account, pr["headRefOid"]))
+
+    def _update(self, task, pr):
+        """Brings the default branch into the PR. The new head is reviewed again before any merge."""
+        base = self.github.default_branch(task.repo)
+        conflict = {"n": 0, "blocker": True, "path": "", "line": None,
+                    "body": f"This PR conflicts with `{base}`. Merge `{base}` into the branch (no rebase), resolve every "
+                            "conflict so that the changes of both sides stay, run the tests, and push. Change nothing else."}
+        self._round(task, pr, "update", [conflict])
 
     # Merge, deploy and live check.
 
@@ -720,6 +745,10 @@ class Supervisor:
             if pr is None:
                 return
             self._warn_if_oversized(task, pr)
+        else:
+            # The copy may be older than this cycle: someone may have pushed to the branch since.
+            self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
+            pr = self.github.pr(task.repo, pr["number"])
         task.branch = pr["headRefName"]  # Worked out from the title, which may have changed since.
         worked = False
         while True:
@@ -739,6 +768,8 @@ class Supervisor:
                 outcome = self._outcome(task, pr, reviews)
                 if outcome is None:
                     self._fix(task, pr, reviews)
+                elif self._conflicts(pr, outcome):
+                    self._update(task, pr)
                 elif not self._merge(task, pr, outcome, worked):
                     return
                 elif self.github.pr(task.repo, pr["number"])["state"] != "MERGED":
