@@ -18,7 +18,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import flights, ghmeter, queen, questions, review, sessions, split, timer
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config, set_limits
-from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError
+from .github import AGENT_LABEL, GitHubError
+from .mirror import open_github
 from .runner import DEFAULT_LOGS_DIR
 from .state import StateStore
 from .tasks import TaskError
@@ -200,6 +201,8 @@ class Api:
                 self._queue_time = self.clock()
                 self._queue_finished = finished
                 try:
+                    if query.get("fresh") == ["1"] and hasattr(self.github, "refresh"):
+                        self.github.refresh(self.config)  # the user asked: read GitHub into the copy first
                     self._queue = self._read_queue()
                     self._queue_failed = False
                     self._queue_versions = self._board_versions()  # After the read, which may write the copy itself.
@@ -625,7 +628,7 @@ def main():
     except ConfigError as e:
         print(f"dashboard: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1
-    api = Api(config, StateStore(), GitHub(cache=BoardCache()), DEFAULT_LOGS_DIR, os.environ.get(TOKEN_ENV), local_dir=args.local)
+    api = Api(config, StateStore(), open_github(config), DEFAULT_LOGS_DIR, os.environ.get(TOKEN_ENV), local_dir=args.local)
     bind, port = config.settings.dashboard.bind, config.settings.dashboard.port
     ghmeter.sample_forever()  # the limit as GitHub sees it, beside the calls the meter counts
     server = ThreadingHTTPServer((bind, port), make_handler(api))

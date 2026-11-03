@@ -7,7 +7,8 @@ import argparse
 import sys
 
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
-from .github import BoardCache, GitHub, GitHubError
+from .github import GitHubError
+from .mirror import open_github
 from .queen import HIGH
 from .split import find_item
 from .state import StateStore
@@ -27,7 +28,8 @@ def main():
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
     args = parser.parse_args()
     try:
-        print(raise_task(load_config(args.local), GitHub(cache=BoardCache()), StateStore(), args.task))
+        config = load_config(args.local)
+        print(raise_task(config, open_github(config, refresh=True), StateStore(), args.task))
     except ConfigError as e:
         print(f"priority: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1

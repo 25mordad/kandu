@@ -240,7 +240,7 @@ class SupervisorMainTest(Base):
         notifier = mock.Mock()
         with mock.patch("sys.argv", ["supervisor"]), mock.patch.multiple(
                 "kandu.supervisor", StateStore=lambda: self.store, load_config=mock.Mock(), Supervisor=mock.Mock(),
-                GitHub=mock.Mock(), BoardCache=mock.Mock(), Runner=mock.Mock(), _locked_cycle=cycle,
+                open_github=mock.Mock(), Runner=mock.Mock(), _locked_cycle=cycle,
                 notifier_for=lambda settings, store: notifier):
             supervisor.main()
         return notifier
@@ -255,7 +255,7 @@ class SupervisorMainTest(Base):
         notifier = mock.Mock()
         with mock.patch("sys.argv", ["supervisor"]), mock.patch.multiple(
                 "kandu.supervisor", StateStore=lambda: self.store, load_config=mock.Mock(), Supervisor=mock.Mock(),
-                GitHub=mock.Mock(), BoardCache=mock.Mock(), Runner=mock.Mock(),
+                open_github=mock.Mock(), Runner=mock.Mock(),
                 _locked_cycle=mock.Mock(side_effect=RuntimeError), notifier_for=lambda settings, store: notifier):
             with self.assertRaises(RuntimeError):
                 supervisor.main()

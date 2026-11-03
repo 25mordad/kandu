@@ -1,11 +1,8 @@
 import json
-import os
-import tempfile
 import unittest
-from pathlib import Path
 
 from kandu.config import Board
-from kandu.github import BOARD_CACHE_SECONDS, BoardCache, GitHub, GitHubError, blockers_in, branch_for, is_companion, slugify
+from kandu.github import GitHub, GitHubError, blockers_in, branch_for, is_companion, slugify, transient
 
 BOARD = Board(owner="acme", number=1)
 ISSUE = {"number": 3, "title": "t", "url": "u", "body": "b", "repository": {"nameWithOwner": "o/r"},
@@ -81,88 +78,6 @@ class CompanionTest(unittest.TestCase):
         self.assertFalse(is_companion(self.pr("kandu/1-a"), "o/a", self.pr("kandu/2-b", number=2), "o/b"))
 
 
-class BoardCacheTest(unittest.TestCase):
-    def setUp(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.now = 1000.0
-        self.cache = BoardCache(folder.name, clock=lambda: self.now)
-        self.page = board_page([{"content": ISSUE, "status": {"name": "Backlog"}}])
-
-    def test_every_process_shares_one_read(self):
-        gh = FakeGh(self.page)
-        GitHub(gh, self.cache).board_items(BOARD)
-        other = GitHub(FakeGh(), BoardCache(self.cache.root, clock=self.cache.clock))
-        self.assertEqual(other.board_items(BOARD)[0].labels, ["agent"])
-        self.assertEqual(len(gh.calls), 1)
-
-    def test_a_write_by_another_process_changes_the_version(self):
-        gh = FakeGh(self.page, "")
-        github = GitHub(gh, self.cache)
-        self.assertIsNone(github.board_version(BOARD))
-        github.board_items(BOARD)
-        copy = next(Path(self.cache.root).glob("*.json"))
-        os.utime(copy, ns=(1, 1))  # File times are coarser than two writes in a row.
-        before = github.board_version(BOARD)
-        calls = len(gh.calls)
-        GitHub(gh, BoardCache(self.cache.root, clock=self.cache.clock)).set_status(BOARD, "u", "Ready")
-        self.assertNotEqual(github.board_version(BOARD), before)
-        self.assertEqual(len(gh.calls), calls + 1)  # The write itself; asking the version costs nothing.
-
-    def test_no_copy_has_no_version(self):
-        self.assertIsNone(GitHub(FakeGh()).board_version(BOARD))
-
-    def test_a_copy_too_old_is_read_again(self):
-        gh = FakeGh(self.page, self.page)
-        github = GitHub(gh, self.cache)
-        github.board_items(BOARD)
-        self.now += BOARD_CACHE_SECONDS
-        github.board_items(BOARD)
-        self.assertEqual(len(gh.calls), 2)
-
-    def test_a_write_lands_in_the_copy_and_keeps_its_age(self):
-        gh = FakeGh(self.page, "", "", self.page)
-        github = GitHub(gh, self.cache)
-        github.board_items(BOARD)
-        github.set_status(BOARD, "u", "Ready")
-        github.set_field(BOARD, "u", "Size", "Small")
-        item = github.board_items(BOARD)[0]
-        self.assertEqual((item.status, item.size), ("Ready", "Small"))
-        self.assertEqual(len(gh.calls), 3)
-        self.now += BOARD_CACHE_SECONDS
-        self.assertEqual(github.board_items(BOARD)[0].status, "Backlog")
-
-    def test_a_refused_write_leaves_the_copy_alone(self):
-        replies = [json.dumps(self.page)]
-
-        def run(args):
-            if args[0] == "project":
-                raise GitHubError("limit")
-            return replies.pop(0)
-
-        github = GitHub(run, self.cache)
-        github.board_items(BOARD)
-        with self.assertRaises(GitHubError):
-            github.set_status(BOARD, "u", "Ready")
-        self.assertEqual(github.board_items(BOARD)[0].status, "Backlog")
-
-    def test_what_the_copy_cannot_follow_drops_it(self):
-        for change in (lambda g: g.add_to_board(BOARD, "u"), lambda g: g.close_issue("o/r", 3),
-                       lambda g: g.edit_issue("o/r", 3, "t", "b")):
-            gh = FakeGh(self.page, "", self.page)
-            github = GitHub(gh, self.cache)
-            self.cache.forget()
-            github.board_items(BOARD)
-            change(github)
-            github.board_items(BOARD)
-            self.assertEqual(len(gh.calls), 3)
-
-    def test_a_broken_copy_is_read_again(self):
-        gh = FakeGh(self.page)
-        self.cache.root.joinpath(f"{BOARD.owner}-{BOARD.number}.json").write_text("{", encoding="utf-8")
-        self.assertEqual(GitHub(gh, self.cache).board_items(BOARD)[0].number, 3)
-
-
 class GitHubTest(unittest.TestCase):
     def test_board_items_are_issues_only_across_pages(self):
         gh = FakeGh(board_page([{"content": ISSUE, "status": {"name": "Ready"}, "size": {"name": "Small"},
@@ -198,7 +113,7 @@ class GitHubTest(unittest.TestCase):
         GitHub(gh).mark_pr("o/r", {"number": 1, "labels": [{"name": "kandu"}]})
         self.assertEqual(gh.calls, [])
         GitHub(gh).mark_pr("o/r", {"number": 1, "labels": []})
-        self.assertEqual([c[:2] for c in gh.calls], [["label", "create"], ["pr", "edit"]])
+        self.assertEqual([c[:2] for c in gh.calls], [["label", "create"], ["api", "repos/o/r/issues/1/labels"]])
 
     def test_companions_skip_the_pr_itself_and_forks(self):
         ours = {"number": 1, "headRefName": "kandu/1-add-field", "body": ""}
@@ -208,6 +123,74 @@ class GitHubTest(unittest.TestCase):
              {"number": 10, "headRefName": "kandu/10-add-field", "body": "", "isCrossRepository": True}],
         )
         self.assertEqual(GitHub(gh).companions("o/a", ours, ["o/a", "o/b"]), [("o/b", 9)])
+
+    def test_the_board_read_keeps_card_and_field_ids(self):
+        page = board_page([{"id": "card-3", "content": ISSUE, "status": {"name": "Ready"}}])
+        page["data"]["repositoryOwner"]["projectV2"] |= {"id": "P1", "fields": {"nodes": [
+            {"id": "F1", "name": "Status", "options": [{"id": "o1", "name": "Ready"}]}, {"id": "F2", "name": "Deadline"}, {}]}}
+        items, meta = GitHub(FakeGh(page)).read_board(BOARD)
+        self.assertEqual(items[0].item_id, "card-3")
+        self.assertEqual(meta, {"project_id": "P1", "fields": {"Status": {"id": "F1", "options": {"Ready": "o1"}},
+                                                               "Deadline": {"id": "F2", "options": {}}}})
+
+    def test_one_request_reads_a_repo_in_the_shape_gh_shows(self):
+        pr = {"number": 7, "title": "t", "state": "OPEN", "url": "u", "body": "", "changedFiles": 1,
+              "headRefName": "kandu/3-a", "headRefOid": "abc", "isDraft": False, "isCrossRepository": False,
+              "mergeable": "MERGEABLE", "updatedAt": "x", "labels": {"nodes": [{"name": "kandu"}]},
+              "comments": {"nodes": [{"author": {"login": "me"}, "body": "hi", "createdAt": "y"}]},
+              "files": {"nodes": [{"path": "a.py", "additions": 1, "deletions": 0}]},
+              "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [
+                  {"__typename": "CheckRun", "name": "ci", "status": "COMPLETED", "conclusion": "SUCCESS"}]}}}}]},
+              "reviewThreads": {"nodes": [{"isResolved": True, "resolvedBy": {"login": "other"},
+                                           "comments": {"nodes": [{"author": {"login": "me"}}]}}]}}
+        issue = {"number": 3, "title": "t", "body": None, "url": "u", "state": "OPEN", "updatedAt": "x",
+                 "labels": {"nodes": [{"name": "agent"}]}}
+        reply = {"data": {"repository": {"defaultBranchRef": {"name": "main"},
+                                         "issues": {"pageInfo": {"hasNextPage": False}, "nodes": [issue]},
+                                         "open": {"pageInfo": {"hasNextPage": False}, "nodes": [pr]},
+                                         "closed": {"nodes": []}}}}
+        gh = FakeGh(reply)
+        found = GitHub(gh).read_repo("o/r", "2026-01-01T00:00:00Z")
+        self.assertEqual(len(gh.calls), 1)
+        self.assertIn("since=2026-01-01T00:00:00Z", gh.calls[0])
+        self.assertEqual(found["default_branch"], "main")
+        self.assertEqual(found["issues"][0]["body"], "")
+        got = found["prs"][0]
+        self.assertEqual((got["labels"], got["files"][0]["path"], got["comments"][0]["author"]["login"]),
+                         ([{"name": "kandu"}], "a.py", "me"))
+        self.assertEqual(got["statusCheckRollup"][0]["conclusion"], "SUCCESS")
+        self.assertEqual(got["reviewThreads"], [{"resolved": True, "resolved_by_other": True}])
+
+    def test_a_second_page_asks_only_for_what_has_more(self):
+        page = lambda more, n: {"data": {"repository": {"defaultBranchRef": None,
+            "issues": {"pageInfo": {"hasNextPage": more, "endCursor": "c"}, "nodes": [
+                {"number": n, "title": "t", "body": "", "url": "u", "state": "OPEN", "labels": {"nodes": []}}]},
+            "open": {"pageInfo": {"hasNextPage": False}, "nodes": []}, "closed": {"nodes": []}}}}
+        gh = FakeGh(page(True, 1), page(False, 2))
+        found = GitHub(gh).read_repo("o/r")
+        self.assertEqual([i["number"] for i in found["issues"]], [1, 2])
+        self.assertIn("open=false", gh.calls[1])
+        self.assertIn("issuesAfter=c", gh.calls[1])
+
+    def test_an_issue_is_created_through_rest(self):
+        gh = FakeGh(None, {"html_url": "https://github.com/o/r/issues/5"})
+        self.assertEqual(GitHub(gh).create_issue("o/r", "T", "B"), "https://github.com/o/r/issues/5")
+        self.assertEqual(gh.calls[1][:4], ["api", "repos/o/r/issues", "-X", "POST"])
+        self.assertIn("labels[]=agent", gh.calls[1])
+
+    def test_card_changes_go_in_one_request(self):
+        gh = FakeGh()
+        GitHub(gh).edit_cards("P", [("i1", "f1", "option", "o1"), ("i2", "f2", "date", "2026-01-02"),
+                                    ("i3", "f3", "clear", None)])
+        self.assertEqual(len(gh.calls), 1)
+        query = gh.calls[0][-1]
+        self.assertEqual((query.count("updateProjectV2ItemFieldValue"), query.count("clearProjectV2ItemFieldValue")), (2, 1))
+
+    def test_what_passes_by_itself(self):
+        for message in ("HTTP 502: Bad Gateway", "API rate limit exceeded", "You have exceeded a secondary rate limit",
+                        "gh api: TimeoutExpired"):
+            self.assertTrue(transient(GitHubError(message)), message)
+        self.assertFalse(transient(GitHubError("Could not resolve to an issue")))
 
 
 if __name__ == "__main__":

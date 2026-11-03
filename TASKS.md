@@ -52,6 +52,7 @@ Every task is designed and checked against harness, context and memory (§14).
 43. [x] Change the 5-hour and weekly limits on the dashboard at any time (§7)
 44. [x] The dashboard shows each Didban session: when, tokens and what it did, in no project's limits (§13)
 45. [x] A flower changes when its task moves, without the board-read button: the page follows the shared copy, at most once a minute (§7)
+46. [x] Kandu works on its own copy of GitHub: reads come from it, changes wait in a queue sent every 10 minutes, a merge and a new issue go at once, and a card the user moved meanwhile keeps the user's move (§3)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

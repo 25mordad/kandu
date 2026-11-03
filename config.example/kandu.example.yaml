@@ -36,6 +36,7 @@ github:
   owners:                      # users / orgs Kandu may work in
     - your-github-login
     - acme-org
+  sync_every_minutes: 10       # optional; how often Kandu reads GitHub into its copy and sends its queued changes
 
 notify:
   adapter: telegram            # telegram | none
