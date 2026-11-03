@@ -12,7 +12,8 @@ from pathlib import Path
 
 from . import sizing
 from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR, DEADLINE_FIELD, ConfigError, load_config
-from .github import BoardCache, GitHub, GitHubError
+from .github import GitHubError
+from .mirror import open_github
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "prompts" / "templates" / "issue.md"
 
@@ -155,7 +156,7 @@ def main():
     try:
         config = load_config(args.local)
         body = Path(args.body_file).read_text(encoding="utf-8")
-        print(create_task(config, GitHub(cache=BoardCache()), args.project, args.repo, args.title, body, args.local,
+        print(create_task(config, open_github(config, refresh=True), args.project, args.repo, args.title, body, args.local,
                           args.priority, args.kind, args.size, args.deadline, args.by_hand, args.tokens))
     except ConfigError as e:
         print(f"tasks: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)

@@ -22,7 +22,8 @@ from pathlib import Path
 
 from . import agents, debt, merge, queen, questions, review, sizing, split
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
-from .github import AGENT_LABEL, TOKENS_LABEL, BoardCache, GitHub, GitHubError, blockers_in, branch_for
+from .github import AGENT_LABEL, TOKENS_LABEL, GitHubError, blockers_in, branch_for, transient
+from .mirror import open_github
 from .notify import notifier_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
 from .state import StateStore
@@ -230,6 +231,16 @@ class Supervisor:
         self._move(task, status)
         self.store.record("task_finished", task=task.key, project=task.project.name, outcome=outcome)
 
+    def _reread(self, read):
+        """Reads GitHub into the copy after an agent changed it. A refusal that passes by itself ends only this
+        cycle's turn of the task: it stays where it is and resumes in the next."""
+        try:
+            read()
+        except GitHubError as e:
+            if transient(e):
+                raise CycleStop(f"GitHub could not be read: {e}") from e
+            raise
+
     def _decide(self, task, decision, reason):
         self.store.record("decision", task=task.key, project=task.project.name, decision=decision, reason=reason)
 
@@ -301,6 +312,7 @@ class Supervisor:
             self.github.comment_issue(task.repo, task.number, reply["reason"])
             self._finish(task, BLOCKED, "blocked")
             return None
+        self._reread(lambda: self.github.refresh_repo(task.repo))  # the worker opened its PR on GitHub
         pr = self.github.find_pr(task.repo, task.number)
         if pr is None:
             raise TaskFailed("worker reported a PR, but its branch has none")
@@ -433,6 +445,7 @@ class Supervisor:
         self._pick(task)
         self._phase(task, f"fix round {len(reviews)}")
         self._work(task, findings=self._to_fix(task, reviews[-1]), pr=pr["number"])
+        self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
         if self.github.pr(task.repo, pr["number"])["headRefOid"] == head:
             self.github.comment_pr(task.repo, pr["number"], review.fix_comment(head))
 
@@ -475,6 +488,11 @@ class Supervisor:
             return False
         self._pick(task)
         self._phase(task, "merge")
+        self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))  # checks and threads, as they are now
+        fresh = self.github.pr(task.repo, pr["number"])
+        if fresh["headRefOid"] != pr["headRefOid"]:
+            return False  # a new commit came in; it is reviewed first
+        pr = fresh
         reasons = self._merge_waits(task, pr)
         if reasons:
             self._decide(task, "merge_waits", "; ".join(reasons))
@@ -960,6 +978,9 @@ class Supervisor:
         self.deadline = woke + timedelta(minutes=settings.max_cycle_minutes)
         self.halt_reason = None
         self.queen_trouble = None
+        failed = self.github.refresh(self.config)  # the copy as GitHub holds it now, before anything is decided
+        if failed:
+            self.store.record("copy_not_read", detail="; ".join(failed))
         reason = self._gate() or self._queen_limit()
         if reason is None:
             try:
@@ -1032,7 +1053,7 @@ def main():
     except ConfigError as e:
         print(f"supervisor: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1
-    supervisor = Supervisor(config, store, GitHub(cache=BoardCache()), Runner(config, DEFAULT_LOGS_DIR), read_usage, args.local)
+    supervisor = Supervisor(config, store, open_github(config), Runner(config, DEFAULT_LOGS_DIR), read_usage, args.local)
     if args.dry_run:
         print("\n".join(supervisor.dry_run()))
         return 0

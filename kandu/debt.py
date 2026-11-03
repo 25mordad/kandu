@@ -9,7 +9,8 @@ import sys
 from pathlib import Path
 
 from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
-from .github import AGENT_LABEL, BoardCache, GitHub, GitHubError
+from .github import AGENT_LABEL, GitHubError
+from .mirror import open_github
 from .split import BACKLOG, find_item
 from .tasks import TaskError, check_task, check_text, find_project, set_fields
 
@@ -73,7 +74,7 @@ def main():
     args = parser.parse_args()
     try:
         config = load_config(args.local)
-        github = GitHub(cache=BoardCache())
+        github = open_github(config, refresh=True)
         if args.command == "list":
             for item in parked(config, github):
                 print(f"{item.repo}#{item.number}: {item.title}")

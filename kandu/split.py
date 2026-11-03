@@ -11,7 +11,8 @@ from pathlib import Path
 
 from . import sizing
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
-from .github import BLOCKED_BY, BoardCache, GitHub, GitHubError, blockers_in
+from .github import BLOCKED_BY, GitHubError, blockers_in
+from .mirror import open_github
 from .queen import all_events
 from .review import CODE_FENCE
 from .state import StateStore
@@ -243,13 +244,13 @@ def main():
     try:
         config = load_config(args.local)
         if args.command == "decline":
-            decline(config, GitHub(cache=BoardCache()), store, args.task)
+            decline(config, open_github(config, refresh=True), store, args.task)
             return 0
         slices = None
         if args.file:
             text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
             slices = json.loads(text)
-        print("\n".join(approve(config, GitHub(cache=BoardCache()), store, args.task, args.local, slices)))
+        print("\n".join(approve(config, open_github(config, refresh=True), store, args.task, args.local, slices)))
     except ConfigError as e:
         print(f"split: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1

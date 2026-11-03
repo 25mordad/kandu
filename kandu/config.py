@@ -77,6 +77,7 @@ class Claude:
 class GitHub:
     account: str
     owners: list[str]
+    sync_every_minutes: int = 10   # how often Kandu's copy is read from GitHub and its queue sent (DESIGN §3)
 
 
 @dataclass
@@ -332,6 +333,7 @@ def _check_settings(s, problems):
     for name in ("wake_every_minutes", "max_cycle_minutes", "max_parallel_workers", "max_parallel_sizers",
                  "queen_max_retries", "queen_daily_token_limit"):
         _check_positive(getattr(s.supervisor, name), f"supervisor.{name}", problems)
+    _check_positive(s.github.sync_every_minutes, "github.sync_every_minutes", problems)
     if s.supervisor.auto_revert:
         problems.append("supervisor.auto_revert: must be false; Kandu only reports breakage (DESIGN §5)")
     if not 1 <= s.dashboard.port <= 65535:

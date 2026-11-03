@@ -459,7 +459,7 @@ class GroupTest(Base):
         out, err = io.StringIO(), io.StringIO()
         with mock.patch("sys.argv", ["split", *args, "--local", str(self.local)]), \
                 mock.patch.object(split, "StateStore", return_value=self.store), \
-                mock.patch.object(split, "GitHub", return_value=self.github), \
+                mock.patch.object(split, "open_github", return_value=self.github), \
                 mock.patch.object(split, "load_config", return_value=self.config), \
                 mock.patch("sys.stdin", io.StringIO(stdin)), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):

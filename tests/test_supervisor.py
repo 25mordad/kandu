@@ -141,6 +141,16 @@ class FakeGitHub:
     def companions(self, repo, pr, repos):
         return []
 
+    def refresh(self, config, max_age=0):
+        self.refreshes = getattr(self, "refreshes", 0) + 1
+        return []
+
+    def refresh_repo(self, repo, max_age=0):
+        pass
+
+    def refresh_pr(self, repo, number):
+        pass
+
 
 class FakeRunner:
     """Each agent run takes the next step: a text reply, or a function called during the run."""
@@ -304,7 +314,7 @@ class PausedOnTheDashboardTest(Base):
         self.sup._merge_waits = lambda *_: self.store.pause_project("website") or []
         self.github.merge_pr = mock.Mock()
         self.config.auto_merge_for = lambda project: True
-        self.assertFalse(self.sup._merge(task, {"number": 1, "headRefOid": SHA1}, "approved", True))
+        self.assertFalse(self.sup._merge(task, self.github.open_pr(REPO, 1), "approved", True))
         self.github.merge_pr.assert_not_called()
 
     def test_it_gets_no_end_check(self):

@@ -1,13 +1,8 @@
 """Everything Kandu reads from and writes to GitHub, through `gh` (DESIGN §3, §10)."""
-import fcntl
 import json
-import os
 import re
 import subprocess
-import time
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass
-from pathlib import Path
+from dataclasses import dataclass
 
 from . import ghmeter
 from .config import BOARD_FIELDS, DEADLINE_FIELD
@@ -18,8 +13,6 @@ TOKENS_LABEL = "uses-tokens"
 FALLBACK_SLUG = "task"
 TIMEOUT_SECONDS = 60
 BOARD_ITEM_LIMIT = 500
-BOARD_CACHE_DIR = Path(__file__).resolve().parent.parent / "state" / "boards"
-BOARD_CACHE_SECONDS = 60
 PR_SEARCH_LIMIT = 200
 PR_FIELDS = "number,title,state,url,body,changedFiles,files,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,statusCheckRollup"
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
@@ -34,9 +27,13 @@ THREADS_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
 SELECT_VALUE = "... on ProjectV2ItemFieldSingleSelectValue { name }"
 # `fieldValueByName` is what keeps this at one point a page: `gh project item-list` costs 100.
 BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
-  repositoryOwner(login: $owner) {{ ... on ProjectV2Owner {{ projectV2(number: $number) {{ items(first: 100, after: $after) {{
+  repositoryOwner(login: $owner) {{ ... on ProjectV2Owner {{ projectV2(number: $number) {{
+    id
+    fields(first: 50) {{ nodes {{ ... on ProjectV2FieldCommon {{ id name }} ... on ProjectV2SingleSelectField {{ options {{ id name }} }} }} }}
+    items(first: 100, after: $after) {{
     pageInfo {{ hasNextPage endCursor }}
     nodes {{
+      id
       status: fieldValueByName(name: "Status") {{ {SELECT_VALUE} }}
       priority: fieldValueByName(name: "Priority") {{ {SELECT_VALUE} }}
       kind: fieldValueByName(name: "Kind") {{ {SELECT_VALUE} }}
@@ -46,6 +43,39 @@ BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
     }}
   }} }} }} }}
 }}"""
+
+ISSUE_NODE = "number title body url state updatedAt labels(first: 30) { nodes { name } }"
+PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable updatedAt "
+           "labels(first: 30) { nodes { name } } comments(last: 100) { nodes { author { login } body createdAt } }")
+# Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
+PR_DEEP = """files(first: 100) { nodes { path additions deletions } }
+  commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 50) { nodes {
+    __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }
+  reviewThreads(first: 20) { nodes { isResolved resolvedBy { login } comments(first: 1) { nodes { author { login } } } } }"""
+# One request reads what a repo holds for Kandu: what changed in its issues, every open PR, the PRs that closed lately.
+REPO_QUERY = f"""query($owner: String!, $name: String!, $since: DateTime, $issuesAfter: String, $openAfter: String,
+      $issues: Boolean!, $open: Boolean!, $closed: Boolean!) {{
+  repository(owner: $owner, name: $name) {{
+    defaultBranchRef {{ name }}
+    issues(first: 100, after: $issuesAfter, filterBy: {{since: $since}}, orderBy: {{field: UPDATED_AT, direction: DESC}})
+        @include(if: $issues) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ {ISSUE_NODE} }} }}
+    open: pullRequests(first: 20, after: $openAfter, states: OPEN, orderBy: {{field: UPDATED_AT, direction: DESC}})
+        @include(if: $open) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ {PR_NODE} {PR_DEEP} }} }}
+    closed: pullRequests(first: 30, states: [CLOSED, MERGED], orderBy: {{field: UPDATED_AT, direction: DESC}})
+        @include(if: $closed) {{ nodes {{ {PR_NODE} }} }}
+  }}
+}}"""
+ISSUE_QUERY = f"""query($owner: String!, $name: String!, $number: Int!) {{
+  repository(owner: $owner, name: $name) {{ issue(number: $number) {{ {ISSUE_NODE} }} }}
+}}"""
+PR_QUERY = f"""query($owner: String!, $name: String!, $number: Int!) {{
+  repository(owner: $owner, name: $name) {{ pullRequest(number: $number) {{ {PR_NODE} {PR_DEEP} }} }}
+}}"""
+REPO_ISSUE_LIMIT = 500
+OPEN_PR_LIMIT = 100
+CONTENT_QUERY = "query($url: URI!) { resource(url: $url) { ... on Issue { id } ... on PullRequest { id } } }"
+ADD_ITEM = ("mutation($project: ID!, $content: ID!) { addProjectV2ItemById(input: {projectId: $project, contentId: $content}) "
+            "{ item { id } } }")
 
 
 class GitHubError(Exception):
@@ -66,75 +96,44 @@ class BoardItem:
     size: str = ""
     deadline: str = ""
     closed_at: str = ""
+    item_id: str = ""              # the card's own id on the board, which a write needs
 
 
-class BoardCache:
-    """One copy of each board on disk, shared by every Kandu process (DESIGN §3).
+TRANSIENT = re.compile(r"HTTP 5\d\d|\b50[234]\b|rate limit|secondary|abuse|too quickly|timed out|Timeout|"
+                       r"temporarily|try again|connection|EOF", re.IGNORECASE)
 
-    GitHub stays the source of truth: a write goes there first and lands here after.
-    """
 
-    def __init__(self, root=BOARD_CACHE_DIR, clock=time.time):
-        self.root = Path(root)
-        self.clock = clock
+def transient(error):
+    """True for a refusal that passes by itself: GitHub busy, a limit, the network."""
+    return bool(TRANSIENT.search(str(error)))
 
-    def _path(self, board):
-        return self.root / f"{board.owner}-{board.number}.json"
 
-    @contextmanager
-    def locked(self, board):
-        """Held during a read of GitHub, so a process that arrives meanwhile gets its result."""
-        self.root.mkdir(parents=True, exist_ok=True)
-        with open(self._path(board).with_suffix(".lock"), "w") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            yield
+def _pr(node, deep):
+    """A PR as `gh pr view --json` shows it, so every reader keeps working on the same fields."""
+    pr = {key: node.get(key) for key in ("number", "title", "state", "url", "body", "changedFiles", "headRefName",
+                                          "headRefOid", "isDraft", "isCrossRepository", "mergeable", "updatedAt")}
+    pr["labels"] = [label for label in node["labels"]["nodes"]]
+    pr["comments"] = [{"author": c.get("author") or {}, "body": c["body"], "createdAt": c.get("createdAt")}
+                      for c in node["comments"]["nodes"]]
+    pr["files"], pr["statusCheckRollup"], pr["reviewThreads"] = [], [], []
+    if deep:
+        pr["files"] = node["files"]["nodes"]
+        commits = node["commits"]["nodes"]
+        rollup = commits and (commits[0]["commit"].get("statusCheckRollup") or {})
+        pr["statusCheckRollup"] = rollup["contexts"]["nodes"] if rollup else []
+        for thread in node["reviewThreads"]["nodes"]:
+            comments = thread["comments"]["nodes"]
+            author = (comments[0].get("author") or {}).get("login") if comments else None
+            resolver = (thread.get("resolvedBy") or {}).get("login")
+            pr["reviewThreads"].append({"resolved": thread["isResolved"],
+                                        "resolved_by_other": bool(resolver) and resolver != author})
+    return pr
 
-    def _load(self, board):
-        try:
-            data = json.loads(self._path(board).read_text(encoding="utf-8"))
-            return data["read_at"], [BoardItem(**item) for item in data["items"]]
-        except (OSError, ValueError, KeyError, TypeError):
-            return None
 
-    def _store(self, board, read_at, items):
-        temporary = self._path(board).with_suffix(".tmp")
-        temporary.write_text(json.dumps({"read_at": read_at, "items": [asdict(i) for i in items]}), encoding="utf-8")
-        os.replace(temporary, self._path(board))
-
-    def version(self, board):
-        """Changes with every write of the copy, whichever process made it."""
-        try:
-            return self._path(board).stat().st_mtime_ns
-        except OSError:
-            return None
-
-    def fresh(self, board):
-        """The board's items, or None if the copy is missing or too old."""
-        found = self._load(board)
-        if found is None or not 0 <= self.clock() - found[0] < BOARD_CACHE_SECONDS:
-            return None
-        return found[1]
-
-    def save(self, board, items):
-        self._store(board, self.clock(), items)
-
-    def update(self, board, url, changes):
-        """Puts a write GitHub accepted into the copy. The copy keeps its age."""
-        with self.locked(board):
-            found = self._load(board)
-            if found is None:
-                return
-            read_at, items = found
-            for item in items:
-                if item.url == url:
-                    for name, value in changes.items():
-                        setattr(item, name, value)
-            self._store(board, read_at, items)
-
-    def forget(self, board=None):
-        """For a change the copy cannot follow. Without a board it drops them all: an issue has no board of its own."""
-        for path in [self._path(board)] if board else self.root.glob("*.json"):
-            path.unlink(missing_ok=True)
+def _issue(node):
+    return {"number": node["number"], "title": node["title"], "body": node.get("body") or "", "url": node["url"],
+            "state": node["state"], "labels": [label["name"] for label in node["labels"]["nodes"]],
+            "updatedAt": node.get("updatedAt")}
 
 
 def run_gh(args):
@@ -183,36 +182,42 @@ def is_companion(ours, ours_repo, theirs, theirs_repo):
 
 
 class GitHub:
-    def __init__(self, run=run_gh, cache=None):
+    """Talks to GitHub directly, one call at a time. Kandu's own processes go through `mirror.Mirror` instead."""
+
+    def __init__(self, run=run_gh):
         self._run = run
-        self._cache = cache
 
     def _json(self, args):
         return json.loads(self._run(args))
 
-    def board_version(self, board):
-        """Changes when any process changes the shared copy of the board. Asks GitHub nothing."""
-        return None if self._cache is None else self._cache.version(board)
+    def _graphql(self, query, **variables):
+        args = ["api", "graphql", "-f", f"query={query}"]
+        for name, value in variables.items():
+            if value is None:
+                continue
+            flag = "-F" if isinstance(value, (bool, int)) else "-f"
+            args += [flag, f"{name}={str(value).lower() if isinstance(value, bool) else value}"]
+        return self._json(args)
 
     def board_items(self, board):
-        """Returns the issues on a board, from the shared copy while it is fresh."""
-        if self._cache is None:
-            return self._read_board(board)
-        with self._cache.locked(board):
-            items = self._cache.fresh(board)
-            if items is None:
-                items = self._read_board(board)
-                self._cache.save(board, items)
-            return items
+        return self.read_board(board)[0]
 
-    def _read_board(self, board):
-        """Draft items and PRs are not tasks."""
+    def read_board(self, board):
+        """Returns the issues on a board, and what a write needs: the board's id and its fields' ids.
+
+        Draft items and PRs are not tasks.
+        """
         names = {theirs: ours for ours, theirs in board.columns.items()}
-        items, after = [], []
+        items, after, meta = [], [], None
         while True:
             data = self._json(["api", "graphql", "-f", f"query={BOARD_QUERY}", "-f", f"owner={board.owner}",
                                "-F", f"number={board.number}", *after])
-            page = data["data"]["repositoryOwner"]["projectV2"]["items"]
+            project = data["data"]["repositoryOwner"]["projectV2"]
+            if meta is None:
+                meta = {"project_id": project.get("id", ""), "fields": {
+                    f["name"]: {"id": f["id"], "options": {o["name"]: o["id"] for o in f.get("options", [])}}
+                    for f in project.get("fields", {}).get("nodes", []) if f.get("name")}}
+            page = project["items"]
             for node in page["nodes"]:
                 content = node.get("content") or {}
                 if "number" not in content:
@@ -224,28 +229,88 @@ class GitHub:
                                        labels=[label["name"] for label in content["labels"]["nodes"]],
                                        body=content.get("body") or "", priority=value("priority"), kind=value("kind"),
                                        size=value("size"), deadline=value("deadline", "date"),
-                                       closed_at=content.get("closedAt") or ""))
+                                       closed_at=content.get("closedAt") or "", item_id=node.get("id", "")))
             if not page["pageInfo"]["hasNextPage"] or len(items) >= BOARD_ITEM_LIMIT:
-                return items
+                return items, meta
             after = ["-f", f"after={page['pageInfo']['endCursor']}"]
+
+    def read_repo(self, repo, since=None):
+        """What changed in a repo's issues since `since`, every open PR and the PRs closed lately, in one request.
+
+        Only a first read, or a repo with more open PRs than fit in one page, takes more.
+        """
+        owner, name = repo.split("/")
+        found = {"default_branch": None, "issues": [], "prs": []}
+        cursors = {"issues": None, "open": None}
+        wanted = {"issues": True, "open": True, "closed": True}
+        while any(wanted.values()):
+            data = self._graphql(REPO_QUERY, owner=owner, name=name, since=since or "1970-01-01T00:00:00Z",
+                                 issuesAfter=cursors["issues"], openAfter=cursors["open"], **wanted)
+            node = data["data"]["repository"]
+            found["default_branch"] = (node.get("defaultBranchRef") or {}).get("name") or found["default_branch"]
+            if wanted["issues"]:
+                found["issues"] += [_issue(n) for n in node["issues"]["nodes"]]
+            if wanted["open"]:
+                found["prs"] += [_pr(n, True) for n in node["open"]["nodes"]]
+            if wanted["closed"]:
+                found["prs"] += [_pr(n, False) for n in node["closed"]["nodes"]]
+            counts = {"issues": len(found["issues"]), "open": sum(pr["state"] == "OPEN" for pr in found["prs"])}
+            for key, limit in (("issues", REPO_ISSUE_LIMIT), ("open", OPEN_PR_LIMIT)):
+                info = node[key]["pageInfo"] if wanted[key] else {}
+                more = bool(info.get("hasNextPage")) and counts[key] < limit
+                wanted[key], cursors[key] = more, info.get("endCursor") if more else None
+            wanted["closed"] = False
+        return found
+
+    def read_issue(self, repo, number):
+        """None if there is no such issue: the number may be a PR's."""
+        owner, name = repo.split("/")
+        try:
+            node = self._graphql(ISSUE_QUERY, owner=owner, name=name, number=number)["data"]["repository"]["issue"]
+        except GitHubError as e:
+            if "Could not resolve" in str(e):
+                return None
+            raise
+        return _issue(node) if node else None
+
+    def read_pr(self, repo, number):
+        owner, name = repo.split("/")
+        node = self._graphql(PR_QUERY, owner=owner, name=name, number=number)["data"]["repository"]["pullRequest"]
+        return _pr(node, True) if node else None
+
+    def edit_cards(self, project_id, edits):
+        """Sends many card changes in one request. Each edit is (item id, field id, kind, value).
+
+        `kind` is `option`, `date`, or `clear` for an empty value.
+        """
+        parts = []
+        for n, (item, field, kind, value) in enumerate(edits):
+            ids = f"projectId: {json.dumps(project_id)}, itemId: {json.dumps(item)}, fieldId: {json.dumps(field)}"
+            if kind == "clear":
+                parts.append(f"c{n}: clearProjectV2ItemFieldValue(input: {{{ids}}}) {{ clientMutationId }}")
+            else:
+                value = (f"singleSelectOptionId: {json.dumps(value)}" if kind == "option" else f"date: {json.dumps(value)}")
+                parts.append(f"c{n}: updateProjectV2ItemFieldValue(input: {{{ids}, value: {{{value}}}}}) "
+                             "{ clientMutationId }")
+        self._run(["api", "graphql", "-f", "query=mutation { " + " ".join(parts) + " }"])
+
+    def add_card(self, project_id, url):
+        """Puts an issue on a board and returns the card's id. Adding it twice returns the same card."""
+        content = self._graphql(CONTENT_QUERY, url=url)["data"]["resource"]["id"]
+        data = self._graphql(ADD_ITEM, project=project_id, content=content)
+        return data["data"]["addProjectV2ItemById"]["item"]["id"]
 
     def set_status(self, board, url, status):
         self._run(["project", "item-edit", str(board.number), "--owner", board.owner,
                    "--url", url, "--field", "Status", "--value", board.columns.get(status, status)])
-        if self._cache is not None:
-            self._cache.update(board, url, {"status": status})
 
     def set_field(self, board, url, field, value):
         flag = "--date" if field == DEADLINE_FIELD else "--value"
         self._run(["project", "item-edit", str(board.number), "--owner", board.owner,
                    "--url", url, "--field", field, flag, value])
-        if self._cache is not None:
-            self._cache.update(board, url, {field.lower(): value})
 
     def add_to_board(self, board, url):
         self._run(["project", "item-add", str(board.number), "--owner", board.owner, "--url", url])
-        if self._cache is not None:
-            self._cache.forget(board)
 
     def board_columns(self, board):
         """Returns the option names of the board's `Status` field."""
@@ -289,25 +354,26 @@ class GitHub:
         self._run(["api", "graphql", "-f", f"query={query}"])
 
     def create_issue(self, repo, title, body, by_hand=False, tokens=False):
-        """Creates an issue and returns its URL. It is labelled `agent` unless a person will do it.
+        """Creates an issue through the REST API and returns its URL. It is labelled `agent` unless a person will do it.
 
         `tokens` also labels it `uses-tokens`, which gives its worker the project's `task_tokens`.
         """
-        if by_hand:
-            return self._run(["issue", "create", "--repo", repo, "--title", title, "--body", body]).strip()
-        self._run(["label", "create", AGENT_LABEL, "--repo", repo, "--force",
-                   "--description", "Kandu may work on this"])
-        labels = ["--label", AGENT_LABEL]
-        if tokens:
+        labels = []
+        if not by_hand:
+            self._run(["label", "create", AGENT_LABEL, "--repo", repo, "--force",
+                       "--description", "Kandu may work on this"])
+            labels.append(AGENT_LABEL)
+        if tokens and not by_hand:
             self._run(["label", "create", TOKENS_LABEL, "--repo", repo, "--force",
                        "--description", "Its worker gets the project's task_tokens"])
-            labels += ["--label", TOKENS_LABEL]
-        return self._run(["issue", "create", "--repo", repo, "--title", title, "--body", body, *labels]).strip()
+            labels.append(TOKENS_LABEL)
+        args = ["api", f"repos/{repo}/issues", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}"]
+        for label in labels:
+            args += ["-f", f"labels[]={label}"]
+        return self._json(args)["html_url"]
 
     def edit_issue(self, repo, number, title, body):
-        self._run(["issue", "edit", str(number), "--repo", repo, "--title", title, "--body", body])
-        if self._cache is not None:
-            self._cache.forget()
+        self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", f"title={title}", "-f", f"body={body}"])
 
     def repo_is_public(self, repo):
         return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"
@@ -320,12 +386,15 @@ class GitHub:
         return data["state"] == "OPEN"
 
     def close_issue(self, repo, number):
-        self._run(["issue", "close", str(number), "--repo", repo])
-        if self._cache is not None:
-            self._cache.forget()
+        self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", "state=closed"])
 
     def comment_issue(self, repo, number, body):
-        self._run(["issue", "comment", str(number), "--repo", repo, "--body", body])
+        """A PR takes its comments the same way: on GitHub it is an issue too."""
+        self._run(["api", f"repos/{repo}/issues/{number}/comments", "-X", "POST", "-f", f"body={body}"])
+
+    def add_label(self, repo, number, label, description):
+        self._run(["label", "create", label, "--repo", repo, "--force", "--description", description])
+        self._run(["api", f"repos/{repo}/issues/{number}/labels", "-X", "POST", "-f", f"labels[]={label}"])
 
     def default_branch(self, repo):
         data = self._json(["repo", "view", repo, "--json", "defaultBranchRef"])
@@ -359,15 +428,13 @@ class GitHub:
         self._run(["pr", "merge", str(number), "--repo", repo, "--squash", "--match-head-commit", head_sha])
 
     def comment_pr(self, repo, number, body):
-        self._run(["pr", "comment", str(number), "--repo", repo, "--body", body])
+        self.comment_issue(repo, number, body)
 
     def mark_pr(self, repo, pr):
         """Adds the `kandu` label, creating it in the repo if needed."""
         if any(label["name"] == KANDU_LABEL for label in pr["labels"]):
             return
-        self._run(["label", "create", KANDU_LABEL, "--repo", repo, "--force",
-                   "--description", "Work done by Kandu"])
-        self._run(["pr", "edit", str(pr["number"]), "--repo", repo, "--add-label", KANDU_LABEL])
+        self.add_label(repo, pr["number"], KANDU_LABEL, "Work done by Kandu")
 
     def companions(self, repo, pr, repos):
         """Returns the open companion PRs of `pr` in `repos`, as (repo, number) pairs."""

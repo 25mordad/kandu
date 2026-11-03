@@ -65,10 +65,40 @@ WantedBy=timers.target
 """
 
 
+def render_sync_service(config):
+    install = _systemd_path(config.settings.brain.install_dir).rstrip("/")
+    return f"""[Unit]
+Description=Kandu: read GitHub into the copy, send the queue
+
+[Service]
+Type=oneshot
+WorkingDirectory={install}
+ExecStart="{install}/.venv/bin/python" -m kandu.sync
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-{install}/local/.env
+TimeoutStartSec=5min
+"""
+
+
+def render_sync_timer(config):
+    return f"""[Unit]
+Description=Sync Kandu's copy of GitHub
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={config.settings.github.sync_every_minutes}min
+
+[Install]
+WantedBy=timers.target
+"""
+
+
 def install(config, units_dir=UNITS_DIR):
     units_dir.mkdir(parents=True, exist_ok=True)
     (units_dir / f"{UNIT_NAME}.service").write_text(render_service(config), encoding="utf-8")
     (units_dir / f"{UNIT_NAME}.timer").write_text(render_timer(config), encoding="utf-8")
+    (units_dir / f"{UNIT_NAME}-sync.service").write_text(render_sync_service(config), encoding="utf-8")
+    (units_dir / f"{UNIT_NAME}-sync.timer").write_text(render_sync_timer(config), encoding="utf-8")
     (units_dir / f"{UNIT_NAME}-dashboard.service").write_text(render_dashboard(config), encoding="utf-8")
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
 
@@ -80,7 +110,7 @@ def restart(config):
     A running cycle is left to finish.
     """
     install(config)
-    subprocess.run(["systemctl", "--user", "try-restart", f"{UNIT_NAME}.timer"], check=True)
+    subprocess.run(["systemctl", "--user", "try-restart", f"{UNIT_NAME}.timer", f"{UNIT_NAME}-sync.timer"], check=True)
     subprocess.run(["systemd-run", "--user", "--on-active=1", "--collect", "systemctl", "--user", "restart",
                     f"{UNIT_NAME}-dashboard.service"], check=True, capture_output=True)
 
@@ -113,11 +143,12 @@ def main():
         print(f"timer: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1
     if not args.install and not args.enable and not args.dashboard:
-        print(render_service(config), render_timer(config), render_dashboard(config), sep="\n")
+        print(render_service(config), render_timer(config), render_sync_service(config), render_sync_timer(config),
+              render_dashboard(config), sep="\n")
         return 0
     install(config)
     if args.enable:
-        subprocess.run(["systemctl", "--user", "enable", "--now", f"{UNIT_NAME}.timer",
+        subprocess.run(["systemctl", "--user", "enable", "--now", f"{UNIT_NAME}.timer", f"{UNIT_NAME}-sync.timer",
                         f"{UNIT_NAME}-dashboard.service"], check=True)
     elif args.dashboard:
         subprocess.run(["systemctl", "--user", "enable", "--now", f"{UNIT_NAME}-dashboard.service"], check=True)

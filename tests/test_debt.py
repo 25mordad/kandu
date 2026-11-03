@@ -83,7 +83,7 @@ class DebtTest(unittest.TestCase):
         argv = ["debt", "--local", str(self.local), "add", "--project", "site", "--title", "T", "--body-file", "-"]
         with mock.patch("sys.argv", argv), mock.patch("sys.stdin", io.StringIO("Later.")), \
                 mock.patch("kandu.debt.load_config", return_value=self.config), \
-                mock.patch("kandu.debt.GitHub", return_value=self.github), mock.patch("sys.stdout"):
+                mock.patch("kandu.debt.open_github", return_value=self.github), mock.patch("sys.stdout"):
             self.assertEqual(debt.main(), 0)
         self.assertEqual(self.github.create_issue.call_args.args[:3], ("o/r", "T", "Later."))
 

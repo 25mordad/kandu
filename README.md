@@ -50,6 +50,7 @@ Working with a coding agent today still means sitting next to it: approving step
 Kandu is paced by usage, not by a fixed number of tasks:
 
 - A timer wakes the supervisor every hour (configurable).
+- Kandu reads GitHub into its own copy and sends its changes in batches every 10 minutes (configurable), so GitHub's limits do not stop work.
 - If there is nothing to decide or start, or usage is over a limit, it goes back to sleep immediately, at no cost.
 - Otherwise it works until the tasks run out, about 50 minutes pass, or a usage limit is reached, whichever comes first.
 - Two limits: the 5-hour usage window and the weekly usage, both in percent. If you share a subscription with your own sessions, keep a margin (for example 70% and 60%).
