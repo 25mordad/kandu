@@ -42,6 +42,19 @@ class ToolsTest(unittest.TestCase):
         allowed, _ = agents.live_check_tools(project(allowed_tools=["Bash(npm install)"]), RULES)
         self.assertIn("Bash(npm install)", allowed)
 
+    def test_a_reviewer_runs_the_projects_tests_and_commands(self):
+        self.assertEqual(agents.reviewer_tools(project(allowed_tools=["Bash(npm run check)"])), (None, []))
+        allowed, _ = agents.reviewer_tools(project(allowed_tools=["Bash(npm run check)"]), RULES)
+        for tool in ("Read", "Bash(npm test)", "Bash(npm test *)", "Bash(npm run check)"):
+            self.assertIn(tool, allowed)
+
+    def test_every_role_is_told_the_projects_own_commands(self):
+        site = project(allowed_tools=["Bash(npx tsx scripts/*)", "Read(docs/**)"])
+        text = agents.reviewer_prompt(site, "o/r", 12, 7, "abc123", "en", [], ["It works"], 1)
+        self.assertIn("The project's own commands: `npx tsx scripts/*`", text)
+        self.assertNotIn("docs/**", text)
+        self.assertIn("## Run it", text)
+
     def test_a_limited_worker_cannot_read_the_project_secrets(self):
         _, denied = agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a", RULES)
         self.assertIn("Read(~/s/keys.txt)", denied)
@@ -139,6 +152,27 @@ class WorkerReplyAfterSummaryTest(unittest.TestCase):
     def test_a_summary_above_the_json_line_is_read(self):
         reply = agents.parse_worker_reply('Opened the PR.\n\n- one change\n\n{"status": "pr_opened", "pr": 6}\n')
         self.assertEqual(reply, {"status": "pr_opened", "pr": 6})
+
+    def test_a_code_block_that_ends_the_summary_is_read(self):
+        text = 'Opened the PR.\n\nThings to know:\n- one change\n\n```json\n{"status": "pr_opened", "pr": 15}\n```'
+        self.assertEqual(agents.parse_worker_reply(text), {"status": "pr_opened", "pr": 15})
+        live = 'Checked the page.\n```json\n{"result": "pass", "summary": "It plays."}\n```'
+        self.assertEqual(agents.parse_live_check(live)["result"], "pass")
+
+    def test_a_check_reply_needs_a_known_result_and_a_summary(self):
+        self.assertEqual(agents.parse_check('{"result": "unclear", "summary": "Refused."}')["result"], "unclear")
+        for bad in ('{"result": "maybe", "summary": "s"}', '{"result": "pass", "summary": " "}', "nope"):
+            with self.assertRaises(agents.ReplyError):
+                agents.parse_check(bad)
+
+    def test_a_code_block_in_the_middle_is_not_the_reply(self):
+        with self.assertRaises(agents.ReplyError):
+            agents.parse_worker_reply('```json\n{"status": "pr_opened", "pr": 1}\n```\nThen I stopped.')
+
+    def test_the_reask_names_what_could_not_be_read(self):
+        prompt = agents.reask_prompt(agents.ReplyError("worker reply is not JSON"))
+        self.assertIn("worker reply is not JSON", prompt)
+        self.assertIn("Do not redo", prompt)
 
     def test_text_with_no_json_line_is_still_refused(self):
         with self.assertRaises(agents.ReplyError):

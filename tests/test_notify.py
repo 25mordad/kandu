@@ -87,6 +87,18 @@ class WhatIsImportantTest(unittest.TestCase):
         self.assertEqual(self.kind_of("queen_decided", action="ask_user", note="?", **ON_TASK), "needs_decision")
         self.assertIsNone(self.kind_of("queen_decided", action="release", note="", **ON_TASK))
 
+    def test_with_the_queen_on_she_takes_a_stopped_task_first(self):
+        for outcome in notify.QUEENS_OUTCOMES:
+            event = {"type": "task_finished", "outcome": outcome, "ts": "t", **ON_TASK}
+            self.assertIsNone(message_for(event, queen=True), outcome)
+            self.assertIsNotNone(message_for(event), outcome)
+        landed = {"type": "task_finished", "outcome": "deploy_failed", "ts": "t", **ON_TASK}
+        self.assertEqual(message_for(landed, queen=True).kind, "failure")
+
+    def test_a_loop_stop_is_the_users_to_decide(self):
+        event = {"type": "loop_stopped", "action": "retry", "reason": "r", "ts": "t", **ON_TASK}
+        self.assertEqual(message_for(event, queen=True).kind, "needs_decision")
+
     def test_project_events(self):
         self.assertEqual(self.kind_of("project_checked", project="site", passed=False, detail=""), "failure")
         self.assertIsNone(self.kind_of("project_checked", project="site", passed=True, detail=""))
@@ -178,7 +190,7 @@ class NotifierForTest(Base):
     def settings(self, adapter="telegram", language=None):
         telegram = SimpleNamespace(bot_token_env="TOKEN", chat_id_env="CHAT")
         notify_ = SimpleNamespace(adapter=adapter, telegram=telegram, events=["failure"], language=language)
-        return SimpleNamespace(notify=notify_, language="fa")
+        return SimpleNamespace(notify=notify_, language="fa", supervisor=SimpleNamespace(queen=True))
 
     def test_off(self):
         self.assertIsNone(notifier_for(self.settings("none"), self.store))

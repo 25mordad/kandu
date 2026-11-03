@@ -103,7 +103,7 @@ class Supervisor:
     auto_merge: bool = False
     auto_revert: bool = False
     queen: bool = True
-    queen_max_retries: int = 2
+    queen_max_retries: int = 3
     queen_daily_token_limit: int = 2000000
 
 

@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, debt, merge, queen, questions, review, sizing, split
+from . import agents, debt, merge, queen, questions, review, sizing, split, tasks
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .github import AGENT_LABEL, TOKENS_LABEL, GitHubError, blockers_in, branch_for, transient
 from .mirror import open_github
@@ -37,6 +37,11 @@ RESUMED = (IN_PROGRESS, IN_REVIEW)
 MERGEABLE = ("approved", "approved_with_notes")
 END_CHECK_MERGES = 2  # This many merges in a project in one cycle earn a check of the whole project.
 LANDING_FAILED = ("deploy_failed", "live_check_failed")
+BROKEN_REPLY = (agents.ReplyError, review.ReportError, split.ReportError)
+INTERNAL_TRIES = 3
+BASE_MOVED = "Base branch was modified"  # another merge landed first; GitHub asks to try once more
+MERGE_TRIES = 3  # Kandu's own trouble is tried this often in a row before the task stops for a look.
+PROGRESS = ("review_finished", "task_finished", "task_sized")
 ROOT = Path(__file__).resolve().parent.parent
 FAILURE_COMMENT = "Kandu could not finish this step and stopped here. The details are in its local log."
 
@@ -74,6 +79,19 @@ class TaskFailed(Exception):
 
 class StoppedByUser(TaskFailed):
     """The user stopped this worker. Only the user sends it back."""
+
+
+class KanduTrouble(TaskFailed):
+    """Kandu's own trouble, not the task's: a run that crashed, or a reply that could not be read."""
+
+
+def internal(error):
+    """True for trouble that a later try can pass without anyone changing anything."""
+    if isinstance(error, StoppedByUser):
+        return False
+    if isinstance(error, (KanduTrouble, RunnerError)):
+        return True
+    return isinstance(error, GitHubError) and transient(error)
 
 
 def new_run_id(now):
@@ -155,6 +173,13 @@ class Supervisor:
 
     def _read_tasks(self):
         return read_tasks(self.config, self.github, self.store.paused_projects())
+
+    def _sent_on(self):
+        """Tasks outside the working columns that the queen sent a worker or a checker to."""
+        events = queen.all_events(self.store)
+        return [_task(project, item) for project, item in self._board_items()
+                if item.status not in (READY, *RESUMED, DONE)
+                and queen.pending_step(events, f"{item.repo}#{item.number}") is not None]
 
     def _merged_while_blocked(self):
         """Tasks in `Blocked` whose PR someone merged. A failed deploy or live check stays for a person to look at."""
@@ -252,7 +277,7 @@ class Supervisor:
     def _rules(self, role):
         return getattr(self.config.settings.permissions, role)
 
-    def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None):
+    def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None, resume=None):
         reason = self._gate()
         if reason is not None:
             self._halt(reason)
@@ -265,7 +290,7 @@ class Supervisor:
         stop_one = self.store.worker_stop_file(run_id)
         result = self.runner.run_agent(task.project.machine, cwd, prompt, allowed, denied, run_id,
                                        lambda: self._hard_stop() or stop_one.exists(), self._model(role), tokens,
-                                       schema)
+                                       schema, resume)
         self.store.record("run_finished", task=task.key, project=task.project.name, run_id=run_id, role=role,
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
         if stop_one.exists():
@@ -277,10 +302,23 @@ class Supervisor:
             reason = self._gate()  # A run cut off by a limit is not the task's fault.
             if reason is not None:
                 self._halt(reason)
-            raise TaskFailed(f"{role} run {run_id} ended with an error")
+            raise KanduTrouble(f"{role} run {run_id} ended with an error")
         return result
 
-    def _work(self, task, findings=None, pr=None):
+    def _reply(self, task, role, cwd, tools, result, read, tokens=None, schema=None):
+        """Returns `read(text)`. A reply it cannot read is asked for once more, in the same session: the work is
+        done, and only its last message is missing."""
+        try:
+            return read(result.text)
+        except BROKEN_REPLY as e:
+            if not result.session_id:
+                raise
+            self._decide(task, "reply_reasked", f"{role}: {e}")
+            again = self._agent(task, role, cwd, agents.reask_prompt(e), tools, new_run_id(self.now()), tokens,
+                                schema, resume=result.session_id)
+            return read(again.text)
+
+    def _work(self, task, findings=None, pr=None, order=None):
         run_id = new_run_id(self.now())
         base = self.github.default_branch(task.repo)
         cwd = self.runner.prepare_worktree(task.project, task.repo, task.branch, base)
@@ -288,22 +326,28 @@ class Supervisor:
         blockers = open_blockers(self.github, task.repo, self.github.issue_text(task.repo, task.number)["body"])
         prompt = agents.worker_prompt(task.project, task.repo, task.number, task.branch, run_id,
                                       findings=findings, pr=pr, local_dir=self.local_dir,
-                                      queen_note=note, tokens=task.tokens, open_blockers=blockers)
+                                      queen_note=note, tokens=task.tokens, open_blockers=blockers, order=order)
         project = task.project
         tokens = (project.secrets_from, list(project.task_tokens)) if task.tokens else None
         tools = agents.worker_tools(project, task.branch, self._rules("worker"))
-        return self._agent(task, "worker", cwd, prompt, tools, run_id, tokens)
+        result = self._agent(task, "worker", cwd, prompt, tools, run_id, tokens, agents.WORKER_SCHEMA)
+        return self._reply(task, "worker", cwd, tools, result, agents.parse_worker_reply, tokens, agents.WORKER_SCHEMA)
 
     def _implement(self, task):
         """First run. Returns the new PR, or None if the worker gave the task back."""
         self._pick(task)
         self._move(task, IN_PROGRESS)
         self._phase(task, "implement")
-        result = self._work(task)
         try:
-            reply = agents.parse_worker_reply(result.text)
+            reply = self._work(task)
         except agents.ReplyError as e:
-            raise TaskFailed(str(e)) from e
+            # The work may be done even if its last message is not: a PR on the branch is its answer.
+            self._reread(lambda: self.github.refresh_repo(task.repo))
+            pr = self.github.find_pr(task.repo, task.number)
+            if pr is not None and pr["state"] == "OPEN":
+                self._decide(task, "reply_unread_pr_found", str(e))
+                return pr
+            raise KanduTrouble(str(e)) from e
         if reply["status"] == "needs_info":
             self.github.comment_issue(task.repo, task.number, reply["question"])
             self._finish(task, NEEDS_INFO, "needs_info")
@@ -349,15 +393,19 @@ class Supervisor:
             companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
             prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head, language,
                                             companions, criteria, first_n, local_dir=self.local_dir)
-        result = self._agent(task, "reviewer", cwd, prompt, agents.role_tools(self._rules("reviewer")), run_id,
-                             schema=review.REPORT_SCHEMA)
-        try:
-            report = review.parse_report(result.text)
+        tools = agents.reviewer_tools(task.project, self._rules("reviewer"))
+        result = self._agent(task, "reviewer", cwd, prompt, tools, run_id, schema=review.REPORT_SCHEMA)
+
+        def read(text):
+            report = review.parse_report(text)
             review.validate_report(report, to_fix, second=bool(to_fix))
+            return report
+        try:
+            report = self._reply(task, "reviewer", cwd, tools, result, read, schema=review.REPORT_SCHEMA)
             dropped = (review.carry_over(report, reviews[-1], to_fix) if to_fix else
                        review.hold_to_scope(report, criteria, [f["path"] for f in pr["files"]]))
         except review.ReportError as e:
-            raise TaskFailed(f"reviewer run {run_id}: {e}") from e
+            raise KanduTrouble(f"reviewer run {run_id}: {e}") from e
         if report["head_sha"] != head:
             self._decide(task, "review_voided", "the head moved during the review")
             return
@@ -384,10 +432,14 @@ class Supervisor:
         try:
             cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
             prompt = agents.notes_prompt(task.project, task.repo, task.number, pr["number"], notes, self.local_dir)
-            result = self._agent(task, "splitter", cwd, prompt, agents.role_tools(self._rules("splitter")), run_id)
-            report = split.parse_report(result.text)
-            split.validate_notes(report, notes)
-            sized = report["notes"]
+            tools = agents.role_tools(self._rules("splitter"))
+            result = self._agent(task, "splitter", cwd, prompt, tools, run_id, schema=agents.NOTES_SCHEMA)
+
+            def read(text):
+                report = split.parse_report(text)
+                split.validate_notes(report, notes)
+                return report
+            sized = self._reply(task, "splitter", cwd, tools, result, read, schema=agents.NOTES_SCHEMA)["notes"]
         except StoppedByUser:
             raise
         except (TaskFailed, split.ReportError, GitHubError, RunnerError) as e:
@@ -456,7 +508,10 @@ class Supervisor:
         head = pr["headRefOid"]
         self._pick(task)
         self._phase(task, phase)
-        self._work(task, findings=findings, pr=pr["number"])
+        try:
+            self._work(task, findings=findings, pr=pr["number"])
+        except agents.ReplyError:
+            pass  # A round is judged by its commits, not by its last message.
         self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
         if self.github.pr(task.repo, pr["number"])["headRefOid"] == head:
             self.github.comment_pr(task.repo, pr["number"], review.fix_comment(head))
@@ -473,6 +528,51 @@ class Supervisor:
                     "body": f"This PR conflicts with `{base}`. Merge `{base}` into the branch (no rebase), resolve every "
                             "conflict so that the changes of both sides stay, run the tests, and push. Change nothing else."}
         self._round(task, pr, "update", [conflict])
+
+    # What the queen sends on.
+
+    def _step_done(self, task, step, result, summary=None, head_sha=None, run_id=None):
+        self.store.record("queen_step_done", task=task.key, project=task.project.name, action=step["action"],
+                          decided=step["ts"], result=result, summary=summary, head_sha=head_sha, run_id=run_id)
+
+    def _rework(self, task, pr, step):
+        """A fresh worker on the PR's branch does what she asks. The new head is then reviewed as usual."""
+        if pr is None or pr["state"] != "OPEN":
+            self._step_done(task, step, result="no_open_pr")
+            return
+        head = pr["headRefOid"]
+        task.branch = pr["headRefName"]
+        self._pick(task)
+        self._move(task, IN_PROGRESS)
+        self._phase(task, "queen's rework")
+        try:
+            self._work(task, pr=pr["number"], order=step["note"])
+        except agents.ReplyError:
+            pass  # judged by its commits, as a fix round is
+        self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
+        after = self.github.pr(task.repo, pr["number"])["headRefOid"]
+        self._step_done(task, step, result="pushed" if after != head else "no_commit", head_sha=after)
+
+    def _verify(self, task, pr, step):
+        """A checker finds out what she asked, on the PR's head or the default branch. She reads it next look."""
+        self._pick(task)
+        self._phase(task, "queen's check")
+        run_id = new_run_id(self.now())
+        head = pr["headRefOid"] if pr is not None and pr["state"] == "OPEN" else None
+        if head is not None:
+            cwd = self.runner.prepare_review(task.project, task.repo, pr["headRefName"], head)
+        else:
+            base = self.github.default_branch(task.repo)
+            cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/check-{task.number}", f"origin/{base}")
+        prompt = agents.check_prompt(task.project, task.repo, task.number, pr["number"] if head else None, head,
+                                     step["note"], self.local_dir)
+        tools = agents.reviewer_tools(task.project, self._rules("reviewer"))
+        result = self._agent(task, "checker", cwd, prompt, tools, run_id, schema=agents.CHECK_SCHEMA)
+        try:
+            reply = self._reply(task, "checker", cwd, tools, result, agents.parse_check, schema=agents.CHECK_SCHEMA)
+        except agents.ReplyError as e:
+            raise KanduTrouble(f"checker run {run_id}: {e}") from e
+        self._step_done(task, step, result=reply["result"], summary=reply["summary"], head_sha=head, run_id=run_id)
 
     # Merge, deploy and live check.
 
@@ -511,7 +611,7 @@ class Supervisor:
         return [] if code == 0 else ["the tests fail on this head"]
 
     def _merge(self, task, pr, outcome, worked):
-        """Merges a settled PR if every condition holds. Returns True if it did."""
+        """Merges a settled PR if every condition holds. Returns True if it did, None if the base moved under it."""
         if outcome not in MERGEABLE or not (self.config.auto_merge_for(task.project) or self._approved(task, pr)):
             if worked:
                 self._decide(task, outcome, "the user decides next")
@@ -529,7 +629,14 @@ class Supervisor:
             return False
         if self._is_paused(task.project):  # The tests take minutes, and a pause may have come in meanwhile.
             return False
-        self.github.merge_pr(task.repo, pr["number"], pr["headRefOid"])
+        try:
+            self.github.merge_pr(task.repo, pr["number"], pr["headRefOid"])
+        except GitHubError as e:
+            if BASE_MOVED not in str(e):
+                raise
+            self._decide(task, "base_moved", "another merge landed first; the PR is read again")
+            self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
+            return None
         return True
 
     def _deploy(self, task):
@@ -558,11 +665,12 @@ class Supervisor:
         cwd = self.runner.prepare_review(project, task.repo, "kandu/live-check", f"origin/{base}")
         prompt = agents.live_check_prompt(project, task.repo, task.number, self.local_dir)
         tools = agents.live_check_tools(project, self._rules("live_check"))
-        result = self._agent(task, "live_check", cwd, prompt, tools, run_id)
+        result = self._agent(task, "live_check", cwd, prompt, tools, run_id, schema=agents.LIVE_CHECK_SCHEMA)
         try:
-            reply = agents.parse_live_check(result.text)
+            reply = self._reply(task, "live_check", cwd, tools, result, agents.parse_live_check,
+                                schema=agents.LIVE_CHECK_SCHEMA)
         except agents.ReplyError as e:
-            raise TaskFailed(f"live check run {run_id}: {e}") from e
+            raise KanduTrouble(f"live check run {run_id}: {e}") from e
         if reply["result"] == "pass":
             return True
         self.github.comment_issue(task.repo, task.number, f"Kandu's live check failed: {reply['summary']}\n\n"
@@ -643,12 +751,20 @@ class Supervisor:
             cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/size-{task.number}", f"origin/{base}")
             prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.config.settings.language,
                                             self.local_dir)
-            result = self._agent(task, "splitter", cwd, prompt, agents.role_tools(self._rules("splitter")), run_id)
-            report = split.parse_report(result.text)
-            split.validate_report(report, item.body)
+            tools = agents.role_tools(self._rules("splitter"))
+            result = self._agent(task, "splitter", cwd, prompt, tools, run_id, schema=agents.SPLIT_SCHEMA)
+
+            def read(text):
+                report = split.parse_report(text)
+                split.validate_report(report, item.body)
+                return report
+            report = self._reply(task, "splitter", cwd, tools, result, read, schema=agents.SPLIT_SCHEMA)
         except StoppedByUser:
             raise
         except (TaskFailed, split.ReportError, GitHubError, RunnerError) as e:
+            if internal(e) and self._internal_tries(task) + 1 < INTERNAL_TRIES:
+                self._decide(task, "internal_error", str(e))  # still unsized, so the next cycle sizes it again
+                return
             self._decide(task, "sizing_failed", str(e))
             self.github.comment_issue(task.repo, task.number, "Kandu could not size this task. "
                                       "Move it back to Backlog to try again. The details are in its local log.")
@@ -740,6 +856,14 @@ class Supervisor:
         if self._is_paused(task.project):
             return
         pr = self.github.find_pr(task.repo, task.number)
+        step = queen.pending_step(queen.all_events(self.store), task.key)
+        if step is not None and step["action"] == "verify":
+            self._verify(task, pr, step)
+            if task.status not in (READY, *RESUMED):
+                return
+        elif step is not None:
+            self._rework(task, pr, step)
+            pr = self.github.find_pr(task.repo, task.number)
         if pr is None:
             pr = self._implement(task)
             if pr is None:
@@ -750,7 +874,7 @@ class Supervisor:
             self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
             pr = self.github.pr(task.repo, pr["number"])
         task.branch = pr["headRefName"]  # Worked out from the title, which may have changed since.
-        worked = False
+        worked, tries = False, 1
         while True:
             if self._is_paused(task.project):
                 return  # The step that was running has finished. The next cycle after a resume picks it up here.
@@ -770,7 +894,9 @@ class Supervisor:
                     self._fix(task, pr, reviews)
                 elif self._conflicts(pr, outcome):
                     self._update(task, pr)
-                elif not self._merge(task, pr, outcome, worked):
+                elif (merged := self._merge(task, pr, outcome, worked)) is None and tries < MERGE_TRIES:
+                    tries += 1  # read again: it merges now, or its new conflict goes to an update round
+                elif not merged:
                     return
                 elif self.github.pr(task.repo, pr["number"])["state"] != "MERGED":
                     return  # A merge queue took it; a later cycle sees it land.
@@ -789,9 +915,28 @@ class Supervisor:
                 self.workers.pop(task.key, None)
             self._snapshot("awake")
 
+    def _internal_tries(self, task):
+        """Kandu's own errors on this task since it last moved on."""
+        count = 0
+        for event in queen.all_events(self.store):
+            if event.get("task") != task.key:
+                continue
+            if event["type"] in PROGRESS:
+                count = 0
+            elif event["type"] == "decision" and event["decision"] == "internal_error":
+                count += 1
+        return count
+
     def _fail(self, task, error):
-        """Details stay in the local log: the comment may be on a public repo."""
+        """Details stay in the local log: the comment may be on a public repo.
+
+        Kandu's own trouble leaves the task where it is, so the next cycle tries it again with nobody's help.
+        Only when it comes back `INTERNAL_TRIES` times in a row does the task stop for the queen to look at.
+        """
         details = "".join(traceback.format_exception_only(error)).strip()
+        if internal(error) and self._internal_tries(task) + 1 < INTERNAL_TRIES:
+            self._decide(task, "internal_error", details)
+            return
         self._decide(task, "failed", details)
         try:
             self.github.comment_issue(task.repo, task.number, FAILURE_COMMENT)
@@ -814,7 +959,25 @@ class Supervisor:
         return [(project, item) for project, item in items if item.status == BACKLOG and _can_start(self.github, item)
                 and self.store.last_event("task_sized", task=f"{item.repo}#{item.number}") is not None]
 
-    def _project_view(self, items, backlog):
+    def _waiting(self, items, events):
+        """The tasks of a project that wait on something, with the newest reason, so none is forgotten."""
+        why = {}
+        for event in events:
+            if event["type"] == "decision" and event["decision"] in ("merge_waits", "failed"):
+                why[event["task"]] = event["reason"][:300]
+            elif event["type"] == "task_finished":
+                why[event["task"]] = event["outcome"]
+            elif event["type"] == "review_finished":
+                why.pop(event["task"], None)  # a new head: what held the old one may be gone
+        waiting = []
+        for item in items:
+            key = f"{item.repo}#{item.number}"
+            if item.status in (BLOCKED, NEEDS_INFO, IN_REVIEW) and key in why:
+                waiting.append({"task": key, "status": item.status, "why": why[key],
+                                "stopped_for_a_loop": queen.waits_after_loop(events, key)})
+        return waiting
+
+    def _project_view(self, items, backlog, events=()):
         """What she sees of every project: fields, not task bodies, so a long Backlog stays cheap."""
         today = self.store.today()
         board = {f"{item.repo}#{item.number}": (project, item) for project, item in items}
@@ -830,6 +993,7 @@ class Supervisor:
                 "max_parallel_workers": project.max_parallel_workers,
                 "at_work": sum(1 for item in ours if item.status in (READY, *RESUMED)),
                 "first_in_line": self._first_in_line(project, board, backlog),
+                "waiting": self._waiting(ours, events),
                 "backlog": [{"task": f"{item.repo}#{item.number}", "title": item.title, "priority": item.priority,
                              "kind": item.kind, "size": item.size, "deadline": item.deadline}
                             for owner, item in backlog if owner is project],
@@ -853,9 +1017,10 @@ class Supervisor:
         if self._gate() is not None or self._queen_limit() is not None:
             return False
         events = before + news
-        tasks = sorted({e["task"] for e in news if e.get("task")})
-        retries = {task: queen.retries_used(events, task) for task in tasks}
-        prompt = agents.queen_prompt(queen.prompt_events(news), self._project_view(items, backlog), retries,
+        view = self._project_view(items, backlog, events)
+        tasks = sorted({e["task"] for e in news if e.get("task")} | {w["task"] for p in view for w in p["waiting"]})
+        steps = {task: done for task, done in queen.steps_on(events, tasks).items() if done}
+        prompt = agents.queen_prompt(queen.prompt_events(news), view, steps,
                                      settings.queen_max_retries, self.config.settings.language,
                                      DEFAULT_LOGS_DIR, self.store.today(), queen.unparked(events))
         allowed, denied = agents.role_tools(self._rules("queen"))
@@ -903,6 +1068,11 @@ class Supervisor:
                 refused.append(f"{task}: not a task of a running project")
                 continue
             project, item = items[task]
+            why = queen.why_no_step(events, task, action, limit) if action in queen.LIMITED else None
+            if why is not None:
+                refused.append(f"{action} of {task}: {why}")
+                self._loop_stop(project, item, task, action, why, events)
+                continue
             if action == "park":
                 why = self._park(project, item, task, decision, events)
                 if why is not None:
@@ -920,20 +1090,80 @@ class Supervisor:
                 released.append(task)
             if action == "retry":
                 pr = self.github.find_pr(item.repo, item.number)
-                why = queen.why_no_retry(events, task, limit, item.status == BLOCKED,
+                why = queen.why_no_retry(events, task, limit, item.status in (BLOCKED, NEEDS_INFO),
                                          pr is not None and pr["state"] == "MERGED", split.current_size(self.store, task))
                 if why is not None:
                     refused.append(f"retry of {task}: {why}")
                     continue
-                self.github.set_status(project.board, item.url, READY)
+                self.github.set_status(project.board, item.url,
+                                       BACKLOG if queen.last_outcome(events, task) == "sizing_failed" else READY)
+            if action in queen.SENT_ON or action in ("new_task", "block_on"):
+                why = self._send_on(project, item, task, decision)
+                if why is not None:
+                    refused.append(f"{action} of {task}: {why}")
+                    continue
             if action == "approve":
                 why = self._queen_approve(project, item, task, decision)
                 if why is not None:
                     refused.append(f"approve of {task}: {why}")
                     continue
             self.store.record("queen_decided", task=task, project=project.name, action=action, note=note)
-            events.append({"type": "queen_decided", "task": task, "action": action})
+            events.append({"type": "queen_decided", "task": task, "action": action, "note": note})
         return refused, released
+
+    def _loop_stop(self, project, item, task, action, why, events):
+        """Past a step's limit she is going round: the task stops, and the user hears of it once."""
+        if queen.waits_after_loop(events, task):
+            return
+        if item.status not in (BLOCKED, DONE):
+            self.github.set_status(project.board, item.url, BLOCKED)
+        events.append(self.store.record("loop_stopped", task=task, project=project.name, action=action, reason=why))
+
+    def _send_on(self, project, item, task, decision):
+        """Her rework, verify, new task or merge order. Returns why not, or None."""
+        action = decision["action"]
+        pr = self.github.find_pr(item.repo, item.number)
+        merged = pr is not None and pr["state"] == "MERGED"
+        if item.status == DONE and action != "new_task":
+            return "it is Done"
+        if action == "rework":
+            why = queen.why_no_rework(pr, merged)
+            if why is None:
+                self.github.set_status(project.board, item.url, IN_PROGRESS)
+            return why
+        if action == "verify":
+            return None  # carried out when code next drives the task; see `_sent_on`
+        if action == "block_on":
+            return self._block_on(item, task, decision["on"])
+        return self._new_task(project, item, task, decision)
+
+    def _block_on(self, item, task, on):
+        repo, _, number = on.partition("#")
+        if on == task or not number.isdigit():
+            return f"{on} is not another task"
+        if not any(repo in p.repos for p in self.config.projects):
+            return f"{on} is not in a registered repo"
+        body = self.github.issue_text(item.repo, item.number)["body"]
+        if (repo, int(number)) in blockers_in(body, item.repo):
+            return f"it already waits on {on}"
+        self.github.edit_issue(item.repo, item.number, item.title, queen.with_blocker(body, item.repo, on))
+        return None
+
+    def _new_task(self, project, item, task, decision):
+        """She opens a task as the user would, held to every rule of a new task, in the same repo."""
+        fields = [decision[name] for name in ("priority", "kind", "size")]
+        try:
+            url = tasks.create_task(self.config, self.github, project.name, item.repo, decision["title"],
+                                    decision["body"], self.local_dir, *fields)
+        except (TaskError, GitHubError) as e:
+            return str(e)
+        key = f"{item.repo}#{url.rsplit('/', 1)[-1]}"
+        self.store.record("queen_opened", task=task, project=project.name, url=url)
+        if decision.get("blocks"):
+            why = self._block_on(item, task, key)
+            if why is not None:
+                return f"opened {key}, but {why}"
+        return None
 
     def _queen_approve(self, project, item, task, decision):
         """Her yes to one head answers its questions and its door. The merge gate still checks everything else,
@@ -985,8 +1215,8 @@ class Supervisor:
         try:
             if not self._queen():
                 return []
-            tasks = self._reachable_tasks([t for t in self._read_tasks()
-                                           if t.status == READY and t.key not in seen])
+            ready = [t for t in self._read_tasks() if t.status == READY] + self._sent_on()
+            tasks = self._reachable_tasks(list({t.key: t for t in ready if t.key not in seen}.values()))
         except (GitHubError, RunnerError) as e:
             self.queen_trouble = type(e).__name__
             return []
@@ -1054,6 +1284,7 @@ class Supervisor:
     def _work_through_board(self):
         try:
             tasks = self._read_tasks() + self._merged_while_blocked()
+            tasks += [t for t in self._sent_on() if t.key not in {other.key for other in tasks}]
         except GitHubError as e:
             return f"could not read the boards: {e}"
         if not tasks:

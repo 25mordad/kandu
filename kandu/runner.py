@@ -48,6 +48,7 @@ class AgentResult:
     duration_ms: int = 0
     is_error: bool = True
     stopped: bool = False
+    session_id: str | None = None  # A broken reply is asked for again in this session.
 
 
 class Host:
@@ -190,7 +191,7 @@ class Runner:
                 raise RunnerError(f"a project command timed out on {host.name}") from e
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
-                  schema=None):
+                  schema=None, resume=None):
         """Runs one `claude` process to its end; `should_stop` is polled while it runs.
 
         Over SSH, stopping ends the local `ssh`; the remote process then dies at
@@ -199,14 +200,16 @@ class Runner:
         values alone reach this process, in its environment. If one is
         missing the run ends with an error. With a `schema`, `claude` holds the
         reply to that JSON Schema, and the text is the object it returns.
+        With `resume`, the prompt goes to that earlier session in `cwd`.
         """
         # With no allow list the run may do everything; the deny list still holds.
         mode = ["--permission-mode", "bypassPermissions"] if allowed is None else \
             ["--permission-mode", "dontAsk", "--allowedTools", *allowed]
-        command = ["claude", "-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence", *mode,
+        command = ["claude", "-p", "--output-format", "stream-json", "--verbose", *mode,
                    # A repo's own settings must not change what this run may do.
                    "--setting-sources", "user",
                    *(["--model", model] if model else []),
+                   *(["--resume", resume] if resume else []),
                    *(["--json-schema", json.dumps(schema)] if schema else []),
                    *(["--disallowedTools", *denied] if denied else [])]
         if tokens:
@@ -233,7 +236,8 @@ class Runner:
         structured = result.get("structured_output")
         text = json.dumps(structured, ensure_ascii=False) if structured is not None else result.get("result") or ""
         return AgentResult(text=text, models=usage["models"], duration_ms=usage["duration_ms"],
-                           is_error=usage["is_error"] or process.returncode != 0, stopped=stopped.is_set())
+                           is_error=usage["is_error"] or process.returncode != 0, stopped=stopped.is_set(),
+                           session_id=result.get("session_id"))
 
     @staticmethod
     def _feed(process, prompt):

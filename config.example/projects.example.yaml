@@ -54,7 +54,7 @@ projects:
     test: make test
     deploy:
       mode: preview
-      command: make deploy-preview
+      command: make deploy-preview     # a live checkout that pulls: ~/kandu/.venv/bin/python -I ~/kandu/kandu/pull.py ~/projects/app
       live_url: https://preview.example.com
     priority: 2
     max_parallel_workers: 1

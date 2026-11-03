@@ -1,19 +1,31 @@
 """The queen: the LLM that runs the cycle for every project (DESIGN §5).
 
-She decides what starts and judges what stopped. Code decides when she wakes,
-so a quiet cycle costs no tokens, and code checks each decision before it
-happens. She can release a task from Backlog, send a stopped task back, ask
-the user, answer a merge's questions for one head, or park a note the
-splitter reported. She cannot merge, deploy or pass a lock: the merge gate still decides.
+She decides what starts and sees every stopped task through, as the user would.
+Code decides when she wakes, so a quiet cycle costs no tokens, and code checks
+each decision before it happens. She can release a task from Backlog, send a
+stopped task back, send a worker back to a PR with her own order, have a
+checker find something out, open a new task, make a merge wait for another,
+answer a merge's questions for one head, park a note, or ask the user. She
+cannot merge, deploy or pass a lock: the merge gate still decides.
+
+The loop guard is in code: each of her steps on one task has a limit. A step
+past it stops the task in `Blocked` and tells the user, and she takes no step on
+that task again until the user has acted on it.
 """
-RETRYABLE = ("failed", "blocked")
+from .github import BLOCKED_BY, HTML_COMMENT
+
+RETRYABLE = ("failed", "blocked", "needs_info", "sizing_failed")
+LIMITED = ("retry", "rework", "verify", "new_task", "block_on")  # each one this often per task
+SENT_ON = ("rework", "verify")  # code carries these out when it next drives the task
 LARGE = "Large"
 HIGH = "High"
-NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed", "sizing_failed")
+NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed")
 MOVED_ON = ("user_approved", "queen_approved", "task_picked", "task_finished")
+USER_ACTED = ("task_picked", "user_approved", "question_answered")  # after a loop stop, only the user moves it
 APPROVALS = ("user_approved", "queen_approved")
 COULD_NOT_FINISH = "The queen could not finish this look"
-PROMPT_EVENTS = ("task_finished", "decision", "project_checked", "review_finished", "deployed", "run_finished")
+PROMPT_EVENTS = ("task_finished", "decision", "project_checked", "review_finished", "deployed", "run_finished",
+                 "queen_step_done")
 
 
 def all_events(store):
@@ -28,7 +40,7 @@ def since_last_look(store):
 
 
 def _is_news(event, before):
-    if event["type"] == "priority_raised":
+    if event["type"] in ("priority_raised", "queen_step_done", "wake_requested"):
         return True
     if event["type"] == "task_finished":
         return event["outcome"] in NEEDS_A_LOOK
@@ -71,8 +83,58 @@ def prompt_events(news):
     return [event for event in news if event["type"] in PROMPT_EVENTS and event.get("role") != "queen"]
 
 
+def _since_loop_stop(events, task):
+    stops = [i for i, e in enumerate(events) if e["type"] == "loop_stopped" and e.get("task") == task]
+    return events[stops[-1] + 1:] if stops else events
+
+
+def waits_after_loop(events, task):
+    """True when code stopped this task for a loop and the user has not acted on it since."""
+    if not any(e["type"] == "loop_stopped" and e.get("task") == task for e in events):
+        return False
+    return not any(e["type"] in USER_ACTED and e.get("task") == task for e in _since_loop_stop(events, task))
+
+
+def steps_used(events, task, action):
+    """Her steps of this kind on the task, since code last stopped it for a loop."""
+    return sum(1 for e in _since_loop_stop(events, task)
+               if e["type"] == "queen_decided" and e["task"] == task and e["action"] == action)
+
+
 def retries_used(events, task):
-    return sum(1 for e in events if e["type"] == "queen_decided" and e["task"] == task and e["action"] == "retry")
+    return steps_used(events, task, "retry")
+
+
+def steps_on(events, tasks):
+    """What she already did on each task, so she can see herself going round."""
+    return {task: [{"action": e["action"], "note": e["note"]} for e in _since_loop_stop(events, task)
+                   if e["type"] == "queen_decided" and e["task"] == task and e["action"] in LIMITED]
+            for task in tasks}
+
+
+def pending_step(events, task):
+    """Her newest rework or verify on the task that code has not carried out yet, or None."""
+    for event in reversed(events):
+        if event.get("task") != task:
+            continue
+        if event["type"] == "queen_step_done":
+            return None
+        if event["type"] == "queen_decided" and event["action"] in SENT_ON:
+            return event
+    return None
+
+
+def with_blocker(body, repo, key):
+    """The issue's body with `key` added under `## Blocked by`."""
+    other, number = key.split("#")
+    reference = f"#{number}" if other == repo else key
+    section = BLOCKED_BY.search(body or "")
+    if section is None:
+        return f"{(body or '').rstrip()}\n\n## Blocked by\n{reference}\n"
+    lines = [line for line in HTML_COMMENT.sub("", section.group(1)).strip().splitlines()
+             if line.strip() and line.strip().lower() != "none"]
+    text = "\n".join([*lines, reference])
+    return BLOCKED_BY.sub(lambda _: f"## Blocked by\n{text}\n\n", body, count=1)
 
 
 def note_for(events, task):
@@ -119,21 +181,45 @@ def why_no_approval(pr, reviewed, head_sha):
 
 
 def why_no_retry(events, task, limit, blocked, merged, sized=None):
-    """Returns why this task may not go back, or None. A task that reached a worker before sizing existed has no `sized`."""
+    """Returns why this task may not go back, or None. A task that reached a worker before sizing existed has no `sized`.
+
+    `blocked` is true in `Blocked` or `Needs info`. A task that could not be sized goes back to be sized again.
+    """
     if not blocked:
         return "it is not Blocked"
     if merged:
         return "its PR is already merged"
-    if sized is not None and sized["size"] == LARGE:
-        return "it is Large and must be split first"
-    worked = any(e["type"] == "run_finished" and e["task"] == task and e["role"] != "splitter" for e in events)
-    if sized is None and not worked:
-        return "the splitter has not sized it"
     finished = [e for e in events if e["type"] == "task_finished" and e["task"] == task]
     if not finished or finished[-1]["outcome"] not in RETRYABLE:
         return "its last outcome is not one a retry can change"
+    if sized is not None and sized["size"] == LARGE:
+        return "it is Large and must be split first"
+    worked = any(e["type"] == "run_finished" and e["task"] == task and e["role"] != "splitter" for e in events)
+    if sized is None and not worked and finished[-1]["outcome"] != "sizing_failed":
+        return "the splitter has not sized it"
     if retries_used(events, task) >= limit:
         return f"its {limit} retries are used up"
+    return None
+
+
+def last_outcome(events, task):
+    return next((e["outcome"] for e in reversed(events) if e["type"] == "task_finished" and e["task"] == task), None)
+
+
+def why_no_step(events, task, action, limit):
+    """The loop guard, for every step that has a limit. Returns why not, or None."""
+    if waits_after_loop(events, task):
+        return "it was stopped for going round, and waits for the user"
+    if action in LIMITED and steps_used(events, task, action) >= limit:
+        return f"its {limit} {'retries' if action == 'retry' else action + ' steps'} are used up"
+    return None
+
+
+def why_no_rework(pr, merged):
+    if merged:
+        return "its PR is already merged"
+    if pr is None or pr["state"] != "OPEN":
+        return "it has no open PR: use retry"
     return None
 
 

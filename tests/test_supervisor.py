@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from kandu import agents, queen, questions, review, split, supervisor
+from kandu import agents, notify, queen, questions, review, split, supervisor, tasks
 from kandu.config import Rules, load_config
 from kandu.github import BoardItem, GitHubError
 from kandu.runner import AgentResult, RunnerError
@@ -27,10 +27,12 @@ _ghmeter.LOG_DIR = Path(_tempfile.mkdtemp())  # the meter's lines stay out of st
 EXAMPLES = Path(__file__).resolve().parent.parent / "config.example"
 ACCOUNT = "your-github-login"
 REPO = "acme-org/website"
+KEY = f"{REPO}#1"
 OTHER_REPO = "acme-org/internal-tool"
 NOW = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 SHA1, SHA2, SHA3 = "a" * 8, "b" * 8, "c" * 8
 PR_OPENED = '{"status": "pr_opened", "pr": 7}'
+GAVE_UP = '{"status": "blocked", "reason": "No fixture."}'  # the task's own trouble, which stops it at once
 BLOCKER = {"n": 1, "path": "a.py", "line": 3, "blocker": True, "criterion": None, "body": "This breaks."}
 NOTE = {"n": 1, "path": "a.py", "line": 3, "blocker": False, "criterion": None, "body": "Confusing."}
 
@@ -80,6 +82,9 @@ class FakeGitHub:
     def create_issue(self, repo, title, body, by_hand=False, tokens=False):
         self.created.append((repo, title, body))
         return f"https://github.com/{repo}/issues/{900 + len(self.created)}"
+
+    def edit_issue(self, repo, number, title, body):
+        self.items = [replace(i, body=body) if (i.repo, i.number) == (repo, number) else i for i in self.items]
 
     def add_to_board(self, board, url):
         self.boarded.append(url)
@@ -180,13 +185,13 @@ class FakeRunner:
         return 1 if command in self.failing else 0
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
-                  schema=None):
+                  schema=None, resume=None):
         with self.lock:
             self.running += 1
             self.most_running = max(self.most_running, self.running)
             step = self.steps.pop(0)
         self.runs.append(SimpleNamespace(machine=machine, cwd=cwd, prompt=prompt, allowed=allowed, denied=denied,
-                                         model=model, tokens=tokens, schema=schema))
+                                         model=model, tokens=tokens, schema=schema, resume=resume))
         result = step() if callable(step) else step
         with self.lock:
             self.running -= 1
@@ -232,6 +237,12 @@ class Base(unittest.TestCase):
         day = datetime.now().astimezone().date().isoformat()
         return [e for e in self.store.events(day) if e["type"] == kind]
 
+    def tried_before(self, issue=1):
+        """Kandu's own trouble came back on this task until the next one is its last try."""
+        for _ in range(supervisor.INTERNAL_TRIES - 1):
+            self.store.record("decision", task=f"{REPO}#{issue}", project="website", decision="internal_error",
+                              reason="before")
+
     def worker_makes_pr(self, issue=1, head=SHA1):
         def step():
             self.github.open_pr(REPO, issue, head)
@@ -243,6 +254,123 @@ class Base(unittest.TestCase):
             self.github.prs[(REPO, 1)]["headRefOid"] = head
             return PR_OPENED
         return step
+
+
+class QueenStepsTest(Base):
+    """Her rework, check, new task and merge order, and the loop guard over them."""
+
+    def setUp(self):
+        super().setUp()
+        self.config.settings.supervisor.queen = True
+        self.config.settings.supervisor.queen_max_retries = 1
+        self.github.add(1, status="Blocked", body="## Blocked by\nnone\n")
+        self.store.record("task_finished", task=KEY, project="website", outcome="blocked")
+
+    def step(self, action, **fields):
+        return {"task": KEY, "action": action, "note": fields.pop("note", "Make the test pass."), **fields}
+
+    def test_a_rework_sends_a_worker_with_her_order_and_the_new_head_is_reviewed(self):
+        self.github.open_pr(REPO, 1, SHA1)
+        refused, _ = self.sup._carry_out([self.step("rework", note="Rename the helper.")], [])
+        self.assertEqual((refused, self.github.status(1)), ([], "In progress"))
+        self.runner.steps = [self.reply_none(), self.worker_pushes(SHA2), report(SHA2), self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.runner.steps, [])
+        self.assertIn("Rename the helper.", self.runner.runs[1].prompt)
+        self.assertIn(SHA2, self.runner.runs[2].prompt)
+        done = self.events("queen_step_done")[0]
+        self.assertEqual((done["action"], done["result"], done["head_sha"]), ("rework", "pushed", SHA2))
+
+    def test_a_rework_needs_an_open_pr(self):
+        refused, _ = self.sup._carry_out([self.step("rework")], [])
+        self.assertEqual(len(refused), 1)
+        self.assertEqual(self.github.status(1), "Blocked")
+
+    def test_a_check_runs_on_the_pr_head_and_leaves_the_task_where_it_is(self):
+        self.github.open_pr(REPO, 1, SHA1)
+        self.sup._carry_out([self.step("verify", note="Does main pass its hooks?")], [])
+        self.runner.steps = [self.reply_none(), '{"result": "fail", "summary": "The manifest is broken on main."}',
+                             self.reply_none()]
+        self.cycle()
+        check = self.runner.runs[1]
+        self.assertIn("Does main pass its hooks?", check.prompt)
+        self.assertEqual(check.cwd, f"/review/{SHA1}")
+        self.assertEqual(check.schema, agents.CHECK_SCHEMA)
+        done = self.events("queen_step_done")[0]
+        self.assertEqual((done["result"], done["head_sha"]), ("fail", SHA1))
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertIn("The manifest is broken on main.", self.runner.runs[2].prompt)  # she reads it next look
+
+    def reply_none(self):
+        return json.dumps({"brief": "Read the check.", "decisions": []})
+
+    def test_a_check_with_no_pr_runs_on_the_default_branch(self):
+        self.sup._carry_out([self.step("verify")], [])
+        self.runner.steps = [self.reply_none(), '{"result": "pass", "summary": "ok"}', self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.runner.runs[1].cwd, "/review/origin/main")
+
+    def test_she_opens_a_task_the_stopped_one_waits_on(self):
+        body = "\n\n".join(f"## {s}\n- [ ] text" for s in tasks.required_sections())
+        new = self.step("new_task", title="Fix the manifest", body=body, priority="High", kind="Bug", size="Small",
+                        blocks=True)
+        refused, _ = self.sup._carry_out([new], [])
+        self.assertEqual(refused, [])
+        self.assertEqual(self.github.created[0][:2], (REPO, "Fix the manifest"))
+        self.assertIn("## Blocked by\n#901", self.github.items[0].body)
+        self.assertNotIn("none", self.github.items[0].body)
+        self.assertEqual(len(self.events("queen_opened")), 1)
+
+    def test_a_new_task_is_held_to_the_rules_of_any_task(self):
+        new = self.step("new_task", title="Fix it", body="no sections", priority="High", kind="Bug", size="Small")
+        refused, _ = self.sup._carry_out([new], [])
+        self.assertIn("misses", refused[0])
+        self.assertEqual(self.github.created, [])
+
+    def test_a_merge_order_waits_on_another_task(self):
+        self.config.settings.supervisor.queen_max_retries = 3
+        self.github.add(2)
+        refused, _ = self.sup._carry_out([self.step("block_on", on=f"{REPO}#2")], [])
+        self.assertEqual(refused, [])
+        self.assertIn("## Blocked by\n#2", self.github.items[0].body)
+        refused, _ = self.sup._carry_out([self.step("block_on", on=KEY)], queen.all_events(self.store))
+        self.assertIn("not another task", refused[0])
+
+    def test_past_the_limit_the_task_stops_and_the_user_hears_once(self):
+        told = []
+        self.sup.notifier = SimpleNamespace(on_event=lambda e: told.append(notify.message_for(e, True)))
+        self.github.open_pr(REPO, 1, SHA1)
+        events = queen.all_events(self.store)
+        self.sup._carry_out([self.step("verify")], events)
+        self.store.record("queen_step_done", task=KEY, project="website", action="verify", decided="t",
+                          result="unclear", summary="s", head_sha=SHA1, run_id="r")
+        refused, _ = self.sup._carry_out([self.step("verify"), self.step("rework")], queen.all_events(self.store))
+        self.assertIn("1 verify steps are used up", refused[0])
+        self.assertIn("waits for the user", refused[1])
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(len(self.events("loop_stopped")), 1)
+        message = notify.message_for(self.events("loop_stopped")[0], True)
+        self.assertEqual(message.text, "loop_stopped")
+        self.store.record("task_picked", task=KEY, project="website")
+        self.assertIsNone(queen.why_no_step(queen.all_events(self.store), KEY, "rework", 1))
+
+    def test_what_she_did_reaches_her_next_look(self):
+        self.sup._carry_out([self.step("verify", note="Run the tests.")], [])
+        steps = queen.steps_on(queen.all_events(self.store), [KEY])
+        self.assertEqual(steps[KEY], [{"action": "verify", "note": "Run the tests."}])
+
+    def test_she_sees_what_waits_and_why(self):
+        self.store.record("decision", task=KEY, project="website", decision="merge_waits",
+                          reason="the pre-push hook failed on main")
+        self.runner.steps = [self.reply_none()]
+        self.cycle()
+        self.assertIn("the pre-push hook failed on main", self.runner.runs[0].prompt)
+        self.assertIn('"stopped_for_a_loop": false', self.runner.runs[0].prompt)
+
+    def test_a_blocker_is_added_under_its_heading(self):
+        self.assertEqual(queen.with_blocker("## Blocked by\nnone\n\n## Notes\nx", REPO, f"{REPO}#4"),
+                         "## Blocked by\n#4\n\n## Notes\nx")
+        self.assertEqual(queen.with_blocker("Body", REPO, "other/repo#4"), "Body\n\n## Blocked by\nother/repo#4\n")
 
 
 class PausedOnTheDashboardTest(Base):
@@ -276,7 +404,7 @@ class PausedOnTheDashboardTest(Base):
         first, second = read_tasks(self.config, self.github)
         for task in (first, second):
             self.sup.workers[task.key] = {}
-            self.runner.steps = ["done"]
+            self.runner.steps = [PR_OPENED]
             self.sup._work(task)
         token_run, plain_run = self.runner.runs
         self.assertEqual(token_run.tokens, ("~/projects/website/.env", ["IMAGE_API_KEY"]))
@@ -495,7 +623,7 @@ class QueenTest(Base):
         self.assertEqual(len(self.runner.runs), 3)
 
     def test_she_sends_a_stopped_task_back_and_the_next_worker_reads_why(self):
-        self.runner.steps = ["not json", self.reply(self.retry("The test needs a fixture."))]
+        self.runner.steps = [GAVE_UP, self.reply(self.retry("The test needs a fixture."))]
         self.cycle()
         self.assertEqual(self.github.status(1), "Ready")
         self.assertEqual(self.events("queen_decided")[0]["action"], "retry")
@@ -505,7 +633,7 @@ class QueenTest(Base):
         self.assertIn("The test needs a fixture.", self.runner.runs[2].prompt)
 
     def test_her_run_counts_as_a_queen_run_with_no_task(self):
-        self.runner.steps = ["not json", self.reply()]
+        self.runner.steps = [GAVE_UP, self.reply()]
         self.cycle()
         run = [e for e in self.events("run_finished") if e["role"] == "queen"]
         self.assertEqual(len(run), 1)
@@ -521,7 +649,7 @@ class QueenTest(Base):
         self.cycle()
         self.assertEqual(len(self.runner.runs), 1)
         self.github.add(2)
-        self.runner.steps = ["not json", self.reply(self.retry())]
+        self.runner.steps = [GAVE_UP, self.reply(self.retry())]
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
         self.assertEqual(self.events("queen_decided"), [])
@@ -540,6 +668,7 @@ class QueenTest(Base):
 
     def test_a_failure_after_the_merge_cannot_go_back_either(self):
         self.github.open_pr(REPO, 1, SHA1, state="MERGED")
+        self.tried_before()
         self.runner.steps = ["not json", self.reply(self.retry())]
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
@@ -547,22 +676,22 @@ class QueenTest(Base):
 
     def test_retries_stop_at_the_limit(self):
         self.config.settings.supervisor.queen_max_retries = 1
-        self.runner.steps = ["not json", self.reply(self.retry())]
+        self.runner.steps = [GAVE_UP, self.reply(self.retry())]
         self.cycle()
-        self.runner.steps = ["not json", self.reply(self.retry())]
+        self.runner.steps = [GAVE_UP, self.reply(self.retry())]
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
         self.assertIn("retries are used up", self.events("queen_finished")[1]["brief"])
 
     def test_she_cannot_touch_a_task_outside_the_registry(self):
-        self.runner.steps = ["not json", self.reply({"task": "stranger/repo#1", "action": "retry", "note": "n"})]
+        self.runner.steps = [GAVE_UP, self.reply({"task": "stranger/repo#1", "action": "retry", "note": "n"})]
         self.github.add(1, repo="stranger/repo", status="Blocked")
         self.cycle()
         self.assertEqual(self.github.status(1, repo="stranger/repo"), "Blocked")
         self.assertIn("not a task", self.events("queen_finished")[0]["brief"])
 
     def test_she_only_retries_a_blocked_task(self):
-        self.runner.steps = ["not json", lambda: self.step_done_task()]
+        self.runner.steps = [GAVE_UP, lambda: self.step_done_task()]
         self.cycle()
         self.assertEqual(self.github.status(1), "Done")
         self.assertIn("not Blocked", self.events("queen_finished")[0]["brief"])
@@ -573,7 +702,7 @@ class QueenTest(Base):
 
     def test_a_question_reaches_the_dashboard_and_changes_nothing(self):
         ask = {"task": f"{REPO}#1", "action": "ask_user", "note": "Which reading of the task is right?"}
-        self.runner.steps = ["not json", self.reply(ask)]
+        self.runner.steps = [GAVE_UP, self.reply(ask)]
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
         self.assertEqual(queen.last_report(self.store)["questions"],
@@ -582,7 +711,7 @@ class QueenTest(Base):
     def test_over_a_limit_she_waits_for_a_later_cycle(self):
         def spend():
             self.usage = Usage(70, 0)
-            return "not json"
+            return GAVE_UP
         self.runner.steps = [spend]
         self.cycle()
         self.assertEqual(self.events("queen_finished"), [])
@@ -600,7 +729,7 @@ class QueenTest(Base):
         self.assertEqual(len(self.runner.runs), 1)
 
     def test_a_bad_reply_changes_nothing_and_is_not_paid_for_again(self):
-        self.runner.steps = ["not json", "still not json"]
+        self.runner.steps = [GAVE_UP, "still not json"]
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
         self.assertIn("could not finish", self.events("queen_finished")[0]["brief"])
@@ -623,7 +752,7 @@ class QueenTest(Base):
 
     def test_she_gets_the_queens_rules(self):
         self.config.settings.permissions.queen = Rules(allow=["Read"], deny=["Edit"])
-        self.runner.steps = ["not json", self.reply(self.retry("why"))]
+        self.runner.steps = [GAVE_UP, self.reply(self.retry("why"))]
         self.cycle()
         self.assertIsNone(self.runner.runs[0].allowed)
         self.assertEqual((self.runner.runs[1].allowed, self.runner.runs[1].denied), (["Read"], ["Edit"]))
@@ -899,10 +1028,79 @@ class FirstRunTest(Base):
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
 
-    def test_an_unreadable_reply_is_blocked(self):
+    def test_kandus_own_trouble_is_tried_again_by_itself(self):
         self.runner.steps = ["All done!"]
         self.cycle()
+        self.assertEqual(self.github.status(1), "In progress")
+        self.assertEqual(self.github.issue_comments, [])
+        self.assertEqual(self.events("decision")[-1]["decision"], "internal_error")
+        self.assertEqual(self.events("task_finished"), [])
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "In review")
+
+    def test_kandus_own_trouble_three_times_in_a_row_stops_the_task(self):
+        for _ in range(supervisor.INTERNAL_TRIES):
+            self.runner.steps = ["All done!"]
+            self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(self.events("task_finished")[0]["outcome"], "failed")
+
+    def test_progress_starts_the_count_again(self):
+        self.tried_before()
+        self.store.record("review_finished", task=f"{REPO}#1", project="website", run_id="r", round=1,
+                          head_sha=SHA1, findings=0, blockers=0, door="two-way", criteria_met=True,
+                          wait_for_user=[], user_brief="")
+        self.runner.steps = ["All done!"]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "In progress")
+
+    def test_a_github_refusal_that_passes_is_tried_again(self):
+        self.runner.prepare_worktree = mock.Mock(side_effect=GitHubError("HTTP 502: Bad Gateway"))
+        self.cycle()
+        self.assertEqual(self.github.status(1), "In progress")
+        self.assertEqual(self.events("decision")[-1]["decision"], "internal_error")
+
+    def test_a_task_that_needs_something_stops_at_once(self):
+        self.runner.steps = [PR_OPENED]  # it claims a PR that does not exist
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+
+    def test_a_broken_reply_is_asked_for_again_in_the_same_session(self):
+        broken = AgentResult(text="All done!", models={}, duration_ms=1, is_error=False, session_id="s-1")
+        self.runner.steps = [broken, self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        again = self.runner.runs[1]
+        self.assertEqual((again.resume, again.cwd, again.schema), ("s-1", "/worktree", agents.WORKER_SCHEMA))
+        self.assertIn("worker reply is not JSON", again.prompt)
+        self.assertEqual(self.github.status(1), "In review")
+        self.assertEqual(self.events("decision")[0]["decision"], "reply_reasked")
+
+    def test_a_reply_broken_twice_stops_the_task(self):
+        self.tried_before()
+        broken = AgentResult(text="All done!", models={}, duration_ms=1, is_error=False, session_id="s-1")
+        self.runner.steps = [broken, "Still nothing."]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
+        self.assertEqual(self.github.status(1), "Blocked")
+
+    def test_a_worker_whose_pr_is_there_goes_on_from_the_pr(self):
+        def opens_pr_but_mumbles():
+            self.github.open_pr(REPO, 1, SHA1)
+            return "Opened it, all good."
+        self.runner.steps = [opens_pr_but_mumbles, report(SHA1)]
+        self.cycle()
+        self.assertEqual(len(self.events("review_finished")), 1)
+        self.assertEqual(self.events("decision")[0]["decision"], "reply_unread_pr_found")
+        self.assertEqual(self.events("task_finished"), [])
+
+    def test_a_broken_review_is_asked_for_again(self):
+        broken = AgentResult(text="no report", models={}, duration_ms=1, is_error=False, session_id="s-2")
+        self.runner.steps = [self.worker_makes_pr(), broken, report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.runner.runs[2].resume, "s-2")
+        self.assertEqual(self.runner.runs[2].schema, review.REPORT_SCHEMA)
+        self.assertEqual(len(self.events("review_finished")), 1)
 
     def test_a_claimed_pr_that_does_not_exist_is_blocked(self):
         self.runner.steps = [PR_OPENED]
@@ -910,11 +1108,12 @@ class FirstRunTest(Base):
         self.assertEqual(self.github.status(1), "Blocked")
 
     def test_failure_details_stay_local(self):
+        self.tried_before()
         self.sup = self.new_supervisor()
         self.runner.prepare_worktree = mock.Mock(side_effect=RunnerError("/home/someone/private failed"))
         self.sup.cycle()
         self.assertEqual(self.github.issue_comments, [supervisor.FAILURE_COMMENT])
-        self.assertIn("/home/someone/private", self.events("decision")[0]["reason"])
+        self.assertIn("/home/someone/private", self.events("decision")[-1]["reason"])
 
     def test_worker_may_do_everything_but_forbidden_areas(self):
         self.runner.steps = ['{"status": "blocked", "reason": "r"}']
@@ -969,6 +1168,7 @@ class FirstRunTest(Base):
         self.assertEqual(self.github.status(1), "In progress")
 
     def test_a_failed_run_under_the_limits_is_blocked(self):
+        self.tried_before()
         self.runner.steps = [AgentResult(is_error=True)]
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
@@ -997,7 +1197,7 @@ class ReviewRoundsTest(Base):
         self.assertEqual(run.cwd, f"/review/{SHA1}")
         self.assertIn(SHA1, run.prompt)
         self.assertEqual(run.schema, review.REPORT_SCHEMA)
-        self.assertIsNone(self.runner.runs[0].schema)
+        self.assertEqual(self.runner.runs[0].schema, agents.WORKER_SCHEMA)
 
     def test_waiting_costs_nothing(self):
         self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
@@ -1154,6 +1354,7 @@ class ReviewRoundsTest(Base):
     def test_a_criterion_the_issue_does_not_have_stops_the_report(self):
         self.github.items.clear()
         self.github.add(1, body="## Acceptance criteria\n- [ ] It stops\n- [ ] It says why\n")
+        self.tried_before()
         self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
@@ -1185,6 +1386,7 @@ class ReviewRoundsTest(Base):
         self.assertIn("# Reviewer", self.runner.runs[-1].prompt)
 
     def test_an_invalid_report_is_blocked_and_posts_nothing(self):
+        self.tried_before()
         self.runner.steps = [self.worker_makes_pr(), "looks fine to me"]
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
@@ -1239,6 +1441,8 @@ class ReviewRoundsTest(Base):
 
     def test_a_task_failure_leaves_the_others_running(self):
         self.github.add(2)
+        self.tried_before()
+        self.tried_before(2)
         self.runner.steps = ["garbage", '{"status": "blocked", "reason": "r"}']
         self.assertEqual(self.cycle(), "tasks ran out")
         self.assertEqual(self.github.status(1), "Blocked")
@@ -1401,6 +1605,45 @@ class MergeTest(Base):
         self.assertIn("conflicts with", self.runner.runs[1].prompt)
         self.assertEqual(self.github.merges, [SHA2])
 
+    def base_moves(self, then=lambda pr: None, times=1):
+        real = self.github.merge_pr
+
+        def merge(repo, number, head):
+            if len(self.refused) < times:
+                self.refused.append(head)
+                then(self.github.prs[(REPO, 1)])
+                raise GitHubError("gh pr merge: Base branch was modified. Review and try the merge again.")
+            real(repo, number, head)
+        self.refused = []
+        self.github.merge_pr = merge
+
+    def test_a_base_that_moved_during_the_merge_is_merged_again(self):
+        self.base_moves()
+        self.runner.steps = [report(SHA1), self.PASS]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+        self.assertEqual(self.github.status(1), "Done")
+        self.assertEqual(self.events("decision")[0]["decision"], "base_moved")
+
+    def test_a_base_that_moved_into_a_conflict_goes_to_an_update_round(self):
+        self.base_moves(lambda pr: pr.update(mergeable="CONFLICTING"))
+
+        def merge_base_in():
+            self.github.prs[(REPO, 1)] |= {"headRefOid": SHA2, "mergeable": "MERGEABLE"}
+            return PR_OPENED
+        self.runner.steps = [report(SHA1), merge_base_in, report(SHA2), self.PASS]
+        self.cycle()
+        self.assertIn("conflicts with", self.runner.runs[1].prompt)
+        self.assertEqual(self.github.merges, [SHA2])
+
+    def test_a_base_that_keeps_moving_waits_for_the_next_cycle(self):
+        self.base_moves(times=10)
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertEqual(len(self.refused), supervisor.MERGE_TRIES)
+        self.assertEqual(self.github.status(1), "In review")
+        self.assertEqual(self.events("task_finished"), [])
+
     def test_conflicts_wait_once_an_update_round_changed_nothing(self):
         self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
         self.runner.steps = [report(SHA1), lambda: PR_OPENED]
@@ -1445,10 +1688,15 @@ class MergeTest(Base):
         self.assertEqual(self.github.status(1), "Blocked")
         self.assertIn("The page is missing.", self.github.issue_comments[-1])
 
-    def test_an_unreadable_live_check_is_blocked(self):
+    def test_an_unreadable_live_check_is_tried_again_then_blocked(self):
         self.runner.steps = [report(SHA1), "looks fine"]
         self.cycle()
+        self.assertEqual(self.github.status(1), "In review")
+        for _ in range(supervisor.INTERNAL_TRIES - 1):
+            self.runner.steps = ["looks fine"]
+            self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual([c for c, _ in self.runner.commands].count(self.deploy), 1)
 
     def test_a_pr_merged_by_the_user_is_deployed_too(self):
         self.config.projects[0].auto_merge = False

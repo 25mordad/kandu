@@ -24,6 +24,8 @@ USAGE_UNKNOWN = "usage unknown"
 FAILED_OUTCOMES = {"failed": "task_failed", "deploy_failed": "deploy_failed",
                    "live_check_failed": "live_check_failed", "sizing_failed": "sizing_failed"}
 STUCK_OUTCOMES = {"blocked": "blocked", "needs_info": "needs_info", "pr_closed": "pr_closed"}
+# With the queen on she sees these first and stops the task herself when nothing can be done.
+QUEENS_OUTCOMES = ("failed", "sizing_failed", "blocked", "needs_info", "pr_closed")
 READY_FOR_USER = ("approved", "approved_with_notes")
 # The first line of every message says how soon the user must act, so a glance sorts them.
 STUCK, YOUR_TURN, DONE, FOR_YOUR_INFO = "stuck", "your_turn", "done", "for_your_info"
@@ -50,6 +52,7 @@ MESSAGES = {
         "pr_closed": "The PR of {task} was closed, so the task stopped.",
         "split": "A proposal to split {task} waits for you.",
         "queen_asks": "The queen has a question about {task}. It is on the dashboard.",
+        "loop_stopped": "The queen went round on {task} without getting it done, so Kandu stopped it. It waits for you.",
         "pr_ready": "The PR of {task} is ready for your approval.",
         "task_done": "{task} is merged and done.",
         "split_made": "Kandu split {task} into smaller tasks by itself. Every slice can be undone.",
@@ -76,6 +79,7 @@ MESSAGES = {
         "pr_closed": "PR مربوط به {task} بسته شد و تسک متوقف شد.",
         "split": "پیشنهاد تقسیم {task} منتظر تو است.",
         "queen_asks": "ملکه درباره‌ی {task} سؤالی دارد. سؤالش در داشبورد است.",
+        "loop_stopped": "ملکه روی {task} دور خودش چرخید و کار جلو نرفت، پس کندو آن را متوقف کرد. منتظر تو است.",
         "pr_ready": "PR مربوط به {task} آماده‌ی تأیید تو است.",
         "task_done": "{task} ادغام شد و تمام شد.",
         "split_made": "کندو {task} را خودش به تسک‌های کوچک‌تر شکست. همه‌ی تکه‌ها برگشت‌پذیرند.",
@@ -117,9 +121,14 @@ def _task_message(kind, text, event):
     return Message(kind, text, values={"task": event["task"]})
 
 
-def message_for(event):
-    """Returns what the user must hear about this event, or None."""
+def message_for(event, queen=False):
+    """Returns what the user must hear about this event, or None. `queen`: the queen is on."""
     kind = event["type"]
+    if kind == "task_finished" and queen and event["outcome"] in QUEENS_OUTCOMES:
+        return None
+    if kind == "loop_stopped":
+        return Message("needs_decision", "loop_stopped", f"loop_stopped:{event['task']}:{event['ts']}",
+                       values={"task": event["task"]})
     if kind == "supervisor_slept":
         return _sleep_message(event["reason"])
     if kind == "task_finished":
@@ -179,7 +188,8 @@ class Telegram:
 
 
 class Notifier:
-    def __init__(self, store, adapter, events, language):
+    def __init__(self, store, adapter, events, language, queen=False):
+        self.queen = queen
         self.store = store
         self.adapter = adapter
         self.events = events
@@ -187,7 +197,7 @@ class Notifier:
         self._lock = threading.Lock()
 
     def on_event(self, event):
-        message = message_for(event)
+        message = message_for(event, self.queen)
         if message is not None:
             self.tell(message)
 
@@ -228,4 +238,4 @@ def notifier_for(settings, store):
     if notify.adapter == "none":
         return None
     adapter = Telegram(notify.telegram.bot_token_env, notify.telegram.chat_id_env)
-    return Notifier(store, adapter, notify.events, notify.language or settings.language)
+    return Notifier(store, adapter, notify.events, notify.language or settings.language, settings.supervisor.queen)
