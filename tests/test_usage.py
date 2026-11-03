@@ -23,6 +23,10 @@ class UsageTest(unittest.TestCase):
     def test_real_text(self):
         self.assertEqual(parse_usage(REAL_TEXT), Usage(session=28, week=93))
 
+    def test_a_plan_with_no_5_hour_window(self):
+        text = "You are currently using your subscription\n\nCurrent week (all models): 4% used · resets Nov 6, 8pm"
+        self.assertEqual(parse_usage(text), Usage(session=0, week=4))
+
     def test_unknown_text_fails_closed(self):
         with self.assertRaises(UsageError):
             parse_usage("Current session: 28% used")

@@ -183,7 +183,7 @@ supervisor ─┬─ worker 1  →  reviewer
 - A `systemd timer` wakes the supervisor every `wake_every_minutes` (default 60). A lock file prevents two supervisors running at once.
 - Nothing for the queen to decide, no `Ready` task, or usage over a limit → sleep immediately, at no cost.
 - Otherwise work until the tasks run out, or `max_cycle_minutes` (default 50) pass, or usage hits a limit, whichever comes first.
-- **Limits** (`claude.limits`): 5-hour window % and weekly %. With a subscription shared with your own interactive sessions, leave a margin (example values: 70% and 60%). On a subscription, usage is read at no cost with `claude -p "/usage"`.
+- **Limits** (`claude.limits`): 5-hour window % and weekly %. With a subscription shared with your own interactive sessions, leave a margin (example values: 70% and 60%). On a subscription, usage is read at no cost with `claude -p "/usage"`. A plan with no 5-hour window shows no session line; that counts as 0%, and the weekly line must still be there.
 - Usage is recorded per task, and reported per day and per project, so it is clear what each task cost and how much of the limit each project used.
 
 ## 7. Dashboard — Kandu's own
