@@ -112,8 +112,12 @@ def set_fields(github, board, url, priority, kind, size, deadline):
 
 
 def create_task(config, github, project_name, repo, title, body, local_dir, priority, kind, size, deadline=None,
-                by_hand=False, tokens=False):
-    """Creates the issue, puts it on the board in `Backlog` and returns its URL."""
+                by_hand=False, tokens=False, created=None):
+    """Creates the issue, puts it on the board in `Backlog` and returns its URL.
+
+    `created(url)` runs as soon as the issue exists, so a caller can record it before the
+    board steps, which can fail on their own.
+    """
     project, repo = find_project(config, project_name, repo)
     if tokens and not project.task_tokens:
         raise TaskError(f"{project_name} has no task_tokens")
@@ -121,10 +125,17 @@ def create_task(config, github, project_name, repo, title, body, local_dir, prio
         raise TaskError("a task done by hand runs no worker, so it takes no tokens")
     check_task(github, repo, title, body, local_dir, priority, kind, size, deadline)
     url = github.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens)
-    github.add_to_board(project.board, url)
-    github.set_status(project.board, url, "Backlog")
-    set_fields(github, project.board, url, priority, kind, size, deadline)
+    if created is not None:
+        created(url)
+    place_task(github, project.board, url, priority, kind, size, deadline)
     return url
+
+
+def place_task(github, board, url, priority, kind, size, deadline=None):
+    """Puts an issue on the board in `Backlog` with its fields. Running it again changes nothing."""
+    github.add_to_board(board, url)
+    github.set_status(board, url, "Backlog")
+    set_fields(github, board, url, priority, kind, size, deadline)
 
 
 def main():

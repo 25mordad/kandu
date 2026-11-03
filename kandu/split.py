@@ -15,7 +15,7 @@ from .github import BLOCKED_BY, BoardCache, GitHub, GitHubError, blockers_in
 from .queen import all_events
 from .review import CODE_FENCE
 from .state import StateStore
-from .tasks import TaskError, check_body, check_english, check_fields, check_private, create_task, private_words
+from .tasks import TaskError, check_body, check_english, check_fields, check_private, create_task, place_task, private_words
 
 MIN_SLICES = 2
 BACKLOG = "Backlog"
@@ -186,17 +186,25 @@ def _approve(config, github, store, key, local_dir, slices, seen):
     references = children[-1:] or [f"{repo}#{number}" for repo, number in blockers_in(item.body, item.repo)]
     if github.repo_is_public(item.repo):  # before the first issue, not on the one that holds the word
         check_private("\n".join(f"{part['title']}\n{part['body']}" for part in slices), private_words(local_dir))
+    if children:
+        # A failure may have come between the last slice's issue and its place on the board.
+        last = children[-1]
+        place_task(github, project.board, f"https://github.com/{last.replace('#', '/issues/')}", item.priority,
+                   item.kind, slices[len(children) - 1]["size"], item.deadline or None)
     for part in slices[len(children):]:
         # At the top: under `## Blocked by` the parent would block its own slices.
         body = f"Part of #{item.number}\n\n{with_blockers(part['body'], references).rstrip()}\n"
-        url = create_task(config, github, project.name, item.repo, part["title"], body, local_dir,
-                          item.priority, item.kind, part["size"], item.deadline or None)
-        child = f"{item.repo}#{int(url.rstrip().rsplit('/', 1)[1])}"
-        store.record("slice_created", task=child, project=project.name, parent=key)
-        store.record("task_sized", task=child, project=project.name, run_id=None, size=part["size"],
-                     files=part["files"], door=part["door"], criteria=sizing.criteria_in(body), slices=0)
-        children.append(child)
-        references = [child]
+
+        def created(url, part=part, body=body):  # recorded before the board steps, so a retry never copies it
+            child = f"{item.repo}#{int(url.rstrip().rsplit('/', 1)[1])}"
+            store.record("slice_created", task=child, project=project.name, parent=key)
+            store.record("task_sized", task=child, project=project.name, run_id=None, size=part["size"],
+                         files=part["files"], door=part["door"], criteria=sizing.criteria_in(body), slices=0)
+            children.append(child)
+
+        create_task(config, github, project.name, item.repo, part["title"], body, local_dir,
+                    item.priority, item.kind, part["size"], item.deadline or None, created=created)
+        references = [children[-1]]
     store.record("task_split", task=key, project=project.name, children=children)
     return children
 
