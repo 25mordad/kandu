@@ -80,11 +80,10 @@ def note_for(events, task):
     return notes[-1] if notes else None
 
 
-def why_no_release(item, startable, spent, limit, sized, group, first=()):
+def why_no_release(item, startable, spent, limit, sized, first=()):
     """Returns why this task may not leave Backlog, or None.
 
     `sized` is its `task_sized` event: the local log counts, as a worker can edit a board field.
-    `group` is an unfinished group that comes before this task.
     `first` holds the tasks of its project that go before any other.
     """
     if item.status != "Backlog":
@@ -93,10 +92,8 @@ def why_no_release(item, startable, spent, limit, sized, group, first=()):
         return "the splitter has not sized it"
     if LARGE in (item.size, sized["size"]):
         return "it is Large and must be split first"
-    if group is not None:
-        return f"the group of {group} comes first"
     if not startable:
-        return "another task blocks it"
+        return "it is closed"
     if first and f"{item.repo}#{item.number}" not in first:
         return f"{first[0]} goes first"
     if spent >= limit:

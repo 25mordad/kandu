@@ -154,3 +154,18 @@ class WorkerReplyAfterSummaryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OpenBlockersTest(unittest.TestCase):
+    def test_a_worker_hears_of_blockers_not_merged_yet(self):
+        from kandu.config import load_config
+        import shutil, tempfile
+        from pathlib import Path
+        root = Path(tempfile.mkdtemp())
+        for name in ("kandu", "projects"):
+            shutil.copy(Path(__file__).resolve().parent.parent / "config.example" / f"{name}.example.yaml",
+                        root / f"{name}.yaml")
+        project = load_config(root).projects[0]
+        text = agents.worker_prompt(project, "o/r", 3, "b", "r-1", local_dir=root, open_blockers=["o/r#2"])
+        self.assertIn("blocked by o/r#2", text)
+        self.assertNotIn("Blockers not merged", agents.worker_prompt(project, "o/r", 3, "b", "r-1", local_dir=root))
