@@ -3,7 +3,7 @@ import re
 
 SMALL, MEDIUM, LARGE = "Small", "Medium", "Large"
 ORDER = (SMALL, MEDIUM, LARGE)
-LIMITS = {SMALL: {"criteria": 3, "files": 5}, MEDIUM: {"criteria": 5, "files": 15}}
+LIMITS = {SMALL: {"criteria": 6, "files": 18}, MEDIUM: {"criteria": 10, "files": 36}}
 DOORS = ("two-way", "one-way", "mixed")  # `mixed`: easy work and work that is hard to undo in one task.
 CRITERIA = re.compile(r"^## Acceptance criteria\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 CRITERION = re.compile(r"^[ \t]*[-*] \[[ xX]\][ \t]*(.*)$", re.MULTILINE)
