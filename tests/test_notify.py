@@ -81,8 +81,9 @@ class WhatIsImportantTest(unittest.TestCase):
         self.assertIsNone(self.kind_of("decision", decision="merge_waits", reason="CI is running", **ON_TASK))
 
     def test_what_needs_the_user(self):
-        self.assertEqual(self.kind_of("task_sized", slices=3, **ON_TASK), "needs_decision")
-        self.assertIsNone(self.kind_of("task_sized", slices=0, **ON_TASK))
+        self.assertEqual(self.kind_of("decision", decision="split_waits", reason="", **ON_TASK), "needs_decision")
+        self.assertEqual(self.kind_of("decision", decision="split_approved", reason="", **ON_TASK), "task_done")
+        self.assertIsNone(self.kind_of("task_sized", slices=3, **ON_TASK))
         self.assertEqual(self.kind_of("queen_decided", action="ask_user", note="?", **ON_TASK), "needs_decision")
         self.assertIsNone(self.kind_of("queen_decided", action="release", note="", **ON_TASK))
 

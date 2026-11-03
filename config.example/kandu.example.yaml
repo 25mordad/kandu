@@ -56,6 +56,7 @@ supervisor:                    # optional; these are the defaults
   wake_every_minutes: 60
   max_cycle_minutes: 50
   max_parallel_workers: 2
+  max_parallel_sizers: 4       # splitter runs at once; they only read, so every unsized task is sized in the same cycle
   auto_merge: false            # true = the supervisor merges on its own when it judges a PR right
   auto_revert: false           # must stay false: the supervisor only reports breakage
   queen: true                  # true = an LLM runs the cycle for every project; it wakes only when needed
