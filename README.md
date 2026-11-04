@@ -4,7 +4,7 @@
 
 [فارسی](README.fa.md)
 
-New here? Read [what Kandu does for you](docs/ONBOARDING.md), then follow [the guide](docs/GUIDE.md) from install to your first task done.
+New here? [Watch the demo film](https://25mordad.github.io/kandu/) (about two minutes), read [what Kandu does for you](docs/ONBOARDING.md), then follow [the guide](docs/GUIDE.md) from install to your first task done.
 
 > **Status: early development.** The main loop is built and tested with stand-ins, and has not run on a real project yet. The full specification is in [DESIGN.md](DESIGN.md), the roadmap in [TASKS.md](TASKS.md).
 
