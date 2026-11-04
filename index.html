@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kandu</title>
+<meta name="description" content="Kandu, an autonomous software factory: you write tasks, a supervised hive of Claude agents builds, reviews, ships and checks them.">
+<style>
+@font-face { font-family:Vazirmatn; src:url("vazirmatn.woff2") format("woff2"); font-weight:100 900; font-display:swap; }
+:root { --bg:#fdf8ec; --ink:#1d1b18; --muted:#6c675e; --honey:#f5b301; --card:#fff; --line:#ece4d2; }
+@media (prefers-color-scheme: dark) { :root { --bg:#16140f; --ink:#f1ece2; --muted:#a69f92; --card:#201d17; --line:#332e24; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.65 Vazirmatn, system-ui, sans-serif; }
+main { max-width:960px; margin:0 auto; padding:40px 16px 64px; }
+header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+h1 { margin:0; font-size:40px; letter-spacing:-.5px; }
+h1::before { content:""; display:inline-block; width:22px; height:22px; margin-inline-end:12px; background:var(--honey); border-radius:50%; vertical-align:middle; }
+.switch { margin-inline-start:auto; display:flex; gap:4px; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:4px; }
+.switch button { font:inherit; font-size:15px; border:0; background:none; color:var(--muted); padding:4px 14px; border-radius:999px; cursor:pointer; }
+.switch button[aria-pressed="true"] { background:var(--honey); color:#2a1d00; }
+.lead { font-size:21px; margin:18px 0 26px; max-width:680px; }
+video { width:100%; border-radius:14px; background:#000; box-shadow:0 10px 40px #0002; display:block; }
+.links { display:flex; gap:12px; flex-wrap:wrap; margin-top:26px; }
+.links a { color:var(--ink); text-decoration:none; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 18px; }
+.links a.main { background:var(--honey); border-color:var(--honey); color:#2a1d00; font-weight:600; }
+.note { color:var(--muted); font-size:15px; margin-top:28px; }
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 data-en="Kandu" data-fa="کندو">Kandu</h1>
+    <div class="switch" role="group" aria-label="Language"><button data-lang="en">English</button><button data-lang="fa">فارسی</button></div>
+  </header>
+  <p class="lead" data-en="An autonomous software factory. You write tasks. A supervised hive of Claude agents builds them, reviews them, ships them and checks them in the live software, and asks you when it should."
+     data-fa="یک کارخانه‌ی خودکار نرم‌افزار. شما تسک می‌نویسید. کندویی از ایجنت‌های Claude زیر نظارت، آن‌ها را می‌سازد، ریویو می‌کند، منتشر می‌کند و روی نسخه‌ی زنده چک می‌کند، و هر جا لازم باشد از شما می‌پرسد."></p>
+  <video id="film" controls preload="metadata" playsinline></video>
+  <div class="links">
+    <a class="main" data-en="Get started" data-fa="شروع کنید" data-href-en="https://github.com/25mordad/kandu/blob/main/docs/GUIDE.md" data-href-fa="https://github.com/25mordad/kandu/blob/main/docs/GUIDE.fa.md"></a>
+    <a data-en="What Kandu does for you" data-fa="کندو برای شما چه می‌کند" data-href-en="https://github.com/25mordad/kandu/blob/main/docs/ONBOARDING.md" data-href-fa="https://github.com/25mordad/kandu/blob/main/docs/ONBOARDING.fa.md"></a>
+    <a href="https://github.com/25mordad/kandu" data-en="Source on GitHub" data-fa="کد روی GitHub"></a>
+  </div>
+  <p class="note" data-en="Everything in the film is a demo: made-up projects on a made-up GitHub, played on Kandu's real dashboard. The voice is synthetic. Kandu is open source, MIT."
+     data-fa="همه‌چیز در این فیلم دموست: پروژه‌های ساختگی روی یک GitHub ساختگی، روی داشبورد واقعی کندو. صدا مصنوعی است. کندو متن‌باز است، با مجوز MIT."></p>
+</main>
+<script>
+const video = document.getElementById("film");
+function show(lang) {
+  document.documentElement.lang = lang;
+  document.documentElement.dir = lang === "fa" ? "rtl" : "ltr";
+  for (const el of document.querySelectorAll("[data-en]")) el.textContent = el.dataset[lang];
+  for (const el of document.querySelectorAll("[data-href-en]")) el.href = el.dataset[lang === "fa" ? "hrefFa" : "hrefEn"];
+  for (const b of document.querySelectorAll("[data-lang]")) b.setAttribute("aria-pressed", b.dataset.lang === lang);
+  if (!video.src.endsWith(`kandu-${lang}.mp4`)) { video.poster = `poster-${lang}.jpg`; video.src = `kandu-${lang}.mp4`; }
+  history.replaceState(null, "", lang === "fa" ? "?lang=fa" : location.pathname);
+}
+const asked = new URLSearchParams(location.search).get("lang");
+show(asked === "fa" || asked === "en" ? asked : (navigator.language || "").startsWith("fa") ? "fa" : "en");
+for (const b of document.querySelectorAll("[data-lang]")) b.onclick = () => show(b.dataset.lang);
+</script>
+</body>
+</html>
