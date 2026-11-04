@@ -4,6 +4,8 @@
 
 [فارسی](README.fa.md)
 
+New here? Read [what Kandu does for you](docs/ONBOARDING.md), then follow [the guide](docs/GUIDE.md) from install to your first task done.
+
 > **Status: early development.** The main loop is built and tested with stand-ins, and has not run on a real project yet. The full specification is in [DESIGN.md](DESIGN.md), the roadmap in [TASKS.md](TASKS.md).
 
 *Kandu* is Persian for beehive: many workers, each doing its own job, an order above them, and production that never stops.

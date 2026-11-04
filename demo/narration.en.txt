@@ -1,0 +1,17 @@
+Coding agents write good code. But working with one still means sitting next to it: approving each step, watching it, checking it really finished. Kandu takes you out of that chair.
+
+You describe a task in your own words. Didban, Kandu's control session, reads the code first, asks only what it cannot find out, and writes a precise task with acceptance criteria. Nothing reaches the board without your yes.
+
+Every hour the hive wakes. A splitter bee measures each new task. The queen, the one agent that plans for all your projects, releases work at the pace each project can take. When there is nothing to decide, she costs nothing.
+
+Workers build the tasks side by side, each in its own copy of the repo. Tests come first. You can watch every file they read and every command they run, live.
+
+Every PR gets a fresh reviewer that knows nothing of how it was built. It checks the result against your criteria and verifies each problem before it reports it. The worker fixes it, and the second review only checks those fixes.
+
+When every condition holds on the exact commit that was reviewed, Kandu merges and deploys. Then it opens the live software and checks the task is really there. Only then is it done.
+
+Some changes are hard to undo, like a database migration. Those always wait for you. You read what the change does in plain words, decide in seconds, and Kandu does the rest.
+
+You see what every task cost. Work stops at the usage limits you set, so your own sessions still have room. Pause a project, or stop the whole hive, with one click.
+
+You write tasks. Kandu builds, reviews, ships and checks them, and asks you when it should. Kandu is open source. The guide is in the repo. And no, real queen bees don't boss anyone around. Ours plays boss, just a little.

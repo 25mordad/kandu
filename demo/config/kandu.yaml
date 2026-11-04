@@ -1,0 +1,28 @@
+# The demo world's config: made-up machines, accounts and projects. See demo/README.md.
+brain:
+  machine: hive-box
+  work_dir: ~/kandu-work
+  install_dir: ~/kandu
+machines:
+  - name: hive-box
+    reach: local
+    always_on: true
+claude:
+  auth: subscription
+  limits:
+    session_5h_percent: 70
+    weekly_percent: 60
+github:
+  account: kandu-demo
+  owners: [demo-org]
+notify:
+  adapter: none
+supervisor:
+  max_parallel_workers: 2
+  auto_merge: true
+  queen: true
+  queen_daily_token_limit: 2000000
+language: en
+dashboard:
+  bind: 127.0.0.1
+  port: 8799

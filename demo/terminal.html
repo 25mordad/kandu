@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>didban</title>
+<!-- Scene 2 of the demo film: a Didban session, played from a script. demo/film.py opens it with ?lang= and ?ms=. -->
+<style>
+@font-face { font-family:Vazirmatn; src:url("/vazirmatn.woff2") format("woff2"); font-weight:100 900; }
+:root { --bg:#14161a; --fg:#d8dbe0; --dim:#7d838d; --you:#8fc46a; --kandu:#f5b301; --box:#1d2026; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); }
+body { font:20px/1.55 "DejaVu Sans Mono", monospace; }
+.window { position:absolute; inset:40px 80px 140px; background:var(--box); border-radius:12px; overflow:hidden;
+          box-shadow:0 20px 60px #0008; display:flex; flex-direction:column; }
+.bar { background:#262a31; padding:10px 18px; color:var(--dim); font-size:15px; display:flex; gap:8px; align-items:center; }
+.bar i { width:12px; height:12px; border-radius:50%; background:#444a54; display:inline-block; }
+.bar span { margin-inline-start:12px; }
+#out { flex:1; padding:22px 30px; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; }
+.line { white-space:pre-wrap; margin:2px 0; }
+.fa { font-family:Vazirmatn, "DejaVu Sans Mono", sans-serif; }
+.you::before { content:"› "; color:var(--you); }
+.you { color:#fff; margin-top:12px; }
+.didban { color:var(--fg); }
+.didban.head::before { content:"● "; color:var(--kandu); }
+.tool { color:var(--dim); }
+.tool::before { content:"  ⎿ "; }
+.issue { color:#c7d1e0; background:#171a1f; border-inline-start:3px solid var(--kandu); padding:8px 16px; margin:6px 0; }
+.done { color:var(--you); margin-top:10px; }
+.cmd { color:var(--dim); }
+.cmd::before { content:"$ "; }
+.caret { display:inline-block; width:10px; height:1.1em; background:#fff; vertical-align:text-bottom; animation:blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity:0; } }
+</style>
+</head>
+<body>
+<div class="window"><div class="bar"><i></i><i></i><i></i><span>Kandu — didban</span></div><div id="out"></div></div>
+<script>
+const ISSUE = `Sort the notes list by date
+
+## Goal
+Readers can sort the notes list by date, newest or oldest first.
+
+## Acceptance criteria
+1. A "Sort" control above the list offers "Newest first" and "Oldest first".
+2. The chosen order stays after the page reloads.
+3. Notes with the same date keep the order they were created in.
+
+## Out of scope
+Sorting by title or by tag.`;
+
+// [kind, text, weight]: the weight is the share of the scene a line holds the screen for.
+const SCRIPT = {
+  en: [
+    ["cmd", "didban", 1],
+    ["didban head", "Didban here. Kandu's hive is asleep, next wake in 41 minutes.", 1.5],
+    ["you", "the notes list should be sortable by date", 3],
+    ["tool", "Read src/notes/list.ts", .6], ["tool", "Read src/notes/store.ts", .6], ["tool", "Grep createdAt", .6],
+    ["didban head", "Notes already store createdAt, so the sort needs no new data. Two things I cannot see in the code:\n1. Should the chosen order stay after a reload? Recommended: yes, in the saved preferences.\n2. Notes with the same date: keep the order they were created in? Recommended: yes.", 4],
+    ["you", "1 yes, 2 yes", 1.5],
+    ["didban head", "The task for pocket-notes:", .6],
+    ["issue", ISSUE, 3.5],
+    ["didban", "Put it on the board?", .8],
+    ["you", "yes", 1],
+    ["done", "✓ Created demo-org/pocket-notes#21 in Backlog.", 2],
+  ],
+  fa: [
+    ["cmd", "didban", 1],
+    ["didban head fa", "دیدبان اینجاست. کندو خواب است و ۴۱ دقیقه‌ی دیگر بیدار می‌شود.", 1.5],
+    ["you fa", "لیست یادداشت‌ها باید بشود بر اساس تاریخ مرتبش کرد", 3],
+    ["tool", "Read src/notes/list.ts", .6], ["tool", "Read src/notes/store.ts", .6], ["tool", "Grep createdAt", .6],
+    ["didban head fa", "یادداشت‌ها همین حالا تاریخ ساخت را دارند، پس مرتب‌سازی داده‌ی تازه نمی‌خواهد. دو چیز را از کد نمی‌شود فهمید:\n۱. ترتیب انتخاب‌شده بعد از بارگذاری دوباره بماند؟ پیشنهاد: بله، در تنظیمات ذخیره‌شده.\n۲. یادداشت‌های هم‌تاریخ به ترتیب ساخته شدنشان بمانند؟ پیشنهاد: بله.", 4],
+    ["you fa", "۱ بله، ۲ بله", 1.5],
+    ["didban head fa", "تسک برای pocket-notes — روی گیت‌هاب انگلیسی می‌ماند:", .6],
+    ["issue", ISSUE, 3.5],
+    ["didban fa", "روی بورد بگذارمش؟", .8],
+    ["you fa", "بله", 1],
+    ["done fa", "✓ تسک demo-org/pocket-notes#21 در Backlog ساخته شد.", 2],
+  ],
+};
+
+const params = new URLSearchParams(location.search);
+const lang = params.get("lang") === "fa" ? "fa" : "en";
+const total = Number(params.get("ms")) || 17000;
+const lines = SCRIPT[lang];
+const unit = total / lines.reduce((sum, line) => sum + line[2], 0);
+const out = document.getElementById("out");
+const sleep = ms => new Promise(done => setTimeout(done, ms));
+
+async function play() {
+  for (const [kind, text, weight] of lines) {
+    const line = document.createElement("div");
+    line.className = "line " + kind;
+    line.dir = kind.includes("fa") ? "rtl" : "ltr";
+    out.appendChild(line);
+    const span = weight * unit;
+    if (kind.startsWith("you") || kind === "cmd") {  // Typed, then a beat before the answer.
+      const caret = document.createElement("span");
+      caret.className = "caret";
+      line.appendChild(caret);
+      const each = Math.min(70, span * .7 / text.length);
+      for (const ch of text) { caret.before(ch); await sleep(each); }
+      await sleep(span - each * text.length);
+      caret.remove();
+    } else {
+      line.textContent = text;
+      await sleep(span);
+    }
+  }
+}
+play();
+</script>
+</body>
+</html>

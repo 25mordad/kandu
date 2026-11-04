@@ -1,0 +1,32 @@
+# The demo world's projects. Nothing here exists.
+projects:
+  - name: pocket-notes
+    description: A small notes web app
+    family: pocket
+    repos: [demo-org/pocket-notes]
+    board: { owner: demo-org, number: 1 }
+    run: clone
+    machine: hive-box
+    path: ~/kandu-work/pocket-notes
+    test: npm test
+    deploy: { mode: direct, command: npm run deploy, live_url: https://notes.example.com }
+    auto_merge: true
+    priority: 1
+    daily_token_limit: 2000000
+    max_parallel_workers: 2
+    paused: false
+  - name: tea-shop
+    description: A small online tea shop
+    family: tea
+    repos: [demo-org/tea-shop]
+    board: { owner: demo-org, number: 2 }
+    run: clone
+    machine: hive-box
+    path: ~/kandu-work/tea-shop
+    test: npm test
+    deploy: { mode: direct, command: npm run deploy, live_url: https://tea.example.com }
+    auto_merge: true
+    priority: 2
+    daily_token_limit: 2000000
+    max_parallel_workers: 2
+    paused: false
