@@ -1,4 +1,3 @@
-import fcntl
 import io
 import contextlib
 import json
@@ -12,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from kandu import agents, notify, queen, questions, review, split, supervisor, tasks
+from kandu import agents, compat, notify, queen, questions, review, split, supervisor, tasks
 from kandu.config import Rules, load_config
 from kandu.github import BoardItem, GitHubError
 from kandu.runner import AgentResult, RunnerError
@@ -1829,7 +1828,7 @@ class LockTest(Base):
     def test_a_second_cycle_does_nothing(self):
         self.store.root.mkdir(parents=True)
         with open(self.store.root / "supervisor.lock", "w") as held:
-            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            compat.lock(held, blocking=False)
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 supervisor._locked_cycle(self.sup)

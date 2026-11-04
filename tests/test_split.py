@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
-from kandu import agents, boards, didban, priority, queen, sizing, split, supervisor
+from kandu import agents, boards, compat, didban, priority, queen, sizing, split, supervisor
 from kandu.config import BOARD_COLUMNS, Board
 from kandu.github import GitHub, GitHubError, blockers_in
 from kandu.tasks import TaskError, check_size
@@ -497,7 +497,8 @@ class ProposalStoreTest(Base):
     def test_a_proposal_is_private_and_readable(self):
         self.store.write_split("o/r#1", {"title": "T", "reason": "R", "slices": []})
         self.assertEqual(self.store.read_split("o/r#1")["reason"], "R")
-        self.assertEqual(self.store._split_file("o/r#1").stat().st_mode & 0o777, 0o600)
+        if not compat.WINDOWS:  # Windows keeps no POSIX modes; files in the user's folder are theirs.
+            self.assertEqual(self.store._split_file("o/r#1").stat().st_mode & 0o777, 0o600)
         self.assertIsNone(self.store.read_split("o/r#2"))
 
 

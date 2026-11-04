@@ -4,14 +4,16 @@ The role text is public; the details of one setup are read from
 local/didban.yaml at start and passed to the session, never written to the repo.
 """
 import json
+import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
 import uuid
 from pathlib import Path
 
-from . import sessions
+from . import compat, sessions
 from .config import ConfigError, load_didban
 
 REPO_DIR = Path(__file__).resolve().parent.parent
@@ -43,6 +45,10 @@ def last_line(text):
 def on_brain(brain, module, stdin=None):
     """Runs one Kandu module on the brain's machine."""
     command = f"cd {remote_path(brain.install_dir)} && .venv/bin/python -m {module}"
+    if brain.reach == "local" and compat.WINDOWS:  # No shell needed: the venv's Python, in the install folder.
+        install = os.path.expanduser(brain.install_dir)
+        return subprocess.run([compat.venv_python(install), "-m", *shlex.split(module)], cwd=install,
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, input=stdin)
     if brain.reach == "local":  # A session the dashboard opened runs on the brain itself.
         args = ["sh", "-c", command]
     else:
@@ -186,7 +192,8 @@ def main():
         remember(session)
     signal.signal(signal.SIGINT, lambda *_: None)  # Ctrl-C is for Claude; this process waits to report.
     try:
-        code = subprocess.run(args, cwd=REPO_DIR).returncode
+        # Windows starts a program by name only if it ends in .exe; `which` also finds claude.cmd.
+        code = subprocess.run([shutil.which(args[0]) or args[0], *args[1:]], cwd=REPO_DIR).returncode
     except FileNotFoundError:
         print("didban: claude is not installed or not on PATH", file=sys.stderr)
         return 1

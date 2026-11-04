@@ -16,10 +16,12 @@ from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
 
+from . import compat
 from .state import DEFAULT_STATE_DIR, StateStore
 
 METER_DIR = Path(__file__).resolve().parent.parent / "meter"
 METER = METER_DIR / "gh"
+WINDOWS_METER = METER_DIR / "gh.py"
 LOG_DIR = DEFAULT_STATE_DIR / "gh"
 CALLER_ENV = "GH_METER_CALLER"
 RUN_ENV = "GH_METER_RUN"
@@ -37,7 +39,7 @@ def caller():
 def env(name=None, run=None, base=None):
     """An environment whose `gh` is the meter, naming the caller and the run."""
     base = dict(os.environ if base is None else base)
-    base["PATH"] = f"{METER_DIR}:{base.get('PATH', '')}"
+    base["PATH"] = f"{METER_DIR}{os.pathsep}{base.get('PATH', '')}"
     base[CALLER_ENV] = name or base.get(CALLER_ENV) or caller()
     base[LOG_ENV] = str(LOG_DIR)
     if run:
@@ -45,15 +47,26 @@ def env(name=None, run=None, base=None):
     return base
 
 
+def gh(*args):
+    """The argv of one `gh` call that the meter counts.
+
+    On Linux `gh` on the meter's PATH is the meter. Windows starts only `.exe` files by name, so
+    there the call goes to the meter's Python version by its path.
+    """
+    if compat.WINDOWS:
+        return [sys.executable, "-I", str(WINDOWS_METER), *args]
+    return ["gh", *args]
+
+
 def path_line():
     """A shell line that puts the meter first, for scripts that set PATH themselves."""
-    return f'export PATH="{METER_DIR}:$HOME/.local/bin:$PATH"'
+    return f'export PATH="{compat.posix_path(METER_DIR)}:$HOME/.local/bin:$PATH"'
 
 
 def sample(log_dir=LOG_DIR, run=subprocess.run, now=None):
     """Writes the account's GraphQL and REST use as GitHub reports it. That call costs nothing."""
     try:
-        result = run(["gh", "api", "rate_limit"], capture_output=True, text=True, timeout=SAMPLE_TIMEOUT_SECONDS,
+        result = run(gh("api", "rate_limit"), capture_output=True, text=True, encoding="utf-8", timeout=SAMPLE_TIMEOUT_SECONDS,
                      env=env(SAMPLE_CALLER))
         resources = json.loads(result.stdout)["resources"]
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):

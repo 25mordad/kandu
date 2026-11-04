@@ -15,7 +15,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import ghmeter
+from . import compat, ghmeter
 from .didban import remote_path
 from .state import usage_from_result
 
@@ -63,12 +63,13 @@ class Host:
         change_dir = f"cd {remote_path(cwd)} && " if cwd else ""
         script = f'{ghmeter.path_line()}; {change_dir}exec {shlex.join(command)}'
         if self.ssh_target is None:
-            return ["sh", "-c", script]
+            return compat.sh(script)
         return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", self.ssh_target, script]
 
     def run(self, command, cwd=None, timeout=GIT_TIMEOUT_SECONDS):
         try:
-            return subprocess.run(self.argv(command, cwd), capture_output=True, text=True, timeout=timeout, env=child_env())
+            return subprocess.run(self.argv(command, cwd), capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                  timeout=timeout, env=child_env())
         except subprocess.TimeoutExpired as e:
             raise RunnerError(f"{command[0]} timed out on {self.name}") from e
 
@@ -85,6 +86,9 @@ class Host:
         """Expands a leading `~` on this machine: arguments reach commands unexpanded."""
         if not path.startswith("~/"):
             return path
+        if self._home is None and self.ssh_target is None and compat.WINDOWS:
+            # Git's `sh` would answer with its own form (`/c/...` or `/tmp/...`), which Python cannot open.
+            self._home = compat.home()
         if self._home is None:
             self._home = self.check(["sh", "-c", 'printf %s "$HOME"'])
         return posixpath.join(self._home, path[2:])
@@ -182,8 +186,8 @@ class Runner:
         if secrets and project.secrets_from:
             script = f"set -a; . {shlex.quote(host.absolute(project.secrets_from))}; set +a; {command}"
         self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd = os.open(self.logs_dir / f"{log_name}.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as log:
+        fd = os.open(self.logs_dir / f"{log_name}.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND | compat.O_BINARY, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as log:
             try:
                 return subprocess.run(host.argv(["sh", "-c", script], cwd), stdout=log, stderr=subprocess.STDOUT,
                                       timeout=COMMAND_TIMEOUT_SECONDS, env=child_env()).returncode
@@ -217,19 +221,21 @@ class Runner:
             script = tokens_script(self.hosts[machine].absolute(path), names)
             command = ["sh", "-c", f'{script}; exec "$@"', "sh", *command]
         self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd = os.open(self.logs_dir / f"{run_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        process = subprocess.Popen(self.hosts[machine].argv(command, cwd), stdin=subprocess.PIPE,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=child_env(run_id))
+        fd = os.open(self.logs_dir / f"{run_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND | compat.O_BINARY, 0o600)
+        process = compat.start(self.hosts[machine].argv(command, cwd), stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                                   errors="replace", env=child_env(run_id))
         stopped = threading.Event()
         threading.Thread(target=self._feed, args=(process, prompt), daemon=True).start()
         threading.Thread(target=self._watch, args=(process, should_stop, stopped), daemon=True).start()
         result = None
-        with os.fdopen(fd, "w", encoding="utf-8") as log:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as log:
             for line in process.stdout:
                 log.write(line)
                 log.flush()
                 result = _last_result(line, result)
         process.wait()
+        compat.done(process)
         if result is None:
             return AgentResult(stopped=stopped.is_set())
         usage = usage_from_result(result)
@@ -253,9 +259,9 @@ class Runner:
         while process.poll() is None:
             if should_stop():
                 stopped.set()
-                process.terminate()
+                compat.stop(process)
                 time.sleep(STOP_GRACE_SECONDS)
                 if process.poll() is None:
-                    process.kill()
+                    compat.stop(process, force=True)
                 return
             time.sleep(POLL_SECONDS)

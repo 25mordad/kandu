@@ -22,7 +22,7 @@ This guide takes you from nothing to your first task done by the hive, then thro
 
 ## 1. What you need
 
-- **The brain:** an always-on Linux machine with `systemd`, such as a small home server. The supervisor runs there.
+- **The brain:** an always-on Linux machine with `systemd`, such as a small home server. The supervisor runs there. It can also be a Windows PC: see [Kandu on Windows](WINDOWS.md) for what differs.
 - **The machine you sit at:** your laptop. It can be the brain too, if it stays on.
 - [Claude Code](https://claude.com/claude-code) (`claude`), logged in, with a subscription or an API key.
 - [GitHub CLI](https://cli.github.com/) (`gh`), logged in with the `project` scope: `gh auth refresh -s project`.

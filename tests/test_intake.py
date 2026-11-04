@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kandu import didban, intake
+from kandu import compat, didban, intake
 from kandu.config import DidbanBrain, DidbanConfig
 from kandu.state import StateStore
 
@@ -41,7 +41,8 @@ class IntakeTest(unittest.TestCase):
 
     def test_only_its_user_can_read_a_request(self):
         request_id = intake.add(self.store, "Private words")
-        self.assertEqual((self.store.requests_dir / f"{request_id}.json").stat().st_mode & 0o777, 0o600)
+        if not compat.WINDOWS:  # Windows keeps no POSIX modes; files in the user's folder are theirs.
+            self.assertEqual((self.store.requests_dir / f"{request_id}.json").stat().st_mode & 0o777, 0o600)
 
     def test_didban_opens_with_what_is_waiting(self):
         config = DidbanConfig(brain=DidbanBrain(reach="ssh server", install_dir="~/kandu"))

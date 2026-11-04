@@ -1,12 +1,14 @@
 import json
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from kandu import ghmeter
+from kandu import compat, ghmeter
 from kandu.state import StateStore
 
 
@@ -20,11 +22,14 @@ class MeterScriptTest(unittest.TestCase):
         (real / "gh").write_text('#!/bin/sh\necho "real $*"\nexit 3\n')
         (real / "gh").chmod(0o755)
         self.log = self.tmp / "log"
-        self.env = {"PATH": f"{ghmeter.METER_DIR}:{real}:/usr/bin:/bin", "GH_METER_LOG": str(self.log),
+        system = [str(Path(compat.shell()).parent)] if compat.WINDOWS else ["/usr/bin", "/bin"]
+        self.env = {"PATH": os.pathsep.join([str(ghmeter.METER_DIR), str(real), *system]), "GH_METER_LOG": str(self.log),
                     ghmeter.CALLER_ENV: "supervisor", ghmeter.RUN_ENV: "r-1"}
 
     def call(self, *args):
-        return subprocess.run([str(ghmeter.METER), *args], capture_output=True, text=True, env=self.env)
+        # Windows cannot start a bash script by name; Git's `sh` runs it, as it does for agents there.
+        meter = [compat.shell(), compat.posix_path(ghmeter.METER)] if compat.WINDOWS else [str(ghmeter.METER)]
+        return subprocess.run([*meter, *args], capture_output=True, text=True, env=self.env)
 
     def lines(self):
         [day] = self.log.iterdir()
@@ -48,9 +53,48 @@ class MeterScriptTest(unittest.TestCase):
     def test_a_symlink_to_the_meter_is_not_the_real_gh(self):
         loop = self.tmp / "loop"
         loop.mkdir()
-        (loop / "gh").symlink_to(ghmeter.METER)
-        self.env["PATH"] = f"{loop}:{self.env['PATH']}"
+        try:
+            (loop / "gh").symlink_to(ghmeter.METER)
+        except OSError:
+            self.skipTest("this account may not make symlinks")
+        self.env["PATH"] = f"{loop}{os.pathsep}{self.env['PATH']}"
         self.assertEqual(self.call("issue", "list").returncode, 3)
+
+
+@unittest.skipUnless(compat.WINDOWS, "the Python meter is for Windows")
+class WindowsMeterTest(unittest.TestCase):
+    """`meter/gh.py` writes the same line as `meter/gh`, and passes the real result on."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        real = self.tmp / "bin"
+        real.mkdir()
+        (real / "gh.bat").write_text("@echo real %*\r\n@exit /b 3\r\n")
+        self.log = self.tmp / "log"
+        self.env = {**os.environ, "PATH": os.pathsep.join([str(ghmeter.METER_DIR), str(real), os.environ["PATH"]]),
+                    "GH_METER_LOG": str(self.log), ghmeter.CALLER_ENV: "supervisor", ghmeter.RUN_ENV: "r-1"}
+
+    def call(self, *args):
+        return subprocess.run(ghmeter.gh(*args), capture_output=True, text=True, env=self.env)
+
+    def lines(self):
+        [day] = self.log.iterdir()
+        return [json.loads(line) for line in day.read_text().splitlines()]
+
+    def test_counts_and_passes_on(self):
+        result = self.call("pr", "view", "12", "--body", "secret")
+        self.assertEqual((result.stdout.strip(), result.returncode), ("real pr view 12 --body secret", 3))
+        [line] = self.lines()
+        self.assertEqual({k: line[k] for k in ("v", "type", "caller", "run", "command", "kind", "exit")},
+                         {"v": 1, "type": "call", "caller": "supervisor", "run": "r-1", "command": "pr view",
+                          "kind": "graphql", "exit": 3})
+        self.assertNotIn("secret", json.dumps(line))
+
+    def test_api_is_split_into_graphql_and_rest(self):
+        self.call("api", "graphql", "-f", "query=viewer")
+        self.call("api", "repos/a/b/pulls")
+        self.assertEqual([(l["command"], l["kind"]) for l in self.lines()],
+                         [("api graphql", "graphql"), ("api rest", "rest")])
 
 
 class ReportTest(unittest.TestCase):

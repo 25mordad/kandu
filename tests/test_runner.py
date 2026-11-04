@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from kandu import ghmeter
+from kandu import compat, ghmeter
 from kandu.config import Config, Machine, Project
 from kandu.runner import Host, Runner, RunnerError, child_env, repo_path
 
@@ -20,7 +20,7 @@ _ghmeter.LOG_DIR = Path(_tempfile.mkdtemp())  # the meter's lines stay out of st
 RESULT = {"type": "result", "result": "the reply", "duration_ms": 5, "is_error": False,
           "modelUsage": {"model-a": {"inputTokens": 1, "outputTokens": 2}}}
 FAKE_CLAUDE = f"""#!/bin/sh
-pwd > "$HOME/claude.cwd"
+{{ pwd -W 2>/dev/null || pwd; }} > "$HOME/claude.cwd"  # `-W`: the Windows form, in Git Bash
 printf '%s\\n' "$@" > "$HOME/claude.args"
 cat > "$HOME/claude.stdin"
 echo 'not json'
@@ -45,7 +45,7 @@ def install(path, text):
 class HostTest(unittest.TestCase):
     def test_local(self):
         argv = Host(Machine("a", "local", True)).argv(["git", "log"], cwd="~/my code")
-        self.assertEqual(argv[:2], ["sh", "-c"])
+        self.assertEqual(argv[:2], compat.sh("")[:2])
         self.assertIn("""cd "$HOME"/'my code' && exec git log""", argv[2])
 
     def test_ssh_never_prompts(self):
@@ -57,11 +57,11 @@ class HostTest(unittest.TestCase):
 
     def test_gh_is_the_meter_first(self):
         script = Host(Machine("a", "local", True)).argv(["true"])[2]
-        self.assertIn(f'export PATH="{ghmeter.METER_DIR}:', script)
+        self.assertIn(f'export PATH="{compat.posix_path(ghmeter.METER_DIR)}:', script)
 
     def test_a_child_names_its_run_for_the_meter(self):
         env = child_env("r-7")
-        self.assertTrue(env["PATH"].startswith(f"{ghmeter.METER_DIR}:"))
+        self.assertTrue(env["PATH"].startswith(f"{ghmeter.METER_DIR}{os.pathsep}"))
         self.assertEqual(env[ghmeter.RUN_ENV], "r-7")
         self.assertIn(ghmeter.CALLER_ENV, env)
 
@@ -132,7 +132,7 @@ class RunnerTest(unittest.TestCase):
         git("clone", str(self.origin), str(self.copy))
         (self.copy / "my-work.txt").write_text("mine")
         worktree = self.runner.prepare_worktree(self.project("in-place"), "o/site", "kandu/1-a", "main")
-        self.assertTrue(worktree.startswith(f"{self.copy}.kandu-worktrees/"))
+        self.assertTrue(worktree.startswith(f"{self.copy.as_posix()}.kandu-worktrees/"))
         self.assertEqual(git("branch", "--show-current", cwd=self.copy), "main")
         self.assertEqual(git("status", "--short", cwd=self.copy), "?? my-work.txt")
 
@@ -218,7 +218,7 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(args[args.index("--output-format") + 1], "stream-json")
         self.assertNotIn("--dangerously-skip-permissions", args)
         self.assertEqual((self.home / "claude.stdin").read_text(), "the prompt")
-        self.assertEqual((self.home / "claude.cwd").read_text().strip(), str(self.home))
+        self.assertEqual(Path((self.home / "claude.cwd").read_text().strip()).resolve(), self.home.resolve())
 
     def test_with_no_allow_list_the_run_may_do_everything(self):
         self.runner.run_agent("box", str(self.home), "p", None, [], "r-1", lambda: False)
@@ -236,8 +236,9 @@ class RunnerTest(unittest.TestCase):
     def test_log_is_kept_privately(self):
         self.agent()
         log = self.root / "logs" / "r-1.jsonl"
-        self.assertEqual(log.stat().st_mode & 0o777, 0o600)
-        self.assertEqual((self.root / "logs").stat().st_mode & 0o777, 0o700)
+        if not compat.WINDOWS:  # Windows keeps no POSIX modes; files in the user's folder are theirs.
+            self.assertEqual(log.stat().st_mode & 0o777, 0o600)
+            self.assertEqual((self.root / "logs").stat().st_mode & 0o777, 0o700)
         self.assertIn('"type": "assistant"', log.read_text())
 
     def test_no_result_is_an_error(self):
@@ -252,7 +253,7 @@ class RunnerTest(unittest.TestCase):
         project = self.project()
         self.runner.prepare_worktree(project, "o/site", "kandu/1-x", "main")
         seen = self.root / "seen"
-        project.test = f"env > {seen}"
+        project.test = f"env > {seen.as_posix()}"
         with mock.patch.dict(os.environ, {"KANDU_TELEGRAM_BOT_TOKEN": "hidden", "OTHER": "shown"}):
             cwd = self.runner.prepare_review(project, "o/site", "kandu/1-x", "origin/main")
             self.assertEqual(self.runner.run_command(project, cwd, project.test, "run-env"), 0)

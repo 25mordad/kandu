@@ -1,14 +1,17 @@
 """Writes the user `systemd` units of the supervisor and the dashboard (DESIGN §6, §7).
 
 Rendered from the config, so no setup's paths are in the repo. Installing does
-not start anything: `--enable` is a separate, explicit step.
+not start anything: `--enable` is a separate, explicit step. On Windows the same
+commands write Task Scheduler tasks instead (`wintimer.py`).
 """
 import argparse
 import subprocess
 import sys
 from pathlib import Path
 
+from . import compat, wintimer
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
+from .state import DEFAULT_STATE_DIR
 
 UNIT_NAME = "kandu"
 UNITS_DIR = Path.home() / ".config" / "systemd" / "user"
@@ -94,6 +97,9 @@ WantedBy=timers.target
 
 
 def install(config, units_dir=UNITS_DIR):
+    if compat.WINDOWS:
+        wintimer.install(config)
+        return
     units_dir.mkdir(parents=True, exist_ok=True)
     (units_dir / f"{UNIT_NAME}.service").write_text(render_service(config), encoding="utf-8")
     (units_dir / f"{UNIT_NAME}.timer").write_text(render_timer(config), encoding="utf-8")
@@ -109,6 +115,9 @@ def restart(config):
     The dashboard restarts a second later from a unit of its own, so this answer reaches the page first.
     A running cycle is left to finish.
     """
+    if compat.WINDOWS:
+        wintimer.restart(config)
+        return
     install(config)
     subprocess.run(["systemctl", "--user", "try-restart", f"{UNIT_NAME}.timer", f"{UNIT_NAME}-sync.timer"], check=True)
     subprocess.run(["systemd-run", "--user", "--on-active=1", "--collect", "systemctl", "--user", "restart",
@@ -117,12 +126,16 @@ def restart(config):
 
 def timer_on():
     """Whether `systemd` will wake the supervisor by itself."""
+    if compat.WINDOWS:
+        return wintimer.timer_on()
     active = subprocess.run(["systemctl", "--user", "is-active", f"{UNIT_NAME}.timer"], capture_output=True, text=True)
     return active.stdout.strip() == "active"
 
 
 def start_cycle():
     """Asks `systemd` for a cycle now. Returns False if it could not, or None if one is already running."""
+    if compat.WINDOWS:
+        return wintimer.start_cycle(DEFAULT_STATE_DIR / "supervisor.lock")
     unit = f"{UNIT_NAME}.service"
     active = subprocess.run(["systemctl", "--user", "is-active", unit], capture_output=True, text=True)
     if active.stdout.strip() in ("active", "activating"):
@@ -143,10 +156,17 @@ def main():
         print(f"timer: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1
     if not args.install and not args.enable and not args.dashboard:
+        if compat.WINDOWS:
+            print(*(wintimer.render_task(config, name) for name in wintimer.TASKS), sep="\n")
+            return 0
         print(render_service(config), render_timer(config), render_sync_service(config), render_sync_timer(config),
               render_dashboard(config), sep="\n")
         return 0
     install(config)
+    if compat.WINDOWS:
+        if args.enable or args.dashboard:
+            wintimer.enable(wintimer.TASKS if args.enable else (wintimer.DASHBOARD,))
+        return 0
     if args.enable:
         subprocess.run(["systemctl", "--user", "enable", "--now", f"{UNIT_NAME}.timer", f"{UNIT_NAME}-sync.timer",
                         f"{UNIT_NAME}-dashboard.service"], check=True)

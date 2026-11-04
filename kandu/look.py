@@ -11,6 +11,7 @@ Only a file inside the current folder is opened. Pictures go to a new folder und
 folder, never into the worktree, so they cannot end up in a commit.
 """
 import argparse
+import os
 import shutil
 import sys
 import tempfile
@@ -18,7 +19,10 @@ from pathlib import Path
 
 VIEWPORT = {"width": 1080, "height": 1920}
 # A system Chrome first, as the projects' own render scripts use; else the one Playwright installed.
-CHROMES = ("/usr/bin/google-chrome", shutil.which("google-chrome") or "", str(Path.home() / ".local/bin/google-chrome"))
+CHROMES = ("/usr/bin/google-chrome", shutil.which("google-chrome") or "", str(Path.home() / ".local/bin/google-chrome"),
+           *(str(Path(base) / "Google" / "Chrome" / "Application" / "chrome.exe")
+             for base in filter(None, (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"),
+                                       os.environ.get("LOCALAPPDATA")))))
 
 
 def page_path(name, root):

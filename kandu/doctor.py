@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from . import compat
 from .boards import missing_columns, missing_fields
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .dashboard import TOKEN_ENV
@@ -20,10 +21,26 @@ SESSION_TOOLS = ("tmux", "systemd-run")
 OK, WARN, FAIL = "ok", "warn", "FAIL"
 
 
-def check_tools(which=shutil.which):
+def check_tools(which=shutil.which, windows=None):
+    windows = compat.WINDOWS if windows is None else windows
     results = [(OK if which(t) else FAIL, f"tool {t}") for t in REQUIRED_TOOLS]
+    if windows:
+        # No tmux or systemd here: Task Scheduler wakes the supervisor, and each session gets a window.
+        shell = compat.shell()
+        results.append((OK if shell != "sh" or which("sh") else FAIL, "Git's sh: Kandu's shell lines run with it"))
+        results.append((OK if which("schtasks") else FAIL, "tool schtasks: the timer uses it"))
+        return results
     results += [(OK if which(t) else WARN, f"tool {t}: the dashboard opens sessions with it") for t in SESSION_TOOLS]
     return results
+
+
+def check_line_endings(repo_dir=REPO_DIR):
+    """Bash stops at a script with Windows line endings. Git may write them on Windows, before `.gitattributes`."""
+    scripts = [repo_dir / "meter" / "gh", *sorted((repo_dir / ".githooks").glob("*"))]
+    broken = [str(p.relative_to(repo_dir)) for p in scripts if p.is_file() and b"\r\n" in p.read_bytes()]
+    if broken:
+        return FAIL, f"scripts with Windows line endings: {', '.join(broken)}; check them out again"
+    return OK, "scripts have Unix line endings"
 
 
 def check_gh_scope(auth_text):
@@ -115,7 +132,8 @@ def check_project(project, runner, github):
 def run_checks(config, local_dir, runner, github):
     settings = config.settings
     results = check_tools()
-    auth = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True)
+    results.append(check_line_endings())
+    auth = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     results.append(check_gh_scope(auth.stdout + auth.stderr))
     hooks = subprocess.run(["git", "config", "core.hooksPath"], capture_output=True, text=True, cwd=REPO_DIR)
     results += check_guard(hooks.stdout.strip(), local_dir)

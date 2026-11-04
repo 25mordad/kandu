@@ -4,6 +4,7 @@ Fails closed: if usage cannot be read, the caller must treat it as over the limi
 """
 import json
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 
@@ -35,9 +36,11 @@ def parse_usage(text):
 
 
 def read_usage():
-    args = ["claude", "-p", "/usage", "--output-format", "json"]
+    # By its full path: Windows starts a program by name only if it ends in .exe, and claude may be claude.cmd.
+    args = [shutil.which("claude") or "claude", "-p", "/usage", "--output-format", "json"]
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=TIMEOUT_SECONDS)
+        result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                timeout=TIMEOUT_SECONDS)
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         raise UsageError(f"could not run claude: {type(e).__name__}") from e
     if result.returncode != 0:
