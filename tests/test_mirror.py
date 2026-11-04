@@ -211,14 +211,14 @@ class MirrorTest(unittest.TestCase):
         self.mirror.send()
         self.assertEqual(len(self.remote.calls[-1][1]), 2)  # one request for both
 
-    def test_a_move_by_the_user_wins(self):
+    def test_the_local_change_wins(self):
         self.mirror.set_status(BOARD, URL, "Ready")
-        self.remote.items[0].status = "Done"  # the user, on GitHub, meanwhile
+        self.remote.items[0].status = "Done"  # changed on GitHub meanwhile
         self.mirror.refresh_board(BOARD)
-        self.assertEqual(self.status(), "Done")
-        self.assertEqual(self.mirror.outbox(), [])
-        self.assertIn("changed by someone else", self.dropped()[0]["why"])
-        self.assertEqual(self.mirror.send(), (0, 0, 0))
+        self.assertEqual(self.status(), "Ready")
+        self.assertEqual(len(self.mirror.outbox()), 1)
+        self.assertEqual(self.mirror.send(), (1, 0, 0))
+        self.assertEqual(self.dropped(), [])
 
     def test_a_change_waiting_survives_a_read(self):
         self.mirror.set_status(BOARD, URL, "Ready")
@@ -328,9 +328,16 @@ class MirrorTest(unittest.TestCase):
     def test_sync_reads_before_it_sends(self):
         config = SimpleNamespace(projects=[SimpleNamespace(board=BOARD, repos=[REPO])])
         self.mirror.set_status(BOARD, URL, "Ready")
-        self.remote.items[0].status = "Done"
+        self.remote.items[0].status = "Ready"  # GitHub already holds it, so nothing is sent
         self.assertIn("sent 0, waiting 0, dropped 0", sync(config, self.mirror))
         self.assertNotIn("edit_cards", self.names())
+
+    def test_sync_sends_the_local_change_over_github(self):
+        config = SimpleNamespace(projects=[SimpleNamespace(board=BOARD, repos=[REPO])])
+        self.mirror.set_status(BOARD, URL, "Ready")
+        self.remote.items[0].status = "Done"
+        self.assertIn("sent 1, waiting 0, dropped 0", sync(config, self.mirror))
+        self.assertIn("edit_cards", self.names())
 
 
 if __name__ == "__main__":

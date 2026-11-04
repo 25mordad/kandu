@@ -6,8 +6,8 @@ requests as it can. Two writes go out at once, because the next step needs GitHu
 a merge, and creating an issue (its number names the task). A worker opens its PR itself.
 
 The copy is read again from GitHub every few minutes, when the supervisor wakes, and when
-the user gives an order. If the user changed a card on GitHub while a change to the same
-field waited in the queue, the user's change stands: the queued one is dropped and logged.
+the user gives an order. If a card changed on GitHub while a change to the same field
+waited in the queue, the local change stands: it is sent, and GitHub follows the copy.
 """
 import fcntl
 import json
@@ -357,9 +357,9 @@ class Mirror:
     def _overlay_board(self, board, data, resolve):
         """Puts queued changes on a board's copy.
 
-        With `resolve`, `data` is what GitHub says now: a queued card change whose field GitHub
-        holds at neither its starting point nor its new value was changed by someone else meanwhile.
-        That change stands, and the queued one is dropped.
+        With `resolve`, `data` is what GitHub says now. A queued card change GitHub already holds is
+        done; any other stays and is put on the copy, even if the card changed on GitHub meanwhile:
+        the local change is the base, and the next send makes GitHub follow it.
         """
         entries, kept = self.outbox(), []
         items = {item["url"]: item for item in data["items"]}
@@ -371,9 +371,6 @@ class Mirror:
                     now = item[_attribute(entry["field"])]
                     if resolve and now == entry["value"]:
                         continue  # GitHub already holds it
-                    if resolve and now != entry["before"]:
-                        self._log_dropped(entry, f"{entry['field']} is {now!r} on GitHub, changed by someone else")
-                        continue
                     item[_attribute(entry["field"])] = entry["value"]
             elif entry["kind"] in ("close", "edit"):
                 for item in data["items"]:
@@ -427,7 +424,7 @@ class Mirror:
         return failed
 
     def send(self):
-        """Sends the queue. Call it right after `refresh`, so a change the user made meanwhile wins.
+        """Sends the queue. Call it right after `refresh`, so what GitHub holds meanwhile is read first.
 
         A refusal that passes by itself keeps the change for the next send; any other drops and logs it.
         Returns (sent, kept, dropped).

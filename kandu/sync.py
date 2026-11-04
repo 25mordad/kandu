@@ -15,7 +15,7 @@ DROPPED_SHOWN = 10
 
 
 def sync(config, mirror):
-    """Reads first, so a change the user made on GitHub meanwhile wins over the queue. Returns a line to print."""
+    """Reads first, then sends the queue, which wins over what changed on GitHub meanwhile. Returns a line to print."""
     failed = mirror.refresh(config, max_age=0)
     sent, kept, dropped = mirror.send()
     line = f"sync: sent {sent}, waiting {kept}, dropped {dropped}"
