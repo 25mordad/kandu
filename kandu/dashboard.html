@@ -288,6 +288,8 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "pause_project": "Pause project",
   "resume_project": "Resume project",
   "project_on_pause": "Paused",
+  "by_hand": "By hand",
+  "by_hand_hint": "No agent label: Kandu leaves it alone. Open a free flight to do it yourself.",
   "queen": "The queen",
   "queen_asks": "She asks you",
   "queen_cost": "This look / today / limit",
@@ -406,6 +408,8 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "pause_project": "توقف پروژه",
   "resume_project": "ادامه‌ی پروژه",
   "project_on_pause": "متوقف",
+  "by_hand": "دستی",
+  "by_hand_hint": "برچسب agent ندارد: ملکه سراغش نمی‌رود. با پرواز آزاد خودت انجامش بده.",
   "queen": "ملکه",
   "queen_asks": "از تو می‌پرسد",
   "queen_cost": "این بار / امروز / سقف",
@@ -949,7 +953,7 @@ function hive(x, y, asleep, queenRun) {
 
 function fields(state, queue) {
   const projects = Object.entries(queue?.projects || {}).map(([name, columns]) => ({name, tasks:
-    Object.entries(columns).flatMap(([column, tasks]) => tasks.map(task => ({task: task.task, title: task.title, url: task.url, column})))}));
+    Object.entries(columns).flatMap(([column, tasks]) => tasks.map(task => ({task: task.task, title: task.title, url: task.url, by_hand: !!task.by_hand, column})))}));
   const seen = new Set(projects.flatMap(p => p.tasks.map(item => item.task)));
   const strays = [...(state.workers || []).filter(w => !seen.has(w.task)).map(w => ({task: w.task, title: "", column: "In progress", project: w.project})),
                   ...(state.waiting_for_machine || []).filter(task => !seen.has(task)).map(task => ({task, title: "", column: "waiting"}))];
@@ -1025,7 +1029,7 @@ function renderScene(state, queue) {
       const x = patch.x + (i % patch.perRow) * CELL_W + CELL_W / 2 + (patch.width - patch.perRow * CELL_W) / 2;
       const y = patch.y + Math.floor(i / patch.perRow) * CELL_H + 54;
       spots[item.task] = {x, y};
-      const title = `${item.task} · ${item.title} · ${tr(item.column === "waiting" ? "waiting for machine" : item.column)}`;
+      const title = `${item.task} · ${item.title} · ${tr(item.column === "waiting" ? "waiting for machine" : item.column)}${item.by_hand ? ` · ${t("by_hand")}` : ""}`;
       return `<g class="clickable" data-review="${esc(item.task)}" transform="translate(${x} ${y})"><title>${esc(title)}</title>${flower(item, i)}
         <text class="flower-number" y="52">${numberOf(item.task)}</text></g>`;
     }).join("");
@@ -1140,7 +1144,7 @@ async function refreshState() {
 }
 
 function matches(project, item, words) {
-  const text = `${project} ${item.task} ${item.title} ${tr(item.column)}`.toLowerCase();
+  const text = `${project} ${item.task} ${item.title} ${tr(item.column)} ${item.by_hand ? t("by_hand") : ""}`.toLowerCase();
   return words.every(word => text.includes(word));
 }
 
@@ -1149,7 +1153,7 @@ function projectCard(project, shown, total, searching) {
   const counts = COLUMN_ORDER.map(column => [column, sorted.filter(item => item.column === column).length]).filter(([, count]) => count);
   const rows = sorted.map(item => {
     const label = item.column === "waiting" ? "waiting for machine" : item.column;
-    return `<tr data-review="${esc(item.task)}"><td class="fit number">${numberOf(item.task)}</td><td dir="auto"><button class="textlink">${esc(item.title || item.task)}</button></td>
+    return `<tr data-review="${esc(item.task)}"><td class="fit number">${numberOf(item.task)}</td><td dir="auto"><button class="textlink">${esc(item.title || item.task)}</button>${item.by_hand ? ` <span class="badge" title="${esc(t("by_hand_hint"))}">${t("by_hand")}</span>` : ""}</td>
       <td class="fit">${badge(item.column, label)}</td></tr>`;
   }).join("");
   const table = rows ? `<table class="rows"><thead><tr><th class="fit">${t("number")}</th><th>${t("title")}</th><th class="fit">${t("status")}</th></tr></thead><tbody>${rows}</tbody></table>`

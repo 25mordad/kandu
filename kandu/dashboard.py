@@ -230,14 +230,16 @@ class Api:
         for board in self._boards():
             for item in self.github.board_items(board):
                 name = by_repo.get(item.repo)
-                if name is None or AGENT_LABEL not in item.labels or item.status not in QUEUE_COLUMNS:
+                if name is None or item.status not in QUEUE_COLUMNS:
                     continue
                 if item.status == DONE and not closed_lately(item):
                     continue
                 task = f"{item.repo}#{item.number}"
                 if item.status == split.NEEDS_SPLIT and self.store.last_event("task_split", task=task) is not None:
                     continue  # Accepted: it waits for nobody, and its slices stand for it until the last one closes it.
-                projects[name][item.status].append({"task": task, "title": item.title, "url": item.url})
+                # A task without `agent` is the user's to do by hand: shown for a free flight, never worked by Kandu.
+                projects[name][item.status].append({"task": task, "title": item.title, "url": item.url,
+                                                    "by_hand": AGENT_LABEL not in item.labels})
         return {"projects": projects, "done_days": DONE_KEEP_DAYS}
 
     def days(self, query):

@@ -72,7 +72,7 @@ class ReadTest(Base):
     def test_state_before_any_cycle(self):
         self.assertEqual(self.get("/api/v1/state")[0], 200)
 
-    def test_queue_shows_only_registered_agent_tasks(self):
+    def test_queue_shows_registered_tasks_and_marks_those_by_hand(self):
         def item(repo, number, status, labels=("agent",)):
             return BoardItem(repo, number, "t", "u", status, list(labels), "")
         self.github.board_items.return_value = [
@@ -80,7 +80,8 @@ class ReadTest(Base):
             item(REPO, 5, "Done"),
         ]
         projects = self.get("/api/v1/queue")[1]["projects"]
-        self.assertEqual([t["task"] for t in projects["website"]["Ready"]], [f"{REPO}#1"])
+        ready = [(t["task"], t["by_hand"]) for t in projects["website"]["Ready"]]
+        self.assertEqual(ready, [(f"{REPO}#1", False), (f"{REPO}#3", True)])
         self.assertEqual([t["task"] for t in projects["website"]["Blocked"]], [f"{REPO}#2"])
 
     def test_an_accepted_split_stops_waiting(self):
