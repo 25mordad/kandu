@@ -139,12 +139,35 @@ def place_task(github, board, url, priority, kind, size, deadline=None):
     set_fields(github, board, url, priority, kind, size, deadline)
 
 
+def place_existing(config, github, project_name, url, priority, kind, size, deadline=None):
+    """Finishes a task whose issue exists but whose board steps failed. Creates nothing."""
+    if "github.com/" not in url or "/issues/" not in url:
+        raise TaskError("--place takes the issue's URL")
+    check_fields(priority, kind, size, deadline)
+    repo = "/".join(url.split("github.com/")[1].split("/")[:2])
+    project, _ = find_project(config, project_name, repo)
+    place_task(github, project.board, url, priority, kind, size, deadline)
+    return url
+
+
+def send_now(github):
+    """The card's fields wait in the queue; the user ordered this task, so they go to GitHub now, not at the next sync."""
+    try:
+        _, kept, dropped = github.send()
+    except GitHubError as e:
+        return f"tasks: the fields wait in the queue, and kandu.sync sends them: {e}"
+    if kept or dropped:
+        return f"tasks: {kept} change(s) still wait and {dropped} were dropped; see: python -m kandu.sync --queue"
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Put a task on a board.")
     parser.add_argument("--project", required=True)
     parser.add_argument("--repo", help="needed when the project has several repos")
-    parser.add_argument("--title", required=True)
-    parser.add_argument("--body-file", required=True)
+    parser.add_argument("--title")
+    parser.add_argument("--body-file")
+    parser.add_argument("--place", metavar="URL", help="put an existing issue on the board, with these fields")
     parser.add_argument("--priority", required=True, choices=BOARD_FIELDS["Priority"])
     parser.add_argument("--kind", required=True, choices=BOARD_FIELDS["Kind"])
     parser.add_argument("--size", required=True, choices=BOARD_FIELDS["Size"])
@@ -153,17 +176,33 @@ def main():
     parser.add_argument("--tokens", action="store_true", help="its worker gets the project's task_tokens")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
     args = parser.parse_args()
+    if not args.place and not (args.title and args.body_file):
+        parser.error("a new task needs --title and --body-file")
+    created = []
     try:
         config = load_config(args.local)
-        body = Path(args.body_file).read_text(encoding="utf-8")
-        print(create_task(config, open_github(config, refresh=True), args.project, args.repo, args.title, body, args.local,
-                          args.priority, args.kind, args.size, args.deadline, args.by_hand, args.tokens))
+        github = open_github(config, refresh=True)
+        if args.place:
+            url = place_existing(config, github, args.project, args.place, args.priority, args.kind, args.size,
+                                 args.deadline)
+        else:
+            body = Path(args.body_file).read_text(encoding="utf-8")
+            url = create_task(config, github, args.project, args.repo, args.title, body, args.local, args.priority,
+                              args.kind, args.size, args.deadline, args.by_hand, args.tokens, created=created.append)
     except ConfigError as e:
         print(f"tasks: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1
     except (TaskError, GitHubError) as e:
         print(f"tasks: {e}", file=sys.stderr)
+        if created:
+            print(f"tasks: the issue exists, but is not on the board yet: {created[0]}\n"
+                  f"tasks: finish it with the same command and --place {created[0]} instead of --title and "
+                  "--body-file; without --place a second issue is made", file=sys.stderr)
         return 1
+    print(url)
+    waiting = send_now(github)
+    if waiting:
+        print(waiting, file=sys.stderr)
     return 0
 
 
