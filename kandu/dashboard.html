@@ -172,6 +172,8 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .sign-text { fill:#3a2608; font:700 14px var(--sans); text-anchor:middle; }
 .mark { fill:#fffdf5; stroke:#3a2608; stroke-width:1; }
 .mark.ask { fill:#f2a65a; }
+.mark.yours { fill:#e8590c; animation:blink 1.6s ease-in-out infinite; }
+@keyframes blink { 50% { opacity:.45; } }
 .mark-text { fill:#3a2608; font:700 9.5px var(--sans); text-anchor:middle; }
 .wait-ring { fill:none; stroke:#e8590c; stroke-width:4; transform-box:fill-box; transform-origin:center; animation:halo 1.8s ease-out infinite; }
 .patch-name { fill:var(--ink); font:600 15px var(--sans); text-anchor:middle; }
@@ -401,7 +403,11 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "mark_door": "Hard to undo",
   "mark_slice": "Slice of a split task",
   "mark_unsized": "Not sized",
-  "mark_questions": "Open questions for you"
+  "mark_questions": "Open questions for you",
+  "waits_for_you": "Waits for your decision",
+  "send_back": "Back to work",
+  "send_back_sure": "Send this task back to work? Its next cycle reviews the newest head, or fixes what the last review found. It merges nothing: the merge gate still decides.",
+  "sent_back_done": "Back on the board in Ready. A cycle is picking it up."
  },
  "fa": {
   "brand": "کندو",
@@ -527,7 +533,11 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "mark_door": "برگرداندنش سخت است",
   "mark_slice": "تکه‌ای از یک تسک شکسته",
   "mark_unsized": "اندازه‌گیری نشده",
-  "mark_questions": "سؤال‌های باز برای تو"
+  "mark_questions": "سؤال‌های باز برای تو",
+  "waits_for_you": "منتظر تصمیم توست",
+  "send_back": "دوباره به کار",
+  "send_back_sure": "این تسک دوباره به کار برگردد؟ چرخه‌ی بعدی آخرین نسخه را بازبینی می‌کند، یا ایرادهای بازبینی قبلی را درست می‌کند. چیزی ادغام نمی‌شود: دروازه‌ی ادغام همچنان تصمیم می‌گیرد.",
+  "sent_back_done": "برگشت به ستون Ready. یک چرخه سراغش می‌رود."
  },
  "values_fa": {
   "awake": "بیدار",
@@ -570,6 +580,8 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "the session did not start": "جلسه باز نشد",
   "an acceptance criterion is not met": "یک معیار پذیرش برآورده نشده است",
   "this project is paused: resume it first": "این پروژه متوقف است: اول از توقف درش بیاور",
+  "its PR is already merged": "PR آن قبلاً ادغام شده",
+  "it has no agent label: it is yours to do by hand": "برچسب agent ندارد: کار دستی خودت است",
   "this project has no board": "این پروژه تخته ندارد",
   "your decision: this is hard to undo": "تصمیم با توست: برگرداندن این کار سخت است",
   "your decision: the review has a question": "تصمیم با توست: ریویو از تو سؤالی دارد",
@@ -611,6 +623,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "review_finished": "بازبینی تمام شد",
   "task_finished": "تسک تمام شد",
   "user_approved": "تأیید تو",
+  "user_resumed": "دوباره به کار، با تو",
   "queen_approved": "تأیید ملکه",
   "copy_not_read": "خواندن از GitHub نشد",
   "deployed": "مستقر شد",
@@ -705,7 +718,7 @@ const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const COLUMN_ORDER = ["Your approval", "Needs info", "Needs split", "Approved", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog", "Technical debt", "Done"];
 let flights = {open: [], flown: []};
 const flightsWarned = new Set();
-let lang = "en", tab = "meadow", shownRun = null, shownTask = null, confirming = false, live = [], token = "";
+let lang = "en", tab = "meadow", shownRun = null, shownTask = null, confirming = false, sendingBack = false, live = [], token = "";
 let lastState = null, lastQueue = null, sceneKey = null, listKey = null, briefOpen = false, closed = new Set();
 const saved = key => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
@@ -798,7 +811,7 @@ async function post(path) {
   if (!token && !await askToken()) return false;
   const r = await fetch("/api/v1" + path, {method: "POST", headers: {Authorization: "Bearer " + token}});
   if (r.status === 403) token = "";
-  if (!r.ok) toast(r.status === 403 ? t("token_required") : (await r.json().catch(() => ({}))).error || t("request_failed"));
+  if (!r.ok) toast(r.status === 403 ? t("token_required") : tr((await r.json().catch(() => ({}))).error) || t("request_failed"));
   refresh();
   return r.ok;
 }
@@ -825,6 +838,14 @@ async function busy(button, work, text = t("working")) {
 async function act(button, path, text) {
   if (!token && !await askToken()) return false;
   return busy(button, () => post(path), text);
+}
+
+async function doSendBack(button) {
+  const task = button.dataset.back, [repo, number] = task.split("#");
+  const done = await act(button, `/tasks/${repo}/${number}/send-back`);
+  sendingBack = false;
+  if (done) { toast(t("sent_back_done")); await refreshQueue(lastState, true).catch(() => {}); }
+  showReviews(task);
 }
 
 async function approve(button) {
@@ -875,6 +896,7 @@ const MARKS = {
   back: '<path class="sign" d="M3.8 3.4 V.4 a2.2 2.2 0 0 0 -2.2 -2.2 H-3.6 M-1.6 -4 L-3.8 -1.8 L-1.6 .4"/>',
   slice: '<circle class="sign" cx="-1.9" r="2.5"/><circle class="sign" cx="1.9" r="2.5"/>',
   unsized: '<path class="sign" d="M-4.8 -1.8 h9.6 v3.6 h-9.6z M-2.4 -1.8 v1.6 M0 -1.8 v1.6 M2.4 -1.8 v1.6"/>',
+  yours: '<text class="mark-text" y="3.4">!</text>',
 };
 
 function bloom(column, index) {
@@ -910,10 +932,11 @@ function markAt(x, drawing, kind = "") {
 }
 
 function flower(item, index) {
-  const {size, door, sent_back: back, slice, questions} = item.mark || {};
+  const {size, door, sent_back: back, slice, questions, yours} = item.mark || {};
   const scale = SCALES[size] || 1;
   const marks = [door && door !== "two-way" ? [MARKS.door] : null, back ? [MARKS.back] : null, slice ? [MARKS.slice] : null,
-                 size || item.column === "Technical debt" ? null : [MARKS.unsized], questions ? [`<text class="mark-text" y="3.4">${num(questions)}</text>`, "ask"] : null].filter(Boolean);
+                 size || item.column === "Technical debt" ? null : [MARKS.unsized], questions ? [`<text class="mark-text" y="3.4">${num(questions)}</text>`, "ask"] : null,
+                 yours ? [MARKS.yours, "yours"] : null].filter(Boolean);
   const start = -(marks.length - 1) * 7.5;
   return `<g class="bloom" transform="translate(0 34) scale(${scale}) translate(0 -34)">${bloom(item.column, index)}</g>
     ${marks.map(([drawing, kind], i) => markAt(start + i * 15, drawing, kind)).join("")}`;
@@ -1090,7 +1113,7 @@ function renderLegend() {
   const sizes = Object.keys(SCALES).map(size => entry(flower({column: "In progress", mark: {size}}, 0), tr(size), "-34 -46 68 84", 58));
   const mark = (drawing, key, kind) => entry(markAt(0, drawing, kind), t(key), "-9 25 18 18", 20);
   const signs = [mark(MARKS.door, "mark_door"), mark(MARKS.back, "sent_back"), mark(MARKS.slice, "mark_slice"), mark(MARKS.unsized, "mark_unsized"),
-                 mark(`<text class="mark-text" y="3.4">${num(3)}</text>`, "mark_questions", "ask")];
+                 mark(`<text class="mark-text" y="3.4">${num(3)}</text>`, "mark_questions", "ask"), mark(MARKS.yours, "waits_for_you", "yours")];
   const queen = `${bee("queen")}<path transform="translate(11 -9)" fill="#f5b301" stroke="#3a2608" d="${CROWN}"/>`;
   const bees = [[queen, "bee_queen"], [bee("worker"), "bee_worker"], [bee("reviewer"), "bee_reviewer"], [bee("scout"), "bee_scout"], [bee("splitter"), "bee_splitter"]]
     .map(([drawing, key]) => entry(drawing, t(key), "-28 -20 58 40", 30));
@@ -1180,7 +1203,7 @@ async function refreshState() {
 }
 
 function matches(project, item, words) {
-  const text = `${project} ${item.task} ${item.title} ${tr(item.column)} ${item.by_hand ? t("by_hand") : ""}`.toLowerCase();
+  const text = `${project} ${item.task} ${item.title} ${tr(item.column)} ${item.by_hand ? t("by_hand") : ""} ${item.mark?.yours ? t("waits_for_you") : ""}`.toLowerCase();
   return words.every(word => text.includes(word));
 }
 
@@ -1189,7 +1212,7 @@ function projectCard(project, shown, total, searching) {
   const counts = COLUMN_ORDER.map(column => [column, sorted.filter(item => item.column === column).length]).filter(([, count]) => count);
   const rows = sorted.map(item => {
     const label = item.column === "waiting" ? "waiting for machine" : item.column;
-    return `<tr data-review="${esc(item.task)}"><td class="fit number">${numberOf(item.task)}</td><td dir="auto"><button class="textlink">${esc(item.title || item.task)}</button>${item.by_hand ? ` <span class="badge" title="${esc(t("by_hand_hint"))}">${t("by_hand")}</span>` : ""}</td>
+    return `<tr data-review="${esc(item.task)}"><td class="fit number">${numberOf(item.task)}</td><td dir="auto"><button class="textlink">${esc(item.title || item.task)}</button>${item.by_hand ? ` <span class="badge" title="${esc(t("by_hand_hint"))}">${t("by_hand")}</span>` : ""}${item.mark?.yours ? ` <span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : ""}</td>
       <td class="fit">${badge(item.column, label)}</td></tr>`;
   }).join("");
   const table = rows ? `<table class="rows"><thead><tr><th class="fit">${t("number")}</th><th>${t("title")}</th><th class="fit">${t("status")}</th></tr></thead><tbody>${rows}</tbody></table>`
@@ -1369,6 +1392,15 @@ function approval(task, pr) {
   return `<div class="confirm"><div>${t("approve_sure")}</div><div class="actions"><button class="btn primary" data-approve="${esc(task)}" data-head="${esc(pr.head_sha)}">${t("approve")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`;
 }
 
+// A stopped task the user sends back to work. Nothing here merges.
+function sendBack(task, item) {
+  if (!item || item.by_hand || !["Blocked", "Needs info"].includes(item.column)) return "";
+  if (!sendingBack) return `<button class="btn primary" data-back-sure>${t("send_back")}</button>`;
+  return `<div class="confirm"><div>${t("send_back_sure")}</div><div class="actions"><button class="btn primary" data-back="${esc(task)}">${t("send_back")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`;
+}
+
+const yoursChip = task => lastState?.flowers?.[task]?.yours ? `<span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : "";
+
 function splitBox(task, proposal) {
   // The user's language, also one the page has no text for. The English is what reaches the issue.
   const own = lang === "en" && TEXT[lastState.language] ? null : proposal.user_text;
@@ -1404,13 +1436,14 @@ async function showReviews(task) {
   const link = (url, label) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${label} ↗</a>`;
   if (!r.pr) {
     openModal(`${numberOf(task)} ${bdi(item?.title || repoOf(task))}`);
-    $("modalbody").innerHTML = `<div class="actions">${item ? badge(item.column) : ""}<span class="muted">${t("no_pr")}</span></div>${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}<div id="taskflight" class="actions"></div>`;
+    $("modalbody").innerHTML = `<div class="actions">${item ? badge(item.column) : ""}${yoursChip(task)}<span class="muted">${t("no_pr")}</span></div>${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}<div class="actions">${sendBack(task, item)}</div>${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}<div id="taskflight" class="actions"></div>`;
     renderFlights();
     return;
   }
   openModal(`${numberOf(task)} ${bdi(item?.title || r.pr.title)}`);
-  $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? badge(item.column) : ""}</div>
+  $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? badge(item.column) : ""}${yoursChip(task)}</div>
     ${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}
+    <div class="actions">${sendBack(task, item)}</div>
     <div class="actions">${approval(task, r.pr)}${link(r.pr.url, t("open_github"))}</div>
     <div id="taskflight" class="actions"></div>
     ${r.rounds.slice().reverse().map((round, i) => roundBox(round, i === 0)).join("")}`;
@@ -1425,7 +1458,9 @@ document.addEventListener("click", e => {
   if (hit("land")) { act(hit("land"), `/flights/${encodeURIComponent(hit("land").dataset.land)}/close`).then(() => refreshFlights()).catch(() => {}); return; }
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }
-  if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); showReviews(shownTask); return; }
+  if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); sendingBack = false; showReviews(shownTask); return; }
+  if (hit("back-sure")) { sendingBack = true; confirming = false; showReviews(shownTask); return; }
+  if (hit("back")) { doSendBack(hit("back")); return; }
   if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
   if (pause) {  // It sits in the project's summary, which would fold.
     e.preventDefault();
@@ -1438,7 +1473,7 @@ document.addEventListener("click", e => {
   if (stop) { act(stop, `/workers/${encodeURIComponent(stop.dataset.stop)}/stop`); return; }
   if (run) { showRun(run.dataset.run); return; }
   const review = hit("review");
-  if (review) { confirming = false; showReviews(review.dataset.review); }
+  if (review) { confirming = false; sendingBack = false; showReviews(review.dataset.review); }
   if (e.target === $("modal")) $("modal").close();
 });
 document.addEventListener("toggle", e => {
