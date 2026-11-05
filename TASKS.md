@@ -55,6 +55,7 @@ Every task is designed and checked against harness, context and memory (§14).
 46. [x] Kandu works on its own copy of GitHub: reads come from it, changes wait in a queue sent every 10 minutes, a merge and a new issue go at once, and a card the user moved meanwhile keeps the user's move (§3)
 47. [x] Set on the dashboard how many workers build at once, in all of Kandu and at most per project (§7)
 48. [x] Didban keeps to the project the user named, and leaves what waits in other projects unsaid (§13)
+49. [x] Zanbourdar: a session beside Didban on the dashboard, with full access and tied to no task, that may change Kandu itself (§13)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

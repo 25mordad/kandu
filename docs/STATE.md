@@ -9,7 +9,7 @@ state/
   requests/<id>.json      what the user asked for, until it is tasks
   didban/<session>.json   what one Didban session spent and did
   flights/<key>.json      a session opened from the dashboard: its link, with its tmux socket and prompt beside it
-  flown/<session>.json    what one free flight spent and did, after it ended
+  flown/<session>.json    what one free flight or Zanbourdar session spent and did, after it ended
   gh/2026-11-03.jsonl     each gh call Kandu and its agents made that day, and samples of GitHub's limit
 ```
 

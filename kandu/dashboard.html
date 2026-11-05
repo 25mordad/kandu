@@ -224,6 +224,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     <button id="wake" class="btn plain" data-t="wake_queen"></button>
     <button id="restart" class="btn plain" data-t="restart_kandu"></button>
     <span id="didbanbox" class="flightbox"></span>
+    <span id="zanbourdarbox" class="flightbox"></span>
     <button id="lang" class="btn plain" lang="" data-t="other_language"></button>
   </div>
   <nav class="tabs" role="tablist">
@@ -364,6 +365,8 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "didban_sessions": "Didban sessions",
   "no_didban_sessions": "No Didban session reported yet",
   "open_didban": "Open Didban",
+  "open_zanbourdar": "Open Zanbourdar",
+  "zanbourdar": "Zanbourdar",
   "open_flight": "Open a free flight",
   "flight_opening": "Opening…",
   "flight_go": "Go to the session",
@@ -488,6 +491,8 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "didban_sessions": "جلسه‌های دیدبان",
   "no_didban_sessions": "هنوز جلسه‌ای از دیدبان گزارش نشده",
   "open_didban": "باز کردن دیدبان",
+  "open_zanbourdar": "باز کردن زنبوردار",
+  "zanbourdar": "زنبوردار",
   "open_flight": "باز کردن پرواز آزاد",
   "flight_opening": "در حال باز شدن…",
   "flight_go": "رفتن به جلسه",
@@ -1249,9 +1254,10 @@ function flightControls(flight, target, label) {
 
 function renderFlights() {
   $("didbanbox").innerHTML = flightControls(flights.open.find(f => f.kind === "didban"), "didban", t("open_didban"));
+  $("zanbourdarbox").innerHTML = flightControls(flights.open.find(f => f.kind === "zanbourdar"), "zanbourdar", t("open_zanbourdar"));
   if ($("taskflight") && shownTask) $("taskflight").innerHTML = flightControls(flights.open.find(f => f.task === shownTask), shownTask, t("open_flight"));
-  const task = s => `<button class="textlink" data-review="${esc(s.task)}">${bdi(repoOf(s.task))} ${numberOf(s.task)}</button>`;
-  const open = flights.open.filter(f => f.kind === "task" && f.status === "open").map(f => `<tr><td class="fit number">${esc(when(f.started))}</td><td>${task(f)}</td>
+  const task = s => !s.task ? esc(t("zanbourdar")) : `<button class="textlink" data-review="${esc(s.task)}">${bdi(repoOf(s.task))} ${numberOf(s.task)}</button>`;
+  const open = flights.open.filter(f => f.kind !== "didban" && f.status === "open").map(f => `<tr><td class="fit number">${esc(when(f.started))}</td><td>${task(f)}</td>
     <td dir="auto"><a class="textlink" href="${esc(f.url)}" target="_blank" rel="noopener">${t("flight_go")} ↗</a></td><td class="fit end">${t("flight_open_now")}</td></tr>`);
   const flown = flights.flown.map(s => `<tr><td class="fit number">${esc(s.started ? when(s.started) : "—")}</td><td>${task(s)}</td><td dir="auto">${esc(s.title || "—")}</td>
     <td class="fit end" title="${esc(num(s.tokens.input + s.tokens.output + s.tokens.cache_read + s.tokens.cache_creation))}">${esc(short(s.tokens.input + s.tokens.output + s.tokens.cache_creation))}</td></tr>`);
@@ -1273,7 +1279,7 @@ async function refreshFlights() {
 
 async function openFlight(button) {
   const target = button.dataset.fly;
-  const path = target === "didban" ? "/flights/didban" : `/flights/tasks/${target.replace("#", "/")}`;
+  const path = ["didban", "zanbourdar"].includes(target) ? `/flights/${target}` : `/flights/tasks/${target.replace("#", "/")}`;
   await act(button, `${path}?language=${lang}`, t("flight_opening"));
   await refreshFlights();
 }

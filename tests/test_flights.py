@@ -8,7 +8,7 @@ from unittest import mock
 
 from kandu import didban, flights
 from kandu.config import DidbanBrain, DidbanConfig
-from kandu.flights import DIDBAN, Flights, task_key
+from kandu.flights import DIDBAN, ZANBOURDAR, Flights, task_key
 from kandu.state import StateStore
 
 SESSION_LINK = "https://claude.ai/code/session_abc123"
@@ -94,6 +94,19 @@ class FlightsTest(unittest.TestCase):
         text = self.prompt(DIDBAN)
         self.assertIn("speak English with them", text)
         self.assertIn("without SSH", text)
+
+    def test_zanbourdar_has_full_access_starts_in_kandu_and_lands_with_the_flights(self):
+        self.flights.open_zanbourdar("fa")
+        line = self.host.started_line()
+        self.assertIn("--dangerously-skip-permissions", line)
+        started = next(c for c in self.host.commands if c[0] == "systemd-run")
+        self.assertEqual(started[started.index("-c") + 1], str(didban.REPO_DIR))
+        text = self.prompt(ZANBOURDAR)
+        self.assertIn("# Zanbourdar", text)
+        self.assertIn("Speak Persian", text)
+        self.transcript(self.store.flight(ZANBOURDAR)["session"], {"output_tokens": 5})
+        self.flights.close(ZANBOURDAR)
+        self.assertEqual((self.store.flown()[0]["task"], self.store.didban_sessions()), (None, []))
 
     def test_a_task_flight_prompt_holds_no_issue_text(self):
         key = self.open_task()

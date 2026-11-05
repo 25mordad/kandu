@@ -263,6 +263,11 @@ class Api:
         self.flights.open_didban(self._language(query))
         return {"opening": flights.DIDBAN}
 
+    def open_zanbourdar(self, query):
+        """Answers at once: the session's link appears in `GET /flights`."""
+        self.flights.open_zanbourdar(self._language(query))
+        return {"opening": flights.ZANBOURDAR}
+
     def open_flight(self, query, owner, repo, number):
         task = self._split_task(owner, repo, number)
         full = f"{owner}/{repo}"
@@ -513,6 +518,7 @@ ROUTES = [
     ("GET", "/didban", Api.didban),
     ("GET", "/flights", Api.list_flights),
     ("POST", "/flights/didban", Api.open_didban),
+    ("POST", "/flights/zanbourdar", Api.open_zanbourdar),
     ("POST", "/flights/tasks/{owner}/{repo}/{number}", Api.open_flight),
     ("POST", "/flights/{key}/close", Api.close_flight),
     ("GET", "/events", Api.events),

@@ -523,6 +523,13 @@ class ControlTest(Base):
     def test_opening_a_session_needs_the_token(self):
         self.assertEqual(dashboard.dispatch(self.api, "POST", "/api/v1/flights/didban?language=fa")[0], 403)
 
+    def test_zanbourdar_opens_with_the_token_in_the_language_of_the_page(self):
+        self.api.flights = mock.Mock()
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/flights/zanbourdar?language=fa")[0], 403)
+        status, body = dispatch(self.api, "POST", "/api/v1/flights/zanbourdar?language=fa", TOKEN)
+        self.assertEqual((status, body), (200, {"opening": flights.ZANBOURDAR}))
+        self.api.flights.open_zanbourdar.assert_called_once_with("fa")
+
     def test_a_task_flight_opens_in_the_language_of_the_page(self):
         self.api.flights = mock.Mock()
         status, body = dashboard.dispatch(self.api, "POST", f"/api/v1/flights/tasks/{REPO}/7?language=fa", TOKEN)

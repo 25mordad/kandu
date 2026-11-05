@@ -281,6 +281,9 @@ A free flight has full access, with no permission prompts, because the person dr
 
 Code sums up each flight when it ends, for a list under daily usage, apart from Didban's sessions. It counts against no project's limits, though it spends the same account's usage (§6). A session nobody spoke to spends nothing and leaves no row.
 
+### Zanbourdar
+Beside Didban, the dashboard has a button for **Zanbourdar** (Persian for "beekeeper", the one who tends the hive itself): a Claude Code session on the brain's machine with a Remote Control link, tied to no task. It has full access, as a free flight does, and the same warnings hold: it is not an agent, no gate watches it, and only the dashboard's token stands before it. It starts in Kandu's live install and may change Kandu itself: on a branch in its own `git worktree`, brought into the install only as Kandu's `CLAUDE.md` says. Before it stops, restarts or reconfigures Kandu it says what that does to the work in hand and waits for the user's yes. One stays open at a time. Code sums it up when it ends, in the list of free flights.
+
 ## 14. Harness, context and memory
 Every part of Kandu is designed and reviewed against these three. The result depends on them as much as on the model.
 
