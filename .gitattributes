@@ -1,0 +1,7 @@
+# Shell scripts, hooks and the gh meter run under bash, also on Windows (Git Bash): keep LF everywhere.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.png binary
+*.woff2 binary
+*.mp4 binary

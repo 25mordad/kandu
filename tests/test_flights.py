@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from kandu import didban, flights
+from kandu import compat, didban, flights
 from kandu.config import DidbanBrain, DidbanConfig
 from kandu.flights import DIDBAN, ZANBOURDAR, Flights, task_key
 from kandu.state import StateStore
@@ -61,6 +61,9 @@ class FlightsTest(unittest.TestCase):
                                       settings=SimpleNamespace(dashboard=SimpleNamespace(bind="127.0.0.1", port=8000)))
         self.flights = Flights(self.config, self.store, self.root / "logs", run=self.host, clock=lambda: self.time[0],
                                spawn=lambda work: work(), projects_dir=self.root / "projects")
+        linux = mock.patch("kandu.compat.WINDOWS", False)  # tmux and systemd-run are faked, on any system
+        linux.start()
+        self.addCleanup(linux.stop)
 
     def open_task(self, language="fa"):
         self.flights.open_task(self.project, "acme-org/website", 6, language)
@@ -196,12 +199,81 @@ class FlightsTest(unittest.TestCase):
         self.assertEqual(self.flights.list()["open"][0]["status"], "failed")
 
 
+class WindowsFlightsTest(FlightsTest):
+    """On Windows a flight is a console window of its own; its process id tells whether it still runs."""
+
+    def setUp(self):
+        super().setUp()
+        windows = mock.patch("kandu.compat.WINDOWS", True)
+        windows.start()
+        self.addCleanup(windows.stop)
+        self.started, self.running = [], set()
+        popen = mock.patch("kandu.flights.subprocess.Popen", side_effect=self.popen)
+        popen.start()
+        self.addCleanup(popen.stop)
+        for name, fake in (("pid_alive", lambda pid: pid in self.running), ("kill_tree", self.running.discard)):
+            patch = mock.patch(f"kandu.compat.{name}", side_effect=fake)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def popen(self, argv, **kwargs):
+        pid = 100 + len(self.started)
+        self.started.append((argv, kwargs))
+        self.running.add(pid)
+        return SimpleNamespace(pid=pid)
+
+    def test_a_flight_opens_in_its_own_window_with_its_prompt(self):
+        key = self.open_task("en")
+        argv, kwargs = self.started[-1]
+        self.assertIn("--dangerously-skip-permissions", argv)
+        self.assertIn("Speak English", argv[argv.index("--append-system-prompt") + 1])
+        self.assertTrue(kwargs["creationflags"] & 0x10)
+        self.assertEqual(self.store.flight(key)["url"], flights.WINDOWS_URL)
+        self.assertEqual(self.flights.list()["open"][0]["status"], "open")
+
+    def test_a_second_press_keeps_the_open_window(self):
+        self.open_task()
+        self.open_task()
+        self.assertEqual(len(self.started), 1)
+
+    def test_closing_ends_the_window(self):
+        key = self.open_task()
+        self.assertTrue(self.flights.close(key))
+        self.assertEqual(self.running, set())
+        self.assertEqual(self.flights.list()["open"], [])
+
+    def test_a_window_the_user_closed_is_landed(self):
+        self.open_task()
+        self.running.clear()
+        self.assertEqual(self.flights.list()["open"], [])
+
+    # The tests below read tmux's screen or systemd-run's line, which Windows has not.
+    test_a_task_flight_has_full_access_and_its_language = None
+    test_didban_keeps_its_limits_and_is_told_the_language = None
+    test_a_task_flight_prompt_holds_no_issue_text = None
+    test_the_task_worktree_is_where_a_flight_starts = None
+    test_a_task_without_a_worktree_starts_in_the_project = None
+    test_the_link_is_read_from_the_screen = None
+    test_the_folder_question_is_answered_yes = None
+    test_a_second_press_keeps_the_open_session = None
+    test_no_link_in_time_ends_the_session_and_says_so = None
+    test_a_start_that_fails_says_why_and_can_be_tried_again = None
+    test_a_flight_nobody_spoke_to_leaves_no_row = None
+    test_an_ended_flight_goes_to_its_own_list_with_its_tokens = None
+    test_an_ended_didban_goes_to_didbans_list = None
+    test_a_start_error_does_not_leave_the_key_locked = None
+
+
 class ReachTest(unittest.TestCase):
     def test_didban_on_the_brain_uses_no_ssh(self):
         with mock.patch("subprocess.run") as run:
             run.return_value = SimpleNamespace(returncode=0, stdout="ok", stderr="")
             didban.on_brain(DidbanBrain(reach="local", install_dir="/opt/kandu"), "kandu.config")
-        self.assertEqual(run.call_args.args[0][:2], ["sh", "-c"])
+        argv = run.call_args.args[0]
+        if compat.WINDOWS:  # the venv's Python itself, with no shell
+            self.assertEqual(argv, [compat.venv_python("/opt/kandu"), "-m", "kandu.config"])
+        else:
+            self.assertEqual(argv[:2], ["sh", "-c"])
 
     def test_nothing_says_a_language_unless_it_was_chosen(self):
         text = didban.system_prompt(DidbanConfig(brain=DidbanBrain(reach="ssh server", install_dir="~/k")), "ok")

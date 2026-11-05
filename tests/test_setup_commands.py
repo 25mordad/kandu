@@ -161,8 +161,23 @@ class GitHubBoardTest(unittest.TestCase):
 
 class DoctorTest(unittest.TestCase):
     def test_missing_tool(self):
-        results = doctor.check_tools(which=lambda t: None if t == "gh" else "/bin/x")
+        results = doctor.check_tools(which=lambda t: None if t == "gh" else "/bin/x", windows=False)
         self.assertIn((doctor.FAIL, "tool gh"), results)
+
+    def test_windows_needs_task_scheduler_not_tmux(self):
+        results = doctor.check_tools(which=lambda t: None if t == "schtasks" else "/bin/x", windows=True)
+        self.assertIn((doctor.FAIL, "tool schtasks: the timer uses it"), results)
+        self.assertFalse(any("tmux" in text for _, text in results))
+
+    def test_scripts_with_windows_line_endings_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "meter").mkdir()
+            (root / "meter" / "gh").write_bytes(b"#!/bin/sh\necho ok\n")
+            self.assertEqual(doctor.check_line_endings(root)[0], doctor.OK)
+            (root / "meter" / "gh").write_bytes(b"#!/bin/sh\r\necho ok\r\n")
+            self.assertEqual(doctor.check_line_endings(root), (doctor.FAIL, "scripts with Windows line endings: "
+                             f"{Path('meter', 'gh')}; check them out again"))
 
     def test_gh_scope(self):
         self.assertEqual(doctor.check_gh_scope("Token scopes: 'gist', 'project', 'repo'")[0], doctor.OK)

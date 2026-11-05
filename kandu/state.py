@@ -5,12 +5,13 @@ reports are always computed from it. Each event type has a fixed set of fields,
 so nothing lands in the log through an extra field. Values are not inspected:
 a caller must never pass a prompt, command output or a secret in one.
 """
-import fcntl
 import json
 import os
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+
+from . import compat
 
 DEFAULT_STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 FORMAT_VERSION = 1
@@ -124,10 +125,10 @@ class StateStore:
         path = self.events_dir / f"{now.date().isoformat()}.jsonl"
         line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
         # One O_APPEND write, so parallel workers never interleave lines.
-        fd = os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
+        fd = os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT | compat.O_BINARY, 0o600)
         try:
             size = os.fstat(fd).st_size
-            if size and os.pread(fd, 1, size - 1) != b"\n":
+            if size and compat.read_at(fd, size - 1) != b"\n":
                 line = b"\n" + line  # A crash cut the last line off; keep this one apart from it.
             os.write(fd, line)
         finally:
@@ -248,7 +249,7 @@ class StateStore:
         """A split is accepted from the dashboard or from Didban, two processes that must not both make the group."""
         self._make_dirs()
         with open(self.root / "split.lock", "w") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            compat.lock(lock)
             yield
 
     def write_request(self, request):

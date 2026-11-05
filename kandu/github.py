@@ -138,7 +138,7 @@ def _issue(node):
 
 def run_gh(args):
     try:
-        result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=TIMEOUT_SECONDS, env=ghmeter.env())
+        result = subprocess.run(ghmeter.gh(*args), capture_output=True, text=True, encoding="utf-8", timeout=TIMEOUT_SECONDS, env=ghmeter.env())
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         raise GitHubError(f"gh {args[0]}: {type(e).__name__}") from e
     if result.returncode != 0:

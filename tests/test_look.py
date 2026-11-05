@@ -17,7 +17,10 @@ class LookTest(unittest.TestCase):
     def test_nothing_outside_the_folder_is_opened(self):
         self.assertIsNone(look.page_path("../../etc/passwd", self.root))
         self.assertIsNone(look.page_path("/etc/hostname", self.root))
-        (self.root / "out").symlink_to("/etc")
+        try:
+            (self.root / "out").symlink_to("/etc")
+        except OSError:
+            return  # Windows lets only some accounts make symlinks.
         self.assertIsNone(look.page_path("out/hostname", self.root))
 
     def test_a_folder_or_a_missing_file_is_not_a_page(self):

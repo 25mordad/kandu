@@ -16,7 +16,7 @@ DEFAULT_OPTIONS = ["--no-rebase", "--no-edit", "-q"]
 
 
 def _git(path, *args):
-    return subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True)
+    return subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
 def _git_dir(path):

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+from kandu import compat
 from kandu.state import EVENT_FIELDS, StateError, StateStore, usage_from_result
 
 DAY = "2026-10-30"
@@ -99,9 +100,10 @@ class StateTest(unittest.TestCase):
 
     def test_log_files_and_folders_are_private(self):
         self.store.record("supervisor_woke", now=NOW)
-        self.assertEqual((self.store.events_dir / f"{DAY}.jsonl").stat().st_mode & 0o777, 0o600)
-        self.assertEqual(self.store.events_dir.stat().st_mode & 0o777, 0o700)
-        self.assertEqual(self.store.root.stat().st_mode & 0o777, 0o700)
+        if not compat.WINDOWS:  # Windows keeps no POSIX modes; files in the user's folder are theirs.
+            self.assertEqual((self.store.events_dir / f"{DAY}.jsonl").stat().st_mode & 0o777, 0o600)
+            self.assertEqual(self.store.events_dir.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(self.store.root.stat().st_mode & 0o777, 0o700)
 
     def test_supervisor_run_without_a_task(self):
         self.run_finished(task=None, role="supervisor", project=None)
@@ -140,7 +142,8 @@ class StateTest(unittest.TestCase):
         self.store.write_current({"supervisor": "asleep"})
         self.assertEqual(self.store.read_current(), {"v": 1, "supervisor": "asleep"})
         self.assertEqual(list(self.store.root.glob("*.tmp")), [])
-        self.assertEqual(self.store.current_file.stat().st_mode & 0o777, 0o600)
+        if not compat.WINDOWS:  # Windows keeps no POSIX modes; files in the user's folder are theirs.
+            self.assertEqual(self.store.current_file.stat().st_mode & 0o777, 0o600)
 
     def test_snapshot_file_is_private_from_the_start(self):
         created = []

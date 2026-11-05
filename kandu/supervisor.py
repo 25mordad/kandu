@@ -6,7 +6,6 @@ above them, are started only for work that needs judgment. No state is kept betw
 board and the PR hold, so a cycle that is cut off resumes where it stopped.
 """
 import argparse
-import fcntl
 import json
 import secrets
 import shlex
@@ -20,7 +19,7 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, debt, merge, queen, questions, review, sizing, split, tasks
+from . import agents, compat, debt, merge, queen, questions, review, sizing, split, tasks
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .github import AGENT_LABEL, TOKENS_LABEL, GitHubError, blockers_in, branch_for, transient
 from .mirror import open_github
@@ -1327,7 +1326,7 @@ def _locked_cycle(supervisor):
     supervisor.store.root.mkdir(mode=0o700, parents=True, exist_ok=True)
     with open(supervisor.store.root / "supervisor.lock", "w") as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            compat.lock(lock, blocking=False)
         except BlockingIOError:
             print("supervisor: another cycle is running")
             return

@@ -12,7 +12,10 @@ This repo is public. Read [DESIGN.md](DESIGN.md) for the specification and [TASK
 Check every design and every task against these three (DESIGN §14): is the rule enforced in code, does each agent get only the context it needs, and is what matters saved outside the session?
 
 ## Python
-Kandu runs from its own `.venv`, never the system Python: `.venv/bin/python -m kandu.config`, and the same path in timers and services. New dependencies go in `requirements.txt`.
+Kandu runs from its own `.venv`, never the system Python: `.venv/bin/python -m kandu.config` (`.venv\Scripts\python.exe` on Windows), and the same path in timers and services. New dependencies go in `requirements.txt`.
+
+## Linux and Windows
+The brain runs on Linux or Windows ([docs/WINDOWS.md](docs/WINDOWS.md)). Whatever differs between them goes through `kandu/compat.py`: locks, the shell, paths, stopping processes. Do not test `os.name` anywhere else. Shell lines run in `sh` on both, so keep them POSIX.
 
 ## Pushing to this repo
 - **During development**, before the first board or project is connected: committing and pushing directly to `main` is fine.

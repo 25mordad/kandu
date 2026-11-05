@@ -149,7 +149,7 @@ Everything personal goes into `local/`, which is gitignored: your config, projec
 - [Claude Code](https://claude.com/claude-code) (`claude`), with a subscription or an API key
 - [GitHub CLI](https://cli.github.com/) (`gh`), logged in
 - `git`, `python` 3
-- an always-on machine for the supervisor (Linux with `systemd` for the timer)
+- an always-on machine for the supervisor: Linux with `systemd`, or Windows with Task Scheduler ([Kandu on Windows](docs/WINDOWS.md))
 - SSH access to any other machine where projects run `in-place`
 
 ## Safety

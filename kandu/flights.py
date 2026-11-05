@@ -2,6 +2,8 @@
 
 Each runs on the brain in its own tmux, started by systemd, so restarting the dashboard
 leaves it running. Remote Control is on, and its link is read from the session's screen.
+On Windows there is no tmux: each session opens in a console window of its own on the brain,
+and the page links to claude.ai/code, where the session is listed by its name.
 A session that has not been spoken to costs nothing. When one ends, its transcript is
 summed up here, by code, and counted against no project's limits.
 """
@@ -16,7 +18,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import didban, ghmeter, queen, sessions
+from . import compat, didban, ghmeter, queen, sessions
 from .config import DidbanBrain, DidbanConfig
 from .runner import DEFAULT_LOGS_DIR, repo_path
 
@@ -31,6 +33,8 @@ WAIT_SECONDS = 120
 NO_LINK = "the session's link did not come in time"
 COMMAND_TIMEOUT_SECONDS = 15
 START_TIMEOUT_SECONDS = 30
+WINDOWS_URL = "https://claude.ai/code"  # A console window's screen cannot be read, so the session's own link is not known.
+NEW_CONSOLE = 0x00000010 | 0x00000200  # CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP
 
 
 def task_key(task):
@@ -64,7 +68,18 @@ class Flights:
                         timeout=COMMAND_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL)
 
     def alive(self, key):
+        if compat.WINDOWS:
+            pid = (self.store.flight(key) or {}).get("pid")
+            return bool(pid) and compat.pid_alive(pid)
         return self.store.flight_socket(key).exists() and self._tmux(key, "has-session", "-t", "main").returncode == 0
+
+    def _start_window(self, key, args, prompt, cwd):
+        """Windows: the session in a console window of its own, which outlives the dashboard. Returns its id."""
+        import shutil
+        claude = shutil.which(args[0]) or args[0]
+        process = subprocess.Popen([claude, *args[1:], "--append-system-prompt", prompt], cwd=str(cwd),
+                                   env=ghmeter.env(f"flight-{key}"), creationflags=NEW_CONSOLE)
+        return process.pid
 
     def open_didban(self, language):
         """A session already open stays the one: the page shows its link."""
@@ -98,21 +113,27 @@ class Flights:
         self.store.write_flight(record)
         try:
             args, prompt, cwd = prepare(session)
-            path = self.store.write_flight_prompt(key, prompt)
-            line = f'{shlex.join(args)} --append-system-prompt "$(cat {shlex.quote(str(path))})"'
-            tmux = ["tmux", "-S", str(self.store.flight_socket(key)), "new-session", "-d", "-s", "main",
-                    "-x", "200", "-y", "50", "-c", str(cwd), line]
-            # Type=forking: tmux's client exits once its server is up, and the server keeps the unit alive.
-            started = self.run(["systemd-run", "--user", "--quiet", "--collect", "--property=Type=forking",
-                                f"--unit=kandu-flight-{key}-{int(self.clock())}",
-                                f"--setenv=PATH={ghmeter.env()['PATH']}", f"--setenv={ghmeter.CALLER_ENV}=flight-{key}", *tmux],
-                               capture_output=True, text=True, timeout=START_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL)
-            if started.returncode != 0 or not self.alive(key):
-                record["error"] = (started.stderr or "the session did not start").strip()[:300]
+            if compat.WINDOWS:
+                record |= {"pid": self._start_window(key, args, prompt, cwd), "url": WINDOWS_URL}
+            else:
+                self._start_tmux(key, args, prompt, cwd, record)
         except (OSError, subprocess.SubprocessError) as e:
             record["error"] = str(e)[:300]
         self.store.write_flight(record)
         self._opening.discard(key)
+
+    def _start_tmux(self, key, args, prompt, cwd, record):
+        path = self.store.write_flight_prompt(key, prompt)
+        line = f'{shlex.join(args)} --append-system-prompt "$(cat {shlex.quote(str(path))})"'
+        tmux = ["tmux", "-S", str(self.store.flight_socket(key)), "new-session", "-d", "-s", "main",
+                "-x", "200", "-y", "50", "-c", str(cwd), line]
+        # Type=forking: tmux's client exits once its server is up, and the server keeps the unit alive.
+        started = self.run(["systemd-run", "--user", "--quiet", "--collect", "--property=Type=forking",
+                            f"--unit=kandu-flight-{key}-{int(self.clock())}",
+                            f"--setenv=PATH={ghmeter.env()['PATH']}", f"--setenv={ghmeter.CALLER_ENV}=flight-{key}", *tmux],
+                           capture_output=True, text=True, timeout=START_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL)
+        if started.returncode != 0 or not self.alive(key):
+            record["error"] = (started.stderr or "the session did not start").strip()[:300]
 
     def _didban(self, session, language):
         brain = DidbanBrain(reach="local", install_dir=str(didban.REPO_DIR))
@@ -208,7 +229,9 @@ class Flights:
             record = self.store.flight(key)
             if record is None or key in self._opening:
                 return False
-            if self.store.flight_socket(key).exists():
+            if compat.WINDOWS and record.get("pid"):
+                compat.kill_tree(record["pid"])
+            elif self.store.flight_socket(key).exists():
                 self._tmux(key, "kill-server")
             self._land(record)
         return True

@@ -9,7 +9,6 @@ The copy is read again from GitHub every few minutes, when the supervisor wakes,
 the user gives an order. If a card changed on GitHub while a change to the same field
 waited in the queue, the local change stands: it is sent, and GitHub follows the copy.
 """
-import fcntl
 import json
 import os
 import secrets
@@ -19,6 +18,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import compat
 from .config import DEADLINE_FIELD
 from .github import BoardItem, GitHub, GitHubError, is_companion, transient
 
@@ -66,7 +66,7 @@ class Mirror:
     def _locked(self, path):
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path.with_suffix(".lock"), "w") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            compat.lock(lock)
             yield
 
     def _load(self, path):
@@ -432,7 +432,7 @@ class Mirror:
         self.root.mkdir(parents=True, exist_ok=True)
         with open(self.root / "send.lock", "w") as lock:
             try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                compat.lock(lock, blocking=False)
             except BlockingIOError:
                 return 0, len(self.outbox()), 0
             entries = self.outbox()
