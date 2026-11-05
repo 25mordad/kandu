@@ -62,6 +62,7 @@ state/
 | `project_paused` | `project` |
 | `project_resumed` | `project` |
 | `limits_changed` | `session`, `week` |
+| `parallel_changed` | `total` (or null), `projects`: name → number, for those changed |
 | `kandu_restarted` | none |
 | `wake_requested` | none |
 | `group_closed` | `task`, `project` |

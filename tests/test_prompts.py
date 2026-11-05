@@ -41,6 +41,11 @@ class PromptsTest(unittest.TestCase):
             self.assertNotIn("prompts/", text, name)
             self.assertNotIn("DESIGN.md", text, name)
 
+    def test_didban_keeps_to_the_project_the_user_named(self):
+        text = (PROMPTS / "didban.md").read_text(encoding="utf-8")
+        self.assertIn("One project at a time", headings(PROMPTS / "didban.md"))
+        self.assertLess(text.index("## One project at a time"), text.index("in your first reply"))
+
     def test_a_fix_round_stays_on_its_findings(self):
         self.assertIn("Fix exactly the findings you are given", (PROMPTS / "worker.md").read_text(encoding="utf-8"))
 

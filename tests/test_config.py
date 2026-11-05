@@ -8,7 +8,7 @@ from unittest import mock
 
 import yaml
 
-from kandu.config import NOTIFY_EVENTS, ROLES, ConfigError, load_config, main
+from kandu.config import NOTIFY_EVENTS, ROLES, ConfigError, load_config, main, set_parallel
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "config.example"
 
@@ -242,6 +242,45 @@ class ConfigTest(unittest.TestCase):
         self.edit("kandu.yaml", lambda d: d.update(supervisor={"wake_every_minutes": 30}))
         supervisor = load_config(self.local).settings.supervisor
         self.assertEqual((supervisor.wake_every_minutes, supervisor.max_cycle_minutes), (30, 50))
+
+
+class SetParallelTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.local = Path(tmp.name)
+        shutil.copy(EXAMPLES / "kandu.example.yaml", self.local / "kandu.yaml")
+        shutil.copy(EXAMPLES / "projects.example.yaml", self.local / "projects.yaml")
+
+    def text(self, name):
+        return (self.local / name).read_text(encoding="utf-8")
+
+    def test_total_and_one_project_change_and_the_rest_stays(self):
+        before = self.text("projects.yaml")
+        set_parallel(7, {"internal-tool": 3}, self.local)
+        config = load_config(self.local)
+        self.assertEqual(config.settings.supervisor.max_parallel_workers, 7)
+        self.assertEqual([p.max_parallel_workers for p in config.projects], [2, 3])
+        self.assertIn("# one board per family", self.text("projects.yaml"))
+        self.assertEqual(len(before.splitlines()), len(self.text("projects.yaml").splitlines()))
+
+    def test_only_a_project_leaves_kandu_yaml_alone(self):
+        before = self.text("kandu.yaml")
+        set_parallel(None, {"website": 1}, self.local)
+        self.assertEqual(self.text("kandu.yaml"), before)
+
+    def test_a_missing_total_is_added_under_supervisor(self):
+        path = self.local / "kandu.yaml"
+        path.write_text(self.text("kandu.yaml").replace("  max_parallel_workers: 2\n", ""), encoding="utf-8")
+        set_parallel(5, None, self.local)
+        self.assertEqual(load_config(self.local).settings.supervisor.max_parallel_workers, 5)
+
+    def test_a_wrong_value_or_project_writes_nothing(self):
+        before = (self.text("kandu.yaml"), self.text("projects.yaml"))
+        for total, projects in ((0, None), (3, {"website": 0}), (3, {"nobody": 2})):
+            with self.assertRaises(ConfigError):
+                set_parallel(total, projects, self.local)
+        self.assertEqual((self.text("kandu.yaml"), self.text("projects.yaml")), before)
 
 
 class MainTest(unittest.TestCase):

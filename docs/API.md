@@ -30,6 +30,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | POST | `/api/v1/stop` | stop the supervisor; running agents are killed |
 | POST | `/api/v1/resume` | allow the next cycle to run |
 | POST | `/api/v1/limits` | set the 5-hour and weekly usage limits, as `?session=85&week=60`; the next cycle uses them |
+| POST | `/api/v1/parallel` | set how many workers build at once: in all as `?total=6`, and per project as `&project=website:2`, repeated; either may be left out, and the next cycle uses them |
 | POST | `/api/v1/wake` | start a cycle now, as the timer would |
 | POST | `/api/v1/restart` | apply the config: write the units again, re-arm the timer, restart the dashboard; a running cycle finishes |
 | POST | `/api/v1/workers/{run_id}/stop` | stop one running agent; its task moves to `Blocked` |

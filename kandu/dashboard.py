@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import flights, ghmeter, queen, questions, review, sessions, split, timer
-from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config, set_limits
+from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config, set_limits, set_parallel
 from .github import AGENT_LABEL, GitHubError
 from .mirror import open_github
 from .runner import DEFAULT_LOGS_DIR
@@ -172,6 +172,7 @@ class Api:
             "project_order": [p.name for p in sorted(self.config.projects, key=lambda p: p.priority)],
             "language": self.config.settings.language,
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
+            "parallel": self._parallel(),
             "queen": self._queen_report(),
             "flowers": flower_marks(self.store),
         }
@@ -444,6 +445,34 @@ class Api:
         self.store.record("limits_changed", session=session, week=week)
         return {"limits": {"session": session, "week": week}}
 
+    def _parallel(self):
+        ordered = sorted(self.config.projects, key=lambda p: p.priority)
+        return {"total": self.config.settings.supervisor.max_parallel_workers,
+                "projects": {p.name: p.max_parallel_workers for p in ordered}}
+
+    def change_parallel(self, query):
+        """How many workers build at once, in all and per project. The next cycle uses it, through the config."""
+        try:
+            total = int(query["total"][0]) if "total" in query else None
+            projects = {}
+            for item in query.get("project", []):
+                name, _, value = item.rpartition(":")
+                projects[self._project(name).name] = int(value)
+        except ValueError:
+            raise ApiError(400, "give each number as a whole number") from None
+        if total is None and not projects:
+            raise ApiError(400, "give total, or a project as name:number")
+        try:
+            set_parallel(total, projects, self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        if total is not None:
+            self.config.settings.supervisor.max_parallel_workers = total
+        for project in self.config.projects:
+            project.max_parallel_workers = projects.get(project.name, project.max_parallel_workers)
+        self.store.record("parallel_changed", total=total, projects=projects)
+        return {"parallel": self._parallel()}
+
     def _project(self, name):
         project = next((p for p in self.config.projects if p.name == name), None)
         if project is None:
@@ -497,6 +526,7 @@ ROUTES = [
     ("POST", "/stop", Api.stop),
     ("POST", "/resume", Api.resume),
     ("POST", "/limits", Api.change_limits),
+    ("POST", "/parallel", Api.change_parallel),
     ("POST", "/restart", Api.restart),
     ("POST", "/wake", Api.wake),
     ("POST", "/workers/{run_id}/stop", Api.stop_worker),
