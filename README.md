@@ -152,6 +152,12 @@ Everything personal goes into `local/`, which is gitignored: your config, projec
 - an always-on machine for the supervisor (Linux with `systemd` for the timer)
 - SSH access to any other machine where projects run `in-place`
 
+### Operating systems
+
+- **Linux:** Kandu is built and tested on Ubuntu, with `systemd` and `tmux`.
+- **Windows:** support is in progress and being tested in [#54](https://github.com/25mordad/kandu/pull/54), with Task Scheduler in place of `systemd`.
+- **macOS:** not tested yet. Most of Kandu should work, but the timer (`systemd`, which would need `launchd`) and sessions opened from the dashboard (`systemd-run`) will not. It needs someone with a Mac to test it. If you have one, you are welcome to try it and send a PR.
+
 ## Safety
 
 - Agents may do what `permissions` in `kandu.yaml` allows each role. With nothing set, they may do everything; `config.example/kandu.example.yaml` has a strict set to start from.
