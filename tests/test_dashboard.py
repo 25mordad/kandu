@@ -450,6 +450,28 @@ class ControlTest(Base):
         self.assertEqual((self.root / "local" / "kandu.yaml").read_text(encoding="utf-8"), before)
         self.assertIsNone(self.store.last_event("limits_changed"))
 
+    def set_parallel(self, query, token=TOKEN):
+        self.api.local_dir = self.root / "local"
+        return self.post(f"/api/v1/parallel{query}", token)
+
+    def test_parallel_workers_change_in_the_config(self):
+        status, body = self.set_parallel("?total=6&project=internal-tool:3")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["parallel"], {"total": 6, "projects": {"website": 2, "internal-tool": 3}})
+        config = load_config(self.root / "local")
+        self.assertEqual(config.settings.supervisor.max_parallel_workers, 6)
+        self.assertEqual(self.get("/api/v1/state")[1]["parallel"]["projects"]["internal-tool"], 3)
+        self.assertEqual(self.store.last_event("parallel_changed")["projects"], {"internal-tool": 3})
+
+    def test_a_wrong_parallel_value_changes_nothing(self):
+        before = (self.root / "local" / "projects.yaml").read_text(encoding="utf-8")
+        for query, code in (("?total=0", 400), ("?project=website:0", 400), ("?project=website:a", 400),
+                            ("?project=nobody:2", 404), ("", 400)):
+            self.assertEqual(self.set_parallel(query)[0], code, query)
+        self.assertEqual((self.root / "local" / "projects.yaml").read_text(encoding="utf-8"), before)
+        self.assertIsNone(self.store.last_event("parallel_changed"))
+        self.assertEqual(self.set_parallel("?total=3", "wrong")[0], 403)
+
     def test_changing_limits_needs_the_token(self):
         self.assertEqual(self.set_limits("?session=85&week=40", "wrong")[0], 403)
 
@@ -500,6 +522,13 @@ class ControlTest(Base):
 
     def test_opening_a_session_needs_the_token(self):
         self.assertEqual(dashboard.dispatch(self.api, "POST", "/api/v1/flights/didban?language=fa")[0], 403)
+
+    def test_zanbourdar_opens_with_the_token_in_the_language_of_the_page(self):
+        self.api.flights = mock.Mock()
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/flights/zanbourdar?language=fa")[0], 403)
+        status, body = dispatch(self.api, "POST", "/api/v1/flights/zanbourdar?language=fa", TOKEN)
+        self.assertEqual((status, body), (200, {"opening": flights.ZANBOURDAR}))
+        self.api.flights.open_zanbourdar.assert_called_once_with("fa")
 
     def test_a_task_flight_opens_in_the_language_of_the_page(self):
         self.api.flights = mock.Mock()

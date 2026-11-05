@@ -224,6 +224,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     <button id="wake" class="btn plain" data-t="wake_queen"></button>
     <button id="restart" class="btn plain" data-t="restart_kandu"></button>
     <span id="didbanbox" class="flightbox"></span>
+    <span id="zanbourdarbox" class="flightbox"></span>
     <button id="lang" class="btn plain" lang="" data-t="other_language"></button>
   </div>
   <nav class="tabs" role="tablist">
@@ -265,6 +266,12 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <h2 data-t="limits_title"></h2><p class="muted" data-t="limits_why"></p>
   <label class="limit-field"><span data-t="session"></span><input id="limitsession" type="number" min="1" max="100" required></label>
   <label class="limit-field"><span data-t="week"></span><input id="limitweek" type="number" min="1" max="100" required></label>
+  <div class="actions"><button class="btn primary" value="yes" data-t="save"></button><button class="btn" value="no" formnovalidate data-t="cancel"></button></div>
+</form></dialog>
+<dialog id="parallelbox" class="small"><form method="dialog" class="dialog-body">
+  <h2 data-t="parallel_title"></h2><p class="muted" data-t="parallel_why"></p>
+  <label class="limit-field"><strong data-t="parallel_total"></strong><input id="paralleltotal" type="number" min="1" required></label>
+  <h3 class="card-title" data-t="parallel_per_project"></h3><div id="parallelprojects"></div>
   <div class="actions"><button class="btn primary" value="yes" data-t="save"></button><button class="btn" value="no" formnovalidate data-t="cancel"></button></div>
 </form></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
@@ -358,6 +365,8 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "didban_sessions": "Didban sessions",
   "no_didban_sessions": "No Didban session reported yet",
   "open_didban": "Open Didban",
+  "open_zanbourdar": "Open Zanbourdar",
+  "zanbourdar": "Zanbourdar",
   "open_flight": "Open a free flight",
   "flight_opening": "Opening…",
   "flight_go": "Go to the session",
@@ -374,6 +383,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "change": "change",
   "save": "Save",
   "limits_title": "Usage limits",
+  "parallel_title": "Workers at once",
+  "parallel_why": "How many workers build at the same time. A review or a sizing takes no worker's place. The next cycle uses these.",
+  "parallel_total": "In all of Kandu",
+  "parallel_per_project": "At most, per project",
   "limits_why": "Kandu starts no new work at these percents. The next cycle uses them.",
   "continue": "Continue",
   "token_why": "Stop, resume and approve need the control token. It is kept only until this page closes.",
@@ -478,6 +491,8 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "didban_sessions": "جلسه‌های دیدبان",
   "no_didban_sessions": "هنوز جلسه‌ای از دیدبان گزارش نشده",
   "open_didban": "باز کردن دیدبان",
+  "open_zanbourdar": "باز کردن زنبوردار",
+  "zanbourdar": "زنبوردار",
   "open_flight": "باز کردن پرواز آزاد",
   "flight_opening": "در حال باز شدن…",
   "flight_go": "رفتن به جلسه",
@@ -494,6 +509,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "change": "تغییر",
   "save": "ذخیره",
   "limits_title": "سقف مصرف",
+  "parallel_title": "کارگرهای هم‌زمان",
+  "parallel_why": "چند کارگر هم‌زمان کار بسازند. بازبینی و اندازه‌گیری جای کارگر را نمی‌گیرند. چرخهٔ بعدی از این عددها استفاده می‌کند.",
+  "parallel_total": "در کل کندو",
+  "parallel_per_project": "حداکثر برای هر پروژه",
   "limits_why": "کندو با رسیدن به این درصدها کار تازه‌ای شروع نمی‌کند. چرخهٔ بعدی از آن‌ها استفاده می‌کند.",
   "continue": "ادامه",
   "token_why": "توقف، ادامه و تأیید به توکن کنترل نیاز دارند. توکن فقط تا بسته شدن این صفحه نگه داشته می‌شود.",
@@ -626,6 +645,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "question_answered": "به سؤال جواب داده شد",
   "project_paused": "پروژه متوقف شد",
   "limits_changed": "سقف مصرف تغییر کرد",
+  "parallel_changed": "تعداد کارگرهای هم‌زمان تغییر کرد",
   "kandu_restarted": "کندو ری‌استارت شد",
   "wake_requested": "ملکه دستی بیدار شد",
   "notification_sent": "اعلان فرستاده شد",
@@ -1096,9 +1116,25 @@ function changeLimits(button) {
   box.showModal();
 }
 
+function changeParallel(button) {
+  const box = $("parallelbox"), parallel = lastState.parallel;
+  $("paralleltotal").value = parallel.total;
+  $("parallelprojects").innerHTML = Object.entries(parallel.projects).map(([name, most]) =>
+    `<label class="limit-field"><span>${bdi(name)}</span><input type="number" min="1" required data-project="${esc(name)}" data-was="${most}" value="${most}"></label>`).join("");
+  box.returnValue = "no";
+  box.addEventListener("close", () => {
+    if (box.returnValue !== "yes") return;
+    const changed = [...$("parallelprojects").querySelectorAll("input")].filter(input => input.value !== input.dataset.was)
+      .map(input => `&project=${encodeURIComponent(`${input.dataset.project}:${input.value}`)}`).join("");
+    act(button, `/parallel?total=${encodeURIComponent($("paralleltotal").value)}${changed}`);
+  }, {once: true});
+  box.showModal();
+}
+
 function renderStats(s) {
   const workers = s.workers || [];
-  const bees = `<div class="card stat"><div class="stat-label">${t("active_workers")}</div><div class="stat-value">${num(workers.length)}</div></div>`;
+  const most = s.parallel ? `<small>${t("limit")} ${num(s.parallel.total)}<button class="textlink limit-edit" data-parallel>${t("change")}</button></small>` : "";
+  const bees = `<div class="card stat"><div class="stat-label">${t("active_workers")}</div><div class="stat-value">${num(workers.length)}</div>${most}</div>`;
   const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${!s.timer_on ? t("timer_off") : s.next_wake ? esc(when(s.next_wake)) : "—"}</div></div>`;
   const parked = lastQueue && Object.values(lastQueue.projects).reduce((sum, columns) => sum + columns["Technical debt"].length, 0);
   const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
@@ -1218,9 +1254,10 @@ function flightControls(flight, target, label) {
 
 function renderFlights() {
   $("didbanbox").innerHTML = flightControls(flights.open.find(f => f.kind === "didban"), "didban", t("open_didban"));
+  $("zanbourdarbox").innerHTML = flightControls(flights.open.find(f => f.kind === "zanbourdar"), "zanbourdar", t("open_zanbourdar"));
   if ($("taskflight") && shownTask) $("taskflight").innerHTML = flightControls(flights.open.find(f => f.task === shownTask), shownTask, t("open_flight"));
-  const task = s => `<button class="textlink" data-review="${esc(s.task)}">${bdi(repoOf(s.task))} ${numberOf(s.task)}</button>`;
-  const open = flights.open.filter(f => f.kind === "task" && f.status === "open").map(f => `<tr><td class="fit number">${esc(when(f.started))}</td><td>${task(f)}</td>
+  const task = s => !s.task ? esc(t("zanbourdar")) : `<button class="textlink" data-review="${esc(s.task)}">${bdi(repoOf(s.task))} ${numberOf(s.task)}</button>`;
+  const open = flights.open.filter(f => f.kind !== "didban" && f.status === "open").map(f => `<tr><td class="fit number">${esc(when(f.started))}</td><td>${task(f)}</td>
     <td dir="auto"><a class="textlink" href="${esc(f.url)}" target="_blank" rel="noopener">${t("flight_go")} ↗</a></td><td class="fit end">${t("flight_open_now")}</td></tr>`);
   const flown = flights.flown.map(s => `<tr><td class="fit number">${esc(s.started ? when(s.started) : "—")}</td><td>${task(s)}</td><td dir="auto">${esc(s.title || "—")}</td>
     <td class="fit end" title="${esc(num(s.tokens.input + s.tokens.output + s.tokens.cache_read + s.tokens.cache_creation))}">${esc(short(s.tokens.input + s.tokens.output + s.tokens.cache_creation))}</td></tr>`);
@@ -1242,7 +1279,7 @@ async function refreshFlights() {
 
 async function openFlight(button) {
   const target = button.dataset.fly;
-  const path = target === "didban" ? "/flights/didban" : `/flights/tasks/${target.replace("#", "/")}`;
+  const path = ["didban", "zanbourdar"].includes(target) ? `/flights/${target}` : `/flights/tasks/${target.replace("#", "/")}`;
   await act(button, `${path}?language=${lang}`, t("flight_opening"));
   await refreshFlights();
 }
@@ -1387,6 +1424,7 @@ document.addEventListener("click", e => {
   if (hit("fly")) { openFlight(hit("fly")); return; }
   if (hit("land")) { act(hit("land"), `/flights/${encodeURIComponent(hit("land").dataset.land)}/close`); return; }
   if (hit("limits")) { changeLimits(hit("limits")); return; }
+  if (hit("parallel")) { changeParallel(hit("parallel")); return; }
   if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); showReviews(shownTask); return; }
   if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
   if (pause) {  // It sits in the project's summary, which would fold.

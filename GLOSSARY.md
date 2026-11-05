@@ -14,6 +14,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Reviewer** | A fresh agent that reviews a PR, knowing nothing of how it was built |
 | **Didban** | The control role, run from the machine the user sits at |
 | **Free flight** | A session the user opens on a task from the dashboard, with full access; Kandu's agents keep running beside it |
+| **Zanbourdar** | Persian for "beekeeper": a session the user opens beside Didban from the dashboard, with full access and tied to no task; it may change Kandu itself |
 | **Request** | What the user wants done, in their words, before it is a task; Didban keeps it until its tasks exist |
 | **Family** | A group of repos that share one board |
 | **Board** | The GitHub Project of a family |

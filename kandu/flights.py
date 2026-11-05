@@ -1,4 +1,4 @@
-"""Sessions the user opens from the dashboard: Didban, and a free flight on a task (DESIGN §13).
+"""Sessions the user opens from the dashboard: Didban, Zanbourdar, and a free flight on a task (DESIGN §13).
 
 Each runs on the brain in its own tmux, started by systemd, so restarting the dashboard
 leaves it running. Remote Control is on, and its link is read from the session's screen.
@@ -21,8 +21,10 @@ from .config import DidbanBrain, DidbanConfig
 from .runner import DEFAULT_LOGS_DIR, repo_path
 
 ROLE_FILE = didban.REPO_DIR / "prompts" / "flight.md"
+ZANBOURDAR_FILE = didban.REPO_DIR / "prompts" / "zanbourdar.md"
 LANGUAGES = {"en": "English", "fa": "Persian"}
 DIDBAN = "didban"
+ZANBOURDAR = "zanbourdar"
 URL = re.compile(r"https://claude\.ai/code/session_\w+")
 TRUST = "Yes, I trust this folder"  # Claude asks this in a folder it has not seen, and "no" is the default.
 WAIT_SECONDS = 120
@@ -68,6 +70,11 @@ class Flights:
         """A session already open stays the one: the page shows its link."""
         self._open(DIDBAN, {"kind": "didban", "task": None, "project": None},
                    lambda session: self._didban(session, language))
+
+    def open_zanbourdar(self, language):
+        """One at a time, tied to no task: the page shows the open one's link."""
+        self._open(ZANBOURDAR, {"kind": "zanbourdar", "task": None, "project": None},
+                   lambda session: self._zanbourdar(session, language))
 
     def open_task(self, project, repo, number, language):
         task = f"{repo}#{number}"
@@ -115,6 +122,18 @@ class Flights:
         args = ["claude", "--session-id", session, "--name", didban.SESSION_NAME,
                 "--remote-control", didban.SESSION_NAME, "--disallowedTools", didban.BLOCKED_TOOLS]
         return args, prompt, didban.REPO_DIR
+
+    def _zanbourdar(self, session, language):
+        name = "Kandu Zanbourdar"
+        args = ["claude", "--dangerously-skip-permissions", "--session-id", session, "--name", name,
+                "--remote-control", name]
+        dashboard = self.config.settings.dashboard
+        lines = [ZANBOURDAR_FILE.read_text(encoding="utf-8"), "## This setup",
+                 f"- Kandu's live install, where you start: `{didban.REPO_DIR}`. Its config is in `local/` there.",
+                 f"- Its run logs: `{self.logs_dir}`.",
+                 f"- Kandu's API: `http://{dashboard.bind}:{dashboard.port}/api/v1`.",
+                 f"- Speak {LANGUAGES[language]} with the user."]
+        return args, "\n".join(lines), didban.REPO_DIR
 
     def _task(self, session, project, repo, number, language):
         task = f"{repo}#{number}"

@@ -400,10 +400,69 @@ def set_limits(session, week, local_dir=DEFAULT_LOCAL_DIR):
         text, found = re.subn(rf"^(\s+{name}:\s*)\d+", rf"\g<1>{value}", text, flags=re.MULTILINE)
         if found != 1:
             raise ConfigError([f"claude.limits.{name}: expected one such line in kandu.yaml, found {found}"])
+    _replace_file(path, text)
+
+
+def _replace_file(path, text):
     temporary = path.with_suffix(".yaml.new")
     temporary.write_text(text, encoding="utf-8")
     temporary.chmod(path.stat().st_mode & 0o777)
     temporary.replace(path)
+
+
+def _set_total_workers(text, value):
+    """The one `max_parallel_workers` in `kandu.yaml` is the supervisor's; a missing one is added there."""
+    line = re.compile(r"^([ \t]+)max_parallel_workers:.*$", re.MULTILINE)
+    found = line.findall(text)
+    if len(found) > 1:
+        raise ConfigError([f"supervisor.max_parallel_workers: expected one such line in kandu.yaml, found {len(found)}"])
+    if found:
+        return line.sub(lambda m: f"{m.group(1)}max_parallel_workers: {value}", text)
+    if re.search(r"^supervisor:[ \t]*(#.*)?$", text, flags=re.MULTILINE):
+        return re.sub(r"^(supervisor:[ \t]*(#.*)?)$", rf"\g<1>\n  max_parallel_workers: {value}", text,
+                      count=1, flags=re.MULTILINE)
+    return text.rstrip("\n") + f"\n\nsupervisor:\n  max_parallel_workers: {value}\n"
+
+
+def _set_project_workers(text, name, value):
+    """Changes the line in this project's entry only. Its old comment goes: it spoke of the old number."""
+    lines = text.split("\n")
+    starts = [i for i, l in enumerate(lines) if re.match(r"^\s*- name:", l)]
+    start = next((i for i in starts if re.fullmatch(rf"\s*- name:\s*[\"']?{re.escape(name)}[\"']?\s*(#.*)?", lines[i])), None)
+    if start is None:
+        raise ConfigError([f"projects: no entry named {name!r} in projects.yaml"])
+    end = next((i for i in starts if i > start), len(lines))
+    hits = [i for i in range(start, end) if re.match(r"^\s+max_parallel_workers:", lines[i])]
+    if len(hits) != 1:
+        raise ConfigError([f"{name}.max_parallel_workers: expected one such line in its entry, found {len(hits)}"])
+    indent = re.match(r"^(\s+)", lines[hits[0]]).group(1)
+    lines[hits[0]] = f"{indent}max_parallel_workers: {value}"
+    return "\n".join(lines)
+
+
+def set_parallel(total=None, projects=None, local_dir=DEFAULT_LOCAL_DIR):
+    """Changes how many workers build at once: in all of Kandu, and in each project named.
+
+    Both files are changed line by line, so their comments stay; nothing is written if any value is wrong.
+    """
+    projects = projects or {}
+    problems = []
+    if total is not None:
+        _check_positive(total, "supervisor.max_parallel_workers", problems)
+    for name, value in projects.items():
+        _check_positive(value, f"{name}.max_parallel_workers", problems)
+    if problems:
+        raise ConfigError(problems)
+    local_dir = Path(local_dir)
+    settings_path, registry_path = local_dir / "kandu.yaml", local_dir / "projects.yaml"
+    settings = _set_total_workers(settings_path.read_text(encoding="utf-8"), total) if total is not None else None
+    registry = registry_path.read_text(encoding="utf-8")
+    for name, value in projects.items():
+        registry = _set_project_workers(registry, name, value)
+    if settings is not None:
+        _replace_file(settings_path, settings)
+    if projects:
+        _replace_file(registry_path, registry)
 
 
 def load_config(local_dir=DEFAULT_LOCAL_DIR):
