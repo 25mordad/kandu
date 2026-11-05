@@ -128,6 +128,68 @@ class TaskTest(unittest.TestCase):
         self.github.create_issue.assert_called_once()
 
 
+class TaskCommandTest(unittest.TestCase):
+    """`python -m kandu.tasks`, as `/kandu-task` runs it."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.body = Path(tmp.name) / "body.md"
+        self.body.write_text(BODY, encoding="utf-8")
+        self.github = mock.Mock()
+        self.github.repo_is_public.return_value = False
+        self.github.create_issue.return_value = "https://github.com/o/r/issues/1"
+        self.github.send.return_value = (4, 0, 0)
+        config = mock.Mock(projects=[project()])
+        config.projects[0].name = "site"
+        for target, value in (("load_config", config), ("open_github", self.github)):
+            patcher = mock.patch.object(tasks, target, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def run_command(self, *extra):
+        argv = ["tasks", "--project", "site", "--priority", "High", "--kind", "Bug", "--size", "Small", *extra]
+        with mock.patch("sys.argv", argv), mock.patch("sys.stdout") as out, mock.patch("sys.stderr") as err:
+            code = tasks.main()
+        text = lambda stream: "".join(c.args[0] for c in stream.write.call_args_list)
+        return code, text(out), text(err)
+
+    def new_task(self):
+        return self.run_command("--title", "T", "--body-file", str(self.body))
+
+    def test_the_fields_reach_github_before_it_returns(self):
+        code, out, _ = self.new_task()
+        self.assertEqual(code, 0)
+        self.assertIn("issues/1", out)
+        names = [c[0] for c in self.github.method_calls]
+        self.assertLess(names.index("set_status"), names.index("send"))
+
+    def test_fields_still_waiting_are_reported(self):
+        self.github.send.return_value = (2, 2, 0)
+        code, _, err = self.new_task()
+        self.assertEqual(code, 0)
+        self.assertIn("2 change(s) still wait", err)
+
+    def test_a_failed_board_step_names_the_issue_and_how_to_finish(self):
+        self.github.add_to_board.side_effect = GitHubError("gh api graphql: Something went wrong")
+        code, _, err = self.new_task()
+        self.assertEqual(code, 1)
+        self.assertIn("--place https://github.com/o/r/issues/1", err)
+        self.github.send.assert_not_called()
+
+    def test_place_finishes_an_existing_issue_without_a_new_one(self):
+        code, out, _ = self.run_command("--place", "https://github.com/o/r/issues/1")
+        self.assertEqual(code, 0)
+        self.github.create_issue.assert_not_called()
+        self.github.add_to_board.assert_called_once()
+        self.github.send.assert_called_once()
+
+    def test_place_refuses_an_issue_of_another_project(self):
+        code, _, err = self.run_command("--place", "https://github.com/x/y/issues/1")
+        self.assertEqual(code, 1)
+        self.github.add_to_board.assert_not_called()
+
+
 class GitHubBoardTest(unittest.TestCase):
     def test_column_names_are_mapped_both_ways(self):
         board = Board("o", 1, columns={"Ready": "To do"})
