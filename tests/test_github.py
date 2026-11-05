@@ -178,6 +178,40 @@ class GitHubTest(unittest.TestCase):
         self.assertEqual(gh.calls[1][:4], ["api", "repos/o/r/issues", "-X", "POST"])
         self.assertIn("labels[]=agent", gh.calls[1])
 
+    def test_a_lost_answer_finds_the_issue_it_made(self):
+        def gh(args):
+            gh.calls.append(args)
+            if args[-1:] == ["labels[]=agent"]:
+                raise GitHubError("gh api repos/o/r/issues: unexpected end of JSON input")
+            if args[1].startswith("repos/o/r/issues?"):
+                return json.dumps([{"html_url": "https://github.com/o/r/pull/6", "title": "T", "body": "B",
+                                    "pull_request": {}},
+                                   {"html_url": "https://github.com/o/r/issues/5", "title": "T", "body": "B"}])
+            return ""
+        gh.calls = []
+        self.assertEqual(GitHub(gh, pause=lambda s: None).create_issue("o/r", "T", "B"),
+                         "https://github.com/o/r/issues/5")
+        self.assertEqual(sum(c[1] == "repos/o/r/issues" for c in gh.calls), 1)  # never sent twice
+
+    def test_a_lost_answer_with_no_issue_says_it_is_safe_to_run_again(self):
+        def gh(args):
+            if args[-1:] == ["labels[]=agent"]:
+                raise GitHubError("gh api repos/o/r/issues: HTTP 502")
+            return json.dumps([{"html_url": "https://github.com/o/r/issues/4", "title": "Other", "body": "B"}]) \
+                if args[1].startswith("repos/o/r/issues?") else ""
+        with self.assertRaises(GitHubError) as caught:
+            GitHub(gh, pause=lambda s: None).create_issue("o/r", "T", "B")
+        self.assertIn("safe", str(caught.exception))
+
+    def test_a_failed_look_says_to_check_first(self):
+        def gh(args):
+            if args[-1:] == ["labels[]=agent"] or args[1].startswith("repos/o/r/issues?"):
+                raise GitHubError("gh api: connection reset")
+            return ""
+        with self.assertRaises(GitHubError) as caught:
+            GitHub(gh, pause=lambda s: None).create_issue("o/r", "T", "B")
+        self.assertIn("before running it again", str(caught.exception))
+
     def test_card_changes_go_in_one_request(self):
         gh = FakeGh()
         GitHub(gh).edit_cards("P", [("i1", "f1", "option", "o1"), ("i2", "f2", "date", "2026-01-02"),
