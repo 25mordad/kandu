@@ -2,6 +2,7 @@
 import json
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 
 from . import ghmeter
@@ -12,6 +13,7 @@ AGENT_LABEL = "agent"
 TOKENS_LABEL = "uses-tokens"
 FALLBACK_SLUG = "task"
 TIMEOUT_SECONDS = 60
+LOOK_AGAIN_SECONDS = 5  # after a lost answer to a create, before looking whether the issue was made
 BOARD_ITEM_LIMIT = 500
 PR_SEARCH_LIMIT = 200
 PR_FIELDS = "number,title,state,url,body,changedFiles,files,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,statusCheckRollup"
@@ -184,8 +186,9 @@ def is_companion(ours, ours_repo, theirs, theirs_repo):
 class GitHub:
     """Talks to GitHub directly, one call at a time. Kandu's own processes go through `mirror.Mirror` instead."""
 
-    def __init__(self, run=run_gh):
+    def __init__(self, run=run_gh, pause=time.sleep):
         self._run = run
+        self._pause = pause
 
     def _json(self, args):
         return json.loads(self._run(args))
@@ -370,7 +373,25 @@ class GitHub:
         args = ["api", f"repos/{repo}/issues", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}"]
         for label in labels:
             args += ["-f", f"labels[]={label}"]
-        return self._json(args)["html_url"]
+        try:
+            return self._json(args)["html_url"]
+        except (GitHubError, ValueError, KeyError) as e:
+            # A lost answer does not mean no issue: one made twice is worse than a look first.
+            self._pause(LOOK_AGAIN_SECONDS)
+            try:
+                made = self._made_just_now(repo, title, body)
+            except (GitHubError, ValueError, KeyError) as look:
+                raise GitHubError(f"{e}; it is unknown whether the issue was made ({look}): look in {repo} "
+                                  "before running it again") from e
+            if made:
+                return made
+            raise GitHubError(f"{e}; no issue was made, so running it again is safe") from e
+
+    def _made_just_now(self, repo, title, body):
+        """The URL of the newest issues' one with exactly this title and body, or None."""
+        newest = self._json(["api", f"repos/{repo}/issues?state=all&sort=created&direction=desc&per_page=10"])
+        return next((i["html_url"] for i in newest if "pull_request" not in i
+                     and i["title"] == title and (i.get("body") or "") == body), None)
 
     def edit_issue(self, repo, number, title, body):
         self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", f"title={title}", "-f", f"body={body}"])
