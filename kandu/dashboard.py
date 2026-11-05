@@ -37,6 +37,7 @@ RUN_ID = re.compile(r"r-[\w-]+")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 MERGEABLE_COLUMNS = ("Ready", "In progress", "In review")  # the columns a cycle picks up
 DONE = "Done"
+SENT_BACK_FROM = ("Blocked", "Needs info")  # the columns the user can send a task back to work from
 DONE_KEEP_DAYS = 5  # A finished task stays in the hive this long, so the recent work stays in sight.
 QUEUE_COLUMNS = (DONE, "Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", TECHNICAL_DEBT)
 TOOL_DETAIL_KEYS = ("file_path", "path", "pattern", "command")
@@ -66,7 +67,7 @@ def flower_marks(store):
         if task is None:
             continue
         mark = marks.setdefault(task, {"size": None, "door": None, "sent_back": False, "slice": False, "pr": None,
-                                       "questions": 0})
+                                       "questions": 0, "yours": False})
         if kind == "task_sized":
             mark |= {"size": event["size"], "door": event["door"]}
         elif kind == "slice_created":
@@ -75,10 +76,13 @@ def flower_marks(store):
             mark |= {"door": event["door"], "sent_back": bool(event["blockers"])}
         elif kind == "decision" and (event["decision"] == "merge_waits" or event["reason"] == USER_DECIDES):
             mark["pr"] = "waits"
+            mark["yours"] = mark["yours"] or event["reason"] == USER_DECIDES
+        elif kind == "loop_stopped":
+            mark["yours"] = True
         elif kind in ("user_approved", "queen_approved"):
-            mark["pr"] = "approved"
-        elif kind == "task_picked":
-            mark["pr"] = None
+            mark |= {"pr": "approved", "yours": False}
+        elif kind in ("task_picked", "user_resumed"):
+            mark |= {"pr": None, "yours": False}
         elif kind == "task_finished":
             if event["outcome"] in questions.ENDED:
                 del marks[task]
@@ -87,6 +91,9 @@ def flower_marks(store):
     for question in questions.open_questions(store, events):
         if question["task"] in marks:
             marks[question["task"]]["questions"] += 1
+    for asked in (queen.last_report(store) or {}).get("questions", []):
+        if asked["task"] in marks:
+            marks[asked["task"]]["yours"] = True
     return marks
 
 
@@ -372,6 +379,33 @@ class Api:
         self.store.record("user_approved", task=task, project=project.name, head_sha=pr["headRefOid"])
         return {"approved": pr["headRefOid"], "cycle_started": self.start_cycle()}
 
+    def send_back(self, query, owner, repo, number):
+        """The user's call on a stopped task: it goes back to work, past the queen's limits.
+
+        With an open PR, the next cycle reviews its head, or fixes what the last review found.
+        Nothing here merges: the merge gate still decides.
+        """
+        key = self._split_task(owner, repo, number)
+        try:
+            project, item = split.find_item(self.config, self.github, key)
+        except TaskError as e:
+            raise ApiError(404, str(e))
+        if item.status not in SENT_BACK_FROM:
+            raise ApiError(409, f"its task is in {item.status}, not Blocked or Needs info")
+        if AGENT_LABEL not in item.labels:
+            raise ApiError(409, "it has no agent label: it is yours to do by hand")
+        if project.name in self._paused():
+            raise ApiError(409, "this project is paused: resume it first")
+        pr = self.github.find_pr(item.repo, item.number)
+        if pr is not None and pr["state"] == "MERGED":
+            raise ApiError(409, "its PR is already merged")
+        events = queen.all_events(self.store)
+        to = split.BACKLOG if queen.last_outcome(events, key) == "sizing_failed" else "Ready"
+        self.github.set_status(project.board, item.url, to)
+        self.store.record("user_resumed", task=key, project=project.name, to=to)
+        self._queue_time = None
+        return {"task": key, "to": to, "cycle_started": self.start_cycle()}
+
     def task(self, query, owner, repo, number):
         """What a task was and what it cost. An unreadable issue costs only its text, not the numbers."""
         key = self._split_task(owner, repo, number)
@@ -525,6 +559,7 @@ ROUTES = [
     ("GET", "/stream", None),
     ("GET", "/runs/{run_id}", Api.run),
     ("GET", "/tasks/{owner}/{repo}/{number}", Api.task),
+    ("POST", "/tasks/{owner}/{repo}/{number}/send-back", Api.send_back),
     ("GET", "/reviews/{owner}/{repo}/{number}", Api.reviews),
     ("POST", "/reviews/{owner}/{repo}/{number}/approve", Api.approve),
     ("GET", "/splits/{owner}/{repo}/{number}", Api.split),

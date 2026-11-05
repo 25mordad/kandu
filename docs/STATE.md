@@ -49,6 +49,7 @@ state/
 | `run_finished` | `task`, `project`, `run_id`, `role`, `models`, `duration_ms`, `is_error` |
 | `review_finished` | `task`, `project`, `run_id`, `round`, `head_sha`, `findings`, `blockers`, `door`, `criteria_met`, `wait_for_user`, `user_brief` |
 | `user_approved` | `task`, `project`, `head_sha` |
+| `user_resumed` | `task`, `project`, `to` |
 | `queen_approved` | `task`, `project`, `head_sha`, `note` |
 | `copy_not_read` | `detail` |
 | `priority_raised` | `task`, `project` |

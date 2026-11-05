@@ -24,6 +24,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | GET | `/api/v1/stream` | new events as they happen, as Server-Sent Events |
 | GET | `/api/v1/runs/{run_id}` | what one agent run did: files read, commands, edits |
 | GET | `/api/v1/tasks/{owner}/{repo}/{number}` | a task's issue text, its outcome, and its runs, time and tokens by role |
+| POST | `/api/v1/tasks/{owner}/{repo}/{number}/send-back` | the user sends a task in `Blocked` or `Needs info` back to work; a cycle starts |
 | GET | `/api/v1/reviews/{owner}/{repo}/{number}` | the PR of a task and each review round |
 | POST | `/api/v1/reviews/{owner}/{repo}/{number}/approve` | the user's yes to merge the PR's head, given as `?head=SHA`; a cycle starts |
 | GET | `/api/v1/splits/{owner}/{repo}/{number}` | the proposal to split a task that waits for the user, or `null` |
@@ -48,9 +49,9 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
               "started": "2026-10-30T12:00:00+01:00", "phase": "implement", "run_id": "r-20261030120000-a1b2c3"}],
  "waiting_for_machine": [], "queen_run": null, "stop_requested": false,
  "flowers": {"acme-org/website#12": {"size": "Medium", "door": "two-way", "sent_back": false, "slice": false,
-                                     "pr": null, "questions": 0}}}
+                                     "pr": null, "questions": 0, "yours": false}}}
 ```
-`project_order` lists every project by its `priority`, 1 first. `timer_on` says whether `systemd` wakes the supervisor by itself; while it is false, `next_wake` will not happen. `queen.questions` leaves out a task that the user or a cycle moved on since she asked. `flowers` holds what the page draws on a task beyond its column, read from the local log, so it costs GitHub nothing. `pr` is `"waits"` when the merge waits for the user, `"approved"` after the user's yes, otherwise null. A task that ended is left out.
+`project_order` lists every project by its `priority`, 1 first. `timer_on` says whether `systemd` wakes the supervisor by itself; while it is false, `next_wake` will not happen. `queen.questions` leaves out a task that the user or a cycle moved on since she asked. `flowers` holds what the page draws on a task beyond its column, read from the local log, so it costs GitHub nothing. `pr` is `"waits"` when the merge waits for the user, `"approved"` after the user's yes, otherwise null. `yours` is true while the task waits for the user's decision: a cycle left it to the user, the loop guard stopped it, or the queen's last look asked about it. Anything the user or a cycle does to the task clears it. A task that ended is left out.
 
 `GET /api/v1/queue`
 ```json
@@ -100,6 +101,8 @@ The `pr` object also has `approved`, true once the user said yes to this head, `
 `POST /api/v1/wake` answers `{"cycle_started": true}` and starts a cycle at once, as the timer would; the timer keeps its own times. It answers `409` while Kandu is stopped or a cycle is already running, and starts nothing.
 
 `POST /api/v1/restart` answers `{"restarting": true}`: it writes the `systemd` units again from the config, re-arms the timer if it runs, so a new `wake_every_minutes` counts, and restarts the dashboard a second later. A running cycle finishes. The answer is `409` if the config has a problem, and then nothing restarts. The dashboard also takes a changed `kandu.yaml` or `projects.yaml` by itself at the next request, so a new project shows without a restart.
+
+`POST /api/v1/tasks/acme-org/website/12/send-back` answers `{"task": "acme-org/website#12", "to": "Ready", "cycle_started": true}`. The task goes to `Ready`, or to `Backlog` if it could not be sized, past the queen's limits and the loop guard: the user's call is the last one. With an open PR the next cycle reviews its head, or fixes what the last review found. It merges nothing. The answer is `409` if the task is not in `Blocked` or `Needs info`, has no `agent` label, its project is paused or its PR is merged.
 
 `GET /api/v1/splits/acme-org/website/12` answers `{"task": "acme-org/website#12", "split": {"title": "...", "reason": "...", "fingerprint": "ab12cd34ef56", "slices": [{"title": "...", "size": "Medium", "files": 3, "door": "two-way", "body": "..."}], "user_text": {"reason": "...", "slices": [{"title": "...", "body": "..."}]}}}`. `user_text` is the proposal in the config's `language`, or `null`; only the English `slices` become issues. `POST .../approve?proposal=ab12cd34ef56` must name that fingerprint, and answers `{"children": ["acme-org/website#13", "acme-org/website#14"]}`, or `409` if `proposal` no longer names the proposal, the task is not waiting for a split or a slice fails its checks. It starts no cycle. Declining or changing a proposal happens in Didban.
 

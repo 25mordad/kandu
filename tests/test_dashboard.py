@@ -343,6 +343,24 @@ class FlowerMarksTest(Base):
         self.assertEqual((self.marks()["size"], self.marks()["pr"]), ("Small", None))
 
 
+    def test_a_task_left_to_the_user_waits_for_them_until_they_act(self):
+        self.task_event("task_finished", outcome="blocked")
+        self.task_event("decision", decision="blocked", reason=dashboard.USER_DECIDES)
+        self.assertTrue(self.marks()["yours"])
+        self.task_event("user_resumed", to="Ready")
+        self.assertFalse(self.marks()["yours"])
+
+    def test_a_loop_stop_waits_for_the_user(self):
+        self.task_event("loop_stopped", action="retry", reason="its 3 retries are used up")
+        self.assertTrue(self.marks()["yours"])
+        self.task_event("task_picked")
+        self.assertFalse(self.marks()["yours"])
+
+    def test_a_merge_waiting_on_ci_is_not_the_users(self):
+        self.task_event("decision", decision="merge_waits", reason="CI is running")
+        self.assertFalse(self.marks()["yours"])
+
+
 class QueenReportTest(Base):
     def test_state_holds_her_newest_brief_and_questions(self):
         self.assertIsNone(self.api.state({})["queen"])
@@ -599,6 +617,38 @@ class ControlTest(Base):
             self.assertEqual(self.post(f"/api/v1/reviews/{REPO}/1/approve?head=abc")[0], 409)
             self.assertFalse(self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["can_approve"])
             self.assertIsNone(self.store.last_event("user_approved"))
+
+    def test_send_back_moves_a_blocked_task_to_ready_and_starts_a_cycle(self):
+        self.reviewed(status="Blocked")
+        self.api.start_cycle = mock.Mock(return_value=True)
+        self.assertEqual(self.post(f"/api/v1/tasks/{REPO}/1/send-back", "wrong")[0], 403)
+        status, body = self.post(f"/api/v1/tasks/{REPO}/1/send-back")
+        self.assertEqual((status, body), (200, {"task": f"{REPO}#1", "to": "Ready", "cycle_started": True}))
+        self.assertEqual(self.github.set_status.call_args.args[1:], ("u", "Ready"))
+        self.assertEqual(self.store.last_event("user_resumed")["task"], f"{REPO}#1")
+        self.assertIsNone(self.store.last_event("user_approved"))
+
+    def test_a_task_that_could_not_be_sized_goes_back_to_be_sized(self):
+        self.reviewed(status="Needs info")
+        self.api.start_cycle = mock.Mock(return_value=None)
+        self.store.record("task_finished", task=f"{REPO}#1", project="website", outcome="sizing_failed")
+        self.assertEqual(self.post(f"/api/v1/tasks/{REPO}/1/send-back")[1]["to"], "Backlog")
+
+    def test_send_back_is_refused_where_it_does_not_belong(self):
+        for status in ("In review", "Ready", "Done"):
+            self.reviewed(status=status)
+            self.assertEqual(self.post(f"/api/v1/tasks/{REPO}/1/send-back")[0], 409)
+        self.reviewed(status="Blocked")
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "Blocked", [], "")]
+        self.assertEqual(self.post(f"/api/v1/tasks/{REPO}/1/send-back")[0], 409)
+        self.reviewed(status="Blocked")
+        self.github.find_pr.return_value["state"] = "MERGED"
+        self.assertEqual(self.post(f"/api/v1/tasks/{REPO}/1/send-back")[0], 409)
+        self.reviewed(status="Blocked")
+        self.store.pause_project("website")
+        self.assertEqual(self.post(f"/api/v1/tasks/{REPO}/1/send-back")[0], 409)
+        self.github.set_status.assert_not_called()
+        self.assertEqual(self.post("/api/v1/tasks/x/y/1/send-back")[0], 404)
 
     def test_approve_of_an_unregistered_repo(self):
         self.assertEqual(self.post("/api/v1/reviews/other/repo/1/approve?head=abc")[0], 404)
