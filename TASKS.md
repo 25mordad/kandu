@@ -58,6 +58,7 @@ Every task is designed and checked against harness, context and memory (§14).
 49. [x] Zanbourdar: a session beside Didban on the dashboard, with full access and tied to no task, that may change Kandu itself (§13)
 50. [x] A brief per project for Didban: read first when the user names the project, with the newest lines of the project's own reports, and changed only through `kandu.brief` (§13, §14)
 51. [x] Bazras: a daily read-only look at each live project's health, at its own hour; code finds, a model judges only what was found, and Didban brings the findings up and proposes tasks on the user's yes; a tab on the dashboard (§5, §7, §13)
+52. [ ] Versions: tag releases with a version number and a short changelog, so an install knows what an update brings and which features ship off (§12)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)
