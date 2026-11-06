@@ -71,6 +71,7 @@ state/
 | `deployed` | `task`, `project`, `run_id` |
 | `project_checked` | `project`, `passed`, `detail` |
 | `project_inspected` | `project`, `run_id`, `passed`, `findings`, `judged` |
+| `inspect_changed` | `project`, `enabled`, `at` |
 | `task_finished` | `task`, `project`, `outcome` |
 
 `role` is `supervisor`, `queen`, `bazras`, `splitter`, `worker`, `reviewer` or `live_check`; a `bazras` run has no task, and its `project` is the one it looked at. `models` maps each model a run used to its tokens:
@@ -84,7 +85,7 @@ state/
 
 The numbers come from `modelUsage` in the `result` event of `claude --output-format stream-json`.
 
-`review_finished` is written for every review round, even with no findings. `findings` and `blockers` are counts, `round` starts at 1 and `door` is `two-way` or `one-way`. The text of a finding is not logged here. The merge gate reads this event, not the PR comment, because a worker uses the same account and could write one. `wait_for_user` holds the reviewer's one-line questions; `project_checked` is the end-of-cycle check. `project_inspected` is Bazras's daily look: `findings` is a count, `judged` says whether an agent judged them, and the report itself stays in `local/reports/bazras/`, never in the log.
+`review_finished` is written for every review round, even with no findings. `findings` and `blockers` are counts, `round` starts at 1 and `door` is `two-way` or `one-way`. The text of a finding is not logged here. The merge gate reads this event, not the PR comment, because a worker uses the same account and could write one. `wait_for_user` holds the reviewer's one-line questions; `project_checked` is the end-of-cycle check. `project_inspected` is Bazras's daily look: `findings` is a count, `judged` says whether an agent judged them, and the report itself stays in `local/reports/bazras/`, never in the log. `inspect_changed` is the user turning Bazras on or off for a project in the dashboard; `at` is null when the project takes `bazras.at`.
 
 ## current.json
 A snapshot, replaced atomically, so a reader never sees half a file.

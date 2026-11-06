@@ -478,8 +478,9 @@ def inspect_project(config, store, runner, project, local_dir, logs_dir, now=Non
 
 
 def inspected(config, only=None):
-    """The projects Bazras looks at: those with `inspect`, and not paused in the config."""
-    return [p for p in config.projects if p.inspect is not None and not p.paused and (only is None or p.name == only)]
+    """The projects Bazras looks at: those with `inspect` turned on, and not paused in the config."""
+    return [p for p in config.projects if p.inspect is not None and p.inspect.enabled and not p.paused
+            and (only is None or p.name == only)]
 
 
 def due(config, project, local_dir, now):
@@ -533,7 +534,7 @@ def main():
         print(found[-1][1].rstrip("\n"))
         return 0
     if args.project and not inspected(config, args.project):
-        print(f"bazras: {args.project!r} is not a project with `inspect` in the registry", file=sys.stderr)
+        print(f"bazras: {args.project!r} is not a project with `inspect` turned on in the registry", file=sys.stderr)
         return 1
     store = StateStore()
     store.root.mkdir(mode=0o700, parents=True, exist_ok=True)

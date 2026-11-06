@@ -53,7 +53,7 @@ notify:
     - usage_limit
     - claude_login
 
-bazras:                        # optional; Bazras's daily look at projects with `inspect` (DESIGN §5)
+bazras:                        # optional; Bazras's daily look at projects whose `inspect` is on (DESIGN §5)
   at: "06:00"                  # default hour; a project's inspect.at overrides it
 
 supervisor:                    # optional; these are the defaults

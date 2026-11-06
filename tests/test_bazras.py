@@ -10,7 +10,7 @@ from unittest import mock
 
 import yaml
 
-from kandu import bazras, brief, dashboard, didban, timer
+from kandu import bazras, brief, config, dashboard, didban, timer
 from kandu.config import ConfigError, DidbanBrain, DidbanConfig, load_config
 from kandu.runner import AgentResult, RunnerError
 from kandu.state import StateStore
@@ -143,6 +143,7 @@ class Base(unittest.TestCase):
         shutil.copy(ROOT / "config.example" / "projects.example.yaml", self.local / "projects.yaml")
         self.config = load_config(self.local)
         self.project = self.config.projects[0]
+        self.project.inspect.enabled = True  # Off in the example, as everywhere until the user turns it on.
         self.store = StateStore(self.root / "state")
         self.logs = self.root / "logs"
         self.logs.mkdir()
@@ -156,7 +157,9 @@ class Base(unittest.TestCase):
 
 
 class ConfigTest(Base):
-    def test_the_example_holds_an_inspect_block(self):
+    def test_the_example_holds_an_inspect_block_and_it_is_off(self):
+        self.assertFalse(load_config(self.local).projects[0].inspect.enabled)
+        self.assertEqual(bazras.inspected(load_config(self.local)), [])
         self.assertEqual(self.project.inspect.at, "07:00")
         self.assertIn("user:website-backup.timer", self.project.inspect.units)
         self.assertEqual(self.config.settings.bazras.at, "06:00")
@@ -166,6 +169,45 @@ class ConfigTest(Base):
         for key, value in (("at", "25:00"), ("units", ["no-suffix"]), ("checks", [""])):
             with self.subTest(key=key), self.assertRaises(ConfigError):
                 self.edit_projects(lambda projects: projects[0]["inspect"].__setitem__(key, value))
+
+
+class SetInspectTest(Base):
+    def test_an_existing_block_is_turned_on_and_its_hour_changed_and_comments_stay(self):
+        config.set_inspect("website", True, "08:30", self.local)
+        text = (self.local / "projects.yaml").read_text()
+        self.assertIn("# optional; Bazras's daily read-only look", text)
+        project = load_config(self.local).projects[0]
+        self.assertEqual((project.inspect.enabled, project.inspect.at), (True, "08:30"))
+        self.assertIn("user:website-backup.timer", project.inspect.units)
+        config.set_inspect("website", False, None, self.local)
+        project = load_config(self.local).projects[0]
+        self.assertEqual((project.inspect.enabled, project.inspect.at), (False, "08:30"))
+
+    def test_a_project_without_a_block_gets_one_with_only_these_lines(self):
+        before = load_config(self.local).projects[2:]
+        config.set_inspect("internal-tool", True, "05:00", self.local)
+        after = load_config(self.local)
+        tool = next(p for p in after.projects if p.name == "internal-tool")
+        self.assertEqual((tool.inspect.enabled, tool.inspect.at, tool.inspect.tests, tool.inspect.units), (True, "05:00", True, []))
+        self.assertEqual(tool.paused, False)
+        self.assertEqual([p.name for p in after.projects[2:]], [p.name for p in before])
+
+    def test_a_block_without_enabled_gets_the_line(self):
+        path = self.local / "projects.yaml"
+        path.write_text(path.read_text().replace("      enabled: false", "", 1))
+        self.assertFalse(load_config(self.local).projects[0].inspect.enabled)
+        config.set_inspect("website", True, None, self.local)
+        self.assertTrue(load_config(self.local).projects[0].inspect.enabled)
+
+    def test_bad_input_changes_nothing(self):
+        before = (self.local / "projects.yaml").read_text()
+        for name, at in (("website", "7am"), ("nope", None)):
+            with self.subTest(name=name), self.assertRaises(ConfigError):
+                config.set_inspect(name, True, at, self.local)
+        path = self.local / "projects.yaml"
+        path.write_text(before.replace("    inspect:  ", '    inspect: {enabled: false}  ', 1).split("      enabled: false")[0] + "\n")
+        with self.assertRaises(ConfigError):
+            config.set_inspect("website", True, None, self.local)
 
 
 class FakeRunner:
@@ -321,12 +363,15 @@ class ScheduleTest(Base):
         self.project.inspect.at = None
         self.assertTrue(bazras.due(self.config, self.project, self.local, NOW.replace(hour=6)))
 
-    def test_paused_projects_and_those_without_inspect_are_not_looked_at(self):
+    def test_paused_projects_and_those_off_or_without_inspect_are_not_looked_at(self):
         runner = FakeRunner()
         runner.logs = self.logs
         self.store.pause_project(self.project.name)
         self.assertEqual(bazras.run(self.config, self.store, runner, self.local, self.logs, now=NOW.replace(hour=8)), [])
         self.assertEqual(bazras.inspected(self.config), [self.project])
+        self.project.inspect.enabled = False
+        self.assertEqual(bazras.inspected(self.config), [])
+        self.project.inspect.enabled = True
         self.project.paused = True
         self.assertEqual(bazras.inspected(self.config), [])
 
@@ -382,6 +427,8 @@ class DidbanTest(unittest.TestCase):
 class DashboardTest(Base):
     def setUp(self):
         super().setUp()
+        config.set_inspect("website", True, None, self.local)
+        self.config = load_config(self.local)
         self.api = dashboard.Api(self.config, self.store, mock.Mock(), self.logs, "t", timer_on=lambda: True,
                                  local_dir=self.local, flights_=mock.Mock())
 
@@ -390,11 +437,22 @@ class DashboardTest(Base):
         status, body = dashboard.dispatch(self.api, "GET", "/api/v1/bazras")
         self.assertEqual(status, 200)
         self.assertEqual(body["projects"][0]["name"], "website")
+        self.assertEqual([p["enabled"] for p in body["projects"]][:2], [True, False])
         self.assertEqual(body["projects"][0]["at"], "07:00")
         self.assertEqual(body["projects"][0]["reports"][0]["findings"], 1)
         state = dashboard.dispatch(self.api, "GET", "/api/v1/state")[1]["bazras"]
         self.assertEqual(state["last"]["website"]["date"], "2026-01-02")
         self.assertIsNone(state["running"])
+
+    def test_the_switch_writes_the_config_and_is_logged(self):
+        status, body = dashboard.dispatch(self.api, "POST", "/api/v1/projects/internal-tool/inspect?enabled=true&at=05:30", "t")
+        self.assertEqual((status, body), (200, {"enabled": True, "at": "05:30"}))
+        self.assertTrue(next(p for p in load_config(self.local).projects if p.name == "internal-tool").inspect.enabled)
+        event = [e for e in self.store.events(self.store.today()) if e["type"] == "inspect_changed"][0]
+        self.assertEqual((event["project"], event["enabled"], event["at"]), ("internal-tool", True, "05:30"))
+        for target in ("/api/v1/projects/website/inspect?enabled=maybe", "/api/v1/projects/website/inspect?enabled=true&at=99:00"):
+            self.assertEqual(dashboard.dispatch(self.api, "POST", target, "t")[0], 400)
+        self.assertEqual(dashboard.dispatch(self.api, "POST", "/api/v1/projects/website/inspect?enabled=true")[0], 403)
 
     def test_didban_opens_on_a_known_project_only(self):
         self.assertEqual(self.api.open_didban({"project": ["website"]}), {"opening": "didban"})

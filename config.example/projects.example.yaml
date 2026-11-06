@@ -40,6 +40,7 @@ projects:
     reports: [docs/LESSONS.md]         # the project's own reports for Kandu, on its machine; Didban reads their newest
                                        # lines with its brief, read-only (relative paths start at `path`)
     inspect:                           # optional; Bazras's daily read-only look, for a live project (DESIGN §5)
+      enabled: false                   # off by default; turn it on here or in the dashboard's Bazras tab
       at: "07:00"                      # its hour on the brain's clock; default bazras.at in kandu.yaml
       tests: true                      # run `test` on the default branch
       units:                           # systemd units on the project's machine; `user:` for a user unit

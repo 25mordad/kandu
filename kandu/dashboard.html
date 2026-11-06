@@ -415,7 +415,12 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bazras_take_hint": "Didban opens on this project, brings up what Bazras found, and proposes tasks; nothing is created without your yes",
   "bazras_daily_at": "Daily at {at}",
   "bazras_none_yet": "No look yet",
-  "bazras_off": "Bazras looks at no project: add `inspect` to a project in the registry.",
+  "bazras_about": "Bazras, the inspector, looks once a day at a live project's health and changes nothing: the last day's commits, its services, timers and cron lines, its tests and its own checks. Only when it finds something does an agent judge it, within the project's limits. It is off for every project until you turn it on here.",
+  "bazras_on": "On",
+  "bazras_is_off": "Off",
+  "bazras_hour": "Hour of the daily look",
+  "bazras_saved_on": "Bazras will look at {project} every day at {at}",
+  "bazras_saved_off": "Bazras will not look at {project}",
   "bazras_looking": "Bazras is looking",
   "bazras_judging": "Bazras is judging",
   "bazras_last": "Bazras",
@@ -562,7 +567,12 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bazras_take_hint": "دیدبان روی همین پروژه باز می‌شود، یافته‌های بازرس را می‌گوید و تسک پیشنهاد می‌کند؛ بی «بله»ی تو چیزی ساخته نمی‌شود",
   "bazras_daily_at": "هر روز ساعت {at}",
   "bazras_none_yet": "هنوز نگاهی نشده",
-  "bazras_off": "بازرس به هیچ پروژه‌ای نگاه نمی‌کند: به پروژه در registry یک `inspect` اضافه کن.",
+  "bazras_about": "بازرس روزی یک بار سلامت یک پروژهٔ لایو را نگاه می‌کند و هیچ چیزی را تغییر نمی‌دهد: کامیت‌های روز گذشته، سرویس‌ها، تایمرها و خط‌های کران، تست‌ها و چک‌های خود پروژه. فقط وقتی چیزی پیدا کند یک agent آن را قضاوت می‌کند، در محدودهٔ سهم همان پروژه. برای همهٔ پروژه‌ها خاموش است تا خودت اینجا روشنش کنی.",
+  "bazras_on": "روشن",
+  "bazras_is_off": "خاموش",
+  "bazras_hour": "ساعت نگاه روزانه",
+  "bazras_saved_on": "بازرس هر روز ساعت {at} به {project} نگاه می‌کند",
+  "bazras_saved_off": "بازرس دیگر به {project} نگاه نمی‌کند",
   "bazras_looking": "بازرس در حال نگاه",
   "bazras_judging": "بازرس در حال قضاوت",
   "bazras_last": "بازرس",
@@ -705,6 +715,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "notification_failed": "اعلان فرستاده نشد",
   "project_resumed": "پروژه ادامه یافت",
   "project_inspected": "بازرس پروژه را نگاه کرد",
+  "inspect_changed": "بازرس پروژه روشن یا خاموش شد",
   "bazras": "بازرس",
   "group_closed": "گروه بسته شد",
   "group_not_closed": "گروه بسته نشد",
@@ -1298,16 +1309,34 @@ function lookBadge(look) {
   return `<span class="badge" style="--c:#f2a65a">${t("bazras_not_checked")}</span>`;
 }
 
-// Bazras's tab: each project's newest reports. A report is written by an agent: it is shown as text, never as markup.
-async function refreshBazras() {
-  const {projects} = await get("/bazras");
-  $("bazrasreports").innerHTML = projects.map(p => {
+// Bazras's tab: each project's switch and hour, then its newest reports. Bazras is off for every project
+// until the user turns it on here. A report is written by an agent: it is shown as text, never as markup.
+async function refreshBazras(force = false) {
+  const box = $("bazrasreports"), data = await get("/bazras");
+  const key = JSON.stringify([lang, data]);
+  if (!force && (key === refreshBazras.key || box.contains(document.activeElement))) return;  // Keep what is being typed.
+  refreshBazras.key = key;
+  box.innerHTML = `<div class="card pad muted">${esc(t("bazras_about"))}</div>` + data.projects.map(p => {
     const looks = p.reports.map(look => `<div class="look"><div class="look-head"><b class="number">${esc(dayName(look.date))}</b>${lookBadge(look)}
       ${look.all_well ? "" : `<span class="spacer"></span><button class="btn small" data-fly="didban" data-focus="${esc(p.name)}" title="${esc(t("bazras_take_hint"))}">${t("bazras_take")}</button>`}</div>
       ${look.all_well ? "" : `<pre class="report" dir="ltr">${esc(look.text)}</pre>`}</div>`).join("");
-    return `<div class="card pad"><div class="look-head"><h2 class="card-title">${bdi(p.name)}</h2><span class="muted">${esc(t("bazras_daily_at").replace("{at}", num(p.at)))}</span></div>
-      ${looks || `<div class="empty">${t("bazras_none_yet")}</div>`}</div>`;
-  }).join("") || `<div class="card empty">${esc(t("bazras_off"))}</div>`;
+    const said = p.paused_in_config ? t("project_on_pause") : p.enabled ? t("bazras_daily_at").replace("{at}", num(p.at)) : t("bazras_is_off");
+    const controls = `<span class="spacer"></span><label class="look-head"><input type="checkbox" data-inspect-on="${esc(p.name)}"${p.enabled ? " checked" : ""}> ${t("bazras_on")}</label>
+      <input type="time" step="60" value="${esc(p.at)}" data-inspect-at="${esc(p.name)}" aria-label="${esc(t("bazras_hour"))}" dir="ltr">
+      <button class="btn small" data-inspect="${esc(p.name)}">${t("save")}</button>`;
+    return `<div class="card pad"><div class="look-head"><h2 class="card-title">${bdi(p.name)}</h2><span class="muted">${esc(said)}</span>${controls}</div>
+      ${looks || (p.enabled ? `<div class="empty">${t("bazras_none_yet")}</div>` : "")}</div>`;
+  }).join("");
+}
+
+async function saveInspect(button) {
+  const name = button.dataset.inspect, box = $("bazrasreports");
+  const on = box.querySelector(`[data-inspect-on="${CSS.escape(name)}"]`).checked;
+  const at = box.querySelector(`[data-inspect-at="${CSS.escape(name)}"]`).value;
+  if (await act(button, `/projects/${encodeURIComponent(name)}/inspect?enabled=${on}${at ? `&at=${encodeURIComponent(at)}` : ""}`)) {
+    toast(t(on ? "bazras_saved_on" : "bazras_saved_off").replace("{project}", name).replace("{at}", num(at)));
+    await refreshBazras(true).catch(() => {});
+  }
 }
 
 // The config's priority, 1 first; a project the config does not name goes last.
@@ -1542,6 +1571,7 @@ document.addEventListener("click", e => {
   const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
   if (hit("close")) { $("modal").close(); return; }
   if (hit("fly")) { openFlight(hit("fly")); return; }
+  if (hit("inspect")) { saveInspect(hit("inspect")); return; }
   if (hit("land")) { act(hit("land"), `/flights/${encodeURIComponent(hit("land").dataset.land)}/close`).then(() => refreshFlights()).catch(() => {}); return; }
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }

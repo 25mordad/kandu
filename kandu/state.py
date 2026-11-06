@@ -42,6 +42,7 @@ EVENT_FIELDS = {
     "task_finished": TASK_FIELDS + ("outcome",),
     "project_checked": ("project", "passed", "detail"),
     "project_inspected": ("project", "run_id", "passed", "findings", "judged"),
+    "inspect_changed": ("project", "enabled", "at"),
     "project_paused": ("project",),
     "project_resumed": ("project",),
     "limits_changed": ("session", "week"),
