@@ -132,6 +132,61 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(bazras.cron_findings(FakeHost(), []), [])
 
 
+class LogHost:
+    """A log file as `stat` and `tail` see it: its inode, and its whole text."""
+
+    def __init__(self, text, inode="7"):
+        self.text, self.inode, self.reads = text, inode, []
+
+    def absolute(self, path):
+        return path
+
+    def run(self, command, cwd=None):
+        data = self.text.encode()
+        if command[0] == "stat":
+            return done(f"{self.inode} {len(data)}\n")
+        self.reads.append(command)
+        if command[0] == "sh":
+            since, limit = int(command[-2]), int(command[-1])
+            return done("\n".join(data[since - 1:].decode().splitlines()[-limit:]))
+        return done("\n".join(self.text.splitlines()[-int(command[2]):]))
+
+
+class LogTest(unittest.TestCase):
+    project = SimpleNamespace(path="/srv/site")
+
+    def test_the_first_look_reads_the_end_and_later_looks_only_what_was_added(self):
+        host, offsets = LogHost("ok\n2026-01-01 10:00:01 ERROR db timeout after 30s (id 4f9a2b)\n"), {}
+        first = bazras.log_findings(host, self.project, "logs/app.log", offsets)
+        self.assertEqual(len(first), 1)
+        self.assertIn("1 error line(s) in logs/app.log in its newest", first[0].summary)
+        self.assertEqual(first[0].kinds, [("ERROR db timeout after Ns (id N)", 1)])
+        self.assertEqual(bazras.log_findings(host, self.project, "logs/app.log", offsets), [])
+        host.text += "".join(f"2026-01-02 09:0{i}:00 ERROR db timeout after {i}s\n" for i in range(3)) + "Traceback: boom\nfine\n"
+        later = bazras.log_findings(host, self.project, "logs/app.log", offsets)
+        self.assertIn("4 error line(s) in logs/app.log since the last look", later[0].summary)
+        self.assertEqual(later[0].kinds[0], ("ERROR db timeout after Ns", 3))
+
+    def test_a_rotated_log_is_read_from_its_start(self):
+        host, offsets = LogHost("x\n" * 50), {}
+        bazras.log_findings(host, self.project, "/var/log/app.log", offsets)
+        host.text, host.inode = "FATAL out of memory\n", "8"
+        found = bazras.log_findings(host, self.project, "/var/log/app.log", offsets)
+        self.assertIn("since it was rotated", found[0].summary)
+
+    def test_kinds_drop_times_numbers_and_quoted_values(self):
+        lines = ['Jan  2 10:00:00 host app: user "a@b.c" not found', "Jan  2 10:00:05 host app: user 'x' not found"]
+        self.assertEqual(bazras.kinds(lines), [('host app: user "…" not found', 2)])
+
+    def test_the_report_shows_the_kinds_scrubbed(self):
+        finding = bazras.Finding("log", "2 error line(s) in logs/app.log since the last look.", "raw",
+                                 [("login failed for a.b@example.com", 2)])
+        text = bazras.render(bazras.Look("website", findings=[finding]), "2026-01-02")
+        self.assertIn("   - Seen 2×: `login failed for [address]`", text)
+        self.assertNotIn("raw", text)
+        self.assertEqual(bazras.summary(text), (False, 1))
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -234,6 +289,8 @@ class FakeRunner:
             return done("0 3 * * * website-report\n")
         if command[:2] == ["git", "symbolic-ref"]:
             return done("origin/main\n")
+        if command[0] == "stat":
+            return done("7 100\n")
         return done()
 
     def reachable(self, machine):

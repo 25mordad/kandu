@@ -161,6 +161,7 @@ class Inspect:
     tests: bool = True             # run the project's test command on its default branch
     units: list[str] = field(default_factory=list)   # systemd units: `name.service`, or `user:name.timer` for a user unit
     cron: list[str] = field(default_factory=list)    # text each must find in the machine's crontab
+    logs: list[str] = field(default_factory=list)    # log files on its machine; relative to `path`; new error lines count
     checks: list[str] = field(default_factory=list)  # the project's own read-only commands, run in a checkout
     ignore: list[str] = field(default_factory=list)  # file patterns other writers change every day, e.g. `PR_LOG.md`
 
@@ -414,7 +415,7 @@ def _check_projects(projects, s, problems):
                 if not re.fullmatch(r"(user:)?[\w@.:-]+\.(service|timer)", unit):
                     problems.append(f"{where}.inspect.units[{i}]: must be name.service or name.timer, "
                                     f"with user: for a user unit, got {unit!r}")
-            for name in ("cron", "checks", "ignore"):
+            for name in ("cron", "checks", "ignore", "logs"):
                 if any(not entry.strip() for entry in getattr(p.inspect, name)):
                     problems.append(f"{where}.inspect.{name}: an entry must not be empty")
         for report in p.reports:

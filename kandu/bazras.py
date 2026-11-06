@@ -49,13 +49,20 @@ EMAIL = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
 ASSIGNED = re.compile(r"\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASS))\s*[=:]\s*\S+")
 LONG_TOKEN = re.compile(r"[A-Za-z0-9+/_=-]{32,}")  # hidden when it has letters and digits, unless it is hex or a path
 TASK_BODY_CHARS = 600
+# Error lines in a log file; the journal is already filtered by priority.
+ERROR_LINE = re.compile(r"(?i)\b(error|critical|fatal|exception|traceback|panic|failed)\b")
+KINDS = 3                          # most common kinds of error a report shows per log
+KIND_CHARS = 140
+FIRST_LINES = 2000                 # what a log file's first look reads, from its end
+NEW_LINES = 5000                   # the most a later look reads of what was added
 
 
 @dataclass
 class Finding:
-    check: str                     # tests, commits, unit, cron or check
+    check: str                     # tests, commits, unit, cron, log or check
     summary: str                   # written here, from names and counts only: it goes into the report
     detail: str = ""               # output for the judge alone
+    kinds: list = field(default_factory=list)  # (error kind, count), most common first: shown in the report, scrubbed
 
 
 @dataclass
@@ -177,8 +184,80 @@ def unit_findings(host, entry):
     errors = [line for line in journal.stdout.splitlines() if line.strip()] if journal.returncode == 0 else []
     if errors:
         findings.append(Finding("unit", f"{len(errors)} error line(s) in the log of {logged} in the last 24 hours.",
-                                "\n".join(errors[-DETAIL_LINES:])))
+                                "\n".join(errors[-DETAIL_LINES:]), kinds(errors)))
     return findings
+
+
+# What kind of error a line is: the same message with other numbers, ids, paths' values or times is the same kind.
+_STAMP = re.compile(r"^\W*\d{4}-\d\d-\d\d[T ][\d:.,]+(Z|[+-]\d\d:?\d\d)?\W*|^\w{3} [ \d]\d \d\d:\d\d:\d\d\s+")
+_QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
+_HEXISH = re.compile(r"\b(0x)?[0-9a-fA-F]*\d[0-9a-fA-F]*\b|\b[0-9a-f]{8}-[0-9a-f-]{27}\b")
+
+
+def kind(line):
+    line = _STAMP.sub("", line.strip())
+    line = _QUOTED.sub("\"…\"", line)
+    line = _HEXISH.sub("N", line)
+    line = re.sub(r"\d+(\.\d+)?", "N", line)  # 30s, v2: a number inside a word too
+    line = " ".join(line.split())
+    return line if len(line) <= KIND_CHARS else line[:KIND_CHARS].rstrip() + " …"
+
+
+def kinds(lines, top=KINDS):
+    counted = {}
+    for line in lines:
+        k = kind(line)
+        if k:
+            counted[k] = counted.get(k, 0) + 1
+    return sorted(counted.items(), key=lambda item: -item[1])[:top]
+
+
+def _offsets_file(project, local_dir):
+    return reports_dir(project, local_dir) / "log-offsets.json"
+
+
+def read_offsets(project, local_dir):
+    try:
+        return json.loads(_offsets_file(project, local_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_offsets(project, offsets, local_dir):
+    path = _offsets_file(project, local_dir)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.write_text(json.dumps(offsets, indent=1), encoding="utf-8")
+
+
+def log_findings(host, project, path, offsets):
+    """Error lines added to one log file since the last look. `offsets` is updated in place.
+
+    The first look reads the newest lines; a file rotated or cut short is read again from its start.
+    """
+    cwd = None if host.absolute(path).startswith("/") else project.path
+    stat = host.run(["stat", "-L", "-c", "%i %s", "--", host.absolute(path)], cwd=cwd)
+    if stat.returncode != 0:
+        raise RunnerError(f"log {path} could not be read")
+    inode, size = stat.stdout.split()[:2]
+    size = int(size)
+    before = offsets.get(path)
+    if before and before.get("inode") == inode and before.get("size", 0) <= size:
+        since, limit, what = before["size"] + 1, NEW_LINES, "since the last look"
+    elif before:
+        since, limit, what = 1, NEW_LINES, "since it was rotated"
+    else:
+        since, limit, what = None, FIRST_LINES, f"in its newest {FIRST_LINES} lines"
+    read = ["sh", "-c", 'tail -c "+$2" -- "$1" | tail -n "$3"', "sh", host.absolute(path), str(since), str(limit)] \
+        if since else ["tail", "-n", str(limit), "--", host.absolute(path)]
+    found = host.run(read, cwd=cwd)
+    if found.returncode != 0:
+        raise RunnerError(f"log {path} could not be read")
+    offsets[path] = {"inode": inode, "size": size}
+    errors = [line for line in found.stdout.splitlines() if ERROR_LINE.search(line)]
+    if not errors:
+        return []
+    return [Finding("log", f"{len(errors)} error line(s) in {path} {what}.", "\n".join(errors[-DETAIL_LINES:]),
+                    kinds(errors))]
 
 
 def cron_findings(host, patterns):
@@ -233,7 +312,7 @@ def look_at_repo(runner, project, repo, now, logs_dir, run_id):
     return findings, mine, cwd
 
 
-def look(runner, project, now, logs_dir, run_id):
+def look(runner, project, now, logs_dir, run_id, local_dir=None):
     """Every check that needs no judgment. Returns the Look and a checkout for the judge, or None."""
     result = Look(project.name)
     if not runner.reachable(project.machine):
@@ -259,6 +338,14 @@ def look(runner, project, now, logs_dir, run_id):
         result.findings += cron_findings(host, project.inspect.cron)
     except RunnerError as e:
         result.trouble.append(f"crontab: {e}")
+    offsets = read_offsets(project.name, local_dir) if local_dir else {}
+    for path in project.inspect.logs:
+        try:
+            result.findings += log_findings(host, project, path, offsets)
+        except (RunnerError, ValueError) as e:
+            result.trouble.append(f"{path}: {e}")
+    if local_dir and project.inspect.logs:
+        save_offsets(project.name, offsets, local_dir)
     return result, cwd
 
 
@@ -279,7 +366,7 @@ def why_not_judge(config, store, project, usage_reader=read_usage):
 
 
 def judge_prompt(project, result, merged, local_dir, today):
-    findings = [{"n": n, "check": f.check, "summary": f.summary, "output": f.detail}
+    findings = [{"n": n, "check": f.check, "summary": f.summary, "kinds": f.kinds, "output": f.detail}
                 for n, f in enumerate(result.findings, 1)]
     project_brief = Path(local_dir) / "brief" / f"{project.name}.md"
     parts = [(agents.PROMPTS_DIR / "bazras.md").read_text(encoding="utf-8"), "## This look",
@@ -369,6 +456,7 @@ def render(result, date):
         return scrub("\n".join(lines + [ALL_WELL])) + "\n"
     for n, finding in enumerate(result.findings, 1):
         lines.append(f"{n}. {finding.summary}")
+        lines += [f"   - Seen {count}×: `{k.replace('`', chr(39))}`" for k, count in finding.kinds]
         judged = result.judged[n - 1] if len(result.judged) >= n else None
         if judged:
             if judged["what"]:
@@ -462,7 +550,7 @@ def inspect_project(config, store, runner, project, local_dir, logs_dir, now=Non
     store.write_bazras({"project": project.name, "run_id": run_id, "started": now.isoformat(timespec="seconds"),
                         "machine": project.machine})
     try:
-        result, cwd = look(runner, project, now, logs_dir, run_id)
+        result, cwd = look(runner, project, now, logs_dir, run_id, local_dir)
         if result.findings:
             store.write_bazras({"project": project.name, "run_id": run_id, "machine": project.machine,
                                 "started": now.isoformat(timespec="seconds"), "judging": True})

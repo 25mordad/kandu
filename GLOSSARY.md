@@ -18,7 +18,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Brief** | One short private file per project, `local/brief/<project>.md`, that Didban reads when the user names the project; it changes only through `kandu.brief` |
 | **Report file** | A file of the project's own, listed under `reports` in the registry, that Didban reads with the brief and never changes |
 | **Bazras** | The inspector bee: a daily, read-only look at a live project's health; its findings go in a private report, never into a task by itself |
-| **Finding** (Bazras) | Something Bazras's code found wrong: a reverted Kandu commit, rework, a failed unit or cron line, failing tests or a failing check |
+| **Finding** (Bazras) | Something Bazras's code found wrong: a reverted Kandu commit, rework, a failed unit or cron line, new error lines in a log, failing tests or a failing check |
 | **Request** | What the user wants done, in their words, before it is a task; Didban keeps it until its tasks exist |
 | **Family** | A group of repos that share one board |
 | **Board** | The GitHub Project of a family |

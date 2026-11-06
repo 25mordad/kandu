@@ -47,6 +47,7 @@ projects:
         - website.service
         - user:website-backup.timer
       cron: [website-report]           # text that must stay in the crontab of the project's machine
+      logs: [logs/app.log]             # log files on its machine (relative to `path`); new error lines are findings
       checks:                          # the project's own checks, run in a fresh checkout; non-zero exit = finding
         - make check-links
       ignore: [CHANGELOG.md, "docs/*"] # files whose change after a Kandu commit is not rework
