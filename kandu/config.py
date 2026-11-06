@@ -17,6 +17,8 @@ import yaml
 DEFAULT_LOCAL_DIR = Path(__file__).resolve().parent.parent / "local"
 SSH_REACH = re.compile(r"ssh \w[\w.@-]*")
 ROLES = ("worker", "reviewer", "splitter", "live_check", "queen")
+MODEL_ROLES = ROLES + ("bazras",)  # Bazras's tools are fixed in code, so it has no `permissions` entry.
+CLOCK = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 MODEL = re.compile(r"[a-z][\w.\[\]-]*")  # It reaches `claude --model`, so it cannot be a flag.
 TECHNICAL_DEBT = "Technical debt"
 BOARD_COLUMNS = ("Backlog", TECHNICAL_DEBT, "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", "Done")
@@ -108,6 +110,11 @@ class Supervisor:
 
 
 @dataclass
+class BazrasSettings:
+    at: str = "06:00"              # when a project's daily look is due, unless its `inspect.at` says otherwise
+
+
+@dataclass
 class Rules:
     allow: list[str] = field(default_factory=list)
     deny: list[str] = field(default_factory=list)
@@ -144,6 +151,17 @@ class Deploy:
 
 
 @dataclass
+class Inspect:
+    """What Bazras looks at each day (DESIGN §5). It only reads; a check that exits non-zero is a finding."""
+    at: str | None = None          # HH:MM on the brain's clock; without it, `bazras.at`
+    tests: bool = True             # run the project's test command on its default branch
+    units: list[str] = field(default_factory=list)   # systemd units: `name.service`, or `user:name.timer` for a user unit
+    cron: list[str] = field(default_factory=list)    # text each must find in the machine's crontab
+    checks: list[str] = field(default_factory=list)  # the project's own read-only commands, run in a checkout
+    ignore: list[str] = field(default_factory=list)  # file patterns other writers change every day, e.g. `PR_LOG.md`
+
+
+@dataclass
 class Project:
     name: str
     family: str
@@ -160,6 +178,7 @@ class Project:
     board: Board | None = None
     run_local: str | None = None
     deploy: Deploy | None = None
+    inspect: Inspect | None = None   # Bazras's daily look; without it, Bazras leaves the project alone
     secrets_from: str | None = None
     task_tokens: dict[str, str] = field(default_factory=dict)  # token name -> what it is for
     forbidden: list[str] = field(default_factory=list)
@@ -183,6 +202,7 @@ class Settings:
     supervisor: Supervisor = field(default_factory=Supervisor)
     permissions: Permissions = field(default_factory=Permissions)
     didban: Didban = field(default_factory=Didban)
+    bazras: BazrasSettings = field(default_factory=BazrasSettings)
 
 
 @dataclass
@@ -319,7 +339,7 @@ def _check_settings(s, problems):
     _check_percent(s.claude.limits.weekly_percent, "claude.limits.weekly_percent", problems)
     _check_positive(s.claude.login_warn_days, "claude.login_warn_days", problems)
     for role, model in s.claude.models.items():
-        _check_one_of(role, ROLES, "claude.models", problems)
+        _check_one_of(role, MODEL_ROLES, "claude.models", problems)
         if not MODEL.fullmatch(model):
             problems.append(f"claude.models.{role}: not a model name: {model!r}")
 
@@ -337,6 +357,8 @@ def _check_settings(s, problems):
     _check_positive(s.github.sync_every_minutes, "github.sync_every_minutes", problems)
     if s.supervisor.auto_revert:
         problems.append("supervisor.auto_revert: must be false; Kandu only reports breakage (DESIGN §5)")
+    if not CLOCK.fullmatch(s.bazras.at):
+        problems.append(f"bazras.at: must be HH:MM, got {s.bazras.at!r}")
     if not 1 <= s.dashboard.port <= 65535:
         problems.append(f"dashboard.port: must be between 1 and 65535, got {s.dashboard.port}")
 
@@ -381,6 +403,16 @@ def _check_projects(projects, s, problems):
                 problems.append(f"{where}.task_tokens: not a variable name: {name!r}")
             if not purpose.strip():
                 problems.append(f"{where}.task_tokens.{name}: say what it is for")
+        if p.inspect is not None:
+            if p.inspect.at is not None and not CLOCK.fullmatch(p.inspect.at):
+                problems.append(f"{where}.inspect.at: must be HH:MM, got {p.inspect.at!r}")
+            for i, unit in enumerate(p.inspect.units):
+                if not re.fullmatch(r"(user:)?[\w@.:-]+\.(service|timer)", unit):
+                    problems.append(f"{where}.inspect.units[{i}]: must be name.service or name.timer, "
+                                    f"with user: for a user unit, got {unit!r}")
+            for name in ("cron", "checks", "ignore"):
+                if any(not entry.strip() for entry in getattr(p.inspect, name)):
+                    problems.append(f"{where}.inspect.{name}: an entry must not be empty")
         for report in p.reports:
             if not report.strip():
                 problems.append(f"{where}.reports: a path must not be empty")

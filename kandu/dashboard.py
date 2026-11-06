@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import flights, ghmeter, queen, questions, review, sessions, split, timer
+from . import bazras, flights, ghmeter, queen, questions, review, sessions, split, timer
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config, set_limits, set_parallel
 from .github import AGENT_LABEL, GitHubError
 from .mirror import open_github
@@ -182,7 +182,16 @@ class Api:
             "parallel": self._parallel(),
             "queen": self._queen_report(),
             "flowers": flower_marks(self.store),
+            "bazras": {"running": self.store.read_bazras(),
+                       "last": {p.name: bazras.last_look(p.name, self.local_dir) for p in bazras.inspected(self.config)}},
         }
+
+    def bazras_reports(self, query):
+        """Bazras's newest reports for each project it looks at."""
+        settings = self.config.settings.bazras
+        return {"projects": [{"name": p.name, "at": p.inspect.at or settings.at,
+                              "reports": bazras.recent_looks(p.name, self.local_dir)}
+                             for p in sorted(bazras.inspected(self.config), key=lambda p: p.priority)]}
 
     def _paused(self):
         return self.store.paused_projects() | {p.name for p in self.config.projects if p.paused}
@@ -266,8 +275,11 @@ class Api:
         return language
 
     def open_didban(self, query):
-        """Answers at once: the session's link appears in `GET /flights`."""
-        self.flights.open_didban(self._language(query))
+        """Answers at once: the session's link appears in `GET /flights`. `project` opens it on that project."""
+        project = query.get("project", [None])[0]
+        if project is not None and project not in {p.name for p in self.config.projects}:
+            raise ApiError(400, "no such project")
+        self.flights.open_didban(self._language(query), project)
         return {"opening": flights.DIDBAN}
 
     def open_zanbourdar(self, query):
@@ -550,6 +562,7 @@ ROUTES = [
     ("GET", "/days", Api.days),
     ("GET", "/days/{day}", Api.day),
     ("GET", "/didban", Api.didban),
+    ("GET", "/bazras", Api.bazras_reports),
     ("GET", "/flights", Api.list_flights),
     ("POST", "/flights/didban", Api.open_didban),
     ("POST", "/flights/zanbourdar", Api.open_zanbourdar),

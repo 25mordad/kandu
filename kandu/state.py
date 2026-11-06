@@ -41,6 +41,7 @@ EVENT_FIELDS = {
     "deployed": TASK_FIELDS + ("run_id",),
     "task_finished": TASK_FIELDS + ("outcome",),
     "project_checked": ("project", "passed", "detail"),
+    "project_inspected": ("project", "run_id", "passed", "findings", "judged"),
     "project_paused": ("project",),
     "project_resumed": ("project",),
     "limits_changed": ("session", "week"),
@@ -56,7 +57,7 @@ EVENT_FIELDS = {
     "notification_failed": ("kind", "key", "reason"),
     "copy_not_read": ("detail",),
 }
-NO_TASK_ROLES = ("supervisor", "queen")
+NO_TASK_ROLES = ("supervisor", "queen", "bazras")
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
 
 
@@ -104,6 +105,7 @@ class StateStore:
         self.didban_dir = self.root / "didban"
         self.flights_dir = self.root / "flights"
         self.flown_dir = self.root / "flown"
+        self.bazras_file = self.root / "bazras.json"
         self.listeners = []  # Called with each event once it is in the log.
 
     def _make_dirs(self):
@@ -333,6 +335,22 @@ class StateStore:
         self._make_dirs()
         self.worker_stops_dir.mkdir(mode=0o700, exist_ok=True)
         self.worker_stop_file(run_id).touch(mode=0o600)
+
+    def write_bazras(self, running):
+        """What Bazras is looking at now, for the dashboard; None when it is done."""
+        if running is None:
+            self.bazras_file.unlink(missing_ok=True)
+            return
+        self._make_dirs()
+        temporary = self.bazras_file.with_suffix(".json.new")
+        temporary.write_text(json.dumps(running, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(self.bazras_file)
+
+    def read_bazras(self):
+        try:
+            return json.loads(self.bazras_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
 
     def read_current(self):
         """Returns the current snapshot, or {} if there is none yet."""

@@ -1,4 +1,4 @@
-"""Writes the user `systemd` units of the supervisor and the dashboard (DESIGN §6, §7).
+"""Writes the user `systemd` units of the supervisor, the dashboard and Bazras (DESIGN §5, §6, §7).
 
 Rendered from the config, so no setup's paths are in the repo. Installing does
 not start anything: `--enable` is a separate, explicit step.
@@ -13,6 +13,7 @@ from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 UNIT_NAME = "kandu"
 UNITS_DIR = Path.home() / ".config" / "systemd" / "user"
 EXTRA_STOP_MINUTES = 5
+BAZRAS_EVERY_MINUTES = 15
 
 
 def _systemd_path(path):
@@ -93,6 +94,35 @@ WantedBy=timers.target
 """
 
 
+def render_bazras_service(config):
+    install = _systemd_path(config.settings.brain.install_dir).rstrip("/")
+    return f"""[Unit]
+Description=Kandu: Bazras looks at each project whose hour has come
+
+[Service]
+Type=oneshot
+WorkingDirectory={install}
+ExecStart="{install}/.venv/bin/python" -m kandu.bazras
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-{install}/local/.env
+TimeoutStartSec=3h
+"""
+
+
+def render_bazras_timer(config):
+    # Each project has its own hour, so it wakes often; a wake with nothing due costs nothing.
+    return f"""[Unit]
+Description=Wake Bazras, Kandu's inspector
+
+[Timer]
+OnCalendar=*:0/{BAZRAS_EVERY_MINUTES}
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+"""
+
+
 def install(config, units_dir=UNITS_DIR):
     units_dir.mkdir(parents=True, exist_ok=True)
     (units_dir / f"{UNIT_NAME}.service").write_text(render_service(config), encoding="utf-8")
@@ -100,6 +130,8 @@ def install(config, units_dir=UNITS_DIR):
     (units_dir / f"{UNIT_NAME}-sync.service").write_text(render_sync_service(config), encoding="utf-8")
     (units_dir / f"{UNIT_NAME}-sync.timer").write_text(render_sync_timer(config), encoding="utf-8")
     (units_dir / f"{UNIT_NAME}-dashboard.service").write_text(render_dashboard(config), encoding="utf-8")
+    (units_dir / f"{UNIT_NAME}-bazras.service").write_text(render_bazras_service(config), encoding="utf-8")
+    (units_dir / f"{UNIT_NAME}-bazras.timer").write_text(render_bazras_timer(config), encoding="utf-8")
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
 
 
@@ -110,7 +142,8 @@ def restart(config):
     A running cycle is left to finish.
     """
     install(config)
-    subprocess.run(["systemctl", "--user", "try-restart", f"{UNIT_NAME}.timer", f"{UNIT_NAME}-sync.timer"], check=True)
+    subprocess.run(["systemctl", "--user", "try-restart", f"{UNIT_NAME}.timer", f"{UNIT_NAME}-sync.timer",
+                    f"{UNIT_NAME}-bazras.timer"], check=True)
     subprocess.run(["systemd-run", "--user", "--on-active=1", "--collect", "systemctl", "--user", "restart",
                     f"{UNIT_NAME}-dashboard.service"], check=True, capture_output=True)
 
@@ -144,12 +177,12 @@ def main():
         return 1
     if not args.install and not args.enable and not args.dashboard:
         print(render_service(config), render_timer(config), render_sync_service(config), render_sync_timer(config),
-              render_dashboard(config), sep="\n")
+              render_dashboard(config), render_bazras_service(config), render_bazras_timer(config), sep="\n")
         return 0
     install(config)
     if args.enable:
         subprocess.run(["systemctl", "--user", "enable", "--now", f"{UNIT_NAME}.timer", f"{UNIT_NAME}-sync.timer",
-                        f"{UNIT_NAME}-dashboard.service"], check=True)
+                        f"{UNIT_NAME}-bazras.timer", f"{UNIT_NAME}-dashboard.service"], check=True)
     elif args.dashboard:
         subprocess.run(["systemctl", "--user", "enable", "--now", f"{UNIT_NAME}-dashboard.service"], check=True)
     return 0
