@@ -168,6 +168,7 @@ class Project:
     auto_merge: bool | None = None
     frozen: bool = False
     allowed_tools: list[str] = field(default_factory=list)   # added to the worker's and live check's rules, if they have any
+    reports: list[str] = field(default_factory=list)   # files on its machine that `kandu.brief show` reads, read-only
 
 
 @dataclass
@@ -380,6 +381,9 @@ def _check_projects(projects, s, problems):
                 problems.append(f"{where}.task_tokens: not a variable name: {name!r}")
             if not purpose.strip():
                 problems.append(f"{where}.task_tokens.{name}: say what it is for")
+        for report in p.reports:
+            if not report.strip():
+                problems.append(f"{where}.reports: a path must not be empty")
         if p.deploy is not None:
             _check_one_of(p.deploy.mode, ("direct", "preview"), f"{where}.deploy.mode", problems)
         _check_positive(p.priority, f"{where}.priority", problems)

@@ -19,7 +19,9 @@ Read `docs/COMMANDS.md`, then add one project to `local/projects.yaml`, in the s
    12. A daily token limit (`daily_token_limit`), and any rules for how the queen paces this project (`queen_rules`).
    13. Priority against the other projects.
    14. A short glossary of project terms: propose it, the user corrects it.
+   15. Does the project keep its own reports for Kandu, such as a lessons file in its repo? List them under `reports`, as paths on its machine; a relative path starts at `path`. Didban reads their newest lines, read-only.
+   16. Its brief for Didban: draft it from what you read, in English, under `# NAME` with the sections `## What it is`, `## Main parts`, `## Rules and decisions`, `## Incidents`, `## Reports`, short, and the user corrects it.
 3. Create a board only if the user said yes: `.venv/bin/python -m kandu.boards --owner OWNER --title TITLE`. It prints the number. Before the first board of this install, stop and remind the user that direct pushes to the Kandu repo end at that moment.
-4. Write the entry. Put the glossary in `local/memory/<project>.md`.
+4. Write the entry. Put the glossary in `local/memory/<project>.md`. Save the brief the user said yes to with `.venv/bin/python -m kandu.brief set NAME --file -`, the brief on stdin; finish when it exits 0.
 5. Name a backup of what the project cannot rebuild as its first task, and refine it with `/kandu-task`.
 6. Finish when `.venv/bin/python -m kandu.doctor` shows no `FAIL` for this project.

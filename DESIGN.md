@@ -55,6 +55,8 @@ The dashboard itself is always Kandu's own (§7); only its port is a choice.
 12. A daily token limit, and any rules for how the queen paces this project.
 13. Priority relative to the other projects.
 14. Project terms: the LLM proposes a short glossary from what it read, the user corrects it (§14).
+15. Does the project keep its own reports for Kandu, such as a lessons file in its repo? They go under `reports`, read-only (§14).
+16. The project's brief for Didban: the LLM drafts it from what it read, the user corrects it (§13, §14).
 
 ### C. Other conversational commands
 - `/kandu-task` — define a task; writes the issue with the standard template onto the right board (§2).
@@ -270,6 +272,7 @@ The brain runs on an always-on machine, which is usually not the machine the use
 - **Limits:** it does not write code, does not change the knowledge sources it reads and keeps no memory of its own; all state stays on the board, or on the brain until a request is a task. `Edit`, `Write` and `NotebookEdit` are blocked in code. `Bash` stays open because Didban needs SSH, so these limits rest on the role prompt there, and a mistake is possible: do not treat Didban as a security boundary. Its sessions count against the same usage limits as the supervisor (§6).
 - **From the dashboard:** a button opens Didban on the brain's machine, in the dashboard's language, with a Remote Control link on the page, so it needs no window on the user's machine. One stays open at a time: the button then shows the open one. It is the same role, with the same limits, and its report is made on the brain when it ends.
 - **One project at a time:** once the user names the project they are talking about, Didban speaks only of it: what waits in other projects stays unsaid until the user asks or names another project.
+- **The project's brief:** once the user names a project, Didban first runs `python -m kandu.brief show`, and recalls the project from that instead of reading its repo again. The brief is one short private file, `local/brief/<project>.md` (§14), followed by the newest lines of the project's own reports, read-only. If there is none, Didban drafts one from the repo and saves it with `set` on the user's yes. A fact or incident the user confirms is added as one dated line with `add`. These commands are the only way Didban changes a brief, and code holds its five sections and its length.
 - **When the brain's machine is off:** tasks can still be defined; live state and commands wait until it is back.
 
 A review can meet what the task never settled. Its question in `wait_for_user` stays open until the user answers it: Didban opens by saying what is open, and `python -m kandu.questions answer` saves the answer in the local log and the project's memory, where the next worker and reviewer read it. An answer is not the merge yes.
@@ -295,6 +298,8 @@ Every part of Kandu is designed and reviewed against these three. The result dep
   - **Decisions:** one short paragraph for a choice that is hard to reverse, surprising without context and a real trade-off. Nothing else is worth recording.
   - **Rejected requests:** what the user said no to and why, so it is not proposed again.
   - **Do not flag:** what the reviewer must not report in this project: known contracts, intentional config, product decisions, and every wrong finding the user corrected. It is updated as soon as a correction happens.
+
+Didban has its own memory of each project, apart from the above: the **brief** in `local/brief/<project>.md`. It holds what the project is, its main parts, the rules and dated decisions that shape tasks, the incidents (what broke and why), and where the project's own reports for Kandu live. It is read every Didban session, so code keeps it under a fixed length, and it changes only through `kandu.brief`. A project may also list `reports` in the registry: files on its machine, such as a lessons file in its repo, that `kandu.brief show` reads and never changes. Later a daily inspector writes there too.
 
 ## 15. Model review
 Kandu must be able to show how well the model is doing, from its own records.
