@@ -78,6 +78,7 @@ Kandu has its own interactive dashboard:
 - queues per project: Backlog, Ready, waiting for machine, Needs info, Blocked
 - finished work, with PR link, live link and a screenshot of the final check
 - controls: stop / resume the supervisor, stop a worker
+- Bazras's reports per project, with a switch and the hour of its daily look
 
 The dashboard is one page with no outside requests, so another app can show it in a frame through its own server.
 
@@ -108,6 +109,30 @@ ln -s "$PWD/bin/didban" ~/.local/bin/didban
 The session opens with the name `Kandu` and Remote Control on, so you can continue it from the Claude mobile app or claude.ai/code while the machine stays on.
 
 You can also bind it to a keyboard shortcut in your desktop's settings. On GNOME: Settings → Keyboard → Custom Shortcuts, with the command `gnome-terminal -- /home/you/.local/bin/didban`.
+
+### A brief per project
+
+Didban keeps one short private brief per project in `local/brief/<project>.md`: what the project is, its main parts, its rules and decisions, what broke and why, and where the project keeps its own reports for Kandu. Didban reads it first when you name a project, instead of reading the repo again, and changes it only through `python -m kandu.brief`, after you confirm. `reports` in a project's entry lists files of the project's own, such as a lessons file; Didban reads their newest lines with the brief and never changes them.
+
+## Bazras — a daily look at a live project
+
+**Bazras** (Persian for "inspector") looks at a live project's health once a day and changes nothing. It is **off for every project** until you turn it on, in the dashboard's Bazras tab, where you also set its hour, or with `inspect` in the project's entry:
+
+```yaml
+inspect:
+  enabled: true
+  at: "07:00"                  # default: bazras.at in kandu.yaml
+  tests: true                  # run the tests on the default branch
+  units: [site.service, user:backup.timer]   # systemd units on the project's machine
+  cron: [nightly-report]       # text that must stay in its crontab
+  logs: [logs/app.log]         # log files; only lines added since the last look are read
+  checks: [make check-links]   # the project's own checks; a non-zero exit is a finding
+  ignore: [CHANGELOG.md]       # files whose later change is not rework
+```
+
+Code does the looking, at no token cost: the last day's commits (a Kandu commit reverted, or Kandu's files changed again by hand), the units and their logged errors, the crontab, new error lines in the logs, the tests and the checks. Only when something is found does one read-only agent judge it: what broke, its likely cause, and a draft task when one is worth it. That run counts against the project's daily limit and stops at the usage limits. The report is short and private, in `local/reports/bazras/<project>/`, with the most common kinds of error and their counts, and with addresses, keys and tokens hidden; with nothing found it is the one line "All was well." Bazras creates no task: Didban brings the findings up when you name the project, says which are worth a task, and creates one only on your yes. A report in the dashboard has a button that opens Didban on that project.
+
+`.venv/bin/python -m kandu.timer --install` installs `kandu-bazras.timer`, which wakes every 15 minutes and looks only at projects whose hour has come; with no project turned on it does nothing. Details in [DESIGN.md §5](DESIGN.md#5-supervisor-workers-reviewer).
 
 ## Notifications
 
@@ -169,11 +194,13 @@ Everything personal goes into `local/`, which is gitignored: your config, projec
 
 ## Choices you can change
 
+Anything new that does work by itself ships off, so an update never starts work you did not ask for; you turn it on in the dashboard or the config.
+
 All of these live in `local/kandu.yaml`; `/kandu-config` changes them by conversation. A complete example is in [config.example/](config.example/).
 
 **Language.** Kandu is in English unless you say otherwise. Set `language: fa` at the top level, and its messages, briefs and split proposals come in that language, and the dashboard opens in it. The page itself has English and Persian; agent-written text works in any language. Everything on GitHub stays in English: issues, PRs and commits. A split proposal is stored locally with its whole text in your language, and only the English becomes issues. Updating from an older version: move `notify.language` to the top-level `language`.
 
-**Model per role.** `claude.models` names a model for `worker`, `reviewer`, `splitter`, `live_check` or `queen`. A role not named runs on Claude's default, so you can put cheap, mechanical roles on a smaller model and keep judgment on a stronger one.
+**Model per role.** `claude.models` names a model for `worker`, `reviewer`, `splitter`, `live_check`, `queen` or `bazras`. A role not named runs on Claude's default, so you can put cheap, mechanical roles on a smaller model and keep judgment on a stronger one.
 
 **Isolation.** Version 1 runs without a container or a separate OS user, with a separate work folder and the permissions you set in `kandu.yaml`. A container does not by itself cost more tokens; the cost is the setup and upkeep of passing every tool and credential into it. If you want isolation, you can use a separate Linux user (simple, little overhead) or Docker (strongest, more upkeep). See [DESIGN.md §9](DESIGN.md#9-isolation--none-in-this-version).
 

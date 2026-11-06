@@ -5,6 +5,7 @@ Kandu keeps its runtime record in `state/` (gitignored, readable only by its use
 ```
 state/
   current.json            what is happening now
+  bazras.json             the project Bazras is looking at, only while it looks
   events/2026-10-30.jsonl what happened that day, one JSON event per line
   requests/<id>.json      what the user asked for, until it is tasks
   didban/<session>.json   what one Didban session spent and did
@@ -69,9 +70,11 @@ state/
 | `group_closed` | `task`, `project` |
 | `deployed` | `task`, `project`, `run_id` |
 | `project_checked` | `project`, `passed`, `detail` |
+| `project_inspected` | `project`, `run_id`, `passed`, `findings`, `judged` |
+| `inspect_changed` | `project`, `enabled`, `at` |
 | `task_finished` | `task`, `project`, `outcome` |
 
-`role` is `supervisor`, `queen`, `splitter`, `worker`, `reviewer` or `live_check`. `models` maps each model a run used to its tokens:
+`role` is `supervisor`, `queen`, `bazras`, `splitter`, `worker`, `reviewer` or `live_check`; a `bazras` run has no task, and its `project` is the one it looked at. `models` maps each model a run used to its tokens:
 
 ```json
 {"v": 1, "ts": "2026-10-30T12:00:00+01:00", "type": "run_finished",
@@ -82,7 +85,7 @@ state/
 
 The numbers come from `modelUsage` in the `result` event of `claude --output-format stream-json`.
 
-`review_finished` is written for every review round, even with no findings. `findings` and `blockers` are counts, `round` starts at 1 and `door` is `two-way` or `one-way`. The text of a finding is not logged here. The merge gate reads this event, not the PR comment, because a worker uses the same account and could write one. `wait_for_user` holds the reviewer's one-line questions; `project_checked` is the end-of-cycle check.
+`review_finished` is written for every review round, even with no findings. `findings` and `blockers` are counts, `round` starts at 1 and `door` is `two-way` or `one-way`. The text of a finding is not logged here. The merge gate reads this event, not the PR comment, because a worker uses the same account and could write one. `wait_for_user` holds the reviewer's one-line questions; `project_checked` is the end-of-cycle check. `project_inspected` is Bazras's daily look: `findings` is a count, `judged` says whether an agent judged them, and the report itself stays in `local/reports/bazras/`, never in the log; `log-offsets.json` there remembers how far each of the project's log files was read. `inspect_changed` is the user turning Bazras on or off for a project in the dashboard; `at` is null when the project takes `bazras.at`.
 
 ## current.json
 A snapshot, replaced atomically, so a reader never sees half a file.
@@ -115,4 +118,4 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 No other argument is kept. The dashboard adds a `limit` line every five minutes with `graphql_used`, `graphql_reset`, `rest_used` and `rest_reset` as GitHub reports them, so points that no counted call explains came from outside Kandu. `.venv/bin/python -m kandu.ghmeter` shows a day by hour, caller and command.
 
 ## Other files
-`state/stopped` exists while the user has stopped the supervisor. `state/paused/<project>` exists while the user has paused that project. `state/supervisor.lock` is held during a cycle, `state/split.lock` while a split is accepted. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.
+`state/stopped` exists while the user has stopped the supervisor. `state/paused/<project>` exists while the user has paused that project. `state/bazras.json` names the project Bazras is looking at, only while it looks, and `state/bazras.lock` is held during its run. `state/supervisor.lock` is held during a cycle, `state/split.lock` while a split is accepted. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.

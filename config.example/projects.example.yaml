@@ -37,6 +37,20 @@ projects:
     max_parallel_workers: 2
     daily_token_limit: 2000000         # no new task starts past this; cache reads do not count
     queen_rules: "Fixes for the checkout come before anything else"   # how the queen paces this project
+    reports: [docs/LESSONS.md]         # the project's own reports for Kandu, on its machine; Didban reads their newest
+                                       # lines with its brief, read-only (relative paths start at `path`)
+    inspect:                           # optional; Bazras's daily read-only look, for a live project (DESIGN §5)
+      enabled: false                   # off by default; turn it on here or in the dashboard's Bazras tab
+      at: "07:00"                      # its hour on the brain's clock; default bazras.at in kandu.yaml
+      tests: true                      # run `test` on the default branch
+      units:                           # systemd units on the project's machine; `user:` for a user unit
+        - website.service
+        - user:website-backup.timer
+      cron: [website-report]           # text that must stay in the crontab of the project's machine
+      logs: [logs/app.log]             # log files on its machine (relative to `path`); new error lines are findings
+      checks:                          # the project's own checks, run in a fresh checkout; non-zero exit = finding
+        - make check-links
+      ignore: [CHANGELOG.md, "docs/*"] # files whose change after a Kandu commit is not rework
     paused: false
 
   # A project that must run on a specific machine (in a separate git worktree there).

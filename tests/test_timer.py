@@ -58,7 +58,7 @@ class TimerTest(unittest.TestCase):
             timer.restart(self.config)
         install.assert_called_once_with(self.config)
         first, second = (c.args[0] for c in run.call_args_list)
-        self.assertEqual(first, ["systemctl", "--user", "try-restart", "kandu.timer", "kandu-sync.timer"])
+        self.assertEqual(first, ["systemctl", "--user", "try-restart", "kandu.timer", "kandu-sync.timer", "kandu-bazras.timer"])
         self.assertEqual(second[:2], ["systemd-run", "--user"])
         self.assertEqual(second[-1], "kandu-dashboard.service")
 

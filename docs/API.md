@@ -10,13 +10,14 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `timer_on`, `language`, `limits`, `queen` and `flowers` |
+| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `timer_on`, `language`, `limits`, `queen`, `flowers` and `bazras` |
 | GET | `/api/v1/queue` | each project's board columns, with `Done` holding only what closed in the last `done_days` days, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes or moves |
 | GET | `/api/v1/days` | dates that have events |
 | GET | `/api/v1/days/{day}` | one day's tokens by task, model and role, and its finished tasks |
+| GET | `/api/v1/bazras` | every project in priority order: whether Bazras looks at it (`enabled`), its hour (`at`), `paused_in_config`, and its newest reports, newest first, each with `date`, `all_well`, `findings` (a count) and `text`; `default_at` is `bazras.at` |
 | GET | `/api/v1/didban` | the last Didban sessions: when, title, tokens and what each did; counted in no limit |
 | GET | `/api/v1/flights` | the sessions opened from this page, each with its status (`opening`, `open`, `failed`) and link, and the last free flights that ended, with tokens; counted in no limit |
-| POST | `/api/v1/flights/didban` | open Didban on the brain, or keep the one already open; `?language=en` or `fa` is the language it speaks |
+| POST | `/api/v1/flights/didban` | open Didban on the brain, or keep the one already open; `?language=en` or `fa` is the language it speaks; `&project=NAME` opens it on that project, for Bazras's reports |
 | POST | `/api/v1/flights/zanbourdar` | open Zanbourdar on the brain: a session with full access tied to no task, or keep the one already open; `?language=` as above |
 | POST | `/api/v1/flights/tasks/{owner}/{repo}/{number}` | open a free flight on a task, with full access, or keep the one already open; `?language=` as above |
 | POST | `/api/v1/flights/{key}/close` | end one of those sessions |
@@ -38,6 +39,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | POST | `/api/v1/workers/{run_id}/stop` | stop one running agent; its task moves to `Blocked` |
 | POST | `/api/v1/projects/{name}/pause` | pause one project: no new work on it, across cycles, until it is resumed |
 | POST | `/api/v1/projects/{name}/resume` | resume a paused project |
+| POST | `/api/v1/projects/{name}/inspect` | `enabled=true` or `false`, and optionally `at=HH:MM`: turn Bazras on or off for a project, and set its hour, in `projects.yaml`; off is the default |
 
 ## Examples
 
@@ -51,7 +53,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
  "flowers": {"acme-org/website#12": {"size": "Medium", "door": "two-way", "sent_back": false, "slice": false,
                                      "pr": null, "questions": 0, "yours": false}}}
 ```
-`project_order` lists every project by its `priority`, 1 first. `timer_on` says whether `systemd` wakes the supervisor by itself; while it is false, `next_wake` will not happen. `queen.questions` leaves out a task that the user or a cycle moved on since she asked. `flowers` holds what the page draws on a task beyond its column, read from the local log, so it costs GitHub nothing. `pr` is `"waits"` when the merge waits for the user, `"approved"` after the user's yes, otherwise null. `yours` is true while the task waits for the user's decision: a cycle left it to the user, the loop guard stopped it, or the queen's last look asked about it. Anything the user or a cycle does to the task clears it. A task that ended is left out.
+`project_order` lists every project by its `priority`, 1 first. `timer_on` says whether `systemd` wakes the supervisor by itself; while it is false, `next_wake` will not happen. `queen.questions` leaves out a task that the user or a cycle moved on since she asked. `flowers` holds what the page draws on a task beyond its column, read from the local log, so it costs GitHub nothing. `pr` is `"waits"` when the merge waits for the user, `"approved"` after the user's yes, otherwise null. `yours` is true while the task waits for the user's decision: a cycle left it to the user, the loop guard stopped it, or the queen's last look asked about it. Anything the user or a cycle does to the task clears it. A task that ended is left out. `bazras.running` is the project Bazras is looking at now (`project`, `run_id`, `machine`, `started`, and `judging` while an agent judges), or null; `bazras.last` maps each project it looks at to its newest report, as in `GET /bazras`, or null before the first.
 
 `GET /api/v1/queue`
 ```json

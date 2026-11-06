@@ -17,6 +17,8 @@ import yaml
 DEFAULT_LOCAL_DIR = Path(__file__).resolve().parent.parent / "local"
 SSH_REACH = re.compile(r"ssh \w[\w.@-]*")
 ROLES = ("worker", "reviewer", "splitter", "live_check", "queen")
+MODEL_ROLES = ROLES + ("bazras",)  # Bazras's tools are fixed in code, so it has no `permissions` entry.
+CLOCK = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 MODEL = re.compile(r"[a-z][\w.\[\]-]*")  # It reaches `claude --model`, so it cannot be a flag.
 TECHNICAL_DEBT = "Technical debt"
 BOARD_COLUMNS = ("Backlog", TECHNICAL_DEBT, "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", "Done")
@@ -108,6 +110,11 @@ class Supervisor:
 
 
 @dataclass
+class BazrasSettings:
+    at: str = "06:00"              # when a project's daily look is due, unless its `inspect.at` says otherwise
+
+
+@dataclass
 class Rules:
     allow: list[str] = field(default_factory=list)
     deny: list[str] = field(default_factory=list)
@@ -144,6 +151,22 @@ class Deploy:
 
 
 @dataclass
+class Inspect:
+    """What Bazras looks at each day (DESIGN §5). It only reads; a check that exits non-zero is a finding.
+
+    Off until the user turns it on, here or in the dashboard: a new install must not start work by itself.
+    """
+    enabled: bool = False
+    at: str | None = None          # HH:MM on the brain's clock; without it, `bazras.at`
+    tests: bool = True             # run the project's test command on its default branch
+    units: list[str] = field(default_factory=list)   # systemd units: `name.service`, or `user:name.timer` for a user unit
+    cron: list[str] = field(default_factory=list)    # text each must find in the machine's crontab
+    logs: list[str] = field(default_factory=list)    # log files on its machine; relative to `path`; new error lines count
+    checks: list[str] = field(default_factory=list)  # the project's own read-only commands, run in a checkout
+    ignore: list[str] = field(default_factory=list)  # file patterns other writers change every day, e.g. `PR_LOG.md`
+
+
+@dataclass
 class Project:
     name: str
     family: str
@@ -160,6 +183,7 @@ class Project:
     board: Board | None = None
     run_local: str | None = None
     deploy: Deploy | None = None
+    inspect: Inspect | None = None   # Bazras's daily look; without it, or with it off, Bazras leaves the project alone
     secrets_from: str | None = None
     task_tokens: dict[str, str] = field(default_factory=dict)  # token name -> what it is for
     forbidden: list[str] = field(default_factory=list)
@@ -168,6 +192,7 @@ class Project:
     auto_merge: bool | None = None
     frozen: bool = False
     allowed_tools: list[str] = field(default_factory=list)   # added to the worker's and live check's rules, if they have any
+    reports: list[str] = field(default_factory=list)   # files on its machine that `kandu.brief show` reads, read-only
 
 
 @dataclass
@@ -182,6 +207,7 @@ class Settings:
     supervisor: Supervisor = field(default_factory=Supervisor)
     permissions: Permissions = field(default_factory=Permissions)
     didban: Didban = field(default_factory=Didban)
+    bazras: BazrasSettings = field(default_factory=BazrasSettings)
 
 
 @dataclass
@@ -318,7 +344,7 @@ def _check_settings(s, problems):
     _check_percent(s.claude.limits.weekly_percent, "claude.limits.weekly_percent", problems)
     _check_positive(s.claude.login_warn_days, "claude.login_warn_days", problems)
     for role, model in s.claude.models.items():
-        _check_one_of(role, ROLES, "claude.models", problems)
+        _check_one_of(role, MODEL_ROLES, "claude.models", problems)
         if not MODEL.fullmatch(model):
             problems.append(f"claude.models.{role}: not a model name: {model!r}")
 
@@ -336,6 +362,8 @@ def _check_settings(s, problems):
     _check_positive(s.github.sync_every_minutes, "github.sync_every_minutes", problems)
     if s.supervisor.auto_revert:
         problems.append("supervisor.auto_revert: must be false; Kandu only reports breakage (DESIGN §5)")
+    if not CLOCK.fullmatch(s.bazras.at):
+        problems.append(f"bazras.at: must be HH:MM, got {s.bazras.at!r}")
     if not 1 <= s.dashboard.port <= 65535:
         problems.append(f"dashboard.port: must be between 1 and 65535, got {s.dashboard.port}")
 
@@ -380,6 +408,19 @@ def _check_projects(projects, s, problems):
                 problems.append(f"{where}.task_tokens: not a variable name: {name!r}")
             if not purpose.strip():
                 problems.append(f"{where}.task_tokens.{name}: say what it is for")
+        if p.inspect is not None:
+            if p.inspect.at is not None and not CLOCK.fullmatch(p.inspect.at):
+                problems.append(f"{where}.inspect.at: must be HH:MM, got {p.inspect.at!r}")
+            for i, unit in enumerate(p.inspect.units):
+                if not re.fullmatch(r"(user:)?[\w@.:-]+\.(service|timer)", unit):
+                    problems.append(f"{where}.inspect.units[{i}]: must be name.service or name.timer, "
+                                    f"with user: for a user unit, got {unit!r}")
+            for name in ("cron", "checks", "ignore", "logs"):
+                if any(not entry.strip() for entry in getattr(p.inspect, name)):
+                    problems.append(f"{where}.inspect.{name}: an entry must not be empty")
+        for report in p.reports:
+            if not report.strip():
+                problems.append(f"{where}.reports: a path must not be empty")
         if p.deploy is not None:
             _check_one_of(p.deploy.mode, ("direct", "preview"), f"{where}.deploy.mode", problems)
         _check_positive(p.priority, f"{where}.priority", problems)
@@ -437,6 +478,58 @@ def _set_project_workers(text, name, value):
         raise ConfigError([f"{name}.max_parallel_workers: expected one such line in its entry, found {len(hits)}"])
     indent = re.match(r"^(\s+)", lines[hits[0]]).group(1)
     lines[hits[0]] = f"{indent}max_parallel_workers: {value}"
+    return "\n".join(lines)
+
+
+def set_inspect(name, enabled, at=None, local_dir=DEFAULT_LOCAL_DIR):
+    """Turns Bazras on or off for one project, and sets its hour, in `projects.yaml`, line by line.
+
+    A project with no `inspect` block gets one with only these two lines: the rest keeps its defaults.
+    """
+    if at is not None and not CLOCK.fullmatch(at):
+        raise ConfigError([f"{name}.inspect.at: must be HH:MM, got {at!r}"])
+    path = Path(local_dir) / "projects.yaml"
+    text = _set_project_inspect(path.read_text(encoding="utf-8"), name, enabled, at)
+    entry = next((p for p in (yaml.safe_load(text) or {}).get("projects", []) if p.get("name") == name), {})
+    written = entry.get("inspect") or {}
+    if written.get("enabled") is not enabled or (at is not None and written.get("at") != at):
+        raise ConfigError([f"{name}.inspect: could not be written; change it in projects.yaml by hand"])
+    _replace_file(path, text)
+
+
+def _set_project_inspect(text, name, enabled, at):
+    lines = text.split("\n")
+    starts = [i for i, l in enumerate(lines) if re.match(r"^\s*- name:", l)]
+    start = next((i for i in starts if re.fullmatch(rf"\s*- name:\s*[\"']?{re.escape(name)}[\"']?\s*(#.*)?", lines[i])), None)
+    if start is None:
+        raise ConfigError([f"projects: no entry named {name!r} in projects.yaml"])
+    end = next((i for i in starts if i > start), len(lines))
+    key_indent = lines[start].index("name:")
+    values = {"enabled": "true" if enabled else "false", **({"at": f'"{at}"'} if at is not None else {})}
+    found = [i for i in range(start + 1, end) if re.match(rf"^ {{{key_indent}}}inspect:", lines[i])]
+    if not found:
+        while end > start + 1 and (not lines[end - 1].strip() or lines[end - 1].lstrip().startswith("#")
+                                   and len(lines[end - 1]) - len(lines[end - 1].lstrip()) <= key_indent):
+            end -= 1  # The block goes after the entry's last key, before blank lines and the next entry's comment.
+        pad = " " * key_indent
+        block = [f"{pad}inspect:"] + [f"{pad}  {key}: {value}" for key, value in values.items()]
+        return "\n".join(lines[:end] + block + lines[end:])
+    head = found[0]
+    if re.match(rf"^ {{{key_indent}}}inspect:\s*[^\s#]", lines[head]):
+        raise ConfigError([f"{name}.inspect: written on one line; change it in projects.yaml by hand"])
+    block_end = head + 1
+    while block_end < end and (not lines[block_end].strip()
+                               or len(lines[block_end]) - len(lines[block_end].lstrip()) > key_indent):
+        block_end += 1
+    children = [i for i in range(head + 1, block_end) if lines[i].strip() and not lines[i].lstrip().startswith("#")]
+    child = " " * (len(lines[children[0]]) - len(lines[children[0]].lstrip())) if children else " " * (key_indent + 2)
+    for key, value in values.items():
+        hit = next((i for i in children if re.match(rf"^{child}{key}:", lines[i])), None)
+        if hit is None:
+            lines.insert(head + 1, f"{child}{key}: {value}")
+            children = [i + 1 for i in children]
+        else:
+            lines[hit] = f"{child}{key}: {value}"  # Its old comment goes: it spoke of the old value.
     return "\n".join(lines)
 
 

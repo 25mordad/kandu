@@ -16,8 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import flights, ghmeter, queen, questions, review, sessions, split, timer
-from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config, set_limits, set_parallel
+from . import bazras, flights, ghmeter, queen, questions, review, sessions, split, timer
+from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_inspect, set_limits, set_parallel
 from .github import AGENT_LABEL, GitHubError
 from .mirror import open_github
 from .runner import DEFAULT_LOGS_DIR
@@ -182,7 +182,35 @@ class Api:
             "parallel": self._parallel(),
             "queen": self._queen_report(),
             "flowers": flower_marks(self.store),
+            "bazras": {"running": self.store.read_bazras(),
+                       "last": {p.name: bazras.last_look(p.name, self.local_dir) for p in bazras.inspected(self.config)}},
         }
+
+    def bazras_reports(self, query):
+        """Every project: whether Bazras looks at it, at what hour, and its newest reports."""
+        settings = self.config.settings.bazras
+        return {"default_at": settings.at, "projects": [
+            {"name": p.name, "enabled": bool(p.inspect and p.inspect.enabled), "paused_in_config": p.paused,
+             "at": (p.inspect.at if p.inspect else None) or settings.at,
+             "reports": bazras.recent_looks(p.name, self.local_dir)}
+            for p in sorted(self.config.projects, key=lambda p: p.priority)]}
+
+    def change_inspect(self, query, name):
+        """Turns Bazras on or off for one project, and sets its hour. The next wake of its timer uses it."""
+        project = self._project(name)
+        enabled = query.get("enabled", [""])[0]
+        if enabled not in ("true", "false"):
+            raise ApiError(400, "give enabled=true or enabled=false")
+        at = query.get("at", [None])[0] or None
+        try:
+            set_inspect(project.name, enabled == "true", at, self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        project.inspect = project.inspect or Inspect()
+        project.inspect.enabled = enabled == "true"
+        project.inspect.at = at or project.inspect.at
+        self.store.record("inspect_changed", project=project.name, enabled=project.inspect.enabled, at=project.inspect.at)
+        return {"enabled": project.inspect.enabled, "at": project.inspect.at or self.config.settings.bazras.at}
 
     def _paused(self):
         return self.store.paused_projects() | {p.name for p in self.config.projects if p.paused}
@@ -266,8 +294,11 @@ class Api:
         return language
 
     def open_didban(self, query):
-        """Answers at once: the session's link appears in `GET /flights`."""
-        self.flights.open_didban(self._language(query))
+        """Answers at once: the session's link appears in `GET /flights`. `project` opens it on that project."""
+        project = query.get("project", [None])[0]
+        if project is not None and project not in {p.name for p in self.config.projects}:
+            raise ApiError(400, "no such project")
+        self.flights.open_didban(self._language(query), project)
         return {"opening": flights.DIDBAN}
 
     def open_zanbourdar(self, query):
@@ -550,6 +581,7 @@ ROUTES = [
     ("GET", "/days", Api.days),
     ("GET", "/days/{day}", Api.day),
     ("GET", "/didban", Api.didban),
+    ("GET", "/bazras", Api.bazras_reports),
     ("GET", "/flights", Api.list_flights),
     ("POST", "/flights/didban", Api.open_didban),
     ("POST", "/flights/zanbourdar", Api.open_zanbourdar),
@@ -573,6 +605,7 @@ ROUTES = [
     ("POST", "/workers/{run_id}/stop", Api.stop_worker),
     ("POST", "/projects/{name}/pause", Api.pause_project),
     ("POST", "/projects/{name}/resume", Api.resume_project),
+    ("POST", "/projects/{name}/inspect", Api.change_inspect),
 ]
 
 

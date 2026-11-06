@@ -136,6 +136,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .finding.blocker { background:color-mix(in srgb, var(--bad) 12%, transparent); }
 .finding-head { font-size:12px; color:var(--muted); margin-bottom:2px; }
 .log { font:12px/1.7 var(--mono); max-height:60vh; overflow:auto; overflow-wrap:anywhere; }
+.report { font:12px/1.7 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0 0; padding:10px 12px; border-radius:8px; background:color-mix(in srgb, var(--muted) 10%, transparent); }
+.look { padding:12px 0; border-top:1px solid var(--line); }
+.look-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.bazras-line { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 16px; font-size:13px; color:var(--muted); border-bottom:1px solid var(--line); }
 .toast { position:fixed; inset-inline:16px; bottom:16px; z-index:20; width:fit-content; max-width:calc(100vw - 32px); margin-inline:auto; padding:9px 16px; border-radius:10px; background:var(--ink); color:var(--bg); font-size:14px; }
 
 .meadow { overflow:hidden; line-height:0; }
@@ -232,6 +236,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" data-tab="meadow" data-t="queue"></button>
     <button class="tab" role="tab" data-tab="work" data-t="tab_work"></button>
+    <button class="tab" role="tab" data-tab="bazras" data-t="tab_bazras"></button>
     <button class="tab" role="tab" data-tab="days" data-t="by_day"></button>
     <button class="tab" role="tab" data-tab="activity" data-t="live_stream"></button>
   </nav>
@@ -250,6 +255,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     </div>
   </section>
   <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
+  <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
   <section data-panel="days" class="list" hidden>
     <div class="toolbar"><select id="day" data-t-attr="aria-label" data-t="day"></select><div id="daytotals" class="chips"></div></div>
     <div id="byday" class="card"></div>
@@ -373,6 +379,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "flight_opening": "Opening…",
   "flight_go": "Go to the session",
   "flight_close": "End the session",
+  "go_didban": "Go to Didban",
+  "close_didban": "Close Didban",
+  "go_zanbourdar": "Go to Zanbourdar",
+  "close_zanbourdar": "Close Zanbourdar",
   "flight_open_now": "open now",
   "free_flights": "Free flights",
   "no_free_flights": "No free flight yet",
@@ -396,6 +406,24 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "show_less": "Show less",
   "no_match": "No task matches this search.",
   "bee_splitter": "Splitter bee",
+  "bee_inspector": "Bazras, the inspector bee",
+  "tab_bazras": "Bazras",
+  "bazras_all_well": "All was well",
+  "bazras_findings": "{count} finding(s)",
+  "bazras_not_checked": "Could not check everything",
+  "bazras_take": "Take to Didban",
+  "bazras_take_hint": "Didban opens on this project, brings up what Bazras found, and proposes tasks; nothing is created without your yes",
+  "bazras_daily_at": "Daily at {at}",
+  "bazras_none_yet": "No look yet",
+  "bazras_about": "Bazras, the inspector, looks once a day at a live project's health and changes nothing: the last day's commits, its services, timers and cron lines, its tests and its own checks. Only when it finds something does an agent judge it, within the project's limits. It is off for every project until you turn it on here.",
+  "bazras_on": "On",
+  "bazras_is_off": "Off",
+  "bazras_hour": "Hour of the daily look",
+  "bazras_saved_on": "Bazras will look at {project} every day at {at}",
+  "bazras_saved_off": "Bazras will not look at {project}",
+  "bazras_looking": "Bazras is looking",
+  "bazras_judging": "Bazras is judging",
+  "bazras_last": "Bazras",
   "legend_flowers": "Tasks",
   "legend_sizes": "Size of the flower",
   "legend_marks": "Signs under a flower",
@@ -503,6 +531,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "flight_opening": "در حال باز شدن…",
   "flight_go": "رفتن به جلسه",
   "flight_close": "بستن جلسه",
+  "go_didban": "رفتن به دیدبان",
+  "close_didban": "بستن دیدبان",
+  "go_zanbourdar": "رفتن به زنبوردار",
+  "close_zanbourdar": "بستن زنبوردار",
   "flight_open_now": "الان باز است",
   "free_flights": "پروازهای آزاد",
   "no_free_flights": "هنوز پرواز آزادی نبوده",
@@ -526,6 +558,24 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "show_less": "کمتر",
   "no_match": "هیچ تسکی با این جست‌وجو پیدا نشد.",
   "bee_splitter": "زنبور اندازه‌گیر",
+  "bee_inspector": "بازرس، زنبور بازرسی",
+  "tab_bazras": "بازرس",
+  "bazras_all_well": "همه درست بود",
+  "bazras_findings": "{count} یافته",
+  "bazras_not_checked": "همه‌چیز بررسی نشد",
+  "bazras_take": "بردن به دیدبان",
+  "bazras_take_hint": "دیدبان روی همین پروژه باز می‌شود، یافته‌های بازرس را می‌گوید و تسک پیشنهاد می‌کند؛ بی «بله»ی تو چیزی ساخته نمی‌شود",
+  "bazras_daily_at": "هر روز ساعت {at}",
+  "bazras_none_yet": "هنوز نگاهی نشده",
+  "bazras_about": "بازرس روزی یک بار سلامت یک پروژهٔ لایو را نگاه می‌کند و هیچ چیزی را تغییر نمی‌دهد: کامیت‌های روز گذشته، سرویس‌ها، تایمرها و خط‌های کران، تست‌ها و چک‌های خود پروژه. فقط وقتی چیزی پیدا کند یک agent آن را قضاوت می‌کند، در محدودهٔ سهم همان پروژه. برای همهٔ پروژه‌ها خاموش است تا خودت اینجا روشنش کنی.",
+  "bazras_on": "روشن",
+  "bazras_is_off": "خاموش",
+  "bazras_hour": "ساعت نگاه روزانه",
+  "bazras_saved_on": "بازرس هر روز ساعت {at} به {project} نگاه می‌کند",
+  "bazras_saved_off": "بازرس دیگر به {project} نگاه نمی‌کند",
+  "bazras_looking": "بازرس در حال نگاه",
+  "bazras_judging": "بازرس در حال قضاوت",
+  "bazras_last": "بازرس",
   "legend_flowers": "تسک‌ها",
   "legend_sizes": "اندازه‌ی گل",
   "legend_marks": "نشانه‌های زیر گل",
@@ -664,6 +714,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "notification_sent": "اعلان فرستاده شد",
   "notification_failed": "اعلان فرستاده نشد",
   "project_resumed": "پروژه ادامه یافت",
+  "project_inspected": "بازرس پروژه را نگاه کرد",
+  "inspect_changed": "بازرس پروژه روشن یا خاموش شد",
+  "bazras": "بازرس",
   "group_closed": "گروه بسته شد",
   "group_not_closed": "گروه بسته نشد",
   "queen": "ملکه",
@@ -946,6 +999,7 @@ const BEE_TOOLS = {
   reviewer: '<path class="lens" d="M21 5 l6 7"/><circle class="lens" cx="18" cy="1" r="6"/>',
   scout: '<path class="lens" d="M-12 0 H-24"/><path class="tool" d="M-24 0 v-11 l10 3.5 -10 3.5z"/>',
   splitter: '<rect class="tool" x="-13" y="-15" width="26" height="6" rx="1"/><path class="lens" style="stroke-width:1" d="M-8 -15 v3 M-3 -15 v3 M2 -15 v3 M7 -15 v3"/>',
+  inspector: '<rect class="tool" x="15" y="-9" width="10" height="13" rx="1.5"/><path class="lens" style="stroke-width:1" d="M17.5 -5 h5 M17.5 -2 h5 M17.5 1 h3"/>',
 };
 
 function bee(kind, size = 1) {
@@ -983,6 +1037,19 @@ function flight(worker, kind, spot, hive, index) {
   const path = `M${hive.x} ${hive.y} Q${midX} ${midY} ${spot.x} ${spot.y - 18} Q${midX} ${midY + 150} ${hive.x} ${hive.y}`;
   return `<g${run}>${label}${bee(kind)}<animateMotion dur="${9 + index * 2}s" repeatCount="indefinite" rotate="auto" calcMode="linear"
     keyTimes="0;0.4;0.65;1" keyPoints="0;0.5;0.5;1" path="${path}"/></g>`;
+}
+
+// Bazras looks at a whole project, so it circles the patch's name, not a flower.
+function inspectorBee(looking, projects) {
+  const patch = looking && projects.find(p => p.name === looking.project);
+  if (!patch) return "";
+  const x = patch.x + patch.width / 2, y = patch.y + patch.height - 30;
+  const said = t(looking.judging ? "bazras_judging" : "bazras_looking");
+  const run = looking.judging ? ` class="clickable" data-run="${esc(looking.run_id)}"` : "";
+  const label = `<title>${esc(looking.project)} · ${esc(said)}</title>`;
+  if (STILL) return `<g${run} transform="translate(${x} ${y})">${label}${bee("inspector")}</g>${speech(x, y - 22, said)}`;
+  const circle = `M${x - 60} ${y} a60 22 0 1 1 120 0 a60 22 0 1 1 -120 0`;
+  return `<g${run}>${label}${bee("inspector")}<animateMotion dur="7s" repeatCount="indefinite" rotate="auto" path="${circle}"/></g>${speech(x, y - 30, said)}`;
 }
 
 function hive(x, y, asleep, queenRun) {
@@ -1058,7 +1125,8 @@ function renderScene(state, queue) {
   const projects = fields(state, queue).sort((a, b) => rank(a.name) - rank(b.name));
   const stopped = state.stop_requested;
   const asleep = stopped || state.supervisor !== "awake";
-  const key = JSON.stringify([narrow, lang, stopped, asleep, !queue, projects, state.paused_in_config, state.workers, state.queen_run]);
+  const looking = state.bazras?.running || null;
+  const key = JSON.stringify([narrow, lang, stopped, asleep, !queue, projects, state.paused_in_config, state.workers, state.queen_run, looking]);
   if (key === sceneKey) return;
   sceneKey = key;
   const width = narrow ? 420 : 1200;
@@ -1080,7 +1148,8 @@ function renderScene(state, queue) {
     return `<ellipse class="soil${patch.paused ? " off" : ""}" cx="${middle}" cy="${patch.y + patch.height / 2 + 8}" rx="${patch.width / 2}" ry="${patch.height / 2}"/>
       <g class="${patch.paused ? "patch-off" : ""}"><text class="patch-name" data-name="${esc(patch.name)}" x="${middle}" y="${patch.y + patch.height - 8}">\u2066${esc(patch.name)}\u2069${patch.paused ? ` · <tspan class="patch-paused">${t("project_on_pause")}</tspan>` : ""}</text>${flowers}</g>${patchSwitch(patch)}`;
   }).join("");
-  const bees = (state.workers || []).map((worker, i) => spots[worker.task] ? flight(worker, beeKind(worker.phase), spots[worker.task], {x: home.x, y: home.y + 20}, i) : "").join("");
+  const bees = (state.workers || []).map((worker, i) => spots[worker.task] ? flight(worker, beeKind(worker.phase), spots[worker.task], {x: home.x, y: home.y + 20}, i) : "").join("")
+    + inspectorBee(looking, projects);
   // Neighbouring flowers take turns on two rows, so their labels do not cover each other.
   const talking = (state.workers || []).filter(worker => spots[worker.task] && worker.phase)
     .sort((a, b) => spots[a.task].x - spots[b.task].x);
@@ -1115,7 +1184,7 @@ function renderLegend() {
   const signs = [mark(MARKS.door, "mark_door"), mark(MARKS.back, "sent_back"), mark(MARKS.slice, "mark_slice"), mark(MARKS.unsized, "mark_unsized"),
                  mark(`<text class="mark-text" y="3.4">${num(3)}</text>`, "mark_questions", "ask"), mark(MARKS.yours, "waits_for_you", "yours")];
   const queen = `${bee("queen")}<path transform="translate(11 -9)" fill="#f5b301" stroke="#3a2608" d="${CROWN}"/>`;
-  const bees = [[queen, "bee_queen"], [bee("worker"), "bee_worker"], [bee("reviewer"), "bee_reviewer"], [bee("scout"), "bee_scout"], [bee("splitter"), "bee_splitter"]]
+  const bees = [[queen, "bee_queen"], [bee("worker"), "bee_worker"], [bee("reviewer"), "bee_reviewer"], [bee("scout"), "bee_scout"], [bee("splitter"), "bee_splitter"], [bee("inspector"), "bee_inspector"]]
     .map(([drawing, key]) => entry(drawing, t(key), "-28 -20 58 40", 30));
   $("legend").innerHTML = group("legend_flowers", flowers) + group("legend_sizes", sizes) + group("legend_marks", signs) + group("legend_bees", bees);
 }
@@ -1222,7 +1291,52 @@ function projectCard(project, shown, total, searching) {
   const inConfig = lastState.paused_in_config.includes(project.name);  // Only a change of config resumes this one.
   const pause = `${paused ? `<span class="badge" style="--c:#d9604f">${t("project_on_pause")}</span>` : ""}${inConfig ? "" : `<button class="btn small project-pause" data-pause="${esc(project.name)}" data-paused="${paused}">${t(paused ? "resume_project" : "pause_project")}</button>`}`;
   return `<details class="card project" data-project="${esc(project.name)}"${open ? " open" : ""}><summary><span class="project-name">${bdi(project.name)}</span><span class="number">${num(total)}</span>
-    <span class="counts">${counts.map(([column, count]) => `<span class="badge" style="--c:${FLOWERS[column].swatch}" title="${esc(tr(column === "waiting" ? "waiting for machine" : column))}">${num(count)}</span>`).join("")}</span>${pause}</summary>${table}</details>`;
+    <span class="counts">${counts.map(([column, count]) => `<span class="badge" style="--c:${FLOWERS[column].swatch}" title="${esc(tr(column === "waiting" ? "waiting for machine" : column))}">${num(count)}</span>`).join("")}</span>${pause}</summary>${bazrasLine(project.name)}${table}</details>`;
+}
+
+// The project's last look, in its card; only for a project Bazras looks at.
+function bazrasLine(name) {
+  const looks = lastState.bazras?.last || {};
+  if (!(name in looks)) return "";
+  const last = looks[name];
+  const said = !last ? t("bazras_none_yet") : lookBadge(last);
+  return `<div class="bazras-line">${t("bazras_last")}: ${said}${last ? ` <span class="number">${esc(dayName(last.date))}</span>` : ""} <button class="textlink" data-tab="bazras">${t("tab_bazras")} →</button></div>`;
+}
+
+function lookBadge(look) {
+  if (look.all_well) return `<span class="badge" style="--c:#2f8a4e">${t("bazras_all_well")}</span>`;
+  if (look.findings) return `<span class="badge" style="--c:#d9604f">${t("bazras_findings").replace("{count}", num(look.findings))}</span>`;
+  return `<span class="badge" style="--c:#f2a65a">${t("bazras_not_checked")}</span>`;
+}
+
+// Bazras's tab: each project's switch and hour, then its newest reports. Bazras is off for every project
+// until the user turns it on here. A report is written by an agent: it is shown as text, never as markup.
+async function refreshBazras(force = false) {
+  const box = $("bazrasreports"), data = await get("/bazras");
+  const key = JSON.stringify([lang, data]);
+  if (!force && (key === refreshBazras.key || box.contains(document.activeElement))) return;  // Keep what is being typed.
+  refreshBazras.key = key;
+  box.innerHTML = `<div class="card pad muted">${esc(t("bazras_about"))}</div>` + data.projects.map(p => {
+    const looks = p.reports.map(look => `<div class="look"><div class="look-head"><b class="number">${esc(dayName(look.date))}</b>${lookBadge(look)}
+      ${look.all_well ? "" : `<span class="spacer"></span><button class="btn small" data-fly="didban" data-focus="${esc(p.name)}" title="${esc(t("bazras_take_hint"))}">${t("bazras_take")}</button>`}</div>
+      ${look.all_well ? "" : `<pre class="report" dir="ltr">${esc(look.text)}</pre>`}</div>`).join("");
+    const said = p.paused_in_config ? t("project_on_pause") : p.enabled ? t("bazras_daily_at").replace("{at}", num(p.at)) : t("bazras_is_off");
+    const controls = `<span class="spacer"></span><label class="look-head"><input type="checkbox" data-inspect-on="${esc(p.name)}"${p.enabled ? " checked" : ""}> ${t("bazras_on")}</label>
+      <input type="time" step="60" value="${esc(p.at)}" data-inspect-at="${esc(p.name)}" aria-label="${esc(t("bazras_hour"))}" dir="ltr">
+      <button class="btn small" data-inspect="${esc(p.name)}">${t("save")}</button>`;
+    return `<div class="card pad"><div class="look-head"><h2 class="card-title">${bdi(p.name)}</h2><span class="muted">${esc(said)}</span>${controls}</div>
+      ${looks || (p.enabled ? `<div class="empty">${t("bazras_none_yet")}</div>` : "")}</div>`;
+  }).join("");
+}
+
+async function saveInspect(button) {
+  const name = button.dataset.inspect, box = $("bazrasreports");
+  const on = box.querySelector(`[data-inspect-on="${CSS.escape(name)}"]`).checked;
+  const at = box.querySelector(`[data-inspect-at="${CSS.escape(name)}"]`).value;
+  if (await act(button, `/projects/${encodeURIComponent(name)}/inspect?enabled=${on}${at ? `&at=${encodeURIComponent(at)}` : ""}`)) {
+    toast(t(on ? "bazras_saved_on" : "bazras_saved_off").replace("{project}", name).replace("{at}", num(at)));
+    await refreshBazras(true).catch(() => {});
+  }
 }
 
 // The config's priority, 1 first; a project the config does not name goes last.
@@ -1269,15 +1383,16 @@ async function refreshDidban() {
     : `<div class="empty">${t("no_didban_sessions")}</div>`);
 }
 
-function flightControls(flight, target, label) {
+// Didban and Zanbourdar sit side by side in the header, so their buttons say whose session they are.
+function flightControls(flight, target, label, go = t("flight_go"), close = t("flight_close")) {
   if (flight?.status === "opening") return `<button class="btn busy" disabled>${t("flight_opening")}</button>`;
-  if (flight?.status === "open") return `<a class="btn primary" href="${esc(flight.url)}" target="_blank" rel="noopener">${t("flight_go")} ↗</a><button class="btn" data-land="${esc(flight.key)}">${t("flight_close")}</button>`;
+  if (flight?.status === "open") return `<a class="btn primary" href="${esc(flight.url)}" target="_blank" rel="noopener">${go} ↗</a><button class="btn" data-land="${esc(flight.key)}">${close}</button>`;
   return `<button class="btn" data-fly="${esc(target)}">${label}</button>`;
 }
 
 function renderFlights() {
-  $("didbanbox").innerHTML = flightControls(flights.open.find(f => f.kind === "didban"), "didban", t("open_didban"));
-  $("zanbourdarbox").innerHTML = flightControls(flights.open.find(f => f.kind === "zanbourdar"), "zanbourdar", t("open_zanbourdar"));
+  $("didbanbox").innerHTML = flightControls(flights.open.find(f => f.kind === "didban"), "didban", t("open_didban"), t("go_didban"), t("close_didban"));
+  $("zanbourdarbox").innerHTML = flightControls(flights.open.find(f => f.kind === "zanbourdar"), "zanbourdar", t("open_zanbourdar"), t("go_zanbourdar"), t("close_zanbourdar"));
   if ($("taskflight") && shownTask) $("taskflight").innerHTML = flightControls(flights.open.find(f => f.task === shownTask), shownTask, t("open_flight"));
   const task = s => !s.task ? esc(t("zanbourdar")) : `<button class="textlink" data-review="${esc(s.task)}">${bdi(repoOf(s.task))} ${numberOf(s.task)}</button>`;
   const open = flights.open.filter(f => f.kind !== "didban" && f.status === "open").map(f => `<tr><td class="fit number">${esc(when(f.started))}</td><td>${task(f)}</td>
@@ -1303,7 +1418,8 @@ async function refreshFlights() {
 async function openFlight(button) {
   const target = button.dataset.fly;
   const path = ["didban", "zanbourdar"].includes(target) ? `/flights/${target}` : `/flights/tasks/${target.replace("#", "/")}`;
-  await act(button, `${path}?language=${lang}`, t("flight_opening"));
+  const focus = button.dataset.focus ? `&project=${encodeURIComponent(button.dataset.focus)}` : "";
+  await act(button, `${path}?language=${lang}${focus}`, t("flight_opening"));
   await refreshFlights();
 }
 
@@ -1455,6 +1571,7 @@ document.addEventListener("click", e => {
   const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
   if (hit("close")) { $("modal").close(); return; }
   if (hit("fly")) { openFlight(hit("fly")); return; }
+  if (hit("inspect")) { saveInspect(hit("inspect")); return; }
   if (hit("land")) { act(hit("land"), `/flights/${encodeURIComponent(hit("land").dataset.land)}/close`).then(() => refreshFlights()).catch(() => {}); return; }
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }
@@ -1494,7 +1611,7 @@ $("lang").onclick = () => setLanguage(lang === "fa" ? "en" : "fa");
 addEventListener("resize", () => { if (lastState) renderScene(lastState, lastQueue); });
 
 async function refresh() {
-  try { const s = await refreshState(); await refreshQueue(s); await refreshDays(); await refreshFlights(); }
+  try { const s = await refreshState(); await refreshQueue(s); await refreshDays(); await refreshFlights(); await refreshBazras(); }
   catch { toast(t("api_unreachable")); }
 }
 let stream = null;

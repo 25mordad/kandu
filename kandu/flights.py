@@ -66,10 +66,11 @@ class Flights:
     def alive(self, key):
         return self.store.flight_socket(key).exists() and self._tmux(key, "has-session", "-t", "main").returncode == 0
 
-    def open_didban(self, language):
-        """A session already open stays the one: the page shows its link."""
-        self._open(DIDBAN, {"kind": "didban", "task": None, "project": None},
-                   lambda session: self._didban(session, language))
+    def open_didban(self, language, project=None):
+        """A session already open stays the one: the page shows its link. `project` is the one the user opened it
+        for, from Bazras's reports."""
+        self._open(DIDBAN, {"kind": "didban", "task": None, "project": project},
+                   lambda session: self._didban(session, language, project))
 
     def open_zanbourdar(self, language):
         """One at a time, tied to no task: the page shows the open one's link."""
@@ -114,11 +115,11 @@ class Flights:
         self.store.write_flight(record)
         self._opening.discard(key)
 
-    def _didban(self, session, language):
+    def _didban(self, session, language, project=None):
         brain = DidbanBrain(reach="local", install_dir=str(didban.REPO_DIR))
         state, message = didban.check_brain(brain)
         prompt = didban.system_prompt(DidbanConfig(brain=brain), didban.STATUS[state].format(message),
-                                      **didban.waiting(brain, state), language=LANGUAGES[language])
+                                      **didban.waiting(brain, state), language=LANGUAGES[language], project=project)
         args = ["claude", "--session-id", session, "--name", didban.SESSION_NAME,
                 "--remote-control", didban.SESSION_NAME, "--disallowedTools", didban.BLOCKED_TOOLS]
         return args, prompt, didban.REPO_DIR
