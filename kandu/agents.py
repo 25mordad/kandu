@@ -97,16 +97,21 @@ def _forbidden(project):
             for area in project.forbidden]
 
 
+# Kandu merges, opens and edits PRs in code; no worker does, whatever the config says.
+KANDU_ONLY = ["Bash(git merge *)", "Bash(git pull *)", "Bash(git rebase *)", "Bash(gh pr create *)",
+              "Bash(gh pr edit *)", "Bash(gh pr merge *)"]
+
+
 def worker_tools(project, branch, rules=None):
     """Returns (allowed, denied) for a worker on `branch`."""
     if rules is None:
-        return _limits(None, extra_denied=_forbidden(project))
+        return _limits(None, extra_denied=_forbidden(project) + KANDU_ONLY)
     allowed = [f"Bash({project.test})", f"Bash({project.test} *)"] + project.allowed_tools
     denied = []
     if project.secrets_from:
         path = project.secrets_from
         denied.append(f"Read({'/' + path if path.startswith('/') else path})")
-    return _limits(rules, allowed, denied + _forbidden(project), branch)
+    return _limits(rules, allowed, denied + _forbidden(project) + KANDU_ONLY, branch)
 
 
 def reviewer_tools(project, rules=None):
@@ -169,9 +174,9 @@ def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None,
     if open_blockers:
         parts += ["## Blockers not merged yet",
                   f"This task is blocked by {', '.join(open_blockers)}, whose work may still be in an open PR. "
-                  "Build it now anyway, on the default branch: your PR merges only after theirs, and Kandu brings "
-                  "their code into your branch once it lands. If the task cannot be done without their code, "
-                  "report `blocked`."]
+                  "Build it now anyway, on the default branch: your PR merges only after theirs. Do not merge their "
+                  "branches; Kandu does not bring their code into yours unless the two conflict. If the task cannot "
+                  "be done without their code, report `blocked`."]
     if order is not None:
         return "\n".join(parts + [f"## Work the queen sends you on PR #{pr}",
                                   "The queen looked at this PR and sends you back to it. Do exactly this on the "

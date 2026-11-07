@@ -163,21 +163,41 @@ class Runner:
             host.check(["git", "worktree", "add", "-B", branch, directory, start], cwd=path)
         return directory
 
-    def merge_base(self, project, repo, directory, base):
-        """Merges `origin/<base>` into the worktree's branch, in Kandu's code: no agent may run `git merge`.
+    def merge_base(self, project, repo, directory, branch, base, message):
+        """Merges `origin/<base>` into the pushed `branch`, in Kandu's code: no agent may run `git merge`.
 
-        Returns the files in conflict. With none the merge is committed; with some it is left open, for a worker to
-        resolve and commit."""
+        Work an earlier run left uncommitted or unpushed is dropped first: it was never reviewed, and it would
+        stop the merge. Returns the commit of `base` merged and the files in conflict. With none the merge is
+        committed with `message`; with some it is left open, for a worker to resolve and commit."""
         host = self.hosts[project.machine]
         with self._repo_locks[(host.name, repo)]:
             host.check(["git", "fetch", "origin"], cwd=directory)
-            if host.succeeds(["git", "merge", "--no-edit", "--no-ff", f"origin/{base}"], cwd=directory):
-                return []
+            host.check(["git", "reset", "--hard", f"origin/{branch}"], cwd=directory)
+            host.check(["git", "clean", "-fd"], cwd=directory)
+            sha = host.check(["git", "rev-parse", f"origin/{base}"], cwd=directory).strip()
+            if host.succeeds(["git", "merge", "--no-ff", "-m", message, sha], cwd=directory):
+                return sha, []
             conflicts = host.check(["git", "diff", "--name-only", "--diff-filter=U"], cwd=directory).splitlines()
             if not conflicts:
                 host.run(["git", "merge", "--abort"], cwd=directory)
                 raise RunnerError(f"merging origin/{base} failed on {host.name}, with no conflict to resolve")
-            return conflicts
+            return sha, conflicts
+
+    def branch_pushed(self, project, repo, branch):
+        """Whether `branch` is on the remote, such as a worker's that pushed but whose reply was lost."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            path = self._ensure_copy(host, project, repo)
+            host.check(["git", "fetch", "origin"], cwd=path)
+            return host.succeeds(["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
+                                 cwd=path)
+
+    def has_commit(self, project, repo, directory, branch, sha):
+        """Whether the pushed `branch` contains `sha`, such as the base commit an update round merges."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            host.check(["git", "fetch", "origin"], cwd=directory)
+        return host.succeeds(["git", "merge-base", "--is-ancestor", sha, f"origin/{branch}"], cwd=directory)
 
     def push_branch(self, project, directory, branch):
         """Pushes a merge Kandu made itself. Never forced: a branch that moved meanwhile refuses it."""

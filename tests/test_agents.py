@@ -17,11 +17,21 @@ RULES = Rules(allow=["Read", "Bash(git push origin {branch})"], deny=["Read(**/.
 
 class ToolsTest(unittest.TestCase):
     def test_with_no_rules_a_role_may_do_everything(self):
-        for allowed, denied in (agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a"),
-                                agents.live_check_tools(project(allowed_tools=["Bash(npm install)"])),
+        for allowed, denied in (agents.live_check_tools(project(allowed_tools=["Bash(npm install)"])),
                                 agents.role_tools()):
             self.assertIsNone(allowed)
             self.assertEqual(denied, [])
+        allowed, denied = agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a")
+        self.assertIsNone(allowed)
+        self.assertEqual(denied, agents.KANDU_ONLY)
+
+    def test_no_worker_merges_or_opens_or_edits_a_pr_whatever_the_config_says(self):
+        rules = Rules(allow=["Bash(git *)", "Bash(gh *)"], deny=[])
+        for given in (None, rules):
+            _, denied = agents.worker_tools(project(), "kandu/1-a", given)
+            for tool in ("Bash(git merge *)", "Bash(git pull *)", "Bash(git rebase *)", "Bash(gh pr create *)",
+                         "Bash(gh pr edit *)", "Bash(gh pr merge *)"):
+                self.assertIn(tool, denied)
 
     def test_forbidden_areas_hold_even_with_no_rules(self):
         for rules in (None, RULES):
