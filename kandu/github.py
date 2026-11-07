@@ -46,7 +46,10 @@ BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
   }} }} }} }}
 }}"""
 
-ISSUE_NODE = "number title body url state updatedAt labels(first: 30) { nodes { name } }"
+# Why it was closed, and the PR that closed it: a task whose issue another PR completed is replaced, not stopped.
+ISSUE_NODE = ("number title body url state stateReason updatedAt labels(first: 30) { nodes { name } } "
+              "timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { "
+              "closer { __typename ... on PullRequest { number merged repository { nameWithOwner } } } } } }")
 PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable updatedAt "
            "labels(first: 30) { nodes { name } } comments(last: 100) { nodes { author { login } body createdAt } }")
 # Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
@@ -135,7 +138,23 @@ def _pr(node, deep):
 def _issue(node):
     return {"number": node["number"], "title": node["title"], "body": node.get("body") or "", "url": node["url"],
             "state": node["state"], "labels": [label["name"] for label in node["labels"]["nodes"]],
-            "updatedAt": node.get("updatedAt")}
+            "updatedAt": node.get("updatedAt"), "stateReason": node.get("stateReason"), "closedBy": _closer(node)}
+
+
+def _closer(node):
+    """The PR whose merge closed the issue, as {repo, number, merged}, or None."""
+    events = (node.get("timelineItems") or {}).get("nodes") or []
+    closer = (events[-1] or {}).get("closer") if events else None
+    if not closer or closer.get("__typename") != "PullRequest":
+        return None
+    return {"repo": closer["repository"]["nameWithOwner"], "number": closer["number"], "merged": closer["merged"]}
+
+
+def closure(issue):
+    """None while the issue is open; else why it was closed and the PR that closed it, if any."""
+    if issue["state"] == "OPEN":
+        return None
+    return {"reason": issue.get("stateReason"), "by": issue.get("closedBy")}
 
 
 def run_gh(args):
@@ -415,8 +434,17 @@ class GitHub:
         data = self._json(["issue", "view", str(number), "--repo", repo, "--json", "state"])
         return data["state"] == "OPEN"
 
+    def issue_closure(self, repo, number):
+        issue = self.read_issue(repo, number)
+        if issue is None:
+            raise GitHubError(f"{repo}#{number}: no such issue")
+        return closure(issue)
+
     def close_issue(self, repo, number):
         self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", "state=closed"])
+
+    def close_pr(self, repo, number):
+        self._run(["api", f"repos/{repo}/pulls/{number}", "-X", "PATCH", "-f", "state=closed"])
 
     def comment_issue(self, repo, number, body):
         """A PR takes its comments the same way: on GitHub it is an issue too."""

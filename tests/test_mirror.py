@@ -85,6 +85,10 @@ class FakeRemote:
         self._call("close", number)
         self.issues[number]["state"] = "CLOSED"
 
+    def close_pr(self, repo, number):
+        self._call("close_pr", number)
+        self.prs[number]["state"] = "CLOSED"
+
     def edit_issue(self, repo, number, title, body):
         self._call("edit", number)
 
@@ -326,6 +330,29 @@ class MirrorTest(unittest.TestCase):
         self.assertFalse(self.mirror.issue_is_open(REPO, 3))
         self.mirror.send()
         self.assertEqual(self.remote.issues[3]["state"], "CLOSED")
+
+    def test_a_closed_pr_is_closed_in_the_copy_before_it_is_sent(self):
+        self.remote.prs = {7: pr()}
+        self.mirror.close_pr(REPO, 7)
+        self.assertEqual(self.mirror.pr(REPO, 7)["state"], "CLOSED")
+        self.mirror.refresh_repo(REPO)
+        self.assertEqual(self.mirror.pr(REPO, 7)["state"], "CLOSED")
+        self.mirror.send()
+        self.assertIn(("close_pr", 7), self.remote.calls)
+        self.assertEqual(self.remote.prs[7]["state"], "CLOSED")
+
+    def test_why_an_issue_closed_comes_from_the_copy(self):
+        self.assertIsNone(self.mirror.issue_closure(REPO, 3))
+        by = {"repo": REPO, "number": 8, "merged": True}
+        self.remote.issues[3].update(state="CLOSED", stateReason="COMPLETED", closedBy=by)
+        self.mirror.refresh_repo(REPO, max_age=0)
+        self.assertEqual(self.mirror.issue_closure(REPO, 3), {"reason": "COMPLETED", "by": by})
+
+    def test_a_closed_issue_read_before_the_copy_kept_why_is_read_again(self):
+        self.remote.issues[3]["state"] = "CLOSED"
+        self.mirror.refresh_repo(REPO)
+        self.remote.issues[3].update(stateReason="NOT_PLANNED", closedBy=None)
+        self.assertEqual(self.mirror.issue_closure(REPO, 3), {"reason": "NOT_PLANNED", "by": None})
 
     def test_marking_a_pr_twice_queues_it_once(self):
         self.remote.prs = {7: pr()}

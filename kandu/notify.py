@@ -23,9 +23,10 @@ LIMIT_SLEEPS = ("5-hour usage", "weekly usage", "the queen reached her daily tok
 USAGE_UNKNOWN = "usage unknown"
 FAILED_OUTCOMES = {"failed": "task_failed", "deploy_failed": "deploy_failed",
                    "live_check_failed": "live_check_failed", "sizing_failed": "sizing_failed"}
-STUCK_OUTCOMES = {"blocked": "blocked", "needs_info": "needs_info", "pr_closed": "pr_closed"}
+STUCK_OUTCOMES = {"blocked": "blocked", "needs_info": "needs_info", "pr_closed": "pr_closed",
+                  "issue_closed": "issue_closed"}
 # With the queen on she sees these first and stops the task herself when nothing can be done.
-QUEENS_OUTCOMES = ("failed", "sizing_failed", "blocked", "needs_info", "pr_closed")
+QUEENS_OUTCOMES = ("failed", "sizing_failed", "blocked", "needs_info", "pr_closed", "issue_closed")
 READY_FOR_USER = ("approved", "approved_with_notes")
 # The first line of every message says how soon the user must act, so a glance sorts them.
 STUCK, YOUR_TURN, DONE, FOR_YOUR_INFO = "stuck", "your_turn", "done", "for_your_info"
@@ -50,11 +51,13 @@ MESSAGES = {
         "blocked": "{task} is blocked and needs your decision.",
         "needs_info": "{task} needs more information from you.",
         "pr_closed": "The PR of {task} was closed, so the task stopped.",
+        "issue_closed": "The issue of {task} was closed while the task was open, so it stopped.",
         "split": "A proposal to split {task} waits for you.",
         "queen_asks": "The queen has a question about {task}. It is on the dashboard.",
         "loop_stopped": "The queen went round on {task} without getting it done, so Kandu stopped it. It waits for you.",
         "pr_ready": "The PR of {task} is ready for your approval.",
         "task_done": "{task} is merged and done.",
+        "task_replaced": "{task} was done by another PR, so Kandu closed its own.",
         "split_made": "Kandu split {task} into smaller tasks by itself. Every slice can be undone.",
         STUCK: "Stuck: Kandu cannot go on without you",
         YOUR_TURN: "Your turn: it waits for your yes",
@@ -77,11 +80,13 @@ MESSAGES = {
         "blocked": "{task} گیر کرده و تصمیم تو را لازم دارد.",
         "needs_info": "{task} اطلاعات بیشتری از تو لازم دارد.",
         "pr_closed": "PR مربوط به {task} بسته شد و تسک متوقف شد.",
+        "issue_closed": "issue مربوط به {task} وسط کار بسته شد و تسک متوقف شد.",
         "split": "پیشنهاد تقسیم {task} منتظر تو است.",
         "queen_asks": "ملکه درباره‌ی {task} سؤالی دارد. سؤالش در داشبورد است.",
         "loop_stopped": "ملکه روی {task} دور خودش چرخید و کار جلو نرفت، پس کندو آن را متوقف کرد. منتظر تو است.",
         "pr_ready": "PR مربوط به {task} آماده‌ی تأیید تو است.",
         "task_done": "{task} ادغام شد و تمام شد.",
+        "task_replaced": "{task} با PR دیگری انجام شد و کندو PR خودش را بست.",
         "split_made": "کندو {task} را خودش به تسک‌های کوچک‌تر شکست. همه‌ی تکه‌ها برگشت‌پذیرند.",
         STUCK: "گیر کرده: کندو بدون تو جلو نمی‌رود",
         YOUR_TURN: "نوبت توست: منتظر تأیید تو است",
@@ -138,6 +143,8 @@ def message_for(event, queen=False):
             return _task_message("needs_decision", STUCK_OUTCOMES[event["outcome"]], event)
         if event["outcome"] == "merged":
             return _task_message("task_done", "task_done", event)
+        if event["outcome"] == "replaced":
+            return _task_message("task_done", "task_replaced", event)
     if kind == "decision" and event["decision"] == "split_waits":
         return _task_message("needs_decision", "split", event)
     if kind == "decision" and event["decision"] == "split_approved":

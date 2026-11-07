@@ -2,7 +2,7 @@ import copy
 import unittest
 
 from kandu.review import (
-    ReportError, blockers, carry_over, comment_for, fix_comment, fix_tried, hold_to_scope, open_after, parse_report,
+    ReportError, blockers, carry_over, comment_for, fix_comment, fix_tried, hold_to_scope, update_comment, update_tried, open_after, parse_report,
     reviews_on, validate_report,
 )
 
@@ -165,6 +165,12 @@ class RecordTest(unittest.TestCase):
         self.assertTrue(fix_tried(pr, ACCOUNT, "abc123"))
         self.assertFalse(fix_tried(pr, ACCOUNT, "def456"))
         self.assertFalse(fix_tried(pr_with(("stranger", fix_comment("abc123"))), ACCOUNT, "abc123"))
+
+    def test_update_round_record_is_its_own(self):
+        self.assertFalse(update_tried(pr_with((ACCOUNT, fix_comment("abc123"))), ACCOUNT, "abc123"))
+        self.assertFalse(fix_tried(pr_with((ACCOUNT, update_comment("abc123"))), ACCOUNT, "abc123"))
+        self.assertTrue(update_tried(pr_with((ACCOUNT, update_comment("abc123"))), ACCOUNT, "abc123"))
+        self.assertFalse(update_tried(pr_with(("stranger", update_comment("abc123"))), ACCOUNT, "abc123"))
 
 
 if __name__ == "__main__":

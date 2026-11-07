@@ -15,7 +15,7 @@ from .state import StateStore
 
 
 # The rest can come back, as the queen or the user sends the task on, and the merge still waits on its questions.
-ENDED = ("merged", "pr_closed", "stopped_by_user", "deploy_failed", "live_check_failed")
+ENDED = ("merged", "replaced", "pr_closed", "issue_closed", "stopped_by_user", "deploy_failed", "live_check_failed")
 
 
 class QuestionError(Exception):
