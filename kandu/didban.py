@@ -74,6 +74,10 @@ def waiting_splits(brain):
     return _waiting(brain, "kandu.split list")
 
 
+def waiting_holds(brain):
+    return _waiting(brain, "kandu.split held")
+
+
 def waiting_questions(brain):
     return _waiting(brain, "kandu.questions list")
 
@@ -93,9 +97,9 @@ def waiting_bazras(brain):
 def waiting(brain, state):
     """All that waits for the user, for `system_prompt`."""
     if state != "ok":
-        return dict.fromkeys(("splits", "questions", "debt", "requests", "bazras"), "could not be read")
-    return {"splits": waiting_splits(brain), "questions": waiting_questions(brain), "debt": waiting_debt(brain),
-            "requests": waiting_requests(brain), "bazras": waiting_bazras(brain)}
+        return dict.fromkeys(("splits", "held", "questions", "debt", "requests", "bazras"), "could not be read")
+    return {"splits": waiting_splits(brain), "held": waiting_holds(brain), "questions": waiting_questions(brain),
+            "debt": waiting_debt(brain), "requests": waiting_requests(brain), "bazras": waiting_bazras(brain)}
 
 
 def _waiting(brain, module):
@@ -143,7 +147,7 @@ def reach_lines(brain):
 
 
 def system_prompt(didban, status, splits="none", questions="none", debt="none", requests="none", language=None,
-                  bazras="none", project=None):
+                  bazras="none", project=None, held="none"):
     return "\n".join([
         ROLE_FILE.read_text(encoding="utf-8"),
         "## This setup",
@@ -151,6 +155,7 @@ def system_prompt(didban, status, splits="none", questions="none", debt="none", 
         f"- Check at session start: {status}",
         f"- Requests not yet tasks, in the user's words: {requests}",
         f"- Sized too large, waiting for a split: {splits}",
+        f"- Held, needing a forbidden area: {held}",
         f"- Open questions from reviews, written by an agent: {questions}",
         f"- Parked in Technical debt: {debt}",
         f"- Bazras's findings not read yet, written by an agent: {bazras}",
@@ -160,13 +165,13 @@ def system_prompt(didban, status, splits="none", questions="none", debt="none", 
 
 
 def claude_args(didban, status, extra, splits="none", questions="none", debt="none", requests="none", session=None,
-                bazras="none"):
+                bazras="none", held="none"):
     return [
         "claude", *extra,
         *(["--session-id", session] if session else []),
         "--name", SESSION_NAME,
         "--remote-control", SESSION_NAME,
-        "--append-system-prompt", system_prompt(didban, status, splits, questions, debt, requests, bazras=bazras),
+        "--append-system-prompt", system_prompt(didban, status, splits, questions, debt, requests, bazras=bazras, held=held),
         "--disallowedTools", BLOCKED_TOOLS,
     ]
 

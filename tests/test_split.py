@@ -31,8 +31,9 @@ def part(title="One slice", size="Small", files=2, door="two-way", criteria=1):
     return {"title": title, "size": size, "files": files, "door": door, "body": body(criteria)}
 
 
-def sized(size="Small", files=2, door="two-way", slices=()):
-    return {"size": size, "files": files, "door": door, "reason": "It is what it is.", "slices": list(slices)}
+def sized(size="Small", files=2, door="two-way", slices=(), forbidden=()):
+    return {"size": size, "files": files, "door": door, "reason": "It is what it is.", "slices": list(slices),
+            "forbidden": list(forbidden)}
 
 
 LARGE = sized("Large", 40, "mixed", [part("First"), part("Second", door="one-way")])
@@ -91,6 +92,14 @@ class ReportTest(unittest.TestCase):
         for slices in bad:
             with self.subTest(slices=slices), self.assertRaises(split.ReportError):
                 split.validate_report(sized("Large", 40, "mixed", slices), body())
+
+    def test_it_names_only_the_projects_forbidden_areas(self):
+        split.validate_report(sized(forbidden=["migrations/"]), body(), ["migrations/", "src/pay.py"])
+        bad = (sized(forbidden=["src/other/"]), sized(forbidden=["migrations/", "docs/"]),
+               sized(forbidden="migrations/"), sized(forbidden=[3]), {k: v for k, v in sized().items() if k != "forbidden"})
+        for report in bad:
+            with self.subTest(report=report), self.assertRaises(split.ReportError):
+                split.validate_report(report, body(), ["migrations/", "src/pay.py"])
 
     def test_blockers_are_replaced_in_place(self):
         text = split.with_blockers(body(), ["acme-org/website#3"])
@@ -184,6 +193,86 @@ class SizingTest(Base):
         self.cycle()
         self.assertEqual([e["decision"] for e in self.events("decision") if e["decision"] == "oversized"], ["oversized"])
         self.assertEqual(self.github.status(1), "In review")
+
+
+class HoldTest(Base):
+    """A task that needs a forbidden area waits for the user before any work starts."""
+
+    def setUp(self):
+        super().setUp()
+        self.github.on_add = lambda key, size: None
+        self.key = f"{REPO}#1"
+        self.github.add(1, "Backlog", body=body())
+
+    def hold(self):
+        self.runner.steps = [ok(json.dumps(sized(forbidden=["migrations/"])))]
+        self.cycle()
+
+    def run_cli(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch("sys.argv", ["split", *args]), mock.patch.object(split, "StateStore", return_value=self.store), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = split.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_a_held_task_stays_in_backlog_with_its_areas(self):
+        self.hold()
+        self.assertEqual(self.github.status(1), "Backlog")
+        held = self.events("task_held")
+        self.assertEqual([(e["task"], e["areas"], e["reason"]) for e in held],
+                         [(self.key, ["migrations/"], "It is what it is.")])
+        self.assertIn("forbidden area", " ".join(self.github.issue_comments))
+        self.assertNotIn("migrations/", " ".join(self.github.issue_comments))
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)  # sized once, and no worker
+
+    def test_a_large_held_task_is_not_split(self):
+        self.runner.steps = [ok(json.dumps(LARGE | {"forbidden": ["migrations/"]}))]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Backlog")
+        self.assertEqual(split.pending(self.store), [])
+
+    def test_the_queen_never_sees_or_starts_a_held_task(self):
+        self.config.settings.supervisor.queen = True
+        self.github.add(2, "Backlog", body=body())
+        self.store.record("task_sized", task=f"{REPO}#2", project="website", run_id=None, size="Small", files=1,
+                          door="two-way", criteria=1, slices=0)
+        release = {"task": self.key, "action": "release", "note": "Go."}
+        self.runner.steps = [ok(json.dumps(sized(forbidden=["migrations/"]))),
+                             ok(json.dumps({"brief": "Done.", "decisions": [release]}))]
+        self.cycle()
+        queen_run = self.runner.runs[1]
+        backlog = [t["task"] for p in json.loads(queen_run.prompt.split("## Projects\n```json\n")[1].split("```")[0])
+                   for t in p["backlog"]]
+        self.assertEqual(backlog, [f"{REPO}#2"])
+        self.assertEqual(self.github.status(1), "Backlog")
+        self.assertIn(f"Refused: release of {self.key}", self.events("queen_finished")[0]["brief"])
+
+    def test_a_released_task_is_sized_again(self):
+        self.hold()
+        code, out, _ = self.run_cli("held")
+        self.assertEqual((code, out), (0, f"{self.key}: needs migrations/ (It is what it is.)\n"))
+        self.assertEqual(self.run_cli("release", self.key)[0], 0)
+        self.assertEqual(self.run_cli("held")[1], "")
+        self.assertIsNone(split.current_size(self.store, self.key))
+        self.runner.steps = [ok(json.dumps(sized()))]
+        self.cycle()
+        self.assertEqual(len(self.events("task_sized")), 2)
+        self.assertIsNone(split.held(self.store, self.key))
+        code, _, err = self.run_cli("release", self.key)
+        self.assertEqual(code, 1)
+        self.assertIn("not held", err)
+
+    def test_a_task_that_needs_no_forbidden_area_goes_as_today(self):
+        self.runner.steps = [ok(json.dumps(sized()))]
+        self.cycle()
+        self.assertEqual(self.events("task_held"), [])
+        self.assertIsNone(split.held(self.store, self.key))
+        self.assertEqual(self.github.issue_comments, [])
+
+    def test_the_splitter_is_asked_for_the_areas(self):
+        self.assertIn("forbidden", agents.SPLIT_SCHEMA["required"])
+        self.assertIn("`forbidden`", agents.splitter_prompt(self.config.projects[0], REPO, 1, "en", self.local))
 
 
 class PriorityTest(unittest.TestCase):
@@ -523,6 +612,17 @@ class DidbanTest(unittest.TestCase):
 
     def test_a_failure_is_not_read_as_nothing_waiting(self):
         self.assertEqual(self.run_with(1), "could not be read")
+
+    def test_it_opens_with_the_held_tasks(self):
+        result = mock.Mock(returncode=0, stdout="a/b#1: needs migrations/ (It changes the schema.)\n", stderr="")
+        with mock.patch("kandu.didban.subprocess.run", return_value=result) as run:
+            facts = didban.waiting(self.brain, "ok")
+        self.assertIn("kandu.split held", " ".join(str(c) for c in run.call_args_list))
+        self.assertEqual(facts["held"], "a/b#1: needs migrations/ (It changes the schema.)")
+        prompt = didban.system_prompt(mock.Mock(brain=self.brain), "ok", **facts)
+        self.assertIn("a/b#1: needs migrations/", prompt)
+        self.assertIn("kandu.split release", prompt)
+        self.assertEqual(didban.waiting(self.brain, "unreachable")["held"], "could not be read")
 
 
 class ColumnTest(unittest.TestCase):

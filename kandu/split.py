@@ -72,8 +72,20 @@ def check_slices(slices):
             raise ReportError(f"{where}: {e}") from e
 
 
-def validate_report(report, body):
+def check_forbidden(report, forbidden):
+    """Returns the forbidden areas the task needs. The splitter may name only the project's own."""
+    areas = report.get("forbidden")
+    if not isinstance(areas, list) or not all(isinstance(area, str) for area in areas):
+        raise ReportError("report: forbidden must be a list of areas, empty when none")
+    unknown = [area for area in areas if area not in forbidden]
+    if unknown:
+        raise ReportError(f"report: not a forbidden area of the project: {', '.join(unknown)}")
+    return list(dict.fromkeys(areas))
+
+
+def validate_report(report, body, forbidden=()):
     """The size comes from the facts, not from the splitter's opinion of them."""
+    check_forbidden(report, forbidden)
     files = _facts(report, "report")
     if not isinstance(report.get("reason"), str) or not report["reason"].strip():
         raise ReportError("report: needs a reason")
@@ -133,10 +145,37 @@ def with_blockers(body, references):
 
 
 def current_size(store, key):
-    """Returns the task's `task_sized` event, unless the user declined that proposal: then it is sized again."""
+    """Returns the task's `task_sized` event, unless the user declined that proposal or released its hold:
+    then it is sized again."""
     sized = store.last_event("task_sized", task=key)
-    declined = store.last_event("split_declined", task=key)
-    return None if sized and declined and declined["ts"] >= sized["ts"] else sized
+    if sized is None:
+        return None
+    for undone in ("split_declined", "hold_released"):
+        event = store.last_event(undone, task=key)
+        if event and event["ts"] >= sized["ts"]:
+            return None
+    return sized
+
+
+def held(store, key):
+    """Returns the task's `task_held` event while its size holds, or None. A held task waits for the user."""
+    sized = current_size(store, key)
+    hold = store.last_event("task_held", task=key) if sized else None
+    return hold if hold and hold["ts"] >= sized["ts"] else None
+
+
+def holds(store):
+    """Returns the held tasks, oldest first."""
+    keys = dict.fromkeys(e["task"] for e in all_events(store) if e["type"] == "task_held")
+    return [hold for hold in (held(store, key) for key in keys) if hold is not None]
+
+
+def release(store, key):
+    """The user's word after opening the area or changing the issue: the task is sized again."""
+    hold = held(store, key)
+    if hold is None:
+        raise TaskError(f"{key} is not held")
+    store.record("hold_released", task=key, project=hold["project"])
 
 
 def pending(store):
@@ -221,8 +260,8 @@ def decline(config, github, store, key):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="See, approve and decline split proposals.")
-    parser.add_argument("command", choices=("list", "show", "approve", "decline"))
+    parser = argparse.ArgumentParser(description="See, approve and decline split proposals, and release held tasks.")
+    parser.add_argument("command", choices=("list", "show", "approve", "decline", "held", "release"))
     parser.add_argument("task", nargs="?", help="owner/repo#number")
     parser.add_argument("--file", help="approve this list of slices instead, as JSON; - reads stdin")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
@@ -232,8 +271,19 @@ def main():
         for split in pending(store):
             print(f"{split['task']}: {split['title']} ({len(split['slices'])} slices)")
         return 0
+    if args.command == "held":
+        for hold in holds(store):
+            print(f"{hold['task']}: needs {', '.join(hold['areas'])} ({hold['reason']})")
+        return 0
     if args.task is None:
         parser.error("name a task")
+    if args.command == "release":
+        try:
+            release(store, args.task)
+        except TaskError as e:
+            print(f"split: {e}", file=sys.stderr)
+            return 1
+        return 0
     if args.command == "show":
         split = store.read_split(args.task)
         if split is None:

@@ -9,6 +9,7 @@ You are given the issue number, a read-only checkout of the default branch, the 
 3. Decide its door: `two-way` if all of it is easy to undo, `one-way` if all of it is hard to undo (published APIs, data, anything sent to people or outside services, and what the repo rules name), `mixed` if it holds both. If you are unsure, say the harder one.
 4. Size it by the scale. Finish when `size`, `files` and `door` agree with the scale. Do not raise a task's size for its risk alone.
 5. If it is `Large`, split it. Finish when every behavior of the issue is in exactly one slice.
+6. List in `forbidden` each of the project's forbidden areas that the task must change to be done, written as the facts write them. Finish when every file you counted is checked against them. Leave it empty when none is needed. A task that needs one waits for the user, so `reason` then says why.
 
 ## Slices
 - Each slice is a complete path that can be verified alone, and it fits `Small` or `Medium`.
@@ -22,10 +23,10 @@ You are given the issue number, a read-only checkout of the default branch, the 
 - Never quote a secret in your report.
 
 ## Last message
-End with one JSON object and nothing else. `slices` is empty unless `size` is `Large`, and `reason` is one plain sentence in English.
+End with one JSON object and nothing else. `slices` is empty unless `size` is `Large`, `forbidden` is a list and empty unless a forbidden area must change, and `reason` is one plain sentence in English.
 
 ```json
-{"size": "Large", "files": 44, "door": "mixed", "reason": "It removes three separate features and changes the publish path.",
+{"size": "Large", "files": 44, "door": "mixed", "forbidden": [], "reason": "It removes three separate features and changes the publish path.",
  "slices": [{"title": "Remove the unused scripts", "size": "Small", "files": 4, "door": "two-way", "body": "## Goal\n..."}],
  "user_text": {"reason": "...", "slices": [{"title": "...", "body": "..."}]}}
 ```

@@ -51,8 +51,8 @@ LIVE_CHECK_SCHEMA = {
 }
 _FACTS = {"size": {"enum": list(sizing.ORDER)}, "files": {"type": "integer"}, "door": _TEXT}
 SPLIT_SCHEMA = {
-    "type": "object", "required": ["size", "files", "door", "reason", "slices"],
-    "properties": {**_FACTS, "reason": _TEXT,
+    "type": "object", "required": ["size", "files", "door", "reason", "slices", "forbidden"],
+    "properties": {**_FACTS, "reason": _TEXT, "forbidden": {"type": "array", "items": _TEXT},
                    "slices": {"type": "array", "items": {"type": "object", "required": ["title", "body", *_FACTS],
                                                          "properties": {**_FACTS, "title": _TEXT, "body": _TEXT}}},
                    "user_text": {"type": ["object", "null"]}},

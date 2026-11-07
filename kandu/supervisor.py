@@ -759,7 +759,7 @@ class Supervisor:
 
             def read(text):
                 report = split.parse_report(text)
-                split.validate_report(report, item.body)
+                split.validate_report(report, item.body, task.project.forbidden)
                 return report
             report = self._reply(task, "splitter", cwd, tools, result, read, schema=agents.SPLIT_SCHEMA)
         except StoppedByUser:
@@ -773,6 +773,10 @@ class Supervisor:
                                       "Move it back to Backlog to try again. The details are in its local log.")
             self._finish(task, NEEDS_INFO, "sizing_failed")
             return
+        areas = split.check_forbidden(report, task.project.forbidden)
+        if areas:
+            self._hold(task, item, run_id, report, areas)
+            return
         slices = report.get("slices") or []
         if slices:
             self.store.write_split(task.key, {"title": task.title, "reason": report["reason"], "slices": slices,
@@ -784,6 +788,18 @@ class Supervisor:
         if slices:
             self._move(task, NEEDS_SPLIT)
             self._split_or_wait(task, slices)
+
+    def _hold(self, task, item, run_id, report, areas):
+        """A task that must change a forbidden area stays in Backlog, out of the queen's sight, until the user
+        releases it. Nothing is split: it is sized again once released."""
+        self.github.set_field(task.project.board, task.url, "Size", report["size"])
+        self.store.record("task_sized", task=task.key, project=task.project.name, run_id=run_id, size=report["size"],
+                          files=report["files"], door=report["door"], criteria=sizing.criteria_in(item.body), slices=0)
+        self.store.record("task_held", task=task.key, project=task.project.name, areas=areas, reason=report["reason"])
+        self._decide(task, "task_held", f"needs {', '.join(areas)}")
+        # The areas stay in the local log: the repo may be public.
+        self.github.comment_issue(task.repo, task.number, "Kandu held this task: it needs a forbidden area of its "
+                                  "project. It waits for the owner before any work starts.")
 
     def _split_or_wait(self, task, slices):
         """Slices that can all be undone are made at once; any other proposal waits for the user's yes."""
@@ -958,9 +974,10 @@ class Supervisor:
         return "the queen reached her daily token limit" if spent >= settings.queen_daily_token_limit else None
 
     def _startable(self, items):
-        """The Backlog tasks nothing blocks and the splitter has sized."""
+        """The Backlog tasks nothing blocks, the splitter has sized and nothing holds."""
         return [(project, item) for project, item in items if item.status == BACKLOG and _can_start(self.github, item)
-                and self.store.last_event("task_sized", task=f"{item.repo}#{item.number}") is not None]
+                and self.store.last_event("task_sized", task=f"{item.repo}#{item.number}") is not None
+                and split.held(self.store, f"{item.repo}#{item.number}") is None]
 
     def _waiting(self, items, events):
         """The tasks of a project that wait on something, with the newest reason, so none is forgotten."""
@@ -1085,7 +1102,7 @@ class Supervisor:
                 why = "it was already released" if task in released else queen.why_no_release(
                     item, _can_start(self.github, item), self.store.tokens_counted(today, project=project.name),
                     project.daily_token_limit, split.current_size(self.store, task),
-                    self._first_in_line(project, items, backlog, released))
+                    self._first_in_line(project, items, backlog, released), split.held(self.store, task))
                 if why is not None:
                     refused.append(f"release of {task}: {why}")
                     continue

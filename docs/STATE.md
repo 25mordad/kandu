@@ -58,6 +58,8 @@ state/
 | `slice_created` | `task`, `project`, `parent` |
 | `task_split` | `task`, `project`, `children` |
 | `split_declined` | `task`, `project` |
+| `task_held` | `task`, `project`, `areas`, `reason` |
+| `hold_released` | `task`, `project` |
 | `question_answered` | `task`, `project`, `head_sha`, `question`, `answer` |
 | `notification_sent` | `kind`, `key` |
 | `notification_failed` | `kind`, `key`, `reason` |

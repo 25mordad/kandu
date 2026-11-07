@@ -36,6 +36,8 @@ EVENT_FIELDS = {
     "slice_created": TASK_FIELDS + ("parent",),
     "task_split": TASK_FIELDS + ("children",),
     "split_declined": TASK_FIELDS,
+    "task_held": TASK_FIELDS + ("areas", "reason"),
+    "hold_released": TASK_FIELDS,
     "question_answered": TASK_FIELDS + ("head_sha", "question", "answer"),
     "group_closed": TASK_FIELDS,
     "deployed": TASK_FIELDS + ("run_id",),
