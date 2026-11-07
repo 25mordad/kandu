@@ -46,10 +46,11 @@ BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
   }} }} }} }}
 }}"""
 
-# Why it was closed, and the PR that closed it: a task whose issue another PR completed is replaced, not stopped.
+# Why it was closed, and the PR or commit that closed it: a task whose issue other work completed is replaced.
 ISSUE_NODE = ("number title body url state stateReason updatedAt labels(first: 30) { nodes { name } } "
               "timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { "
-              "closer { __typename ... on PullRequest { number merged repository { nameWithOwner } } } } } }")
+              "closer { __typename ... on PullRequest { number merged repository { nameWithOwner } } "
+              "... on Commit { oid repository { nameWithOwner } } } } } }")
 PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable updatedAt "
            "labels(first: 30) { nodes { name } } comments(last: 100) { nodes { author { login } body createdAt } }")
 # Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
@@ -142,12 +143,16 @@ def _issue(node):
 
 
 def _closer(node):
-    """The PR whose merge closed the issue, as {repo, number, merged}, or None."""
+    """What closed the issue: a PR as {repo, number, merged}, a commit on the default branch as {repo, sha, merged},
+    or None. Only a push to the default branch closes an issue from a commit, so such a commit counts as merged."""
     events = (node.get("timelineItems") or {}).get("nodes") or []
     closer = (events[-1] or {}).get("closer") if events else None
-    if not closer or closer.get("__typename") != "PullRequest":
-        return None
-    return {"repo": closer["repository"]["nameWithOwner"], "number": closer["number"], "merged": closer["merged"]}
+    kind = (closer or {}).get("__typename")
+    if kind == "PullRequest":
+        return {"repo": closer["repository"]["nameWithOwner"], "number": closer["number"], "merged": closer["merged"]}
+    if kind == "Commit":
+        return {"repo": closer["repository"]["nameWithOwner"], "sha": closer["oid"], "merged": True}
+    return None
 
 
 def closure(issue):

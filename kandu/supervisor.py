@@ -117,20 +117,17 @@ def board_items(config, github, paused=()):
                 yield project, item
 
 
-def read_tasks(config, github, paused=(), store=None):
+def read_tasks(config, github, paused=()):
     """Returns the tasks the loop may work on: registered, not paused, and open.
 
-    A `Ready` task with no PR yet has not started, and does not while a blocker is open (`start_waits`). One that
-    has started goes on: from then on a blocker holds back only its merge (`_merge_waits`).
+    A `Ready` task with an open blocker and no PR yet goes back to `Backlog` when it is driven (`_held_back`). One
+    that has started goes on: from then on a blocker holds back only its merge (`_merge_waits`).
     """
     tasks = []
     for project, item in board_items(config, github, paused):
         if item.status not in (READY, *RESUMED):
             continue
         if item.status == READY and not _can_start(github, item):
-            continue
-        if (item.status == READY and start_waits(github, store, item)
-                and github.find_pr(item.repo, item.number) is None):
             continue
         tasks.append(_task(project, item))
     return sorted(tasks, key=lambda t: t.order)
@@ -151,19 +148,30 @@ def open_blockers(github, repo, body):
     return [f"{r}#{n}" for r, n in blockers_in(body, repo) if github.issue_is_open(r, n)]
 
 
-def start_waits(github, store, item):
+def start_waits(github, store, repo, number, body):
     """The open blockers that keep a task from starting.
 
     An earlier slice of its own group is not one: the slices of a group are built side by side, and only their
-    merges follow the chain. Without the local log every open blocker counts.
+    merges follow the chain. A blocker that cannot be read waits too, named so: a wrong reference in one issue must
+    not stop the board. A refusal that passes by itself still ends the cycle.
     """
-    blockers = open_blockers(github, item.repo, item.body)
-    made = store.last_event("slice_created", task=f"{item.repo}#{item.number}") if blockers and store else None
-    if made is None:
-        return blockers
+    waits = [(key, why) for key in (f"{r}#{n}" for r, n in blockers_in(body, repo))
+             if (why := _blocker_wait(github, key)) is not None]
+    made = store.last_event("slice_created", task=f"{repo}#{number}") if waits else None
     group = {e["task"] for e in queen.all_events(store)
-             if e["type"] == "slice_created" and e.get("parent") == made["parent"]}
-    return [key for key in blockers if key not in group]
+             if e["type"] == "slice_created" and e.get("parent") == made["parent"]} if made else set()
+    return [f"{key}{why}" for key, why in waits if key not in group]
+
+
+def _blocker_wait(github, key):
+    """Returns "" for an open blocker, a note for one that cannot be read, or None for a closed one."""
+    repo, number = key.split("#")
+    try:
+        return "" if github.issue_is_open(repo, int(number)) else None
+    except GitHubError as e:
+        if transient(e):
+            raise
+        return " (cannot be read)"
 
 
 class Supervisor:
@@ -194,7 +202,7 @@ class Supervisor:
         return board_items(self.config, self.github, self.store.paused_projects())
 
     def _read_tasks(self):
-        return read_tasks(self.config, self.github, self.store.paused_projects(), self.store)
+        return read_tasks(self.config, self.github, self.store.paused_projects())
 
     def _sent_on(self):
         """Tasks outside the working columns that the queen sent a worker or a checker to."""
@@ -560,7 +568,7 @@ class Supervisor:
         to_fix = self._to_fix(task, last)
         if not to_fix:
             return "approved_with_notes"
-        if review.fix_tried(pr, account, pr["headRefOid"]):
+        if self._tried(task, pr)[0]:
             return self._settle(task, pr, to_fix, "the fix round changed no code")
         return None
 
@@ -584,11 +592,28 @@ class Supervisor:
             self.github.comment_pr(task.repo, pr["number"], marker(head))
         return reply
 
-    def _conflicts(self, pr, outcome):
+    def _conflicts(self, task, pr, outcome):
         """A reviewed PR that only its conflicts hold back, and that no update round has tried on this head.
         A fix round that changed no code on this head says nothing about its conflicts."""
-        return (outcome in MERGEABLE and pr["mergeable"] == "CONFLICTING"
-                and not review.update_tried(pr, self.config.settings.github.account, pr["headRefOid"]))
+        return outcome in MERGEABLE and pr["mergeable"] == "CONFLICTING" and not self._tried(task, pr)[1]
+
+    def _tried(self, task, pr):
+        """Returns (a fix round, an update round) already ended on the PR's head with no new commit.
+
+        Before update rounds had their own marker they left a fix round's. Such a marker is the update round's when
+        the task's last round was an update round and the marker was posted after that round began.
+        """
+        account, head = self.config.settings.github.account, pr["headRefOid"]
+        fixes = review.fix_marker_times(pr, account, head)
+        updated = review.update_tried(pr, account, head)
+        rounds = [e for e in queen.all_events(self.store) if e["type"] == "phase_changed" and e["task"] == task.key
+                  and (e["phase"] == "update" or e["phase"].startswith("fix round"))]
+        if fixes and rounds and rounds[-1]["phase"] == "update":
+            began = datetime.fromisoformat(rounds[-1]["ts"])
+            after = [t for t in fixes if t is not None and datetime.fromisoformat(t) >= began]
+            fixes = [t for t in fixes if t is None or datetime.fromisoformat(t) < began]
+            updated = updated or bool(after)
+        return bool(fixes), updated
 
     def _update(self, task, pr):
         """Brings the default branch into the PR. Kandu merges; a worker only resolves the files in conflict.
@@ -982,6 +1007,8 @@ class Supervisor:
             self._rework(task, pr, step)
             pr = self.github.find_pr(task.repo, task.number)
         if pr is None:
+            if self._held_back(task):
+                return
             pr = self._implement(task)
             if pr is None:
                 return
@@ -1009,7 +1036,7 @@ class Supervisor:
                 outcome = self._outcome(task, pr, reviews)
                 if outcome is None:
                     self._fix(task, pr, reviews)
-                elif self._conflicts(pr, outcome):
+                elif self._conflicts(task, pr, outcome):
                     if not self._update(task, pr):
                         return
                 elif (merged := self._merge(task, pr, outcome, worked)) is None and tries < MERGE_TRIES:
@@ -1021,12 +1048,29 @@ class Supervisor:
             worked = True
             pr = self.github.pr(task.repo, pr["number"])
 
+    def _held_back(self, task):
+        """Sends a `Ready` task that has not started back to `Backlog` while a blocker is open, and returns True if
+        it did. There it takes no worker's place, and the queen releases it again once its blockers are closed."""
+        if task.status != READY:
+            return False
+        body = self.github.issue_text(task.repo, task.number)["body"]
+        waits = start_waits(self.github, self.store, task.repo, task.number, body)
+        if not waits:
+            return False
+        names = ", ".join(waits)
+        self.github.comment_issue(task.repo, task.number, f"Kandu moved this back to Backlog: it waits on {names}, "
+                                                          "not closed yet.")
+        self._move(task, BACKLOG)
+        self._decide(task, "start_waits", f"it waits on {names}, not closed yet")
+        return True
+
     def _closed_elsewhere(self, task, pr):
         """Ends a task whose issue was closed while it was still open, and returns True if it did.
 
-        Closed as completed by another merged PR, the task is replaced: its own open PR is closed with a comment
-        naming the replacement, and the card goes to `Done`. Closed any other way, the task stops in `Blocked` and
-        its PR stays as it is. A task whose own PR merged lands, whatever closed its issue.
+        Closed as completed by another merged PR or a commit on the default branch, the task is replaced: its own
+        open PR is closed with a comment naming the replacement, and the card goes to `Done`. Closed any other way,
+        the task stops in `Blocked` and its PR stays as it is. A task whose own PR merged lands, whatever closed its
+        issue; so does one its own PR closed while the copy still shows that PR open, as the fresh read finds it merged.
         """
         if pr is not None and pr["state"] == "MERGED":
             return False
@@ -1034,9 +1078,10 @@ class Supervisor:
         if closed is None:
             return False
         by = closed["by"]
-        own = pr is not None and by is not None and (by["repo"], by["number"]) == (task.repo, pr["number"])
-        if closed["reason"] == "COMPLETED" and by is not None and by["merged"] and not own:
-            replacement = f"{by['repo']}#{by['number']}"
+        if pr is not None and by is not None and (by["repo"], by.get("number")) == (task.repo, pr["number"]):
+            return False
+        if closed["reason"] == "COMPLETED" and by is not None and by["merged"]:
+            replacement = f"{by['repo']}#{by['number']}" if "number" in by else f"{by['repo']}@{by['sha'][:7]}"
             if pr is not None and pr["state"] == "OPEN":
                 self.github.comment_pr(task.repo, pr["number"], f"Kandu: closing this PR. Its issue was completed by "
                                                                 f"{replacement}, which replaces it.")
@@ -1103,7 +1148,7 @@ class Supervisor:
         """The Backlog tasks nothing blocks and the splitter has sized."""
         return [(project, item) for project, item in items if item.status == BACKLOG and _can_start(self.github, item)
                 and self.store.last_event("task_sized", task=f"{item.repo}#{item.number}") is not None
-                and not start_waits(self.github, self.store, item)]
+                and not start_waits(self.github, self.store, item.repo, item.number, item.body)]
 
     def _waiting(self, items, events):
         """The tasks of a project that wait on something, with the newest reason, so none is forgotten."""
@@ -1229,7 +1274,7 @@ class Supervisor:
                     item, _can_start(self.github, item), self.store.tokens_counted(today, project=project.name),
                     project.daily_token_limit, split.current_size(self.store, task),
                     self._first_in_line(project, items, backlog, released),
-                    start_waits(self.github, self.store, item))
+                    start_waits(self.github, self.store, item.repo, item.number, item.body))
                 if why is not None:
                     refused.append(f"release of {task}: {why}")
                     continue
@@ -1273,6 +1318,8 @@ class Supervisor:
         merged = pr is not None and pr["state"] == "MERGED"
         if item.status == DONE and action != "new_task":
             return "it is Done"
+        if action in queen.SENT_ON and not self._is_open(task):
+            return "its issue is closed: only the user can reopen it"
         if action == "rework":
             why = queen.why_no_rework(pr, merged)
             if why is None:

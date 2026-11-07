@@ -19,7 +19,8 @@ LIMITED = ("retry", "rework", "verify", "new_task", "block_on")  # each one this
 SENT_ON = ("rework", "verify")  # code carries these out when it next drives the task
 LARGE = "Large"
 HIGH = "High"
-NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed", "issue_closed")
+# Not `issue_closed`: no step of hers can reopen an issue, so the user hears of it at once.
+NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed")
 MOVED_ON = ("user_approved", "queen_approved", "task_picked", "task_finished", "user_resumed")
 USER_ACTED = ("task_picked", "user_approved", "question_answered", "user_resumed")  # after a loop stop, only the user moves it
 APPROVALS = ("user_approved", "queen_approved")
@@ -160,7 +161,7 @@ def why_no_release(item, startable, spent, limit, sized, first=(), waits_on=()):
     if not startable:
         return "it is closed"
     if waits_on:
-        return f"it is blocked by {', '.join(waits_on)}, still open"
+        return f"it waits on {', '.join(waits_on)}, not closed yet"
     if first and f"{item.repo}#{item.number}" not in first:
         return f"{first[0]} goes first"
     if spent >= limit:

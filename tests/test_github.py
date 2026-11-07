@@ -102,6 +102,13 @@ class GitHubTest(unittest.TestCase):
         self.assertEqual(github.issue_closure("o/r", 3), {"reason": "NOT_PLANNED", "by": None})
         self.assertIsNone(github.issue_closure("o/r", 3))
 
+    def test_an_issue_closed_by_a_commit_names_the_commit(self):
+        closer = {"__typename": "Commit", "oid": "abc1234def", "repository": {"nameWithOwner": "o/r"}}
+        node = ISSUE | {"state": "CLOSED", "stateReason": "COMPLETED", "timelineItems": {"nodes": [{"closer": closer}]}}
+        github = GitHub(FakeGh({"data": {"repository": {"issue": node}}}))
+        self.assertEqual(github.issue_closure("o/r", 3),
+                         {"reason": "COMPLETED", "by": {"repo": "o/r", "sha": "abc1234def", "merged": True}})
+
     def test_a_pr_is_closed_through_rest(self):
         gh = FakeGh()
         GitHub(gh).close_pr("o/r", 7)

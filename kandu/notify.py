@@ -26,7 +26,7 @@ FAILED_OUTCOMES = {"failed": "task_failed", "deploy_failed": "deploy_failed",
 STUCK_OUTCOMES = {"blocked": "blocked", "needs_info": "needs_info", "pr_closed": "pr_closed",
                   "issue_closed": "issue_closed"}
 # With the queen on she sees these first and stops the task herself when nothing can be done.
-QUEENS_OUTCOMES = ("failed", "sizing_failed", "blocked", "needs_info", "pr_closed", "issue_closed")
+QUEENS_OUTCOMES = ("failed", "sizing_failed", "blocked", "needs_info", "pr_closed")
 READY_FOR_USER = ("approved", "approved_with_notes")
 # The first line of every message says how soon the user must act, so a glance sorts them.
 STUCK, YOUR_TURN, DONE, FOR_YOUR_INFO = "stuck", "your_turn", "done", "for_your_info"

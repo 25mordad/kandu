@@ -2,7 +2,7 @@ import copy
 import unittest
 
 from kandu.review import (
-    ReportError, blockers, carry_over, comment_for, fix_comment, fix_tried, hold_to_scope, update_comment, update_tried, open_after, parse_report,
+    ReportError, blockers, carry_over, comment_for, fix_comment, fix_marker_times, fix_tried, hold_to_scope, update_comment, update_tried, open_after, parse_report,
     reviews_on, validate_report,
 )
 
@@ -170,6 +170,10 @@ class RecordTest(unittest.TestCase):
         self.assertFalse(update_tried(pr_with((ACCOUNT, fix_comment("abc123"))), ACCOUNT, "abc123"))
         self.assertFalse(fix_tried(pr_with((ACCOUNT, update_comment("abc123"))), ACCOUNT, "abc123"))
         self.assertTrue(update_tried(pr_with((ACCOUNT, update_comment("abc123"))), ACCOUNT, "abc123"))
+        pr = pr_with((ACCOUNT, fix_comment("abc123")), ("stranger", fix_comment("abc123")), (ACCOUNT, fix_comment("def456")))
+        pr["comments"][0]["createdAt"] = "2026-11-07T10:00:00Z"
+        self.assertEqual(fix_marker_times(pr, ACCOUNT, "abc123"), ["2026-11-07T10:00:00Z"])
+        self.assertEqual(fix_marker_times(pr_with((ACCOUNT, fix_comment("abc123"))), ACCOUNT, "abc123"), [None])
         self.assertFalse(update_tried(pr_with(("stranger", update_comment("abc123"))), ACCOUNT, "abc123"))
 
 

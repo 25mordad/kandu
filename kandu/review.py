@@ -207,6 +207,13 @@ def fix_tried(pr, account, head_sha):
     return any(head_sha in FIX_MARKER.findall(body) for body in _own_comments(pr, account))
 
 
+def fix_marker_times(pr, account, head_sha):
+    """When each `kandu-fix` marker on `head_sha` was posted, oldest first; None where the copy has no time.
+    Update rounds wrote this marker too before they had their own, so a caller tells the two apart by time."""
+    return [c.get("createdAt") for c in pr["comments"] if (c.get("author") or {}).get("login") == account
+            and head_sha in FIX_MARKER.findall(c["body"])]
+
+
 def update_comment(head_sha):
     return f"Kandu: bringing the default branch in changed nothing on `{head_sha}`.\n\n<!-- kandu-update {head_sha} -->"
 
