@@ -156,6 +156,10 @@ class FakeGitHub:
     def refresh_pr(self, repo, number):
         pass
 
+    def refresh_pushed_pr(self, repo, number):
+        pr = self.pr(repo, number)
+        return pr.get("branch_head", pr["headRefOid"])
+
 
 class FakeRunner:
     """Each agent run takes the next step: a text reply, or a function called during the run."""
@@ -1225,6 +1229,20 @@ class ReviewRoundsTest(Base):
         self.assertIn("This breaks.", self.runner.runs[2].prompt)
         self.assertIn("This breaks.", self.runner.runs[3].prompt)
         self.assertEqual([e["findings"] for e in self.events("review_finished")], [1, 0])
+
+    def test_a_push_the_pr_does_not_show_yet_is_reviewed_next_cycle(self):
+        def push_not_shown_yet():
+            self.github.prs[(REPO, 1)]["branch_head"] = SHA2
+            return PR_OPENED
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), push_not_shown_yet]
+        self.cycle()
+        self.assertNotEqual(self.github.status(1), "Blocked")
+        self.assertFalse(any("changed no code" in c["body"] for c in self.comments()))
+        self.github.prs[(REPO, 1)]["headRefOid"] = SHA2
+        self.runner.steps = [report(SHA2, earlier=[{"n": 1, "result": "fixed", "body": "ok"}])]
+        self.cycle()
+        self.assertEqual([e["head_sha"] for e in self.events("review_finished")], [SHA1, SHA2])
+        self.assertEqual(self.github.status(1), "In review")
 
     def test_a_blocker_not_fixed_at_the_second_review_blocks_the_task(self):
         not_fixed = [{"n": 1, "result": "not_fixed", "body": "still"}]

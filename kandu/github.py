@@ -417,6 +417,10 @@ class GitHub:
         self._run(["label", "create", label, "--repo", repo, "--force", "--description", description])
         self._run(["api", f"repos/{repo}/issues/{number}/labels", "-X", "POST", "-f", f"labels[]={label}"])
 
+    def branch_head(self, repo, branch):
+        """The branch's last commit as git has it: right after a push, a PR may still show the one before."""
+        return self._json(["api", f"repos/{repo}/git/ref/heads/{branch}"])["object"]["sha"]
+
     def default_branch(self, repo):
         data = self._json(["repo", "view", repo, "--json", "defaultBranchRef"])
         return data["defaultBranchRef"]["name"]

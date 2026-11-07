@@ -261,11 +261,19 @@ class Supervisor:
         """Reads GitHub into the copy after an agent changed it. A refusal that passes by itself ends only this
         cycle's turn of the task: it stays where it is and resumes in the next."""
         try:
-            read()
+            return read()
         except GitHubError as e:
             if transient(e):
                 raise CycleStop(f"GitHub could not be read: {e}") from e
             raise
+
+    def _head_after_push(self, task, pr):
+        """The PR's head after an agent's round, read once the PR shows its branch's last commit. A PR that
+        still shows an older one ends this cycle's turn of the task: judged now, a push would count as none."""
+        pushed = self._reread(lambda: self.github.refresh_pushed_pr(task.repo, pr["number"]))
+        if self.github.pr(task.repo, pr["number"])["headRefOid"] != pushed:
+            raise CycleStop(f"{task.key}: GitHub does not show the push to the PR yet")
+        return pushed
 
     def _decide(self, task, decision, reason):
         self.store.record("decision", task=task.key, project=task.project.name, decision=decision, reason=reason)
@@ -513,8 +521,7 @@ class Supervisor:
             self._work(task, findings=findings, pr=pr["number"])
         except agents.ReplyError:
             pass  # A round is judged by its commits, not by its last message.
-        self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
-        if self.github.pr(task.repo, pr["number"])["headRefOid"] == head:
+        if self._head_after_push(task, pr) == head:
             self.github.comment_pr(task.repo, pr["number"], review.fix_comment(head))
 
     def _conflicts(self, pr, outcome):
@@ -550,8 +557,7 @@ class Supervisor:
             self._work(task, pr=pr["number"], order=step["note"])
         except agents.ReplyError:
             pass  # judged by its commits, as a fix round is
-        self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
-        after = self.github.pr(task.repo, pr["number"])["headRefOid"]
+        after = self._head_after_push(task, pr)
         self._step_done(task, step, result="pushed" if after != head else "no_commit", head_sha=after)
 
     def _verify(self, task, pr, step):
