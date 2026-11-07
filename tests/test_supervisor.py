@@ -2,6 +2,7 @@ import fcntl
 import io
 import contextlib
 import json
+import re
 from dataclasses import replace
 import shutil
 import tempfile
@@ -31,7 +32,7 @@ KEY = f"{REPO}#1"
 OTHER_REPO = "acme-org/internal-tool"
 NOW = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 SHA1, SHA2, SHA3 = "a" * 8, "b" * 8, "c" * 8
-PR_OPENED = '{"status": "pr_opened", "pr": 7}'
+PR_OPENED = '{"status": "pushed", "pr_title": "Task", "pr_body": "Does the `task`."}'
 GAVE_UP = '{"status": "blocked", "reason": "No fixture."}'  # the task's own trouble, which stops it at once
 BLOCKER = {"n": 1, "path": "a.py", "line": 3, "blocker": True, "criterion": None, "body": "This breaks."}
 NOTE = {"n": 1, "path": "a.py", "line": 3, "blocker": False, "criterion": None, "body": "Confusing."}
@@ -66,6 +67,9 @@ class FakeGitHub:
         self.created = []
         self.on_add = lambda key, size: None
         self.boarded = []
+        self.pushed = {}  # (repo, issue) -> the head a worker pushed to its branch, which Kandu opens a PR from
+        self.opened = []
+        self.bodies = []
 
     def add(self, number, status="Ready", repo=REPO, labels=("agent",), body="", priority="Medium", size="Small", deadline=""):
         url = f"https://github.com/{repo}/issues/{number}"
@@ -124,6 +128,19 @@ class FakeGitHub:
         self.prs[(repo, issue)] = pr
         return pr
 
+    def create_pr(self, repo, head, base, title, body):
+        issue = int(re.match(r"kandu/(\d+)", head).group(1))
+        if (repo, issue) not in self.pushed:
+            raise GitHubError("Head ref must be a branch")
+        self.opened.append((repo, head, base, title, body))
+        pr = self.open_pr(repo, issue, self.pushed[(repo, issue)])
+        pr["body"] = body
+        return pr["number"]
+
+    def edit_pr_body(self, repo, number, body):
+        self.bodies.append(body)
+        self.pr(repo, number)["body"] = body
+
     def find_pr(self, repo, issue):
         return self.prs.get((repo, issue))
 
@@ -174,6 +191,20 @@ class FakeRunner:
         self.running = 0
         self.most_running = 0
         self.lock = threading.Lock()
+        self.conflicts = []  # what merge_base stops at
+        self.markers = []  # what conflict_markers finds after the round
+        self.merged = []
+        self.on_push = lambda: None
+
+    def merge_base(self, project, repo, directory, base):
+        self.merged.append((directory, base))
+        return list(self.conflicts)
+
+    def push_branch(self, project, directory, branch):
+        self.on_push()
+
+    def conflict_markers(self, project, repo, directory, branch, paths):
+        return [p for p in paths if p in self.markers]
 
     def reachable(self, machine):
         return machine not in self.down
@@ -249,7 +280,7 @@ class Base(unittest.TestCase):
 
     def worker_makes_pr(self, issue=1, head=SHA1):
         def step():
-            self.github.open_pr(REPO, issue, head)
+            self.github.pushed[(REPO, issue)] = head
             return PR_OPENED
         return step
 
@@ -1070,6 +1101,34 @@ class FirstRunTest(Base):
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
 
+    def test_kandu_opens_the_pr_from_the_workers_text(self):
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        repo, head, base, title, body = self.github.opened[0]
+        self.assertEqual((repo, head, base, title), (REPO, "kandu/1-task-1", "main", "Task"))
+        self.assertEqual(body, "Does the `task`.\n\nCloses #1\n")
+        self.assertIn("pr_opened", [e["decision"] for e in self.events("decision")])
+        self.assertEqual(self.github.status(1), "In review")
+
+    def test_a_pr_left_open_on_the_branch_gets_the_new_text(self):
+        def pushes_on_an_open_pr():
+            self.github.open_pr(REPO, 1, SHA1)
+            return PR_OPENED
+        self.runner.steps = [pushes_on_an_open_pr, report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.github.opened, [])
+        self.assertEqual(self.github.bodies, ["Does the `task`.\n\nCloses #1\n"])
+
+    def test_a_first_push_with_no_pr_text_is_asked_again_then_stops(self):
+        self.tried_before()
+        self.github.pushed[(REPO, 1)] = SHA1
+        bare = AgentResult(text='{"status": "pushed"}', models={}, duration_ms=1, is_error=False, session_id="s-1")
+        self.runner.steps = [bare, '{"status": "pushed", "pr_title": "T"}']
+        self.cycle()
+        self.assertIn("pr_body", self.runner.runs[1].prompt)
+        self.assertEqual(self.github.opened, [])
+        self.assertEqual(self.github.status(1), "Blocked")
+
     def test_a_broken_reply_is_asked_for_again_in_the_same_session(self):
         broken = AgentResult(text="All done!", models={}, duration_ms=1, is_error=False, session_id="s-1")
         self.runner.steps = [broken, self.worker_makes_pr(), report(SHA1)]
@@ -1355,6 +1414,15 @@ class ReviewRoundsTest(Base):
             with self.assertRaises(split.ReportError):
                 split.validate_notes(json.loads(bad), [NOTE])
 
+    def test_a_fix_round_may_replace_the_description(self):
+        def fixes_the_text():
+            self.github.prs[(REPO, 1)]["headRefOid"] = SHA2
+            return '{"status": "pushed", "pr_body": "Now with `Before/After`."}'
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), fixes_the_text, report(SHA2)]
+        self.cycle()
+        self.assertEqual(self.github.bodies, ["Now with `Before/After`.\n\nCloses #1\n"])
+        self.assertEqual(len(self.github.opened), 1)
+
     def test_a_blocker_answered_with_no_code_waits_for_the_user(self):
         self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), PR_OPENED]
         self.cycle()
@@ -1630,16 +1698,50 @@ class MergeTest(Base):
         self.github.prs[(REPO, 1)]["isDraft"] = True
         self.waits("draft")
 
-    def test_a_conflict_goes_to_a_worker_and_the_new_head_is_reviewed(self):
-        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
-
-        def merge_base_in():
+    def resolves(self):
+        def step():
             self.github.prs[(REPO, 1)] |= {"headRefOid": SHA2, "mergeable": "MERGEABLE"}
             return PR_OPENED
-        self.runner.steps = [report(SHA1), merge_base_in, report(SHA2), self.PASS]
+        return step
+
+    def test_a_conflict_goes_to_a_worker_and_the_new_head_is_reviewed(self):
+        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.runner.conflicts = ["a.py"]
+        self.runner.steps = [report(SHA1), self.resolves(), report(SHA2), self.PASS]
         self.cycle()
-        self.assertIn("conflicts with", self.runner.runs[1].prompt)
+        self.assertEqual(self.runner.merged, [("/worktree", "main")])
+        worker = self.runner.runs[1]
+        self.assertIn("stopped at conflicts in `a.py`", worker.prompt)
+        self.assertEqual(worker.cwd, "/worktree")
         self.assertEqual(self.github.merges, [SHA2])
+
+    def test_a_clean_merge_of_the_base_is_pushed_with_no_agent(self):
+        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.runner.on_push = lambda: self.github.prs[(REPO, 1)].update(headRefOid=SHA2, mergeable="MERGEABLE")
+        self.runner.steps = [report(SHA1), report(SHA2), self.PASS]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 3)
+        self.assertEqual(self.github.merges, [SHA2])
+        self.assertIn("base_merged", [e["decision"] for e in self.events("decision")])
+
+    def test_a_clean_merge_that_pushes_nothing_is_not_tried_again(self):
+        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertEqual(len(self.runner.merged), 1)
+        self.assertEqual(self.github.merges, [])
+        self.cycle()
+        self.assertEqual(len(self.runner.merged), 1)
+
+    def test_conflict_markers_left_after_the_round_block_the_task(self):
+        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.runner.conflicts = ["a.py", "b.py"]
+        self.runner.markers = ["b.py"]
+        self.runner.steps = [report(SHA1), self.resolves()]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertIn("conflict markers in `b.py`", self.github.prs[(REPO, 1)]["comments"][-1]["body"])
+        self.assertEqual(self.github.merges, [])
 
     def base_moves(self, then=lambda pr: None, times=1):
         real = self.github.merge_pr
@@ -1663,13 +1765,10 @@ class MergeTest(Base):
 
     def test_a_base_that_moved_into_a_conflict_goes_to_an_update_round(self):
         self.base_moves(lambda pr: pr.update(mergeable="CONFLICTING"))
-
-        def merge_base_in():
-            self.github.prs[(REPO, 1)] |= {"headRefOid": SHA2, "mergeable": "MERGEABLE"}
-            return PR_OPENED
-        self.runner.steps = [report(SHA1), merge_base_in, report(SHA2), self.PASS]
+        self.runner.conflicts = ["a.py"]
+        self.runner.steps = [report(SHA1), self.resolves(), report(SHA2), self.PASS]
         self.cycle()
-        self.assertIn("conflicts with", self.runner.runs[1].prompt)
+        self.assertIn("stopped at conflicts in `a.py`", self.runner.runs[1].prompt)
         self.assertEqual(self.github.merges, [SHA2])
 
     def test_a_base_that_keeps_moving_waits_for_the_next_cycle(self):
@@ -1682,6 +1781,7 @@ class MergeTest(Base):
 
     def test_conflicts_wait_once_an_update_round_changed_nothing(self):
         self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.runner.conflicts = ["a.py"]
         self.runner.steps = [report(SHA1), lambda: PR_OPENED]
         self.cycle()
         self.assertEqual(self.github.merges, [])

@@ -2,8 +2,9 @@
 
 Every Kandu process reads from this copy, never from GitHub directly. A change is written
 to the copy at once and queued; `kandu.sync` sends the queue every few minutes, in as few
-requests as it can. Two writes go out at once, because the next step needs GitHub's answer:
-a merge, and creating an issue (its number names the task). A worker opens its PR itself.
+requests as it can. Some writes go out at once, because the next step needs GitHub's answer:
+a merge, creating an issue (its number names the task), and opening a PR or replacing its
+description, which Kandu does for the worker.
 
 The copy is read again from GitHub every few minutes, when the supervisor wakes, and when
 the user gives an order. If a card changed on GitHub while a change to the same field
@@ -297,6 +298,22 @@ class Mirror:
             self.refresh_repo(repo)
         except GitHubError:
             pass  # the merge stands; the next read of the copy shows it
+
+    def create_pr(self, repo, head, base, title, body):
+        """Opens the PR at once: the next step reads it. The copy reads the repo after."""
+        number = self.remote.create_pr(repo, head, base, title, body)
+        try:
+            self.refresh_repo(repo)
+        except GitHubError:
+            pass  # the PR stands; the next read of the copy shows it
+        return number
+
+    def edit_pr_body(self, repo, number, body):
+        self.remote.edit_pr_body(repo, number, body)
+        try:
+            self.refresh_pr(repo, number)
+        except GitHubError:
+            pass
 
     # Writes that wait in the queue.
 

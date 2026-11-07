@@ -71,9 +71,10 @@ supervisor:                    # optional; these are the defaults
 #                              # Bash, the network, SSH, secrets files. A role named here may do only what its
 #                              # allow list says, and nothing its deny list says. Uncomment to limit them, for example:
 #   worker:                    # the project's test command and allowed_tools are added; forbidden areas are always denied
+#                              # Kandu merges the base, opens the PR and edits its text itself: no git merge, gh pr create or edit here
 #     allow: ["Read", "Glob", "Grep", "Edit", "Write", "Bash(git add *)", "Bash(git rm *)", "Bash(rm *)",
 #             "Bash(git status *)", "Bash(git diff *)", "Bash(git log *)", "Bash(git commit *)", "Bash(git fetch *)",
-#             "Bash(gh pr create *)", "Bash(gh pr view *)", "Bash(gh pr list *)", "Bash(gh pr comment *)",
+#             "Bash(gh pr view *)", "Bash(gh pr list *)", "Bash(gh pr comment *)",
 #             "Bash(gh issue view *)", "Bash(git push origin {branch})", "Bash(git push -u origin {branch})"]
 #     deny: ["Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)", "Read(**/.env)", "Read(**/.dev.vars)",
 #            "Read(//proc/**)", "Bash(git push --force*)", "Bash(git push -f*)"]

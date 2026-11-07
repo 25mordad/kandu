@@ -99,12 +99,12 @@ class RunnerTest(unittest.TestCase):
         config = Config(settings=mock.Mock(machines=[self.machine]), projects=[])
         self.runner = Runner(config, self.root / "logs")
 
-    def push_commit(self, branch, name):
+    def push_commit(self, branch, name, text="x"):
         scratch = tempfile.mkdtemp(dir=self.root)
         git("clone", str(self.origin), scratch)
         pushed = branch in git("branch", "-r", cwd=scratch)
         git("checkout", "-B", branch, *([f"origin/{branch}"] if pushed else []), cwd=scratch)
-        (Path(scratch) / name).write_text("x")
+        (Path(scratch) / name).write_text(text)
         git("add", ".", cwd=scratch)
         git("commit", "-m", "c", cwd=scratch)
         git("push", "origin", branch, cwd=scratch)
@@ -163,6 +163,46 @@ class RunnerTest(unittest.TestCase):
         for t in threads:
             t.join()
         self.assertEqual(len(list(Path(f"{self.copy}.kandu-worktrees").iterdir())), 3)
+
+    def merging(self):
+        """A task branch and a base that both changed `same.txt`."""
+        identity = {k: "t" for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")}
+        identity |= {k: "t@example.com" for k in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL")}
+        env = mock.patch.dict(os.environ, identity)
+        env.start()
+        self.addCleanup(env.stop)
+        self.push_commit("kandu/1-a", "same.txt", "ours\n")
+        return self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+
+    def test_a_clean_merge_of_the_base_is_committed_and_pushed(self):
+        worktree = self.merging()
+        self.push_commit("main", "new.txt")
+        self.assertEqual(self.runner.merge_base(self.project(), "o/site", worktree, "main"), [])
+        self.runner.push_branch(self.project(), worktree, "kandu/1-a")
+        files = git("ls-tree", "--name-only", "kandu/1-a", cwd=self.origin).split()
+        self.assertEqual(sorted(files), ["first.txt", "new.txt", "same.txt"])
+
+    def test_a_conflicting_merge_is_left_open_and_its_markers_are_found(self):
+        worktree = self.merging()
+        self.push_commit("main", "same.txt", "theirs\n")
+        self.assertEqual(self.runner.merge_base(self.project(), "o/site", worktree, "main"), ["same.txt"])
+        git("add", "same.txt", cwd=worktree)  # a worker that commits the markers as they are
+        git("commit", "--no-edit", cwd=worktree)
+        self.runner.push_branch(self.project(), worktree, "kandu/1-a")
+        markers = self.runner.conflict_markers(self.project(), "o/site", worktree, "kandu/1-a", ["same.txt", "first.txt"])
+        self.assertEqual(markers, ["same.txt"])
+        (Path(worktree) / "same.txt").write_text("ours\ntheirs\n")
+        git("commit", "-am", "resolved", cwd=worktree)
+        self.runner.push_branch(self.project(), worktree, "kandu/1-a")
+        self.assertEqual(self.runner.conflict_markers(self.project(), "o/site", worktree, "kandu/1-a", ["same.txt"]), [])
+
+    def test_a_merge_left_open_is_aborted_before_the_next_run(self):
+        worktree = self.merging()
+        self.push_commit("main", "same.txt", "theirs\n")
+        self.runner.merge_base(self.project(), "o/site", worktree, "main")
+        self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        self.assertEqual(git("status", "--short", cwd=worktree), "")
+        self.assertEqual((Path(worktree) / "same.txt").read_text(), "ours\n")
 
     def test_review_checkout_is_the_exact_commit(self):
         first = self.push_commit("kandu/1-a", "one.txt")

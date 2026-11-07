@@ -153,6 +153,8 @@ class Runner:
             host.check(["git", "fetch", "origin"], cwd=path)
             pushed = host.succeeds(["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"], cwd=path)
             if host.succeeds(["test", "-d", directory]):
+                if host.succeeds(["git", "rev-parse", "--verify", "--quiet", "MERGE_HEAD"], cwd=directory):
+                    host.check(["git", "merge", "--abort"], cwd=directory)  # an earlier update round left it half done
                 if pushed:
                     host.check(["git", "merge", "--ff-only", f"origin/{branch}"], cwd=directory)
                 return directory
@@ -160,6 +162,37 @@ class Runner:
             start = f"origin/{branch}" if pushed else f"origin/{base}"
             host.check(["git", "worktree", "add", "-B", branch, directory, start], cwd=path)
         return directory
+
+    def merge_base(self, project, repo, directory, base):
+        """Merges `origin/<base>` into the worktree's branch, in Kandu's code: no agent may run `git merge`.
+
+        Returns the files in conflict. With none the merge is committed; with some it is left open, for a worker to
+        resolve and commit."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            host.check(["git", "fetch", "origin"], cwd=directory)
+            if host.succeeds(["git", "merge", "--no-edit", "--no-ff", f"origin/{base}"], cwd=directory):
+                return []
+            conflicts = host.check(["git", "diff", "--name-only", "--diff-filter=U"], cwd=directory).splitlines()
+            if not conflicts:
+                host.run(["git", "merge", "--abort"], cwd=directory)
+                raise RunnerError(f"merging origin/{base} failed on {host.name}, with no conflict to resolve")
+            return conflicts
+
+    def push_branch(self, project, directory, branch):
+        """Pushes a merge Kandu made itself. Never forced: a branch that moved meanwhile refuses it."""
+        self.hosts[project.machine].check(["git", "push", "origin", f"HEAD:refs/heads/{branch}"], cwd=directory)
+
+    def conflict_markers(self, project, repo, directory, branch, paths):
+        """Returns which of `paths` still hold a conflict marker on the pushed branch."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            host.check(["git", "fetch", "origin"], cwd=directory)
+        ref = f"origin/{branch}"
+        found = host.run(["git", "grep", "-l", "-E", "^(<<<<<<<|>>>>>>>)( |$)", ref, "--", *paths], cwd=directory)
+        if found.returncode not in (0, 1):
+            raise RunnerError(f"git grep failed on {host.name}: {found.stderr.strip()}")
+        return [line.removeprefix(f"{ref}:") for line in found.stdout.splitlines() if line]
 
     def prepare_review(self, project, repo, branch, head_sha):
         """Returns a detached checkout of exactly `head_sha`, apart from the worker's worktree."""

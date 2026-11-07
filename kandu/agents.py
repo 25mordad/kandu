@@ -5,14 +5,16 @@ per run; with none, a role may do everything. An agent gets only the context
 it needs: the facts of one task, never the history of others.
 """
 import json
+import re
 from pathlib import Path
 
 from . import sizing
 from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR
 from .review import CODE_FENCE
 
+CLOSES = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?) #(\d+)\b", re.IGNORECASE)
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
-WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
+WORKER_STATUSES = ("pushed", "needs_info", "blocked")
 LIVE_RESULTS = ("pass", "fail")
 QUEEN_ACTIONS = ("release", "retry", "rework", "verify", "new_task", "block_on", "approve", "ask_user", "park")
 CHECK_RESULTS = ("pass", "fail", "unclear")
@@ -38,8 +40,8 @@ QUEEN_SCHEMA = {
 _TEXT = {"type": "string"}
 WORKER_SCHEMA = {
     "type": "object", "required": ["status"],
-    "properties": {"status": {"enum": list(WORKER_STATUSES)}, "pr": {"type": "integer"}, "question": _TEXT,
-                   "reason": _TEXT},
+    "properties": {"status": {"enum": list(WORKER_STATUSES)}, "pr_title": _TEXT, "pr_body": _TEXT,
+                   "question": _TEXT, "reason": _TEXT},
 }
 CHECK_SCHEMA = {
     "type": "object", "required": ["result", "summary"], "additionalProperties": False,
@@ -167,8 +169,9 @@ def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None,
     if open_blockers:
         parts += ["## Blockers not merged yet",
                   f"This task is blocked by {', '.join(open_blockers)}, whose work may still be in an open PR. "
-                  "Build it now anyway: your PR merges only after theirs. If you need their code, merge their PR's "
-                  "branch into yours first and say so in your PR."]
+                  "Build it now anyway, on the default branch: your PR merges only after theirs, and Kandu brings "
+                  "their code into your branch once it lands. If the task cannot be done without their code, "
+                  "report `blocked`."]
     if order is not None:
         return "\n".join(parts + [f"## Work the queen sends you on PR #{pr}",
                                   "The queen looked at this PR and sends you back to it. Do exactly this on the "
@@ -325,4 +328,22 @@ def parse_worker_reply(text):
         raise ReplyError("needs_info has no question")
     if reply["status"] == "blocked" and not isinstance(reply.get("reason"), str):
         raise ReplyError("blocked has no reason")
+    for name in ("pr_title", "pr_body"):
+        if reply["status"] == "pushed" and name in reply and not (isinstance(reply[name], str) and reply[name].strip()):
+            raise ReplyError(f"{name} is empty")
     return reply
+
+
+def parse_first_reply(text):
+    """A first run's reply: Kandu opens the PR from it, so `pushed` must bring its title and description."""
+    reply = parse_worker_reply(text)
+    if reply["status"] == "pushed" and not ("pr_title" in reply and "pr_body" in reply):
+        raise ReplyError("pushed has no pr_title and pr_body")
+    return reply
+
+
+def closing_body(body, number):
+    """The PR description as Kandu sends it: it always closes its own issue."""
+    if str(number) in {m.group(1) for m in CLOSES.finditer(body)}:
+        return body
+    return f"{body.rstrip()}\n\nCloses #{number}\n"

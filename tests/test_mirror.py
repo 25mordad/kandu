@@ -95,6 +95,13 @@ class FakeRemote:
         self._call("create_issue", title)
         return f"https://github.com/{repo}/issues/9"
 
+    def create_pr(self, repo, head, base, title, body):
+        self._call("create_pr", head, base, title, body)
+        return 7
+
+    def edit_pr_body(self, repo, number, body):
+        self._call("edit_pr_body", number, body)
+
     def merge_pr(self, repo, number, head_sha):
         self._call("merge", number, head_sha)
         self.prs[number]["state"] = "MERGED"
@@ -336,6 +343,13 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(self.names(), ["create_issue", "read_repo", "read_board", "add_card"])
         card = next(i for i in self.mirror.board_items(BOARD) if i.url == url)
         self.assertEqual((card.item_id, card.status, card.title), ("card-new", "Backlog", "New"))
+
+    def test_a_pr_is_opened_and_edited_at_once_and_read_back(self):
+        self.assertEqual(self.mirror.create_pr(REPO, "kandu/3-a", "main", "T", "B"), 7)
+        self.mirror.edit_pr_body(REPO, 7, "C")
+        self.assertEqual(self.remote.calls[0], ("create_pr", "kandu/3-a", "main", "T", "B"))
+        self.assertIn(("edit_pr_body", 7, "C"), self.remote.calls)
+        self.assertIn("read_pr", self.names())
 
     def test_a_merge_goes_at_once_and_is_read_back(self):
         self.remote.prs = {7: pr()}
