@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from kandu.config import Board
 from kandu.github import BoardItem, GitHubError
-from kandu.mirror import FRESH_SECONDS, MISSING_CARD_TRIES, Mirror
+from kandu.mirror import FRESH_SECONDS, MISSING_CARD_TRIES, PUSH_SETTLE_TRIES, Mirror
 from kandu.sync import sync
 
 BOARD = Board(owner="acme", number=1, columns={"Ready": "Todo"})
@@ -34,6 +34,7 @@ class FakeRemote:
         self.issues = {3: {"number": 3, "title": "Task 3", "body": "body", "url": URL, "state": "OPEN",
                            "labels": ["agent"]}}
         self.prs = {}
+        self.branches = {}
         self.calls = []
         self.fail = None  # a function of the call's name that may raise
 
@@ -59,6 +60,10 @@ class FakeRemote:
         self._call("read_pr", number)
         return deepcopy(self.prs.get(number))
 
+    def branch_head(self, repo, branch):
+        self._call("branch_head", branch)
+        return self.branches[branch]
+
     def edit_cards(self, project_id, edits):
         self._call("edit_cards", list(edits))
         names = {v: k for k, v in META["fields"]["Status"]["options"].items()}
@@ -80,6 +85,10 @@ class FakeRemote:
         self._call("close", number)
         self.issues[number]["state"] = "CLOSED"
 
+    def close_pr(self, repo, number):
+        self._call("close_pr", number)
+        self.prs[number]["state"] = "CLOSED"
+
     def edit_issue(self, repo, number, title, body):
         self._call("edit", number)
 
@@ -89,6 +98,13 @@ class FakeRemote:
     def create_issue(self, repo, title, body, by_hand=False, tokens=False):
         self._call("create_issue", title)
         return f"https://github.com/{repo}/issues/9"
+
+    def create_pr(self, repo, head, base, title, body):
+        self._call("create_pr", head, base, title, body)
+        return 7
+
+    def edit_pr_body(self, repo, number, body):
+        self._call("edit_pr_body", number, body)
 
     def merge_pr(self, repo, number, head_sha):
         self._call("merge", number, head_sha)
@@ -190,6 +206,28 @@ class MirrorTest(unittest.TestCase):
         self.remote.prs = {7: pr(state="MERGED")}
         self.assertEqual(self.mirror.pr(REPO, 7)["state"], "MERGED")
         self.assertEqual(self.names()[-1], "read_pr")
+
+    def test_a_pr_is_read_again_until_it_shows_the_push(self):
+        self.remote.prs = {7: pr(head="old")}
+        self.mirror.pr(REPO, 7)
+        self.remote.branches = {"kandu/3-task": "new"}
+        reads = iter([pr(head="old"), pr(head="old"), pr(head="new")])
+        self.remote.read_pr = lambda repo, number: next(reads)
+        self.assertEqual(self.mirror.refresh_pushed_pr(REPO, 7), "new")
+        self.assertEqual(self.mirror.pr(REPO, 7)["headRefOid"], "new")
+
+    def test_a_pr_that_never_shows_the_push_stops_reading(self):
+        self.remote.prs = {7: pr(head="old")}
+        self.remote.branches = {"kandu/3-task": "new"}
+        self.assertEqual(self.mirror.refresh_pushed_pr(REPO, 7), "new")
+        self.assertEqual(self.mirror.pr(REPO, 7)["headRefOid"], "old")
+        self.assertEqual(self.names().count("read_pr"), PUSH_SETTLE_TRIES)
+
+    def test_no_push_is_read_once(self):
+        self.remote.prs = {7: pr(head="same")}
+        self.remote.branches = {"kandu/3-task": "same"}
+        self.assertEqual(self.mirror.refresh_pushed_pr(REPO, 7), "same")
+        self.assertEqual(self.names().count("read_pr"), 1)
 
     # The queue.
 
@@ -293,6 +331,29 @@ class MirrorTest(unittest.TestCase):
         self.mirror.send()
         self.assertEqual(self.remote.issues[3]["state"], "CLOSED")
 
+    def test_a_closed_pr_is_closed_in_the_copy_before_it_is_sent(self):
+        self.remote.prs = {7: pr()}
+        self.mirror.close_pr(REPO, 7)
+        self.assertEqual(self.mirror.pr(REPO, 7)["state"], "CLOSED")
+        self.mirror.refresh_repo(REPO)
+        self.assertEqual(self.mirror.pr(REPO, 7)["state"], "CLOSED")
+        self.mirror.send()
+        self.assertIn(("close_pr", 7), self.remote.calls)
+        self.assertEqual(self.remote.prs[7]["state"], "CLOSED")
+
+    def test_why_an_issue_closed_comes_from_the_copy(self):
+        self.assertIsNone(self.mirror.issue_closure(REPO, 3))
+        by = {"repo": REPO, "number": 8, "merged": True}
+        self.remote.issues[3].update(state="CLOSED", stateReason="COMPLETED", closedBy=by)
+        self.mirror.refresh_repo(REPO, max_age=0)
+        self.assertEqual(self.mirror.issue_closure(REPO, 3), {"reason": "COMPLETED", "by": by})
+
+    def test_a_closed_issue_read_before_the_copy_kept_why_is_read_again(self):
+        self.remote.issues[3]["state"] = "CLOSED"
+        self.mirror.refresh_repo(REPO)
+        self.remote.issues[3].update(stateReason="NOT_PLANNED", closedBy=None)
+        self.assertEqual(self.mirror.issue_closure(REPO, 3), {"reason": "NOT_PLANNED", "by": None})
+
     def test_marking_a_pr_twice_queues_it_once(self):
         self.remote.prs = {7: pr()}
         self.mirror.mark_pr(REPO, self.mirror.pr(REPO, 7))
@@ -309,6 +370,13 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(self.names(), ["create_issue", "read_repo", "read_board", "add_card"])
         card = next(i for i in self.mirror.board_items(BOARD) if i.url == url)
         self.assertEqual((card.item_id, card.status, card.title), ("card-new", "Backlog", "New"))
+
+    def test_a_pr_is_opened_and_edited_at_once_and_read_back(self):
+        self.assertEqual(self.mirror.create_pr(REPO, "kandu/3-a", "main", "T", "B"), 7)
+        self.mirror.edit_pr_body(REPO, 7, "C")
+        self.assertEqual(self.remote.calls[0], ("create_pr", "kandu/3-a", "main", "T", "B"))
+        self.assertIn(("edit_pr_body", 7, "C"), self.remote.calls)
+        self.assertIn("read_pr", self.names())
 
     def test_a_merge_goes_at_once_and_is_read_back(self):
         self.remote.prs = {7: pr()}

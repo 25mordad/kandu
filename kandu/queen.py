@@ -19,6 +19,7 @@ LIMITED = ("retry", "rework", "verify", "new_task", "block_on")  # each one this
 SENT_ON = ("rework", "verify")  # code carries these out when it next drives the task
 LARGE = "Large"
 HIGH = "High"
+# Not `issue_closed`: no step of hers can reopen an issue, so the user hears of it at once.
 NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed")
 MOVED_ON = ("user_approved", "queen_approved", "task_picked", "task_finished", "user_resumed")
 USER_ACTED = ("task_picked", "user_approved", "question_answered", "user_resumed")  # after a loop stop, only the user moves it
@@ -145,11 +146,11 @@ def note_for(events, task):
     return notes[-1] if notes else None
 
 
-def why_no_release(item, startable, spent, limit, sized, first=()):
+def why_no_release(item, startable, spent, limit, sized, first=(), waits_on=()):
     """Returns why this task may not leave Backlog, or None.
 
     `sized` is its `task_sized` event: the local log counts, as a worker can edit a board field.
-    `first` holds the tasks of its project that go before any other.
+    `first` holds the tasks of its project that go before any other, and `waits_on` its open blockers.
     """
     if item.status != "Backlog":
         return "it is not in Backlog"
@@ -159,6 +160,8 @@ def why_no_release(item, startable, spent, limit, sized, first=()):
         return "it is Large and must be split first"
     if not startable:
         return "it is closed"
+    if waits_on:
+        return f"it waits on {', '.join(waits_on)}, not closed yet"
     if first and f"{item.repo}#{item.number}" not in first:
         return f"{first[0]} goes first"
     if spent >= limit:

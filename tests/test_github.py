@@ -89,6 +89,31 @@ class GitHubTest(unittest.TestCase):
         self.assertEqual((items[0].body, items[0].size, items[0].deadline), ("b", "Small", "2026-01-02"))
         self.assertEqual(gh.calls[1][-2:], ["-f", "after=c"])
 
+    def test_an_issue_says_why_it_closed_and_which_pr_closed_it(self):
+        closer = {"__typename": "PullRequest", "number": 8, "merged": True, "repository": {"nameWithOwner": "o/r"}}
+        node = ISSUE | {"state": "CLOSED", "stateReason": "COMPLETED",
+                        "timelineItems": {"nodes": [{"closer": closer}]}}
+        gh = FakeGh({"data": {"repository": {"issue": node}}}, {"data": {"repository": {"issue": ISSUE | {
+            "state": "CLOSED", "stateReason": "NOT_PLANNED", "timelineItems": {"nodes": [{"closer": None}]}}}}},
+            {"data": {"repository": {"issue": ISSUE | {"state": "OPEN"}}}})
+        github = GitHub(gh)
+        self.assertEqual(github.issue_closure("o/r", 3),
+                         {"reason": "COMPLETED", "by": {"repo": "o/r", "number": 8, "merged": True}})
+        self.assertEqual(github.issue_closure("o/r", 3), {"reason": "NOT_PLANNED", "by": None})
+        self.assertIsNone(github.issue_closure("o/r", 3))
+
+    def test_an_issue_closed_by_a_commit_names_the_commit(self):
+        closer = {"__typename": "Commit", "oid": "abc1234def", "repository": {"nameWithOwner": "o/r"}}
+        node = ISSUE | {"state": "CLOSED", "stateReason": "COMPLETED", "timelineItems": {"nodes": [{"closer": closer}]}}
+        github = GitHub(FakeGh({"data": {"repository": {"issue": node}}}))
+        self.assertEqual(github.issue_closure("o/r", 3),
+                         {"reason": "COMPLETED", "by": {"repo": "o/r", "sha": "abc1234def", "merged": True}})
+
+    def test_a_pr_is_closed_through_rest(self):
+        gh = FakeGh()
+        GitHub(gh).close_pr("o/r", 7)
+        self.assertEqual(gh.calls[0], ["api", "repos/o/r/pulls/7", "-X", "PATCH", "-f", "state=closed"])
+
     def test_set_status(self):
         gh = FakeGh()
         GitHub(gh).set_status(BOARD, "https://x/1", "In progress")
@@ -104,6 +129,16 @@ class GitHubTest(unittest.TestCase):
         ], {"number": 8})
         self.assertEqual(GitHub(gh).find_pr("o/r", 12), {"number": 8})
         self.assertEqual(gh.calls[1][:3], ["pr", "view", "8"])
+
+    def test_pr_text_goes_as_fields_never_as_shell_text(self):
+        gh = FakeGh({"number": 12})
+        body = "Uses `$(rm -rf ~)` and `x`.\n\nCloses #3\n"
+        self.assertEqual(GitHub(gh).create_pr("o/r", "kandu/3-a", "main", "Add `x`", body), 12)
+        self.assertEqual(gh.calls[0][:4], ["api", "repos/o/r/pulls", "-X", "POST"])
+        self.assertIn(f"body={body}", gh.calls[0])
+        self.assertIn("head=kandu/3-a", gh.calls[0])
+        GitHub(gh).edit_pr_body("o/r", 12, body)
+        self.assertEqual(gh.calls[1], ["api", "repos/o/r/pulls/12", "-X", "PATCH", "-f", f"body={body}"])
 
     def test_no_pr(self):
         self.assertIsNone(GitHub(FakeGh([])).find_pr("o/r", 12))

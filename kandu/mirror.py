@@ -2,8 +2,9 @@
 
 Every Kandu process reads from this copy, never from GitHub directly. A change is written
 to the copy at once and queued; `kandu.sync` sends the queue every few minutes, in as few
-requests as it can. Two writes go out at once, because the next step needs GitHub's answer:
-a merge, and creating an issue (its number names the task). A worker opens its PR itself.
+requests as it can. Some writes go out at once, because the next step needs GitHub's answer:
+a merge, creating an issue (its number names the task), and opening a PR or replacing its
+description, which Kandu does for the worker.
 
 The copy is read again from GitHub every few minutes, when the supervisor wakes, and when
 the user gives an order. If a card changed on GitHub while a change to the same field
@@ -20,13 +21,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DEADLINE_FIELD
-from .github import BoardItem, GitHub, GitHubError, is_companion, transient
+from .github import BoardItem, GitHub, GitHubError, closure, is_companion, transient
 
 MIRROR_DIR = Path(__file__).resolve().parent.parent / "state" / "mirror"
 FRESH_SECONDS = 60            # a copy younger than this is not read again: a burst of wakes costs GitHub one read
 SINCE_MARGIN_SECONDS = 120    # issues are read from a little before the last read, so a clock apart loses nothing
 SEND_PAUSE_SECONDS = 1.0      # between two sent changes, below GitHub's limit on content made per minute
 CARDS_PER_REQUEST = 20
+PUSH_SETTLE_TRIES = 6         # a PR shows a push a few seconds after the branch has it; read it up to this often
+PUSH_SETTLE_SECONDS = 5.0
 MISSING_CARD_TRIES = 3        # a change to a card not on the board waits this many sends for it, then is dropped
 CARD_FIELDS = ("Status", "Priority", "Kind", "Size", DEADLINE_FIELD)
 
@@ -197,6 +200,19 @@ class Mirror:
         """One PR, read now: after an agent pushed to it or a merge."""
         self._put(repo, "prs", number, self.remote.read_pr(repo, number))
 
+    def refresh_pushed_pr(self, repo, number):
+        """One PR, read after an agent may have pushed to it. GitHub moves the branch at once but the PR's head
+        a few seconds later, so the PR is read again until it shows the branch's last commit, or the tries run out.
+        Returns that commit: the PR may still be behind it."""
+        pushed = self.remote.branch_head(repo, self.pr(repo, number)["headRefName"])
+        for n in range(PUSH_SETTLE_TRIES):
+            if n:
+                self.pause(PUSH_SETTLE_SECONDS)
+            self.refresh_pr(repo, number)
+            if self.pr(repo, number)["headRefOid"] == pushed:
+                break
+        return pushed
+
     def _put(self, repo, kind, number, value):
         if value is None:
             return
@@ -227,6 +243,15 @@ class Mirror:
         if issue is None:
             raise GitHubError(f"{repo}#{number}: no such issue")
         return issue["state"] == "OPEN"
+
+    def issue_closure(self, repo, number):
+        issue = self._issue(repo, number)
+        if issue is None:
+            raise GitHubError(f"{repo}#{number}: no such issue")
+        if issue["state"] != "OPEN" and "stateReason" not in issue:  # read before the copy kept why
+            self._put(repo, "issues", number, self.remote.read_issue(repo, number))
+            issue = self._repo(repo)["issues"][str(number)]
+        return closure(issue)
 
     def default_branch(self, repo):
         return self._repo(repo)["default_branch"]
@@ -282,6 +307,22 @@ class Mirror:
             self.refresh_repo(repo)
         except GitHubError:
             pass  # the merge stands; the next read of the copy shows it
+
+    def create_pr(self, repo, head, base, title, body):
+        """Opens the PR at once: the next step reads it. The copy reads the repo after."""
+        number = self.remote.create_pr(repo, head, base, title, body)
+        try:
+            self.refresh_repo(repo)
+        except GitHubError:
+            pass  # the PR stands; the next read of the copy shows it
+        return number
+
+    def edit_pr_body(self, repo, number, body):
+        self.remote.edit_pr_body(repo, number, body)
+        try:
+            self.refresh_pr(repo, number)
+        except GitHubError:
+            pass
 
     # Writes that wait in the queue.
 
@@ -344,6 +385,9 @@ class Mirror:
     def close_issue(self, repo, number):
         self._queue_issue("close", repo, number)
 
+    def close_pr(self, repo, number):
+        self._queue_issue("close_pr", repo, number)
+
     def edit_issue(self, repo, number, title, body):
         self._queue_issue("edit", repo, number, title=title, body=body)
 
@@ -390,7 +434,9 @@ class Mirror:
             issue = data["issues"].get(str(entry["number"]))
             pr = data["prs"].get(str(entry["number"]))
             if entry["kind"] == "close" and issue is not None:
-                issue["state"] = "CLOSED"
+                issue.update(state="CLOSED", stateReason="COMPLETED", closedBy=None)
+            elif entry["kind"] == "close_pr" and pr is not None and pr["state"] == "OPEN":
+                pr["state"] = "CLOSED"
             elif entry["kind"] == "edit" and issue is not None:
                 issue["title"], issue["body"] = entry["title"], entry["body"]
             elif entry["kind"] == "label" and pr is not None:
@@ -506,6 +552,8 @@ class Mirror:
             self.remote.comment_issue(repo, number, entry["body"])
         elif entry["kind"] == "close":
             self.remote.close_issue(repo, number)
+        elif entry["kind"] == "close_pr":
+            self.remote.close_pr(repo, number)
         elif entry["kind"] == "edit":
             self.remote.edit_issue(repo, number, entry["title"], entry["body"])
         elif entry["kind"] == "label":

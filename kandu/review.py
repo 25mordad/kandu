@@ -15,6 +15,7 @@ CRITERION_RESULTS = ("met", "not_met", "not_shown")
 EARLIER_RESULTS = ("fixed", "not_fixed", "partly_fixed")
 REVIEW_MARKER = re.compile(r"<!-- kandu-review (\{.*?\}) -->", re.DOTALL)
 FIX_MARKER = re.compile(r"<!-- kandu-fix ([0-9a-f]+) -->")
+UPDATE_MARKER = re.compile(r"<!-- kandu-update ([0-9a-f]+) -->")
 # The last thing in a reply. A model may write a line before it, however clearly it is told not to.
 _TEXT = {"type": "string"}
 _TEXTS = {"type": "array", "items": _TEXT}
@@ -204,3 +205,19 @@ def fix_comment(head_sha):
 def fix_tried(pr, account, head_sha):
     """True if a fix round already ended on `head_sha` with no new commit."""
     return any(head_sha in FIX_MARKER.findall(body) for body in _own_comments(pr, account))
+
+
+def fix_marker_times(pr, account, head_sha):
+    """When each `kandu-fix` marker on `head_sha` was posted, oldest first; None where the copy has no time.
+    Update rounds wrote this marker too before they had their own, so a caller tells the two apart by time."""
+    return [c.get("createdAt") for c in pr["comments"] if (c.get("author") or {}).get("login") == account
+            and head_sha in FIX_MARKER.findall(c["body"])]
+
+
+def update_comment(head_sha):
+    return f"Kandu: bringing the default branch in changed nothing on `{head_sha}`.\n\n<!-- kandu-update {head_sha} -->"
+
+
+def update_tried(pr, account, head_sha):
+    """True if an update round already ran on `head_sha` and left it as it was. A fix round's marker does not count."""
+    return any(head_sha in UPDATE_MARKER.findall(body) for body in _own_comments(pr, account))

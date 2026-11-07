@@ -59,6 +59,7 @@ Every task is designed and checked against harness, context and memory (§14).
 50. [x] A brief per project for Didban: read first when the user names the project, with the newest lines of the project's own reports, and changed only through `kandu.brief` (§13, §14)
 51. [x] Bazras: a daily read-only look at each live project's health, at its own hour; code finds, a model judges only what was found, and Didban brings the findings up and proposes tasks on the user's yes; a tab on the dashboard (§5, §7, §13)
 52. [ ] Versions: tag releases with a version number and a short changelog, so an install knows what an update brings and which features ship off (§12)
+53. [x] A worker only resolves conflicts and writes the PR's text: Kandu merges the base, opens the PR and replaces its description in code, so no worker needs `git merge`, `gh pr create` or `gh pr edit` (§5, §14)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

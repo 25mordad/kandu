@@ -46,7 +46,11 @@ BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
   }} }} }} }}
 }}"""
 
-ISSUE_NODE = "number title body url state updatedAt labels(first: 30) { nodes { name } }"
+# Why it was closed, and the PR or commit that closed it: a task whose issue other work completed is replaced.
+ISSUE_NODE = ("number title body url state stateReason updatedAt labels(first: 30) { nodes { name } } "
+              "timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { "
+              "closer { __typename ... on PullRequest { number merged repository { nameWithOwner } } "
+              "... on Commit { oid repository { nameWithOwner } } } } } }")
 PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable updatedAt "
            "labels(first: 30) { nodes { name } } comments(last: 100) { nodes { author { login } body createdAt } }")
 # Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
@@ -135,7 +139,27 @@ def _pr(node, deep):
 def _issue(node):
     return {"number": node["number"], "title": node["title"], "body": node.get("body") or "", "url": node["url"],
             "state": node["state"], "labels": [label["name"] for label in node["labels"]["nodes"]],
-            "updatedAt": node.get("updatedAt")}
+            "updatedAt": node.get("updatedAt"), "stateReason": node.get("stateReason"), "closedBy": _closer(node)}
+
+
+def _closer(node):
+    """What closed the issue: a PR as {repo, number, merged}, a commit on the default branch as {repo, sha, merged},
+    or None. Only a push to the default branch closes an issue from a commit, so such a commit counts as merged."""
+    events = (node.get("timelineItems") or {}).get("nodes") or []
+    closer = (events[-1] or {}).get("closer") if events else None
+    kind = (closer or {}).get("__typename")
+    if kind == "PullRequest":
+        return {"repo": closer["repository"]["nameWithOwner"], "number": closer["number"], "merged": closer["merged"]}
+    if kind == "Commit":
+        return {"repo": closer["repository"]["nameWithOwner"], "sha": closer["oid"], "merged": True}
+    return None
+
+
+def closure(issue):
+    """None while the issue is open; else why it was closed and the PR that closed it, if any."""
+    if issue["state"] == "OPEN":
+        return None
+    return {"reason": issue.get("stateReason"), "by": issue.get("closedBy")}
 
 
 def run_gh(args):
@@ -396,6 +420,15 @@ class GitHub:
     def edit_issue(self, repo, number, title, body):
         self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", f"title={title}", "-f", f"body={body}"])
 
+    def create_pr(self, repo, head, base, title, body):
+        """Opens a PR from `head` into `base` and returns its number. Each field is one argument, never shell text."""
+        args = ["api", f"repos/{repo}/pulls", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}",
+                "-f", f"head={head}", "-f", f"base={base}"]
+        return self._json(args)["number"]
+
+    def edit_pr_body(self, repo, number, body):
+        self._run(["api", f"repos/{repo}/pulls/{number}", "-X", "PATCH", "-f", f"body={body}"])
+
     def repo_is_public(self, repo):
         return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"
 
@@ -406,8 +439,17 @@ class GitHub:
         data = self._json(["issue", "view", str(number), "--repo", repo, "--json", "state"])
         return data["state"] == "OPEN"
 
+    def issue_closure(self, repo, number):
+        issue = self.read_issue(repo, number)
+        if issue is None:
+            raise GitHubError(f"{repo}#{number}: no such issue")
+        return closure(issue)
+
     def close_issue(self, repo, number):
         self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", "state=closed"])
+
+    def close_pr(self, repo, number):
+        self._run(["api", f"repos/{repo}/pulls/{number}", "-X", "PATCH", "-f", "state=closed"])
 
     def comment_issue(self, repo, number, body):
         """A PR takes its comments the same way: on GitHub it is an issue too."""
@@ -416,6 +458,10 @@ class GitHub:
     def add_label(self, repo, number, label, description):
         self._run(["label", "create", label, "--repo", repo, "--force", "--description", description])
         self._run(["api", f"repos/{repo}/issues/{number}/labels", "-X", "POST", "-f", f"labels[]={label}"])
+
+    def branch_head(self, repo, branch):
+        """The branch's last commit as git has it: right after a push, a PR may still show the one before."""
+        return self._json(["api", f"repos/{repo}/git/ref/heads/{branch}"])["object"]["sha"]
 
     def default_branch(self, repo):
         data = self._json(["repo", "view", repo, "--json", "defaultBranchRef"])
