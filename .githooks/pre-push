@@ -9,7 +9,7 @@ no_commit='^0+$'
 
 scan_commit() {
   {
-    git log -1 --format=%B "$1"
+    git log -1 --format='%B%n%an%n%ae%n%cn%n%ce' "$1"
     git diff-tree --root -m -r --no-commit-id --name-only --no-renames --diff-filter=d -z "$1" | tr '\0' '\n'
     git diff-tree --root -m -r --no-commit-id -p -U0 --text --no-color --no-ext-diff --no-textconv --no-renames "$1" | added_lines
   } | scan_private

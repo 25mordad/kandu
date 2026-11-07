@@ -233,7 +233,13 @@ class DoctorTest(unittest.TestCase):
     def test_guard(self):
         with tempfile.TemporaryDirectory() as local:
             results = doctor.check_guard("", local)
-        self.assertEqual([r[0] for r in results], [doctor.FAIL, doctor.WARN])
+        self.assertEqual([r[0] for r in results], [doctor.FAIL, doctor.WARN, doctor.OK])
+
+    def test_guard_terms_that_cannot_be_read(self):
+        with tempfile.TemporaryDirectory() as local:
+            (Path(local) / "projects.yaml").write_text("projects: [\n", encoding="utf-8")
+            results = doctor.check_guard(".githooks", local)
+        self.assertEqual(results[-1][0], doctor.FAIL)
 
     def test_dashboard_token(self):
         with tempfile.TemporaryDirectory() as local, mock.patch.dict("os.environ", clear=True):
