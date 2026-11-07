@@ -106,6 +106,7 @@ def show(config, project_name, local_dir, host_for=Host):
     path = path_for(project_name, local_dir)
     parts = [path.read_text(encoding="utf-8").rstrip("\n") if path.exists()
              else f"No brief for {project_name} yet."]
+    parts += registry_rules(project)
     if project.reports:
         host = host_for(config.machine(project.machine))
         for report in project.reports:
@@ -114,6 +115,15 @@ def show(config, project_name, local_dir, host_for=Host):
             parts.append(read_report(host, project, report))
     parts += bazras_news(project_name, local_dir)
     return "\n".join(parts) + "\n"
+
+
+def registry_rules(project):
+    """The project's forbidden areas and repo rules, as the registry has them: a task is checked against them."""
+    forbidden = ", ".join(project.forbidden) if project.forbidden else "none"
+    rules = " ".join(project.repo_rules.split()) or "none"
+    return ["\n--- From the registry. A task that must change a forbidden area is settled with the user first. ---",
+            f"Forbidden areas: {forbidden}",
+            f"Repo rules: {rules}"]
 
 
 def bazras_news(project_name, local_dir, mark=True):

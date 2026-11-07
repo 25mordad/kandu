@@ -127,6 +127,31 @@ class BriefTest(unittest.TestCase):
         self.assertIn("missing/LESSONS.md", out)
         self.assertIn("could not be read", out)
 
+    def test_show_prints_the_forbidden_areas_and_repo_rules_after_the_brief(self):
+        brief.set_brief("website", draft(what="A shop."), self.local)
+        self.set_reports([])
+        out = brief.show(load_config(self.local), "website", self.local)
+        brief_end = out.index("## Reports")
+        forbidden = out.index("Forbidden areas")
+        rules = out.index("Repo rules")
+        self.assertLess(brief_end, forbidden)
+        self.assertLess(brief_end, rules)
+        self.assertIn("migrations/", out[forbidden:])
+        self.assertIn("src/payments/", out[forbidden:])
+        self.assertIn("CI must be green before merge", out[rules:])
+
+    def test_show_says_there_are_no_forbidden_areas_when_the_list_is_empty(self):
+        path = self.local / "projects.yaml"
+        data = yaml.safe_load(path.read_text())
+        data["projects"][0]["forbidden"] = []
+        data["projects"][0]["reports"] = []
+        path.write_text(yaml.safe_dump(data))
+        code, out, _ = self.run_cli("show", "website")
+        self.assertEqual(code, 0)
+        line = next(l for l in out.splitlines() if "Forbidden areas" in l)
+        self.assertIn("none", line)
+        self.assertNotIn("migrations/", out)
+
     def test_a_report_is_read_on_the_projects_machine(self):
         config = load_config(self.local)
         hosts = []
@@ -157,6 +182,16 @@ class DidbanTest(unittest.TestCase):
         for key, heading in brief.SECTIONS.items():
             self.assertIn(f"`## {heading}`", text)
             self.assertIn(f"`{key}`", text)
+
+    def test_defining_or_promoting_a_task_checks_it_against_the_forbidden_areas(self):
+        root = Path(brief.__file__).resolve().parent.parent
+        task = (root / ".claude" / "commands" / "kandu-task.md").read_text(encoding="utf-8")
+        didban = (root / "prompts" / "didban.md").read_text(encoding="utf-8")
+        debt = didban[didban.index("## Technical debt"):]
+        for text in (task, debt):
+            self.assertIn("forbidden area", text)
+            for choice in ("open the area", "change the task", "by hand"):
+                self.assertIn(choice, text)
 
     def test_kandu_add_asks_for_reports_and_a_brief(self):
         text = (Path(brief.__file__).resolve().parent.parent / ".claude" / "commands" / "kandu-add.md").read_text(encoding="utf-8")
