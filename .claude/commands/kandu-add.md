@@ -25,4 +25,5 @@ Read `docs/COMMANDS.md`, then add one project to `local/projects.yaml`, in the s
 3. Create a board only if the user said yes: `.venv/bin/python -m kandu.boards --owner OWNER --title TITLE`. It prints the number. Before the first board of this install, stop and remind the user that direct pushes to the Kandu repo end at that moment.
 4. Write the entry. Put the glossary in `local/memory/<project>.md`. Save the brief the user said yes to with `.venv/bin/python -m kandu.brief set NAME --file -`, the brief on stdin; finish when it exits 0.
 5. Name a backup of what the project cannot rebuild as its first task, and refine it with `/kandu-task`.
-6. Finish when `.venv/bin/python -m kandu.doctor` shows no `FAIL` for this project.
+6. Show the repo note, `.venv/bin/python -m kandu.note NAME`, which only prints, and offer it as a task for this project: add the note as `KANDU.md` and its pointer line to the repo's `CLAUDE.md` and `AGENTS.md`. Refine and file it with `/kandu-task` only if the user said yes. Never write the note into the repo yourself.
+7. Finish when `.venv/bin/python -m kandu.doctor` shows no `FAIL` for this project.

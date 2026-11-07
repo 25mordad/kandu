@@ -17,6 +17,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Free flight** | A session the user opens on a task from the dashboard, with full access; Kandu's agents keep running beside it |
 | **Zanbourdar** | Persian for "beekeeper": a session the user opens beside Didban from the dashboard, with full access and tied to no task; it may change Kandu itself |
 | **Brief** | One short private file per project, `local/brief/<project>.md`, that Didban reads when the user names the project; it changes only through `kandu.brief` |
+| **Repo note** | `KANDU.md` in a project's repo, rendered by `kandu.note`: it says Kandu changes the repo, where its tasks are and how a breakage goes back to Kandu |
 | **Report file** | A file of the project's own, listed under `reports` in the registry, that Didban reads with the brief and never changes |
 | **Bazras** | The inspector bee: a daily, read-only look at a live project's health; its findings go in a private report, never into a task by itself |
 | **Finding** (Bazras) | Something Bazras's code found wrong: a reverted Kandu commit, rework, a failed unit or cron line, new error lines in a log, failing tests or a failing check |

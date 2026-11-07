@@ -60,6 +60,8 @@ The dashboard itself is always Kandu's own (§7); only its port is a choice.
 16. The project's brief for Didban: the LLM drafts it from what it read, the user corrects it (§13, §14).
 17. The daily Bazras, for a live project only: its hour and what it looks at (§5).
 
+After the questions, `/kandu-add` names a backup of what the project cannot rebuild as its first task, and offers a second one: the **repo note**. `python -m kandu.note NAME` renders it from the registry and only prints it. It is one generic template, [prompts/templates/kandu-note.md](prompts/templates/kandu-note.md), with no personal data: it says that Kandu's workers change the repo through PRs on `kandu/` branches, the merge mode, where the tasks are (the board, or Didban when there is none), the forbidden areas, and that a breakage goes back to Kandu as a task on the board, or through Didban, instead of being patched around it. It lives in `KANDU.md` at the repo root, and the repo's `CLAUDE.md` and `AGENTS.md` point to it with one line. The note reaches the repo only as a task for that project, filed on the user's yes; Kandu never writes it into a repo by itself, and adding it to a project already registered is that project's own task.
+
 ### C. Other conversational commands
 - `/kandu-task` — define a task; writes the issue with the standard template onto the right board (§2).
 - `/kandu-config` — change config: "pause project X for a week", "set the weekly limit to 50%", "remove this project".
