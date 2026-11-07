@@ -8,6 +8,7 @@ import hmac
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -16,8 +17,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import bazras, flights, ghmeter, queen, questions, review, sessions, split, timer
-from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_inspect, set_limits, set_parallel
+from . import backup, bazras, flights, ghmeter, queen, questions, review, sessions, split, timer
+from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup, set_inspect,
+                     set_limits, set_parallel)
 from .github import AGENT_LABEL, GitHubError
 from .mirror import open_github
 from .runner import DEFAULT_LOGS_DIR
@@ -130,7 +132,8 @@ class ApiError(Exception):
 
 class Api:
     def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic, start_cycle=timer.start_cycle,
-                 local_dir=DEFAULT_LOCAL_DIR, timer_on=timer.timer_on, flights_=None, restart=timer.restart):
+                 local_dir=DEFAULT_LOCAL_DIR, timer_on=timer.timer_on, flights_=None, restart=timer.restart,
+                 backup_timer=timer.enable_backup):
         self.config = config
         self.store = store
         self.github = github
@@ -142,6 +145,7 @@ class Api:
         self.local_dir = local_dir
         self.flights = flights_ or flights.Flights(config, store, logs_dir)
         self.restart_kandu = restart
+        self.backup_timer = backup_timer
         self._config_stamp = config_stamp(local_dir)
         self._config_lock = threading.Lock()
         self._queue = None
@@ -184,7 +188,48 @@ class Api:
             "flowers": flower_marks(self.store),
             "bazras": {"running": self.store.read_bazras(),
                        "last": {p.name: bazras.last_look(p.name, self.local_dir) for p in bazras.inspected(self.config)}},
+            "backup": self._backup(),
         }
+
+    def _backup(self):
+        """The backup's settings, its copies newest first, and how its last try ended."""
+        settings = self.config.settings.backup
+        made, failed = self.store.last_event("backup_made"), self.store.last_event("backup_failed")
+        last = max((e for e in (made, failed) if e is not None), key=lambda e: e["ts"], default=None)
+        return {"enabled": settings.enabled, "at": settings.at, "destination": settings.destination,
+                "keep": settings.keep, "copies": [p.name for p in reversed(backup.copies(backup.destination_of(settings)))],
+                "last": last}
+
+    def change_backup(self, query):
+        """Turns the backup on or off, and sets its hour, destination and copies kept, in `kandu.yaml`.
+
+        Turning it on also starts its timer, so an install whose timer was never enabled backs up too.
+        """
+        enabled = query.get("enabled", [""])[0]
+        if enabled not in ("true", "false"):
+            raise ApiError(400, "give enabled=true or enabled=false")
+        at = query.get("at", [None])[0] or None
+        destination = query.get("destination", [None])[0] or None
+        try:
+            keep = int(query["keep"][0]) if query.get("keep", [""])[0] else None
+        except ValueError:
+            raise ApiError(400, "give keep as a whole number") from None
+        try:
+            set_backup(enabled == "true", at, destination, keep, self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        settings = self.config.settings.backup
+        settings.enabled = enabled == "true"
+        settings.at, settings.destination = at or settings.at, destination or settings.destination
+        settings.keep = keep or settings.keep
+        self.store.record("backup_changed", enabled=settings.enabled, at=settings.at,
+                          destination=settings.destination, keep=settings.keep)
+        if settings.enabled:
+            try:
+                self.backup_timer(self.config)
+            except (OSError, subprocess.CalledProcessError):
+                raise ApiError(500, "saved, but systemd could not start the backup's timer") from None
+        return self._backup()
 
     def bazras_reports(self, query):
         """Every project: whether Bazras looks at it, at what hour, and its newest reports."""
@@ -606,6 +651,7 @@ ROUTES = [
     ("POST", "/projects/{name}/pause", Api.pause_project),
     ("POST", "/projects/{name}/resume", Api.resume_project),
     ("POST", "/projects/{name}/inspect", Api.change_inspect),
+    ("POST", "/backup", Api.change_backup),
 ]
 
 

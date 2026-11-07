@@ -56,6 +56,12 @@ notify:
 bazras:                        # optional; Bazras's daily look at projects whose `inspect` is on (DESIGN §5)
   at: "06:00"                  # default hour; a project's inspect.at overrides it
 
+backup:                        # optional; a daily copy of local/ and state/, what Git cannot rebuild (DESIGN §12)
+  enabled: false               # off until you turn it on, here or in the dashboard
+  at: "03:00"                  # the hour of the daily copy, on the brain's clock
+  destination: ~/kandu-backups # a folder on the brain's machine, outside local/ and state/; logs/ is left out
+  keep: 7                      # how many copies stay; the oldest go only after a new copy is good
+
 supervisor:                    # optional; these are the defaults
   wake_every_minutes: 60
   max_cycle_minutes: 50

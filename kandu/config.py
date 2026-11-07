@@ -4,6 +4,7 @@ Every problem is reported at once, so a config can be fixed in one pass.
 Paths are kept as written: a `~` may belong to another machine.
 """
 import argparse
+import json
 import posixpath
 import re
 import sys
@@ -115,6 +116,18 @@ class BazrasSettings:
 
 
 @dataclass
+class Backup:
+    """Kandu's daily copy of what it cannot rebuild from Git: `local/` and `state/` (DESIGN §12).
+
+    Off until the user turns it on, here or in the dashboard: a new install must not start work by itself.
+    """
+    enabled: bool = False
+    at: str = "03:00"              # HH:MM on the brain's clock
+    destination: str = "~/kandu-backups"   # a folder on the brain's machine, outside `local/` and `state/`
+    keep: int = 7                  # how many copies stay; older ones are removed after a good one is written
+
+
+@dataclass
 class Rules:
     allow: list[str] = field(default_factory=list)
     deny: list[str] = field(default_factory=list)
@@ -208,6 +221,7 @@ class Settings:
     permissions: Permissions = field(default_factory=Permissions)
     didban: Didban = field(default_factory=Didban)
     bazras: BazrasSettings = field(default_factory=BazrasSettings)
+    backup: Backup = field(default_factory=Backup)
 
 
 @dataclass
@@ -364,8 +378,20 @@ def _check_settings(s, problems):
         problems.append("supervisor.auto_revert: must be false; Kandu only reports breakage (DESIGN §5)")
     if not CLOCK.fullmatch(s.bazras.at):
         problems.append(f"bazras.at: must be HH:MM, got {s.bazras.at!r}")
+    _check_backup(s.backup.enabled, s.backup.at, s.backup.destination, s.backup.keep, problems)
     if not 1 <= s.dashboard.port <= 65535:
         problems.append(f"dashboard.port: must be between 1 and 65535, got {s.dashboard.port}")
+
+
+def _check_backup(enabled, at, destination, keep, problems):
+    if not CLOCK.fullmatch(at):
+        problems.append(f"backup.at: must be HH:MM, got {at!r}")
+    _check_positive(keep, "backup.keep", problems)
+    if not destination.strip():
+        if enabled:
+            problems.append("backup.destination: required when backup.enabled is true")
+    elif not destination.startswith(("/", "~/")) or "\n" in destination:
+        problems.append(f"backup.destination: must be a full path, starting with / or ~/, got {destination!r}")
 
 
 def _check_projects(projects, s, problems):
@@ -530,6 +556,54 @@ def _set_project_inspect(text, name, enabled, at):
             children = [i + 1 for i in children]
         else:
             lines[hit] = f"{child}{key}: {value}"  # Its old comment goes: it spoke of the old value.
+    return "\n".join(lines)
+
+
+def set_backup(enabled, at=None, destination=None, keep=None, local_dir=DEFAULT_LOCAL_DIR):
+    """Turns the backup on or off, and sets what else is given, in `kandu.yaml`, line by line.
+
+    A value left as None stays as it is; a missing `backup` block is added. Nothing is written if a value is wrong.
+    """
+    path = Path(local_dir) / "kandu.yaml"
+    text = path.read_text(encoding="utf-8")
+    now = (yaml.safe_load(text) or {}).get("backup") or {}
+    if not isinstance(now, dict):
+        raise ConfigError(["backup: written on one line; change it in kandu.yaml by hand"])
+    wanted = {"enabled": enabled, "at": at, "destination": destination, "keep": keep}
+    given = {key: value for key, value in wanted.items() if value is not None}
+    whole = {**Backup().__dict__, **now, **given}
+    problems = []
+    _check_backup(whole["enabled"], whole["at"], whole["destination"], whole["keep"], problems)
+    if problems:
+        raise ConfigError(problems)
+    written = {key: json.dumps(value) for key, value in given.items()}  # JSON's text and numbers are YAML too.
+    text = _set_top_block(text, "backup", written)
+    after = (yaml.safe_load(text) or {}).get("backup") or {}
+    if any(after.get(key) != value for key, value in given.items()):
+        raise ConfigError(["backup: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
+def _set_top_block(text, block, values):
+    """Sets each `key: value` under the top-level `block:`, adding the block or a key that is missing."""
+    lines = text.split("\n")
+    head = next((i for i, l in enumerate(lines) if re.fullmatch(rf"{block}:[ \t]*(#.*)?", l)), None)
+    if head is None:
+        if any(re.match(rf"{block}:", l) for l in lines):
+            raise ConfigError([f"{block}: written on one line; change it in kandu.yaml by hand"])
+        return text.rstrip("\n") + f"\n\n{block}:\n" + "".join(f"  {k}: {v}\n" for k, v in values.items())
+    end = head + 1
+    while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t#"):
+        end += 1
+    children = [i for i in range(head + 1, end) if lines[i].strip() and not lines[i].lstrip().startswith("#")]
+    pad = " " * (len(lines[children[0]]) - len(lines[children[0]].lstrip())) if children else "  "
+    for key, value in values.items():
+        hit = next((i for i in children if re.match(rf"^{pad}{key}:", lines[i])), None)
+        if hit is None:
+            lines.insert(head + 1, f"{pad}{key}: {value}")
+            children = [i + 1 for i in children]
+        else:
+            lines[hit] = f"{pad}{key}: {value}"  # Its old comment goes: it spoke of the old value.
     return "\n".join(lines)
 
 

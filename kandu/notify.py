@@ -56,6 +56,7 @@ MESSAGES = {
         "pr_ready": "The PR of {task} is ready for your approval.",
         "task_done": "{task} is merged and done.",
         "split_made": "Kandu split {task} into smaller tasks by itself. Every slice can be undone.",
+        "backup_failed": "Kandu's daily backup failed. The previous copies are untouched. The details are on the dashboard.",
         STUCK: "Stuck: Kandu cannot go on without you",
         YOUR_TURN: "Your turn: it waits for your yes",
         DONE: "Done",
@@ -83,6 +84,7 @@ MESSAGES = {
         "pr_ready": "PR مربوط به {task} آماده‌ی تأیید تو است.",
         "task_done": "{task} ادغام شد و تمام شد.",
         "split_made": "کندو {task} را خودش به تسک‌های کوچک‌تر شکست. همه‌ی تکه‌ها برگشت‌پذیرند.",
+        "backup_failed": "پشتیبان روزانه‌ی کندو شکست خورد. نسخه‌های قبلی دست نخورده‌اند. جزئیات در داشبورد است.",
         STUCK: "گیر کرده: کندو بدون تو جلو نمی‌رود",
         YOUR_TURN: "نوبت توست: منتظر تأیید تو است",
         DONE: "انجام شد",
@@ -151,6 +153,8 @@ def message_for(event, queen=False):
         return Message("usage_limit", "project_limit", key, values={"project": event["project"]})
     if kind == "project_checked" and not event["passed"]:
         return Message("failure", "check_failed", values={"project": event["project"]})
+    if kind == "backup_failed":  # Told once a day: the timer tries again until a copy is made.
+        return Message("failure", "backup_failed", f"backup_failed:{event['ts'][:10]}")
     if kind == "queen_finished" and event["brief"].startswith(COULD_NOT_FINISH):
         return Message("failure", "queen_trouble")
     return None

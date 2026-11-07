@@ -282,6 +282,14 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <h3 class="card-title" data-t="parallel_per_project"></h3><div id="parallelprojects"></div>
   <div class="actions"><button class="btn primary" value="yes" data-t="save"></button><button class="btn" value="no" formnovalidate data-t="cancel"></button></div>
 </form></dialog>
+<dialog id="backupbox" class="small"><form method="dialog" class="dialog-body">
+  <h2 data-t="backup_title"></h2><p class="muted" data-t="backup_why"></p>
+  <label class="limit-field"><span data-t="backup_on"></span><input id="backupon" type="checkbox"></label>
+  <label class="limit-field"><span data-t="backup_hour"></span><input id="backupat" type="time" step="60" required dir="ltr"></label>
+  <label class="limit-field"><span data-t="backup_destination"></span><input id="backupdestination" type="text" required dir="ltr"></label>
+  <label class="limit-field"><span data-t="backup_keep"></span><input id="backupkeep" type="number" min="1" required></label>
+  <div class="actions"><button class="btn primary" value="yes" data-t="save"></button><button class="btn" value="no" formnovalidate data-t="cancel"></button></div>
+</form></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
 <script type="application/json" id="text">
 {
@@ -394,6 +402,19 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "did_answers": "answers",
   "change": "change",
   "save": "Save",
+  "backup": "Backup",
+  "backup_title": "Daily backup",
+  "backup_why": "Once a day Kandu copies its config and state folders, which Git cannot rebuild, into a folder on this machine. The run logs are left out. A failed copy leaves the earlier ones as they were and is told to you.",
+  "backup_on": "On",
+  "backup_hour": "Hour of the daily copy",
+  "backup_destination": "Folder for the copies",
+  "backup_keep": "Copies kept",
+  "backup_off": "Off",
+  "backup_daily_at": "Daily at {at}",
+  "backup_last_failed": "last copy failed",
+  "backup_copies": "{count} copies",
+  "backup_saved_on": "Kandu will back up every day at {at}",
+  "backup_saved_off": "Kandu will not back up",
   "limits_title": "Usage limits",
   "parallel_title": "Workers at once",
   "parallel_why": "How many workers build at the same time. A review or a sizing takes no worker's place. The next cycle uses these.",
@@ -546,6 +567,19 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "did_answers": "پاسخ",
   "change": "تغییر",
   "save": "ذخیره",
+  "backup": "پشتیبان",
+  "backup_title": "پشتیبان روزانه",
+  "backup_why": "کندو روزی یک بار پوشه‌های تنظیمات و وضعیتش را، که از گیت دوباره ساخته نمی‌شوند، در پوشه‌ای روی همین ماشین کپی می‌کند. لاگ اجراها کنار می‌ماند. کپیِ ناموفق کپی‌های قبلی را دست نمی‌زند و به تو خبر داده می‌شود.",
+  "backup_on": "روشن",
+  "backup_hour": "ساعت کپی روزانه",
+  "backup_destination": "پوشهٔ کپی‌ها",
+  "backup_keep": "تعداد کپی‌های نگه‌داشته",
+  "backup_off": "خاموش",
+  "backup_daily_at": "هر روز ساعت {at}",
+  "backup_last_failed": "آخرین کپی شکست خورد",
+  "backup_copies": "{count} کپی",
+  "backup_saved_on": "کندو هر روز ساعت {at} پشتیبان می‌گیرد",
+  "backup_saved_off": "کندو دیگر پشتیبان نمی‌گیرد",
   "limits_title": "سقف مصرف",
   "parallel_title": "کارگرهای هم‌زمان",
   "parallel_why": "چند کارگر هم‌زمان کار بسازند. بازبینی و اندازه‌گیری جای کارگر را نمی‌گیرند. چرخهٔ بعدی از این عددها استفاده می‌کند.",
@@ -718,6 +752,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "project_resumed": "پروژه ادامه یافت",
   "project_inspected": "بازرس پروژه را نگاه کرد",
   "inspect_changed": "بازرس پروژه روشن یا خاموش شد",
+  "backup_made": "پشتیبان گرفته شد",
+  "backup_failed": "پشتیبان شکست خورد",
+  "backup_changed": "تنظیم پشتیبان تغییر کرد",
   "bazras": "بازرس",
   "group_closed": "گروه بسته شد",
   "group_not_closed": "گروه بسته نشد",
@@ -1232,7 +1269,33 @@ function renderStats(s) {
   const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${!s.timer_on ? t("timer_off") : s.next_wake ? esc(when(s.next_wake)) : "—"}</div></div>`;
   const parked = lastQueue && Object.values(lastQueue.projects).reduce((sum, columns) => sum + columns["Technical debt"].length, 0);
   const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
-  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + debt + wake;
+  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + debt + wake + backupCard(s.backup);
+}
+
+// The daily backup: off until the user turns it on here. A failed last try shows, so it is never silent.
+function backupCard(b) {
+  if (!b) return "";
+  const said = b.enabled ? t("backup_daily_at").replace("{at}", num(b.at)) : t("backup_off");
+  const failed = b.last?.type === "backup_failed";
+  const note = failed ? esc(t("backup_last_failed")) : b.copies.length ? esc(t("backup_copies").replace("{count}", num(b.copies.length))) : "";
+  return `<div class="card stat"><div class="stat-label">${t("backup")}</div><div class="stat-value stat-small${failed ? " over" : ""}">${esc(said)}</div>
+    <small>${note}<button class="textlink limit-edit" data-backup>${t("change")}</button></small></div>`;
+}
+
+function changeBackup(button) {
+  const box = $("backupbox"), b = lastState.backup;
+  $("backupon").checked = b.enabled;
+  $("backupat").value = b.at;
+  $("backupdestination").value = b.destination;
+  $("backupkeep").value = b.keep;
+  box.returnValue = "no";
+  box.addEventListener("close", async () => {
+    if (box.returnValue !== "yes") return;
+    const on = $("backupon").checked, at = $("backupat").value;
+    const query = `enabled=${on}&at=${encodeURIComponent(at)}&destination=${encodeURIComponent($("backupdestination").value)}&keep=${encodeURIComponent($("backupkeep").value)}`;
+    if (await act(button, `/backup?${query}`)) toast(t(on ? "backup_saved_on" : "backup_saved_off").replace("{at}", num(at)));
+  }, {once: true});
+  box.showModal();
 }
 
 function renderBees(s) {
@@ -1577,6 +1640,7 @@ document.addEventListener("click", e => {
   if (hit("land")) { act(hit("land"), `/flights/${encodeURIComponent(hit("land").dataset.land)}/close`).then(() => refreshFlights()).catch(() => {}); return; }
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }
+  if (hit("backup")) { changeBackup(hit("backup")); return; }
   if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); sendingBack = false; showReviews(shownTask); return; }
   if (hit("back-sure")) { sendingBack = true; confirming = false; showReviews(shownTask); return; }
   if (hit("back")) { doSendBack(hit("back")); return; }

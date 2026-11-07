@@ -58,9 +58,23 @@ class TimerTest(unittest.TestCase):
             timer.restart(self.config)
         install.assert_called_once_with(self.config)
         first, second = (c.args[0] for c in run.call_args_list)
-        self.assertEqual(first, ["systemctl", "--user", "try-restart", "kandu.timer", "kandu-sync.timer", "kandu-bazras.timer"])
+        self.assertEqual(first, ["systemctl", "--user", "try-restart", "kandu.timer", "kandu-sync.timer", "kandu-bazras.timer",
+                                 "kandu-backup.timer"])
         self.assertEqual(second[:2], ["systemd-run", "--user"])
         self.assertEqual(second[-1], "kandu-dashboard.service")
+
+    def test_the_backup_wakes_often_and_runs_from_the_venv(self):
+        self.assertIn('ExecStart="%h/kandu/.venv/bin/python" -m kandu.backup run', timer.render_backup_service(self.config))
+        self.assertIn("OnCalendar=*:0/15", timer.render_backup_timer(self.config))
+
+    def test_turning_the_backup_on_writes_its_units_and_starts_its_timer(self):
+        units = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, units)
+        with mock.patch.object(timer.subprocess, "run") as run:
+            timer.enable_backup(self.config, units)
+        self.assertTrue((units / "kandu-backup.service").exists())
+        self.assertTrue((units / "kandu-backup.timer").exists())
+        self.assertEqual(run.call_args.args[0], ["systemctl", "--user", "enable", "--now", "kandu-backup.timer"])
 
     def test_dashboard_flag_never_starts_the_timer(self):
         with mock.patch.object(timer, "load_config", return_value=self.config), \

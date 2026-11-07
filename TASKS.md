@@ -61,6 +61,7 @@ Every task is designed and checked against harness, context and memory (§14).
 52. [ ] Versions: tag releases with a version number and a short changelog, so an install knows what an update brings and which features ship off (§12)
 53. [x] The private guard also takes the setup's own terms (projects, repos, paths, machines, `.env` values) and checks each pushed commit's author, so Kandu may run as its own project and push its merged `main` to the public repo (§12)
 54. [x] A task that must change a forbidden area is held in `Backlog` before it reaches a worker: the splitter names the areas, code checks them, and Didban lists the held tasks and releases one to be sized again (§2, §13)
+55. [x] A daily, dated backup of `local/` and `state/` into a folder set in the config, keeping a set number of copies; a failed copy leaves the earlier ones, never removes the newest good one and is told; off by default, set from the dashboard, with a restore command (§7, §12)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)
