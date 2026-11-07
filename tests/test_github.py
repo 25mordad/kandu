@@ -105,6 +105,16 @@ class GitHubTest(unittest.TestCase):
         self.assertEqual(GitHub(gh).find_pr("o/r", 12), {"number": 8})
         self.assertEqual(gh.calls[1][:3], ["pr", "view", "8"])
 
+    def test_pr_text_goes_as_fields_never_as_shell_text(self):
+        gh = FakeGh({"number": 12})
+        body = "Uses `$(rm -rf ~)` and `x`.\n\nCloses #3\n"
+        self.assertEqual(GitHub(gh).create_pr("o/r", "kandu/3-a", "main", "Add `x`", body), 12)
+        self.assertEqual(gh.calls[0][:4], ["api", "repos/o/r/pulls", "-X", "POST"])
+        self.assertIn(f"body={body}", gh.calls[0])
+        self.assertIn("head=kandu/3-a", gh.calls[0])
+        GitHub(gh).edit_pr_body("o/r", 12, body)
+        self.assertEqual(gh.calls[1], ["api", "repos/o/r/pulls/12", "-X", "PATCH", "-f", f"body={body}"])
+
     def test_no_pr(self):
         self.assertIsNone(GitHub(FakeGh([])).find_pr("o/r", 12))
 

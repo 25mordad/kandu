@@ -43,6 +43,8 @@ BASE_MOVED = "Base branch was modified"  # another merge landed first; GitHub as
 MERGE_TRIES = 3  # Kandu's own trouble is tried this often in a row before the task stops for a look.
 PROGRESS = ("review_finished", "task_finished", "task_sized")
 ROOT = Path(__file__).resolve().parent.parent
+UNREAD_PR_BODY = ("The worker pushed this branch, but Kandu could not read its last message, so this description "
+                  "is Kandu's. The review reads the code.")
 FAILURE_COMMENT = "Kandu could not finish this step and stopped here. The details are in its local log."
 
 
@@ -261,11 +263,19 @@ class Supervisor:
         """Reads GitHub into the copy after an agent changed it. A refusal that passes by itself ends only this
         cycle's turn of the task: it stays where it is and resumes in the next."""
         try:
-            read()
+            return read()
         except GitHubError as e:
             if transient(e):
                 raise CycleStop(f"GitHub could not be read: {e}") from e
             raise
+
+    def _head_after_push(self, task, pr):
+        """The PR's head after an agent's round, read once the PR shows its branch's last commit. A PR that
+        still shows an older one ends this cycle's turn of the task: judged now, a push would count as none."""
+        pushed = self._reread(lambda: self.github.refresh_pushed_pr(task.repo, pr["number"]))
+        if self.github.pr(task.repo, pr["number"])["headRefOid"] != pushed:
+            raise CycleStop(f"{task.key}: GitHub does not show the push to the PR yet")
+        return pushed
 
     def _decide(self, task, decision, reason):
         self.store.record("decision", task=task.key, project=task.project.name, decision=decision, reason=reason)
@@ -319,10 +329,12 @@ class Supervisor:
                                 schema, resume=result.session_id)
             return read(again.text)
 
-    def _work(self, task, findings=None, pr=None, order=None):
+    def _work(self, task, findings=None, pr=None, order=None, cwd=None):
+        """Runs a worker on the task's branch. `cwd` is a worktree Kandu already prepared, such as an open merge."""
         run_id = new_run_id(self.now())
-        base = self.github.default_branch(task.repo)
-        cwd = self.runner.prepare_worktree(task.project, task.repo, task.branch, base)
+        if cwd is None:
+            base = self.github.default_branch(task.repo)
+            cwd = self.runner.prepare_worktree(task.project, task.repo, task.branch, base)
         note = queen.note_for(queen.all_events(self.store), task.key)
         blockers = open_blockers(self.github, task.repo, self.github.issue_text(task.repo, task.number)["body"])
         prompt = agents.worker_prompt(task.project, task.repo, task.number, task.branch, run_id,
@@ -332,7 +344,39 @@ class Supervisor:
         tokens = (project.secrets_from, list(project.task_tokens)) if task.tokens else None
         tools = agents.worker_tools(project, task.branch, self._rules("worker"))
         result = self._agent(task, "worker", cwd, prompt, tools, run_id, tokens, agents.WORKER_SCHEMA)
-        return self._reply(task, "worker", cwd, tools, result, agents.parse_worker_reply, tokens, agents.WORKER_SCHEMA)
+        read = agents.parse_worker_reply if pr is not None else agents.parse_first_reply
+        return self._reply(task, "worker", cwd, tools, result, read, tokens, agents.WORKER_SCHEMA)
+
+    def _open_pr(self, task, reply):
+        """Kandu opens the PR, from the task's own branch into the default one: no worker may run `gh pr create`.
+        A PR an earlier run left open on the branch gets the new description instead."""
+        body = agents.closing_body(reply["pr_body"], task.number)
+        pr = self.github.find_pr(task.repo, task.number)
+        if pr is not None and pr["state"] == "OPEN":
+            self.github.edit_pr_body(task.repo, pr["number"], body)
+            return self.github.pr(task.repo, pr["number"])
+        base = self.github.default_branch(task.repo)
+        try:
+            number = self.github.create_pr(task.repo, task.branch, base, reply["pr_title"], body)
+        except GitHubError as e:
+            # The answer may be lost while the PR was made: look before calling it a failure.
+            self._reread(lambda: self.github.refresh_repo(task.repo))
+            pr = self.github.find_pr(task.repo, task.number)
+            if pr is not None and pr["state"] == "OPEN":
+                return pr
+            raise TaskFailed(f"the PR could not be opened from {task.branch}: {e}") from e
+        self._decide(task, "pr_opened", f"#{number} from {task.branch}")
+        return self.github.pr(task.repo, number)
+
+    def _edit_pr_body(self, task, pr, reply):
+        """A round may replace the PR's description; Kandu sends it, as no worker may run `gh pr edit`. A refusal
+        is recorded and does not undo the round: its commits are pushed, and it is judged by them."""
+        if reply is not None and reply.get("status") == "pushed" and reply.get("pr_body"):
+            try:
+                self.github.edit_pr_body(task.repo, pr["number"],
+                                         agents.closing_body(reply["pr_body"], task.number))
+            except GitHubError as e:
+                self._decide(task, "pr_body_not_edited", str(e))
 
     def _implement(self, task):
         """First run. Returns the new PR, or None if the worker gave the task back."""
@@ -342,13 +386,17 @@ class Supervisor:
         try:
             reply = self._work(task)
         except agents.ReplyError as e:
-            # The work may be done even if its last message is not: a PR on the branch is its answer.
+            # The work may be done even if its last message is not: a pushed branch is its answer.
             self._reread(lambda: self.github.refresh_repo(task.repo))
             pr = self.github.find_pr(task.repo, task.number)
             if pr is not None and pr["state"] == "OPEN":
                 self._decide(task, "reply_unread_pr_found", str(e))
                 return pr
-            raise KanduTrouble(str(e)) from e
+            if not self.runner.branch_pushed(task.project, task.repo, task.branch):
+                raise KanduTrouble(str(e)) from e
+            self._decide(task, "reply_unread_branch_pushed", str(e))
+            title = self.github.issue_text(task.repo, task.number)["title"]
+            reply = {"status": "pushed", "pr_title": title, "pr_body": UNREAD_PR_BODY}
         if reply["status"] == "needs_info":
             self.github.comment_issue(task.repo, task.number, reply["question"])
             self._finish(task, NEEDS_INFO, "needs_info")
@@ -357,11 +405,8 @@ class Supervisor:
             self.github.comment_issue(task.repo, task.number, reply["reason"])
             self._finish(task, BLOCKED, "blocked")
             return None
-        self._reread(lambda: self.github.refresh_repo(task.repo))  # the worker opened its PR on GitHub
-        pr = self.github.find_pr(task.repo, task.number)
-        if pr is None:
-            raise TaskFailed("worker reported a PR, but its branch has none")
-        return pr
+        self._reread(lambda: self.github.refresh_repo(task.repo))  # the worker pushed its branch
+        return self._open_pr(task, reply)
 
     def _warn_if_oversized(self, task, pr):
         """A warning only: it shows where the scale and the splitter's estimates are wrong."""
@@ -504,18 +549,21 @@ class Supervisor:
         """One fix round by a fresh worker on the same branch."""
         self._round(task, pr, f"fix round {len(reviews)}", self._to_fix(task, reviews[-1]))
 
-    def _round(self, task, pr, phase, findings):
-        """A fresh worker on the same branch. A round that adds no commit is recorded, so it is not run again."""
+    def _round(self, task, pr, phase, findings, cwd=None):
+        """A fresh worker on the same branch. A round that adds no commit is recorded, so it is not run again.
+        Returns the worker's reply, or None if it could not be read."""
         head = pr["headRefOid"]
         self._pick(task)
         self._phase(task, phase)
+        reply = None
         try:
-            self._work(task, findings=findings, pr=pr["number"])
+            reply = self._work(task, findings=findings, pr=pr["number"], cwd=cwd)
         except agents.ReplyError:
             pass  # A round is judged by its commits, not by its last message.
-        self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
-        if self.github.pr(task.repo, pr["number"])["headRefOid"] == head:
+        self._edit_pr_body(task, pr, reply)
+        if self._head_after_push(task, pr) == head:
             self.github.comment_pr(task.repo, pr["number"], review.fix_comment(head))
+        return reply
 
     def _conflicts(self, pr, outcome):
         """A reviewed PR that only its conflicts hold back, and that no update round has tried on this head."""
@@ -523,12 +571,57 @@ class Supervisor:
                 and not review.fix_tried(pr, self.config.settings.github.account, pr["headRefOid"]))
 
     def _update(self, task, pr):
-        """Brings the default branch into the PR. The new head is reviewed again before any merge."""
+        """Brings the default branch into the PR. Kandu merges; a worker only resolves the files in conflict.
+        The new head is reviewed again before any merge. Returns False if the task stopped here."""
         base = self.github.default_branch(task.repo)
+        run_id = new_run_id(self.now())
+        cwd = self.runner.prepare_worktree(task.project, task.repo, task.branch, base)
+        message = f"Merge {base} into {task.branch}\n\nKandu-Run: {run_id}"
+        merged, conflicts = self.runner.merge_base(task.project, task.repo, cwd, task.branch, base, message)
+        if not conflicts:
+            self._pick(task)
+            self._phase(task, "update")
+            self.runner.push_branch(task.project, cwd, task.branch)
+            self._decide(task, "base_merged", f"{base} merged into the PR with no conflict, run {run_id}")
+            if self._head_after_push(task, pr) == pr["headRefOid"]:
+                # Nothing new to push, yet GitHub sees a conflict: marked, so this head is not tried again.
+                self.github.comment_pr(task.repo, pr["number"], review.fix_comment(pr["headRefOid"]))
+            return True
+        files = ", ".join(f"`{path}`" for path in conflicts)
         conflict = {"n": 0, "blocker": True, "path": "", "line": None,
-                    "body": f"This PR conflicts with `{base}`. Merge `{base}` into the branch (no rebase), resolve every "
-                            "conflict so that the changes of both sides stay, run the tests, and push. Change nothing else."}
-        self._round(task, pr, "update", [conflict])
+                    "body": f"Kandu began merging `{base}` into your branch and stopped at conflicts in {files}. "
+                            "Resolve each conflict so that the changes of both sides stay, `git add` those files, "
+                            f"and finish the merge with `git commit`, with the message `Merge {base} into "
+                            f"{task.branch}` and your `Kandu-Run:` line. Run the tests and push. Do not start "
+                            "another merge or a rebase. Change nothing else."}
+        try:
+            reply = self._round(task, pr, "update", [conflict], cwd=cwd)
+        except BaseException:
+            # Even a round cut short may have pushed: markers must not reach a review.
+            if self._merge_left_markers(task, pr, cwd, conflicts):
+                return False
+            raise
+        if self._merge_left_markers(task, pr, cwd, conflicts):
+            return False
+        if not self.runner.has_commit(task.project, task.repo, cwd, task.branch, merged):
+            why = reply["reason"] if reply is not None and reply.get("status") == "blocked" else \
+                "The merge was not finished and pushed."
+            self.github.comment_pr(task.repo, pr["number"], f"Kandu stopped here: the update round could not "
+                                                            f"bring `{base}` in. {why}")
+            self._finish(task, BLOCKED, "blocked")
+            return False
+        return True
+
+    def _merge_left_markers(self, task, pr, cwd, conflicts):
+        """Blocks the task if the pushed branch still holds a conflict marker in a file the merge stopped at."""
+        left = self.runner.conflict_markers(task.project, task.repo, cwd, task.branch, conflicts)
+        if not left:
+            return False
+        names = ", ".join(f"`{path}`" for path in left)
+        self.github.comment_pr(task.repo, pr["number"], f"Kandu stopped here: the update round left conflict "
+                                                        f"markers in {names}.")
+        self._finish(task, BLOCKED, "blocked")
+        return True
 
     # What the queen sends on.
 
@@ -547,11 +640,10 @@ class Supervisor:
         self._move(task, IN_PROGRESS)
         self._phase(task, "queen's rework")
         try:
-            self._work(task, pr=pr["number"], order=step["note"])
+            self._edit_pr_body(task, pr, self._work(task, pr=pr["number"], order=step["note"]))
         except agents.ReplyError:
             pass  # judged by its commits, as a fix round is
-        self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
-        after = self.github.pr(task.repo, pr["number"])["headRefOid"]
+        after = self._head_after_push(task, pr)
         self._step_done(task, step, result="pushed" if after != head else "no_commit", head_sha=after)
 
     def _verify(self, task, pr, step):
@@ -896,7 +988,8 @@ class Supervisor:
                 if outcome is None:
                     self._fix(task, pr, reviews)
                 elif self._conflicts(pr, outcome):
-                    self._update(task, pr)
+                    if not self._update(task, pr):
+                        return
                 elif (merged := self._merge(task, pr, outcome, worked)) is None and tries < MERGE_TRIES:
                     tries += 1  # read again: it merges now, or its new conflict goes to an update round
                 elif not merged:

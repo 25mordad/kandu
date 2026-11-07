@@ -150,7 +150,7 @@ This starts the timer and the dashboard together. The supervisor now wakes every
 What happens to your task:
 1. The **splitter** sizes it.
 2. The **queen** releases it from `Backlog` to `Ready`, at the pace the project can take.
-3. A **worker** builds it in its own worktree, tests first, and opens a PR on a `kandu/...` branch.
+3. A **worker** builds it in its own worktree, tests first, and pushes a `kandu/...` branch. Kandu opens the PR from the title and description the worker writes.
 4. A fresh **reviewer** checks the PR against the criteria. The worker fixes what it found, for at most two rounds.
 5. With every merge condition met on the reviewed commit, the PR **merges** if auto-merge is on, or waits for you if it is off.
 6. Kandu **deploys** and runs the **live check**. Then the task is `Done`.

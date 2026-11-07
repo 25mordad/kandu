@@ -396,6 +396,15 @@ class GitHub:
     def edit_issue(self, repo, number, title, body):
         self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", f"title={title}", "-f", f"body={body}"])
 
+    def create_pr(self, repo, head, base, title, body):
+        """Opens a PR from `head` into `base` and returns its number. Each field is one argument, never shell text."""
+        args = ["api", f"repos/{repo}/pulls", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}",
+                "-f", f"head={head}", "-f", f"base={base}"]
+        return self._json(args)["number"]
+
+    def edit_pr_body(self, repo, number, body):
+        self._run(["api", f"repos/{repo}/pulls/{number}", "-X", "PATCH", "-f", f"body={body}"])
+
     def repo_is_public(self, repo):
         return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"
 
@@ -416,6 +425,10 @@ class GitHub:
     def add_label(self, repo, number, label, description):
         self._run(["label", "create", label, "--repo", repo, "--force", "--description", description])
         self._run(["api", f"repos/{repo}/issues/{number}/labels", "-X", "POST", "-f", f"labels[]={label}"])
+
+    def branch_head(self, repo, branch):
+        """The branch's last commit as git has it: right after a push, a PR may still show the one before."""
+        return self._json(["api", f"repos/{repo}/git/ref/heads/{branch}"])["object"]["sha"]
 
     def default_branch(self, repo):
         data = self._json(["repo", "view", repo, "--json", "defaultBranchRef"])

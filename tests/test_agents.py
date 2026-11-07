@@ -17,11 +17,21 @@ RULES = Rules(allow=["Read", "Bash(git push origin {branch})"], deny=["Read(**/.
 
 class ToolsTest(unittest.TestCase):
     def test_with_no_rules_a_role_may_do_everything(self):
-        for allowed, denied in (agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a"),
-                                agents.live_check_tools(project(allowed_tools=["Bash(npm install)"])),
+        for allowed, denied in (agents.live_check_tools(project(allowed_tools=["Bash(npm install)"])),
                                 agents.role_tools()):
             self.assertIsNone(allowed)
             self.assertEqual(denied, [])
+        allowed, denied = agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a")
+        self.assertIsNone(allowed)
+        self.assertEqual(denied, agents.KANDU_ONLY)
+
+    def test_no_worker_merges_or_opens_or_edits_a_pr_whatever_the_config_says(self):
+        rules = Rules(allow=["Bash(git *)", "Bash(gh *)"], deny=[])
+        for given in (None, rules):
+            _, denied = agents.worker_tools(project(), "kandu/1-a", given)
+            for tool in ("Bash(git merge *)", "Bash(git pull *)", "Bash(git rebase *)", "Bash(gh pr create *)",
+                         "Bash(gh pr edit *)", "Bash(gh pr merge *)"):
+                self.assertIn(tool, denied)
 
     def test_forbidden_areas_hold_even_with_no_rules(self):
         for rules in (None, RULES):
@@ -137,25 +147,39 @@ class QueenReportTest(unittest.TestCase):
 
 class WorkerReplyTest(unittest.TestCase):
     def test_valid(self):
-        self.assertEqual(agents.parse_worker_reply('{"status": "pr_opened", "pr": 3}\n')["pr"], 3)
+        self.assertEqual(agents.parse_worker_reply('{"status": "pushed"}\n')["status"], "pushed")
         self.assertEqual(agents.parse_worker_reply('{"status": "needs_info", "question": "q"}')["question"], "q")
         self.assertEqual(agents.parse_worker_reply('{"status": "blocked", "reason": "r"}')["reason"], "r")
 
     def test_invalid(self):
-        for text in ("Done!", "[]", '{"status": "done"}', '{"status": "needs_info"}', '{"status": "blocked"}'):
+        for text in ("Done!", "[]", '{"status": "done"}', '{"status": "needs_info"}', '{"status": "blocked"}',
+                     '{"status": "pr_opened", "pr": 3}', '{"status": "pushed", "pr_body": " "}'):
             with self.assertRaises(agents.ReplyError):
                 agents.parse_worker_reply(text)
+
+    def test_a_first_push_needs_the_prs_title_and_description(self):
+        reply = agents.parse_first_reply('{"status": "pushed", "pr_title": "Add `x`", "pr_body": "Uses `y`."}')
+        self.assertEqual(reply["pr_body"], "Uses `y`.")
+        self.assertEqual(agents.parse_first_reply('{"status": "blocked", "reason": "r"}')["reason"], "r")
+        for text in ('{"status": "pushed"}', '{"status": "pushed", "pr_title": "t"}', '{"status": "pushed", "pr_body": "b"}'):
+            with self.assertRaises(agents.ReplyError):
+                agents.parse_first_reply(text)
+
+    def test_the_description_always_closes_the_issue(self):
+        self.assertEqual(agents.closing_body("Adds `x`.", 4), "Adds `x`.\n\nCloses #4\n")
+        self.assertEqual(agents.closing_body("Fixes #4 by adding `x`.", 4), "Fixes #4 by adding `x`.")
+        self.assertEqual(agents.closing_body("Closes #41", 4), "Closes #41\n\nCloses #4\n")
 
 
 
 class WorkerReplyAfterSummaryTest(unittest.TestCase):
     def test_a_summary_above_the_json_line_is_read(self):
-        reply = agents.parse_worker_reply('Opened the PR.\n\n- one change\n\n{"status": "pr_opened", "pr": 6}\n')
-        self.assertEqual(reply, {"status": "pr_opened", "pr": 6})
+        reply = agents.parse_worker_reply('Opened the PR.\n\n- one change\n\n{"status": "pushed"}\n')
+        self.assertEqual(reply, {"status": "pushed"})
 
     def test_a_code_block_that_ends_the_summary_is_read(self):
-        text = 'Opened the PR.\n\nThings to know:\n- one change\n\n```json\n{"status": "pr_opened", "pr": 15}\n```'
-        self.assertEqual(agents.parse_worker_reply(text), {"status": "pr_opened", "pr": 15})
+        text = 'Opened the PR.\n\nThings to know:\n- one change\n\n```json\n{"status": "pushed"}\n```'
+        self.assertEqual(agents.parse_worker_reply(text), {"status": "pushed"})
         live = 'Checked the page.\n```json\n{"result": "pass", "summary": "It plays."}\n```'
         self.assertEqual(agents.parse_live_check(live)["result"], "pass")
 
@@ -167,7 +191,7 @@ class WorkerReplyAfterSummaryTest(unittest.TestCase):
 
     def test_a_code_block_in_the_middle_is_not_the_reply(self):
         with self.assertRaises(agents.ReplyError):
-            agents.parse_worker_reply('```json\n{"status": "pr_opened", "pr": 1}\n```\nThen I stopped.')
+            agents.parse_worker_reply('```json\n{"status": "pushed"}\n```\nThen I stopped.')
 
     def test_the_reask_names_what_could_not_be_read(self):
         prompt = agents.reask_prompt(agents.ReplyError("worker reply is not JSON"))
