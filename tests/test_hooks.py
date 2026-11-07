@@ -1,10 +1,13 @@
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 HOOKS = Path(__file__).resolve().parent.parent / ".githooks"
+TERMS_SCRIPT = HOOKS.parent / "kandu" / "privateterms.py"
 TERM = "zzprivatezz"
 
 
@@ -101,6 +104,47 @@ class HooksTest(unittest.TestCase):
         self.git("checkout", "-q", "-b", "feature")
         self.commit("a.txt", "nothing here\n")
         self.assertEqual(self.git("push", "origin", "feature", check=False).returncode, 0)
+
+    def install_terms(self, script=None):
+        """Gives the test repo an install's .venv and kandu/privateterms.py, as the hooks look for them."""
+        venv = self.repo / ".venv" / "bin"
+        venv.mkdir(parents=True)
+        (venv / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+        (venv / "python").chmod(0o755)
+        (self.repo / "kandu").mkdir()
+        if script is None:
+            shutil.copy(TERMS_SCRIPT, self.repo / "kandu" / "privateterms.py")
+        else:
+            (self.repo / "kandu" / "privateterms.py").write_text(script, encoding="utf-8")
+        (self.repo / ".git" / "info" / "exclude").write_text(".venv/\nkandu/\nlocal/\n", encoding="utf-8")
+
+    def test_a_project_in_the_registry_is_private_without_a_word_for_it(self):
+        self.install_terms()
+        (self.repo / "local" / "projects.yaml").write_text(
+            "projects:\n  - name: zzsecretproject\n    repos: [zzowner/zzrepo]\n", encoding="utf-8")
+        self.assertEqual(self.commit("c.txt", "nothing here\n").returncode, 0)
+        self.assertBlocked(self.commit("a.txt", "the zzsecretproject repo\n"))
+        self.git("reset", "-q")
+        self.assertBlocked(self.commit("b.txt", "see zzowner/zzrepo\n"))
+
+    def test_the_user_words_still_count_with_the_terms_script(self):
+        self.install_terms()
+        self.assertBlocked(self.commit("a.txt", f"{TERM}\n"))
+
+    def test_a_terms_script_that_fails_blocks_everything(self):
+        self.install_terms(script="import sys\nsys.exit(3)\n")
+        result = self.commit("a.txt", "nothing here\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not read the private terms", result.stderr)
+
+    def test_push_blocks_a_private_author(self):
+        remote = self.tmp / "remote.git"
+        self.git("init", "-q", "--bare", "-b", "main", str(remote))
+        self.git("remote", "add", "origin", str(remote))
+        self.git("push", "-q", "origin", "main")
+        self.git("config", "user.email", f"{TERM}@example.com")
+        self.commit("a.txt", "nothing here\n", verify=False)
+        self.assertBlocked(self.git("push", "origin", "main", check=False))
 
     def test_push_of_clean_commits_passes(self):
         remote = self.tmp / "remote.git"

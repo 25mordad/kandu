@@ -11,6 +11,7 @@ from .boards import missing_columns, missing_fields
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .dashboard import TOKEN_ENV
 from .github import GitHub, GitHubError
+from .privateterms import all_terms
 from .runner import Runner, RunnerError, repo_path
 from .usage import UsageError, read_usage
 
@@ -36,6 +37,12 @@ def check_guard(hooks_path, local_dir):
     results = [(OK if hooks_path == ".githooks" else FAIL, "private guard: core.hooksPath is .githooks")]
     has_words = (Path(local_dir) / "private-words.txt").exists()
     results.append((OK if has_words else WARN, "private guard: local/private-words.txt exists"))
+    try:
+        terms = all_terms(local_dir)
+    except Exception as e:
+        results.append((FAIL, f"private guard: the private terms cannot be read ({type(e).__name__}); every commit is blocked"))
+    else:
+        results.append((OK, f"private guard: {len(terms)} private term(s), from the word list and the setup"))
     return results
 
 

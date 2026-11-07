@@ -14,6 +14,7 @@ from . import sizing
 from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR, DEADLINE_FIELD, ConfigError, load_config
 from .github import GitHubError
 from .mirror import open_github
+from .privateterms import all_terms
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "prompts" / "templates" / "issue.md"
 
@@ -40,11 +41,8 @@ def check_english(text):
 
 
 def private_words(local_dir):
-    path = Path(local_dir) / "private-words.txt"
-    if not path.exists():
-        return []
-    lines = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
-    return [line for line in lines if line and not line.startswith("#")]
+    """The user's private words and the terms of the setup itself, as the git hooks see them."""
+    return all_terms(local_dir)
 
 
 def check_private(text, words):
