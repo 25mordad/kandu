@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, debt, merge, queen, questions, review, sizing, split, tasks
+from . import agents, debt, merge, queen, questions, review, show, sizing, split, tasks
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .github import AGENT_LABEL, TOKENS_LABEL, GitHubError, blockers_in, branch_for, transient
 from .mirror import open_github
@@ -278,6 +278,17 @@ class Supervisor:
     def _rules(self, role):
         return getattr(self.config.settings.permissions, role)
 
+    def _remote(self, project):
+        """True when the project's agents run away from the brain, where `bin/kandu-show` is not."""
+        return project.machine != self.config.settings.brain.machine
+
+    def _copy(self, project):
+        """None on the brain, where agents run `bin/kandu-show`; away from it, how Kandu reads an item from its copy
+        into the prompt."""
+        if not self._remote(project):
+            return None
+        return lambda repo, number: show.render(self.github.item(repo, number))
+
     def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None, resume=None):
         reason = self._gate()
         if reason is not None:
@@ -327,10 +338,11 @@ class Supervisor:
         blockers = open_blockers(self.github, task.repo, self.github.issue_text(task.repo, task.number)["body"])
         prompt = agents.worker_prompt(task.project, task.repo, task.number, task.branch, run_id,
                                       findings=findings, pr=pr, local_dir=self.local_dir,
-                                      queen_note=note, tokens=task.tokens, open_blockers=blockers, order=order)
+                                      queen_note=note, tokens=task.tokens, open_blockers=blockers, order=order,
+                                      copy=self._copy(task.project))
         project = task.project
         tokens = (project.secrets_from, list(project.task_tokens)) if task.tokens else None
-        tools = agents.worker_tools(project, task.branch, self._rules("worker"))
+        tools = agents.worker_tools(project, task.branch, self._rules("worker"), self._remote(project))
         result = self._agent(task, "worker", cwd, prompt, tools, run_id, tokens, agents.WORKER_SCHEMA)
         return self._reply(task, "worker", cwd, tools, result, agents.parse_worker_reply, tokens, agents.WORKER_SCHEMA)
 
@@ -387,14 +399,16 @@ class Supervisor:
         run_id = new_run_id(self.now())
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
         if to_fix:
-            prompt = agents.second_review_prompt(task.repo, task.number, pr["number"], head, language, to_fix)
+            prompt = agents.second_review_prompt(task.repo, task.number, pr["number"], head, language, to_fix,
+                                                 self.github.default_branch(task.repo), self._copy(task.project))
         else:
             criteria = sizing.criteria_list(self.github.issue_text(task.repo, task.number)["body"])
             first_n = 1 + max((f["n"] for r in reviews for f in r["open"]), default=0)
             companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
             prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head, language,
-                                            companions, criteria, first_n, local_dir=self.local_dir)
-        tools = agents.reviewer_tools(task.project, self._rules("reviewer"))
+                                            companions, criteria, first_n, self.github.default_branch(task.repo),
+                                            local_dir=self.local_dir, copy=self._copy(task.project))
+        tools = agents.reviewer_tools(task.project, self._rules("reviewer"), self._remote(task.project))
         result = self._agent(task, "reviewer", cwd, prompt, tools, run_id, schema=review.REPORT_SCHEMA)
 
         def read(text):
@@ -432,8 +446,9 @@ class Supervisor:
         run_id = new_run_id(self.now())
         try:
             cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
-            prompt = agents.notes_prompt(task.project, task.repo, task.number, pr["number"], notes, self.local_dir)
-            tools = agents.role_tools(self._rules("splitter"))
+            prompt = agents.notes_prompt(task.project, task.repo, task.number, pr["number"], notes, self.local_dir,
+                                         self._copy(task.project))
+            tools = agents.role_tools(self._rules("splitter"), self._remote(task.project))
             result = self._agent(task, "splitter", cwd, prompt, tools, run_id, schema=agents.NOTES_SCHEMA)
 
             def read(text):
@@ -560,14 +575,14 @@ class Supervisor:
         self._phase(task, "queen's check")
         run_id = new_run_id(self.now())
         head = pr["headRefOid"] if pr is not None and pr["state"] == "OPEN" else None
+        base = self.github.default_branch(task.repo)
         if head is not None:
             cwd = self.runner.prepare_review(task.project, task.repo, pr["headRefName"], head)
         else:
-            base = self.github.default_branch(task.repo)
             cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/check-{task.number}", f"origin/{base}")
         prompt = agents.check_prompt(task.project, task.repo, task.number, pr["number"] if head else None, head,
-                                     step["note"], self.local_dir)
-        tools = agents.reviewer_tools(task.project, self._rules("reviewer"))
+                                     step["note"], base, self.local_dir, self._copy(task.project))
+        tools = agents.reviewer_tools(task.project, self._rules("reviewer"), self._remote(task.project))
         result = self._agent(task, "checker", cwd, prompt, tools, run_id, schema=agents.CHECK_SCHEMA)
         try:
             reply = self._reply(task, "checker", cwd, tools, result, agents.parse_check, schema=agents.CHECK_SCHEMA)
@@ -666,8 +681,8 @@ class Supervisor:
         run_id = new_run_id(self.now())
         base = self.github.default_branch(task.repo)
         cwd = self.runner.prepare_review(project, task.repo, "kandu/live-check", f"origin/{base}")
-        prompt = agents.live_check_prompt(project, task.repo, task.number, self.local_dir)
-        tools = agents.live_check_tools(project, self._rules("live_check"))
+        prompt = agents.live_check_prompt(project, task.repo, task.number, self.local_dir, self._copy(project))
+        tools = agents.live_check_tools(project, self._rules("live_check"), self._remote(project))
         result = self._agent(task, "live_check", cwd, prompt, tools, run_id, schema=agents.LIVE_CHECK_SCHEMA)
         try:
             reply = self._reply(task, "live_check", cwd, tools, result, agents.parse_live_check,
@@ -753,8 +768,8 @@ class Supervisor:
             base = self.github.default_branch(task.repo)
             cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/size-{task.number}", f"origin/{base}")
             prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.config.settings.language,
-                                            self.local_dir)
-            tools = agents.role_tools(self._rules("splitter"))
+                                            self.local_dir, self._copy(task.project))
+            tools = agents.role_tools(self._rules("splitter"), self._remote(task.project))
             result = self._agent(task, "splitter", cwd, prompt, tools, run_id, schema=agents.SPLIT_SCHEMA)
 
             def read(text):

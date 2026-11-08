@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Prints an issue or a PR from Kandu's copy of GitHub, from any folder: agents run it from their own checkout.
+set -euo pipefail
+
+repo="$(dirname "$(dirname "$(readlink -f "$0")")")"
+cd "$repo"
+exec .venv/bin/python -m kandu.show "$@"

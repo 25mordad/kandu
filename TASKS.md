@@ -66,6 +66,7 @@ Every task is designed and checked against harness, context and memory (§14).
 57. [x] A note in each project's repo, `KANDU.md`, that says Kandu changes it, where its tasks are and how a breakage goes back to Kandu; `kandu.note` renders it from the registry and only prints, and `/kandu-add` offers it as a task on the user's yes (§1B)
 58. [x] Free flights, Zanbourdar and Didban opened from the dashboard read tasks, PRs and boards from Kandu's copy through the API, `/boards` included, and read GitHub only for the rest; card changes still go to GitHub (§7, §13)
 59. [x] Kandu's copy keeps each issue's comments, read in the same request as the repo, and `python -m kandu.show` prints an issue, or a PR with its comments, review threads and checks, from the copy; an item it lacks is read once and kept (§3)
+60. [x] Workers, splitters, reviewers, second reviews, checks, live checks and the queen read the issue and the PR with `bin/kandu-show`, which every limited role may run, and reviews and checks read the diff with `git` in their checkout; no instruction names `gh issue view`, `gh pr view` or `gh pr diff`. A project on another machine than the brain gets the issue and the PR from Kandu's copy inside its prompt instead (§3, §9)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

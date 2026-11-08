@@ -79,6 +79,11 @@ class FakeGitHub:
     def issue_text(self, repo, number):
         return {"body": next((i.body for i in self.items if i.number == number), "")}
 
+    def item(self, repo, number):
+        issue = next(i for i in self.items if (i.repo, i.number) == (repo, number))
+        return {"kind": "issue", "repo": repo, "number": number, "title": issue.title, "state": "OPEN",
+                "labels": [{"name": n} for n in issue.labels], "url": issue.url, "body": issue.body, "comments": []}
+
     def create_issue(self, repo, title, body, by_hand=False, tokens=False):
         self.created.append((repo, title, body))
         return f"https://github.com/{repo}/issues/{900 + len(self.created)}"
@@ -755,7 +760,8 @@ class QueenTest(Base):
         self.runner.steps = [GAVE_UP, self.reply(self.retry("why"))]
         self.cycle()
         self.assertIsNone(self.runner.runs[0].allowed)
-        self.assertEqual((self.runner.runs[1].allowed, self.runner.runs[1].denied), (["Read"], ["Edit"]))
+        self.assertEqual((self.runner.runs[1].allowed, self.runner.runs[1].denied),
+                         (["Read", agents.SHOW_RULE], ["Edit"]))
 
 
 class QueenPacesTest(Base):
@@ -1130,6 +1136,29 @@ class FirstRunTest(Base):
         run = self.runner.runs[0]
         self.assertIn("Bash(npm test)", run.allowed)
         self.assertTrue(any(tool.startswith("Bash(git push origin kandu/1-") for tool in run.allowed))
+
+    def test_a_worker_on_the_brain_reads_with_kandu_show(self):
+        self.config.settings.permissions.worker = Rules(allow=["Read"])
+        self.runner.steps = ['{"status": "blocked", "reason": "r"}']
+        self.cycle()
+        run = self.runner.runs[0]
+        self.assertIn(agents.SHOW_RULE, run.allowed)
+        self.assertIn(f"{agents.SHOW} {REPO}#1", run.prompt)
+
+    def test_a_worker_on_another_machine_gets_the_issue_from_the_copy_in_its_prompt(self):
+        self.config.settings.brain.machine = "brain-host"
+        self.config.settings.permissions.worker = Rules(allow=["Read"])
+        self.github.edit_issue(REPO, 1, "Task 1", "Do the thing.")
+        self.runner.steps = ['{"status": "blocked", "reason": "r"}']
+        self.cycle()
+        run = self.runner.runs[0]
+        self.assertEqual(run.machine, "server")
+        self.assertNotIn(agents.SHOW_RULE, run.allowed)
+        self.assertFalse([rule for rule in run.allowed if "gh issue view" in rule or "gh pr view" in rule])
+        self.assertIn(f"## Kandu's copy of {REPO}#1\nissue {REPO}#1: Task 1", run.prompt)
+        self.assertIn("Do the thing.", run.prompt)
+        self.assertNotIn("kandu-show", run.prompt)
+        self.assertNotIn("gh issue view", run.prompt)
 
     def test_tokens_are_recorded_for_the_task(self):
         self.runner.steps = ['{"status": "blocked", "reason": "r"}']

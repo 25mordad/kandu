@@ -12,6 +12,9 @@ from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR
 from .review import CODE_FENCE
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+# The one command an agent runs to read an issue or a PR: it prints it from Kandu's copy (DESIGN §3), from any folder.
+SHOW = PROMPTS_DIR.parent / "bin" / "kandu-show"
+SHOW_RULE = f"Bash({SHOW} *)"
 WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
 LIVE_RESULTS = ("pass", "fail")
 QUEEN_ACTIONS = ("release", "retry", "rework", "verify", "new_task", "block_on", "approve", "ask_user", "park")
@@ -75,16 +78,17 @@ def reask_prompt(error):
             "Reply now with only the JSON object that the \"Last message\" part of your instructions asks for.")
 
 
-def _limits(rules, extra_allowed=(), extra_denied=(), branch=""):
+def _limits(rules, extra_allowed=(), extra_denied=(), branch="", remote=False):
     """Returns (allowed, denied) for one run, from the role's rules in the config.
 
     With no rules the role may do everything: `allowed` is None, and only
     `extra_denied`, which also comes from the config, still holds.
-    `{branch}` in a rule becomes the run's branch.
+    `{branch}` in a rule becomes the run's branch. Every limited role may read an issue or a PR with `SHOW`,
+    except on a `remote` machine, away from the brain, where `SHOW` is not: there its prompt holds them.
     """
     if rules is None:
         return None, list(extra_denied)
-    allowed = [rule.replace("{branch}", branch) for rule in rules.allow] + list(extra_allowed)
+    allowed = [rule.replace("{branch}", branch) for rule in rules.allow] + list(extra_allowed) + ([] if remote else [SHOW_RULE])
     denied = [rule.replace("{branch}", branch) for rule in rules.deny] + list(extra_denied)
     return allowed, denied
 
@@ -95,7 +99,7 @@ def _forbidden(project):
             for area in project.forbidden]
 
 
-def worker_tools(project, branch, rules=None):
+def worker_tools(project, branch, rules=None, remote=False):
     """Returns (allowed, denied) for a worker on `branch`."""
     if rules is None:
         return _limits(None, extra_denied=_forbidden(project))
@@ -104,24 +108,54 @@ def worker_tools(project, branch, rules=None):
     if project.secrets_from:
         path = project.secrets_from
         denied.append(f"Read({'/' + path if path.startswith('/') else path})")
-    return _limits(rules, allowed, denied + _forbidden(project), branch)
+    return _limits(rules, allowed, denied + _forbidden(project), branch, remote)
 
 
-def reviewer_tools(project, rules=None):
-    """Returns (allowed, denied) for a reviewer, which runs the project's tests and commands itself."""
+def reviewer_tools(project, rules=None, remote=False):
+    """Returns (allowed, denied) for a reviewer, which runs the project's tests and commands itself and reads the
+    diff with git in its checkout."""
     if rules is None:
         return _limits(None)
-    return _limits(rules, [f"Bash({project.test})", f"Bash({project.test} *)"] + project.allowed_tools)
+    return _limits(rules, [f"Bash({project.test})", f"Bash({project.test} *)", "Bash(git diff *)"]
+                   + project.allowed_tools, remote=remote)
 
 
-def live_check_tools(project, rules=None):
+def live_check_tools(project, rules=None, remote=False):
     """Returns (allowed, denied) for a live check."""
-    return _limits(rules, project.allowed_tools)
+    return _limits(rules, project.allowed_tools, remote=remote)
 
 
-def role_tools(rules=None):
-    """Returns (allowed, denied) for the reviewer, the splitter or the queen."""
-    return _limits(rules)
+def role_tools(rules=None, remote=False):
+    """Returns (allowed, denied) for the splitter or the queen; `remote` when it runs away from the brain."""
+    return _limits(rules, remote=remote)
+
+
+def show_command(repo, number):
+    """How an agent reads issue or PR `number` of `repo`, from the copy, so the read costs GitHub nothing."""
+    return f"{SHOW} {repo}#{number}"
+
+
+def _how(repo, number, copy):
+    """How a prompt tells an agent to read issue or PR `number`. With `copy`, the agent runs away from the brain,
+    where `SHOW` is not, so the item's text from Kandu's copy goes into the prompt instead (see `_copies`)."""
+    if copy is None:
+        return f"Read it with: `{show_command(repo, number)}`"
+    return f"Kandu's copy of it is below, under `{_copy_head(repo, number)}`"
+
+
+def _copy_head(repo, number):
+    return f"## Kandu's copy of {repo}#{number}"
+
+
+def _copies(copy, items):
+    """The text of each (repo, number) in `items` as `kandu.show` prints it, for an agent that cannot run it."""
+    if copy is None:
+        return []
+    return [part for repo, number in items for part in (_copy_head(repo, number), copy(repo, number))]
+
+
+def _diff(base, head_sha):
+    return f"- Diff: `git diff origin/{base}...{head_sha}` in your checkout"
 
 
 def _read(name):
@@ -156,11 +190,12 @@ def _token_facts(project):
 
 
 def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None, local_dir=DEFAULT_LOCAL_DIR,
-                  queen_note=None, tokens=False, open_blockers=(), order=None):
+                  queen_note=None, tokens=False, open_blockers=(), order=None, copy=None):
     """The first run gets the PR template; a fix round gets what the last review left for it instead, and a
-    worker the queen sends back to a PR gets her order."""
-    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- Your branch: `{branch}`",
-             f"- For the `Kandu-Run:` line: `{run_id}`", *_project_facts(project)]
+    worker the queen sends back to a PR gets her order. `copy(repo, number)` gives an item's text from Kandu's
+    copy, for a worker away from the brain: the prompt then holds the issue and the PR instead of naming `SHOW`."""
+    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- {_how(repo, number, copy)}",
+             f"- Your branch: `{branch}`", f"- For the `Kandu-Run:` line: `{run_id}`", *_project_facts(project)]
     if tokens:
         facts += _token_facts(project)
     parts = [_read("worker.md"), "## This task", *facts, *_memory(project, local_dir)]
@@ -169,57 +204,68 @@ def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None,
                   f"This task is blocked by {', '.join(open_blockers)}, whose work may still be in an open PR. "
                   "Build it now anyway: your PR merges only after theirs. If you need their code, merge their PR's "
                   "branch into yours first and say so in your PR."]
+    read = [(repo, number)] + ([(repo, pr)] if pr else [])
     if order is not None:
         return "\n".join(parts + [f"## Work the queen sends you on PR #{pr}",
                                   "The queen looked at this PR and sends you back to it. Do exactly this on the "
-                                  "same branch, push, and end as after a fix round:", order])
+                                  "same branch, push, and end as after a fix round:", order,
+                                  f"PR #{pr}: {_how(repo, pr, copy)}", *_copies(copy, read)])
     if queen_note:
         parts += ["## Note from the queen", "This task stopped once. She looked at why:", queen_note]
     if findings is None:
         parts += ["## PR template", _read("templates/pr.md")]
     else:
         parts += [f"## Review findings on PR #{pr}", "A review came back. Fix these and push to the same branch.",
+                  f"PR #{pr}: {_how(repo, pr, copy)}",
                   "```json", json.dumps(findings, ensure_ascii=False, indent=2), "```"]
-    return "\n".join(parts)
+    return "\n".join(parts + _copies(copy, read))
 
 
-def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, criteria, first_n,
-                    local_dir=DEFAULT_LOCAL_DIR):
-    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- PR: #{pr}", f"- Head SHA: `{head_sha}`",
-             f"- Diff: `gh pr diff {pr} --repo {repo}`", f"- Language of `user_brief`: {language}",
+def _pr_facts(repo, number, pr, head_sha, base, copy):
+    return [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- {_how(repo, number, copy)}",
+            f"- PR: #{pr}", f"- {_how(repo, pr, copy)}", f"- Head SHA: `{head_sha}`",
+            _diff(base, head_sha)]
+
+
+def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, criteria, first_n, base,
+                    local_dir=DEFAULT_LOCAL_DIR, copy=None):
+    facts = [*_pr_facts(repo, number, pr, head_sha, base, copy), f"- Language of `user_brief`: {language}",
              f"- Number new findings from {first_n}", *_project_facts(project)]
     parts = [_read("reviewer.md"), "## This PR", *facts, *_memory(project, local_dir)]
     if criteria:
         parts += ["## Acceptance criteria", *[f"{i}. {text}" for i, text in enumerate(criteria, 1)]]
     if companions:
-        parts += ["## Companion PRs", *[f"- {other}#{n}" for other, n in companions]]
-    return "\n".join(parts)
+        parts += ["## Companion PRs", *[f"- {other}#{n}: {_how(other, n, copy)}" for other, n in companions]]
+    return "\n".join(parts + _copies(copy, [(repo, number), (repo, pr), *companions]))
 
 
-def second_review_prompt(repo, number, pr, head_sha, language, items):
+def second_review_prompt(repo, number, pr, head_sha, language, items, base, copy=None):
     """Only what the first review listed: this round needs no memory, criteria or companions."""
-    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- PR: #{pr}", f"- Head SHA: `{head_sha}`",
-             f"- Diff: `gh pr diff {pr} --repo {repo}`", f"- Language of `user_brief`: {language}"]
+    facts = [*_pr_facts(repo, number, pr, head_sha, base, copy), f"- Language of `user_brief`: {language}"]
     return "\n".join([_read("second-review.md"), "## This PR", *facts, "## The items", "```json",
-                      json.dumps(items, ensure_ascii=False, indent=2), "```"])
+                      json.dumps(items, ensure_ascii=False, indent=2), "```",
+                      *_copies(copy, [(repo, number), (repo, pr)])])
 
 
-def splitter_prompt(project, repo, number, language, local_dir=DEFAULT_LOCAL_DIR):
-    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- Read it with: `gh issue view {number} --repo {repo}`",
+def splitter_prompt(project, repo, number, language, local_dir=DEFAULT_LOCAL_DIR, copy=None):
+    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- {_how(repo, number, copy)}",
              f"- Language of `user_text`: {language}", *_project_facts(project)]
     return "\n".join([_read("splitter.md"), "## This task", *facts, "## The size scale", *sizing.describe(),
-                      "## Issue template", _read("templates/issue.md"), *_memory(project, local_dir)])
+                      "## Issue template", _read("templates/issue.md"), *_memory(project, local_dir),
+                      *_copies(copy, [(repo, number)])])
 
 
-def notes_prompt(project, repo, number, pr, notes, local_dir=DEFAULT_LOCAL_DIR):
-    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- PR: #{pr}", *_project_facts(project)]
+def notes_prompt(project, repo, number, pr, notes, local_dir=DEFAULT_LOCAL_DIR, copy=None):
+    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- {_how(repo, number, copy)}",
+             f"- PR: #{pr}", f"- {_how(repo, pr, copy)}", *_project_facts(project)]
     return "\n".join([_read("splitter-notes.md"), "## This PR", *facts, "## The size scale", *sizing.describe(),
                       "## The notes", "```json", json.dumps(notes, ensure_ascii=False, indent=2), "```",
-                      *_memory(project, local_dir)])
+                      *_memory(project, local_dir), *_copies(copy, [(repo, number), (repo, pr)])])
 
 
 def queen_prompt(events, projects, steps, step_limit, language, logs_dir, today, debts=()):
     facts = [f"- Today: {today}", f"- Language of the brief: {language}", f"- Logs folder: `{logs_dir}`",
+             f"- Read an issue or a PR with: `{show_command('OWNER/REPO', 'NUMBER')}`",
              f"- Each of {', '.join(f'`{a}`' for a in ('retry', 'rework', 'verify', 'new_task', 'block_on'))} "
              f"may be taken {step_limit} times per task"]
     parts = [_read("queen.md"), "## This look", *facts, "## Projects", "```json",
@@ -231,12 +277,14 @@ def queen_prompt(events, projects, steps, step_limit, language, logs_dir, today,
     return "\n".join(parts)
 
 
-def check_prompt(project, repo, number, pr, head_sha, question, local_dir=DEFAULT_LOCAL_DIR):
-    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", *_project_facts(project)]
-    facts += [f"- PR: #{pr}", f"- Your checkout is its head `{head_sha}`", f"- Diff: `gh pr diff {pr} --repo {repo}`"] \
+def check_prompt(project, repo, number, pr, head_sha, question, base, local_dir=DEFAULT_LOCAL_DIR, copy=None):
+    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- {_how(repo, number, copy)}",
+             *_project_facts(project)]
+    facts += [f"- PR: #{pr}", f"- {_how(repo, pr, copy)}", f"- Your checkout is its head `{head_sha}`",
+              _diff(base, head_sha)] \
         if pr else ["- The task has no open PR: your checkout is the default branch"]
     return "\n".join([_read("check.md"), "## This check", *facts, "## The queen's question", question,
-                      *_memory(project, local_dir)])
+                      *_memory(project, local_dir), *_copies(copy, [(repo, number)] + ([(repo, pr)] if pr else []))])
 
 
 def parse_check(text):
@@ -252,9 +300,11 @@ def parse_check(text):
     return reply
 
 
-def live_check_prompt(project, repo, number, local_dir=DEFAULT_LOCAL_DIR):
-    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- Live URL: {project.deploy.live_url}"]
-    return "\n".join([_read("live-check.md"), "## This check", *facts, *_memory(project, local_dir)])
+def live_check_prompt(project, repo, number, local_dir=DEFAULT_LOCAL_DIR, copy=None):
+    facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- {_how(repo, number, copy)}",
+             f"- Live URL: {project.deploy.live_url}"]
+    return "\n".join([_read("live-check.md"), "## This check", *facts, *_memory(project, local_dir),
+                      *_copies(copy, [(repo, number)])])
 
 
 def parse_live_check(text):

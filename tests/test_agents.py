@@ -3,7 +3,10 @@ import unittest
 from pathlib import Path
 
 from kandu import agents
-from kandu.config import Project, Rules
+from kandu.config import Deploy, Project, Rules
+
+GH_READS = ("gh issue view", "gh pr view", "gh pr diff")
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def project(**changes):
@@ -33,7 +36,8 @@ class ToolsTest(unittest.TestCase):
         allowed, denied = agents.worker_tools(project(), "kandu/1-a", RULES)
         self.assertIn("Bash(git push origin kandu/1-a)", allowed)
         self.assertIn("Read(**/.env)", denied)
-        self.assertEqual(agents.role_tools(RULES), (["Read", "Bash(git push origin )"], ["Read(**/.env)"]))
+        self.assertEqual(agents.role_tools(RULES),
+                         (["Read", "Bash(git push origin )", agents.SHOW_RULE], ["Read(**/.env)"]))
 
     def test_a_limited_worker_runs_the_projects_tests_and_tools(self):
         allowed, _ = agents.worker_tools(project(allowed_tools=["Bash(npm install)"]), "kandu/1-a", RULES)
@@ -50,10 +54,26 @@ class ToolsTest(unittest.TestCase):
 
     def test_every_role_is_told_the_projects_own_commands(self):
         site = project(allowed_tools=["Bash(npx tsx scripts/*)", "Read(docs/**)"])
-        text = agents.reviewer_prompt(site, "o/r", 12, 7, "abc123", "en", [], ["It works"], 1)
+        text = agents.reviewer_prompt(site, "o/r", 12, 7, "abc123", "en", [], ["It works"], 1, "main")
         self.assertIn("The project's own commands: `npx tsx scripts/*`", text)
         self.assertNotIn("docs/**", text)
         self.assertIn("## Run it", text)
+
+    def test_every_limited_role_may_read_an_issue_or_pr_from_the_copy(self):
+        for allowed, _ in (agents.worker_tools(project(), "kandu/1-a", RULES), agents.reviewer_tools(project(), RULES),
+                           agents.live_check_tools(project(), RULES), agents.role_tools(RULES)):
+            self.assertIn(f"Bash({REPO_ROOT / 'bin' / 'kandu-show'} *)", allowed)
+
+    def test_a_limited_reviewer_may_read_the_diff_with_git(self):
+        allowed, _ = agents.reviewer_tools(project(), RULES)
+        self.assertIn("Bash(git diff *)", allowed)
+
+    def test_a_limited_worker_still_writes_with_what_the_config_allows(self):
+        rules = Rules(allow=["Bash(gh pr create *)", "Bash(gh pr comment *)", "Bash(git push origin {branch})"],
+                      deny=[])
+        allowed, _ = agents.worker_tools(project(), "kandu/1-a", rules)
+        for tool in ("Bash(gh pr create *)", "Bash(gh pr comment *)", "Bash(git push origin kandu/1-a)"):
+            self.assertIn(tool, allowed)
 
     def test_a_limited_worker_cannot_read_the_project_secrets(self):
         _, denied = agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a", RULES)
@@ -97,17 +117,149 @@ class PromptTest(unittest.TestCase):
 
     def test_reviewer_gets_the_head_criteria_and_companions(self):
         text = agents.reviewer_prompt(project(), "o/r", 12, 7, "abc123", "fa", [("o/b", 9)],
-                                      ["It stops"], 2, local_dir=self.local)
-        for part in ("`abc123`", "gh pr diff 7 --repo o/r", "fa", "o/b#9", "1. It stops", "from 2"):
+                                      ["It stops"], 2, "main", local_dir=self.local)
+        for part in ("`abc123`", "fa", "o/b#9", "1. It stops", "from 2"):
             self.assertIn(part, text)
 
     def test_a_second_review_gets_the_items_and_nothing_to_widen_them(self):
         (self.local / "memory").mkdir()
         (self.local / "memory" / "site.md").write_text("a lesson", encoding="utf-8")
-        text = agents.second_review_prompt("o/r", 12, 7, "abc123", "fa", [{"n": 1, "body": "item one"}])
+        text = agents.second_review_prompt("o/r", 12, 7, "abc123", "fa", [{"n": 1, "body": "item one"}], "main")
         self.assertIn("item one", text)
         self.assertNotIn("a lesson", text)
         self.assertNotIn("## Blockers", text)
+
+
+class ReadingTest(unittest.TestCase):
+    """Agents read the issue and the PR from Kandu's copy, and the diff from their checkout, never from GitHub."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.local = Path(tmp.name)
+        self.site = project(deploy=Deploy(mode="pull", command="x", live_url="https://example.com"))
+
+    def show(self, item):
+        return f"`{REPO_ROOT / 'bin' / 'kandu-show'} {item}`"
+
+    def prompts(self):
+        site, local = self.site, self.local
+        return {
+            "worker": agents.worker_prompt(site, "o/r", 12, "kandu/12-a", "r-1", local_dir=local),
+            "worker fix": agents.worker_prompt(site, "o/r", 12, "kandu/12-a", "r-1", findings=[], pr=7,
+                                               local_dir=local),
+            "worker order": agents.worker_prompt(site, "o/r", 12, "kandu/12-a", "r-1", pr=7, order="do it",
+                                                 local_dir=local),
+            "reviewer": agents.reviewer_prompt(site, "o/r", 12, 7, "abc123", "en", [("o/b", 9)], [], 1, "dev",
+                                               local_dir=local),
+            "second review": agents.second_review_prompt("o/r", 12, 7, "abc123", "en", [], "dev"),
+            "splitter": agents.splitter_prompt(site, "o/r", 12, "en", local),
+            "splitter notes": agents.notes_prompt(site, "o/r", 12, 7, [], local),
+            "check": agents.check_prompt(site, "o/r", 12, 7, "abc123", "why?", "dev", local),
+            "check without PR": agents.check_prompt(site, "o/r", 12, None, None, "why?", "dev", local),
+            "live check": agents.live_check_prompt(site, "o/r", 12, local),
+            "queen": agents.queen_prompt([], [], [], 3, "en", "/logs", "2026-01-01"),
+        }
+
+    def test_no_instruction_reads_github_with_gh(self):
+        texts = dict(self.prompts())
+        texts |= {path.name: path.read_text(encoding="utf-8") for path in (REPO_ROOT / "prompts").rglob("*.md")}
+        texts["example config"] = (REPO_ROOT / "config.example" / "kandu.example.yaml").read_text(encoding="utf-8")
+        for name, text in texts.items():
+            for command in GH_READS:
+                self.assertNotIn(command, text, name)
+
+    def test_every_role_is_told_to_read_the_issue_with_the_local_command(self):
+        for name, text in self.prompts().items():
+            if name != "queen":
+                self.assertIn(self.show("o/r#12"), text, name)
+        self.assertIn(self.show("OWNER/REPO#NUMBER"), self.prompts()["queen"])
+
+    def test_roles_with_a_pr_are_told_to_read_it_with_the_local_command(self):
+        prompts = self.prompts()
+        for name in ("worker fix", "worker order", "reviewer", "second review", "splitter notes", "check"):
+            self.assertIn(self.show("o/r#7"), prompts[name], name)
+        self.assertIn(self.show("o/b#9"), prompts["reviewer"])
+
+    def test_reviews_and_checks_read_the_diff_against_the_base_in_their_checkout(self):
+        prompts = self.prompts()
+        for name in ("reviewer", "second review", "check"):
+            self.assertIn("`git diff origin/dev...abc123`", prompts[name], name)
+        self.assertNotIn("git diff", prompts["check without PR"])
+
+    def test_the_local_command_runs_from_any_folder(self):
+        script = REPO_ROOT / "bin" / "kandu-show"
+        self.assertTrue(script.stat().st_mode & 0o111)
+        self.assertIn("-m kandu.show", script.read_text(encoding="utf-8"))
+
+
+class RemoteReadingTest(unittest.TestCase):
+    """A project on another machine cannot run bin/kandu-show, which lives on the brain: Kandu puts the issue and the
+    PR from its copy into the prompt, and no agent reads GitHub with gh."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.local = Path(tmp.name)
+        self.site = project(machine="laptop", deploy=Deploy(mode="pull", command="x", live_url="https://example.com"))
+
+    @staticmethod
+    def copy(repo, number):
+        return f"text of {repo}#{number}\n"
+
+    def prompts(self):
+        site, local, copy = self.site, self.local, self.copy
+        return {
+            "worker": agents.worker_prompt(site, "o/r", 12, "kandu/12-a", "r-1", local_dir=local, copy=copy),
+            "worker fix": agents.worker_prompt(site, "o/r", 12, "kandu/12-a", "r-1", findings=[], pr=7,
+                                               local_dir=local, copy=copy),
+            "worker order": agents.worker_prompt(site, "o/r", 12, "kandu/12-a", "r-1", pr=7, order="do it",
+                                                 local_dir=local, copy=copy),
+            "reviewer": agents.reviewer_prompt(site, "o/r", 12, 7, "abc123", "en", [("o/b", 9)], [], 1, "dev",
+                                               local_dir=local, copy=copy),
+            "second review": agents.second_review_prompt("o/r", 12, 7, "abc123", "en", [], "dev", copy=copy),
+            "splitter": agents.splitter_prompt(site, "o/r", 12, "en", local, copy=copy),
+            "splitter notes": agents.notes_prompt(site, "o/r", 12, 7, [], local, copy=copy),
+            "check": agents.check_prompt(site, "o/r", 12, 7, "abc123", "why?", "dev", local, copy=copy),
+            "check without PR": agents.check_prompt(site, "o/r", 12, None, None, "why?", "dev", local, copy=copy),
+            "live check": agents.live_check_prompt(site, "o/r", 12, local, copy=copy),
+        }
+
+    def test_no_prompt_points_at_kandu_show_or_reads_with_gh(self):
+        for name, text in self.prompts().items():
+            self.assertNotIn("kandu-show", text, name)
+            for command in GH_READS:
+                self.assertNotIn(command, text, name)
+
+    def test_every_role_gets_the_issue_from_the_copy(self):
+        for name, text in self.prompts().items():
+            self.assertIn("## Kandu's copy of o/r#12\ntext of o/r#12", text, name)
+
+    def test_roles_with_a_pr_get_it_from_the_copy(self):
+        prompts = self.prompts()
+        for name in ("worker fix", "worker order", "reviewer", "second review", "splitter notes", "check"):
+            self.assertIn("## Kandu's copy of o/r#7\ntext of o/r#7", prompts[name], name)
+        self.assertIn("## Kandu's copy of o/b#9\ntext of o/b#9", prompts["reviewer"])
+        for name in ("worker", "splitter", "check without PR", "live check"):
+            self.assertNotIn("o/r#7", prompts[name], name)
+
+    def test_reviews_and_checks_still_read_the_diff_with_git_in_their_checkout(self):
+        prompts = self.prompts()
+        for name in ("reviewer", "second review", "check"):
+            self.assertIn("`git diff origin/dev...abc123`", prompts[name], name)
+
+    def test_limited_roles_get_neither_kandu_show_nor_gh_reads(self):
+        site = self.site
+        for allowed, _ in (agents.worker_tools(site, "kandu/1-a", RULES, remote=True),
+                           agents.reviewer_tools(site, RULES, remote=True),
+                           agents.live_check_tools(site, RULES, remote=True), agents.role_tools(RULES, remote=True)):
+            self.assertNotIn(agents.SHOW_RULE, allowed)
+            self.assertFalse([rule for rule in allowed if any(command in rule for command in GH_READS)], allowed)
+        self.assertIn("Bash(git diff *)", agents.reviewer_tools(site, RULES, remote=True)[0])
+
+    def test_unlimited_roles_stay_unlimited(self):
+        self.assertIsNone(agents.worker_tools(self.site, "kandu/1-a", None, remote=True)[0])
+        self.assertIsNone(agents.role_tools(None, remote=True)[0])
 
 
 class QueenReportTest(unittest.TestCase):
