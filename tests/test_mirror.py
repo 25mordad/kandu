@@ -129,6 +129,21 @@ class MirrorTest(unittest.TestCase):
         self.open().issue_is_open(REPO, 3)
         self.assertEqual(self.names(), ["read_board", "read_repo"])
 
+    def test_a_boards_columns_and_fields_come_from_the_copy(self):
+        self.mirror.board_items(BOARD)
+        calls = len(self.remote.calls)
+        layout = self.open().board_layout(BOARD)
+        self.assertEqual(layout["columns"], ["Backlog", "Ready", "In progress", "Done"])  # "Todo" is this board's "Ready"
+        self.assertEqual(layout["fields"]["Status"]["options"]["Todo"], "s-r")  # what a card change on GitHub needs
+        self.assertEqual(layout["fields"]["Deadline"], {"id": "FD", "options": {}})
+        self.assertEqual(layout["project_id"], "P")
+        self.assertEqual(len(self.remote.calls), calls)
+
+    def test_a_board_the_copy_lacks_is_read_once_for_its_layout(self):
+        self.mirror.board_layout(BOARD)
+        self.mirror.board_layout(BOARD)
+        self.assertEqual(self.names(), ["read_board"])
+
     def test_an_issue_the_copy_lacks_is_read_once(self):
         self.mirror.issue_is_open(REPO, 3)
         self.remote.issues[4] = dict(self.remote.issues[3], number=4, state="CLOSED")

@@ -84,6 +84,34 @@ class ReadTest(Base):
         self.assertEqual(ready, [(f"{REPO}#1", False), (f"{REPO}#3", True)])
         self.assertEqual([t["task"] for t in projects["website"]["Blocked"]], [f"{REPO}#2"])
 
+    def test_boards_answer_columns_fields_and_cards_from_the_copy(self):
+        self.github.board_layout.return_value = {"columns": ["Backlog", "Ready"], "fields": {"Status": ["Backlog", "To do"]}}
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "Add search", "u", "Ready", ["agent"], "long body",
+                                                          priority="P1", size="Small")]
+        status, answer = self.get("/api/v1/boards")
+        self.assertEqual(status, 200)
+        board = answer["boards"][0]
+        self.assertEqual((board["owner"], board["number"]), ("acme-org", 1))
+        self.assertEqual(board["projects"], ["website", "internal-tool"])  # two projects share one board: read once
+        self.assertEqual(len(answer["boards"]), 1)
+        self.assertEqual(board["columns"], ["Backlog", "Ready"])
+        self.assertEqual(board["fields"], {"Status": ["Backlog", "To do"]})
+        card = board["cards"][0]
+        self.assertEqual((card["task"], card["status"], card["priority"], card["size"], card["labels"]),
+                         (f"{REPO}#1", "Ready", "P1", "Small", ["agent"]))
+        self.assertNotIn("body", card)
+        self.github.refresh_board.assert_not_called()
+
+    def test_fresh_boards_read_the_board_into_the_copy_first(self):
+        self.github.board_layout.return_value = {"columns": [], "fields": {}}
+        self.github.board_items.return_value = []
+        self.get("/api/v1/boards?fresh=1")
+        self.github.refresh_board.assert_called_once()
+
+    def test_boards_that_cannot_be_read_say_so(self):
+        self.github.board_layout.side_effect = GitHubError("down")
+        self.assertEqual(self.get("/api/v1/boards")[0], 502)
+
     def test_an_accepted_split_stops_waiting(self):
         self.github.board_items.return_value = [BoardItem(REPO, 1, "Big", "u", "Needs split", ["agent"], ""),
                                                 BoardItem(REPO, 2, "Bigger", "u", "Needs split", ["agent"], "")]

@@ -21,7 +21,7 @@ from . import backup, bazras, flights, ghmeter, queen, questions, review, sessio
 from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup, set_inspect,
                      set_limits, set_parallel)
 from .github import AGENT_LABEL, GitHubError
-from .mirror import open_github
+from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
 from .state import StateStore
 from .tasks import TaskError
@@ -44,6 +44,7 @@ DONE_KEEP_DAYS = 5  # A finished task stays in the hive this long, so the recent
 QUEUE_COLUMNS = (DONE, "Backlog", "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", TECHNICAL_DEBT)
 TOOL_DETAIL_KEYS = ("file_path", "path", "pattern", "command")
 MAX_DETAIL = 200
+CARD_KEYS = ("title", "url", "status", "labels", "priority", "kind", "size", "deadline", "closed_at", "item_id")
 USER_DECIDES = "the user decides next"
 
 
@@ -294,6 +295,29 @@ class Api:
             if self._queue is None:
                 raise ApiError(502, "GitHub could not be read")
             return self._queue | {"stale": self._queue_failed}
+
+    def boards(self, query):
+        """Every board with its columns, fields and cards, from the copy: a session reads GitHub only for the rest.
+
+        `?fresh=1` reads each board into the copy first, at most once a minute, as after a card changed on GitHub.
+        """
+        projects = {}
+        for project in self.config.projects:
+            if project.board is not None:
+                projects.setdefault((project.board.owner, project.board.number), []).append(project.name)
+        answer = []
+        try:
+            for board in self._boards():
+                if query.get("fresh") == ["1"] and hasattr(self.github, "refresh_board"):
+                    self.github.refresh_board(board, max_age=FRESH_SECONDS)
+                layout = self.github.board_layout(board)
+                cards = [{"task": f"{item.repo}#{item.number}"} | {key: getattr(item, key) for key in CARD_KEYS}
+                         for item in self.github.board_items(board)]
+                answer.append({"owner": board.owner, "number": board.number,
+                               "projects": projects[(board.owner, board.number)], **layout, "cards": cards})
+        except GitHubError:
+            raise ApiError(502, "GitHub could not be read") from None
+        return {"boards": answer}
 
     def _boards(self):
         boards = {}
@@ -623,6 +647,7 @@ class Api:
 ROUTES = [
     ("GET", "/state", Api.state),
     ("GET", "/queue", Api.queue),
+    ("GET", "/boards", Api.boards),
     ("GET", "/days", Api.days),
     ("GET", "/days/{day}", Api.day),
     ("GET", "/didban", Api.didban),

@@ -22,6 +22,8 @@ from .runner import DEFAULT_LOGS_DIR, repo_path
 
 ROLE_FILE = didban.REPO_DIR / "prompts" / "flight.md"
 ZANBOURDAR_FILE = didban.REPO_DIR / "prompts" / "zanbourdar.md"
+READING_FILE = didban.REPO_DIR / "prompts" / "reading.md"
+CARDS_FILE = didban.REPO_DIR / "prompts" / "cards.md"  # Not for Didban, which stays off board state.
 LANGUAGES = {"en": "English", "fa": "Persian"}
 DIDBAN = "didban"
 ZANBOURDAR = "zanbourdar"
@@ -40,6 +42,21 @@ def task_key(task):
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def api_url(config):
+    dashboard = config.settings.dashboard
+    return f"http://{dashboard.bind}:{dashboard.port}/api/v1"
+
+
+def reading(config, cards=True):
+    """How a session reads tasks and boards from Kandu's copy of GitHub, so it spares the hourly limit.
+
+    With cards, also how it changes a card on GitHub with the ids the copy gives."""
+    text = READING_FILE.read_text(encoding="utf-8")
+    if cards:
+        text += CARDS_FILE.read_text(encoding="utf-8")
+    return text.replace("{api}", api_url(config))
 
 
 def _in_thread(work):
@@ -120,6 +137,7 @@ class Flights:
         state, message = didban.check_brain(brain)
         prompt = didban.system_prompt(DidbanConfig(brain=brain), didban.STATUS[state].format(message),
                                       **didban.waiting(brain, state), language=LANGUAGES[language], project=project)
+        prompt = "\n".join([prompt, reading(self.config, cards=False)])
         args = ["claude", "--session-id", session, "--name", didban.SESSION_NAME,
                 "--remote-control", didban.SESSION_NAME, "--disallowedTools", didban.BLOCKED_TOOLS]
         return args, prompt, didban.REPO_DIR
@@ -128,11 +146,10 @@ class Flights:
         name = "Kandu Zanbourdar"
         args = ["claude", "--dangerously-skip-permissions", "--session-id", session, "--name", name,
                 "--remote-control", name]
-        dashboard = self.config.settings.dashboard
-        lines = [ZANBOURDAR_FILE.read_text(encoding="utf-8"), "## This setup",
+        lines = [ZANBOURDAR_FILE.read_text(encoding="utf-8"), reading(self.config), "## This setup",
                  f"- Kandu's live install, where you start: `{didban.REPO_DIR}`. Its config is in `local/` there.",
                  f"- Its run logs: `{self.logs_dir}`.",
-                 f"- Kandu's API: `http://{dashboard.bind}:{dashboard.port}/api/v1`.",
+                 f"- Kandu's API: `{api_url(self.config)}`.",
                  f"- Speak {LANGUAGES[language]} with the user."]
         return args, "\n".join(lines), didban.REPO_DIR
 
@@ -158,17 +175,18 @@ class Flights:
         """Facts and paths only: the issue's text stays out, as anyone may have written it."""
         repo, number = task.split("#")
         runs = [e["run_id"] for e in queen.all_events(self.store) if e["type"] == "run_finished" and e.get("task") == task]
-        dashboard = self.config.settings.dashboard
-        lines = [ROLE_FILE.read_text(encoding="utf-8"), "## This task",
-                 f"- Task: `{task}`. Read it with `gh issue view {number} -R {repo} --comments`. A branch of Kandu's for it starts with `kandu/{number}-`.",
+        api = api_url(self.config)
+        lines = [ROLE_FILE.read_text(encoding="utf-8"), reading(self.config), "## This task",
+                 f"- Task: `{task}`. Read it with `curl -s {api}/tasks/{repo}/{number}`, and its PR with "
+                 f"`curl -s {api}/reviews/{repo}/{number}`. A branch of Kandu's for it starts with `kandu/{number}-`.",
                  f"- Project: `{project.name}`, on machine `{machine.name}`, at `{copy}`.",
                  f"- Worktree: `{worktree}`." if worktree else "- Worktree: none on this machine.",
                  f"- Kandu is installed at `{didban.REPO_DIR}`. The project's memory is `local/memory/{project.name}.md` there.",
                  f"- Its run logs, in `{self.logs_dir}`: {', '.join(f'`{r}.jsonl`' for r in runs) or 'none'}.",
-                 f"- Kandu's API: `http://{dashboard.bind}:{dashboard.port}/api/v1`.",
+                 f"- Kandu's API: `{api}`.",
                  f"- Speak {LANGUAGES[language]} with the user."]
         if machine.reach != "local":
-            lines.insert(4, f"- Reach that machine with: `{machine.reach}`.")
+            lines.insert(5, f"- Reach that machine with: `{machine.reach}`.")
         return "\n".join(lines)
 
     def _look(self, record):

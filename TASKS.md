@@ -64,6 +64,7 @@ Every task is designed and checked against harness, context and memory (§14).
 55. [x] A daily, dated backup of `local/` and `state/` into a folder set in the config, keeping a set number of copies; a failed copy leaves the earlier ones, never removes the newest good one and is told; off by default, set from the dashboard, with a restore command (§7, §12)
 56. [x] Didban sees a project's forbidden areas and repo rules in `brief show`, and checks a task against them before it defines or promotes one; the user settles a hit first (§13)
 57. [x] A note in each project's repo, `KANDU.md`, that says Kandu changes it, where its tasks are and how a breakage goes back to Kandu; `kandu.note` renders it from the registry and only prints, and `/kandu-add` offers it as a task on the user's yes (§1B)
+58. [x] Free flights, Zanbourdar and Didban opened from the dashboard read tasks, PRs and boards from Kandu's copy through the API, `/boards` included, and read GitHub only for the rest; card changes still go to GitHub (§7, §13)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

@@ -112,6 +112,35 @@ class FlightsTest(unittest.TestCase):
         key = self.open_task()
         self.assertNotIn("Title", self.prompt(key))
 
+    def test_a_task_flight_reads_its_task_and_boards_from_kandus_api(self):
+        text = self.prompt(self.open_task())
+        api = "http://127.0.0.1:8000/api/v1"
+        self.assertIn(f"{api}/tasks/acme-org/website/6", text)
+        self.assertIn(f"{api}/reviews/acme-org/website/6", text)
+        self.assertIn(f"{api}/boards", text)
+        self.assertNotIn("gh issue view", text)
+        self.assertIn("gh project item-edit", text)  # a card change still goes to GitHub
+
+    def test_didban_and_zanbourdar_read_boards_from_kandus_api(self):
+        with mock.patch("kandu.didban.check_brain", return_value=("ok", "config ok")), \
+             mock.patch("kandu.didban.waiting", return_value={}):
+            self.flights.open_didban("en")
+        self.flights.open_zanbourdar("en")
+        for key in (DIDBAN, ZANBOURDAR):
+            self.assertIn("http://127.0.0.1:8000/api/v1/boards", self.prompt(key))
+
+    def test_didban_reads_boards_but_is_not_told_to_change_cards(self):
+        with mock.patch("kandu.didban.check_brain", return_value=("ok", "config ok")), \
+             mock.patch("kandu.didban.waiting", return_value={}):
+            self.flights.open_didban("en")
+        text = self.prompt(DIDBAN)
+        self.assertIn("http://127.0.0.1:8000/api/v1/boards", text)
+        self.assertNotIn("item-edit", text)  # Didban stays off board state
+
+    def test_zanbourdar_may_change_a_card_with_the_ids_from_boards(self):
+        self.flights.open_zanbourdar("en")
+        self.assertIn("gh project item-edit", self.prompt(ZANBOURDAR))
+
     def test_the_task_worktree_is_where_a_flight_starts(self):
         worktree = Path(f"{self.project.path}.kandu-worktrees") / "6-fix-it"
         worktree.mkdir(parents=True)

@@ -12,6 +12,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 |---|---|---|
 | GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `timer_on`, `language`, `limits`, `queen`, `flowers` and `bazras` |
 | GET | `/api/v1/queue` | each project's board columns, with `Done` holding only what closed in the last `done_days` days, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes or moves |
+| GET | `/api/v1/boards` | every board in the config, with its projects, columns, fields and cards, read from Kandu's copy of GitHub, so it costs GitHub nothing; `?fresh=1` reads each board into the copy first, at most once a minute |
 | GET | `/api/v1/days` | dates that have events |
 | GET | `/api/v1/days/{day}` | one day's tokens by task, model and role, and its finished tasks |
 | GET | `/api/v1/bazras` | every project in priority order: whether Bazras looks at it (`enabled`), its hour (`at`), `paused_in_config`, and its newest reports, newest first, each with `date`, `all_well`, `findings` (a count) and `text`; `default_at` is `bazras.at` |
@@ -63,6 +64,17 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
   "Needs info": [], "Blocked": [], "Technical debt": []}}, "stale": false}
 ```
 `?fresh=1` reads the board now, at most once a minute, and a task that finished or moved does the same. If GitHub fails, the answer is the last good one with `"stale": true`, and the next read waits 5 minutes; with no good one it is a `502`.
+
+`GET /api/v1/boards`
+```json
+{"boards": [{"owner": "acme-org", "number": 1, "projects": ["website"], "project_id": "PVT_1",
+  "columns": ["Backlog", "Ready", "In progress"],
+  "fields": {"Status": {"id": "F_1", "options": {"Backlog": "o_1", "To do": "o_2", "In progress": "o_3"}}},
+  "cards": [{"task": "acme-org/website#13", "title": "Add search", "url": "https://github.com/acme-org/website/issues/13",
+             "status": "Ready", "labels": ["agent"], "priority": "P1", "kind": "Feature", "size": "Small",
+             "deadline": "", "closed_at": "", "item_id": "PVTI_1"}]}]}
+```
+`columns` and a card's `status` use Kandu's column names; `fields` holds each field with its id and its options' ids as the board names them, which a change to a card on GitHub needs, together with `project_id` and the card's `item_id`. A board the copy does not hold yet is read from GitHub once. If GitHub fails, the answer is a `502`.
 
 `GET /api/v1/days/2026-10-30`
 ```json

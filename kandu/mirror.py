@@ -146,6 +146,14 @@ class Mirror:
                                                       issue.get("labels", []), issue.get("body", ""), item_id=item_id)))
                 self._store(path, data)
 
+    def board_layout(self, board):
+        """From the copy: the board's id, its columns in Kandu's names, as a card's `status` has them, and each field
+        with its id and its options' ids as GitHub names them, which a card change needs."""
+        meta = self._board(board)["meta"]
+        ours = {theirs: ours for ours, theirs in board.columns.items()}
+        columns = [ours.get(name, name) for name in meta["fields"].get("Status", {}).get("options", {})]
+        return {"project_id": meta["project_id"], "columns": columns, "fields": meta["fields"]}
+
     def board_columns(self, board):
         return self.remote.board_columns(board)
 
