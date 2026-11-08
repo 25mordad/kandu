@@ -348,7 +348,8 @@ class GroupTest(Base):
         self.addCleanup(placer.stop)
         self.board_fails = False
 
-    def create(self, config, github, project, repo, title, text, local_dir, priority, kind, size, deadline, created=None):
+    def create(self, config, github, project, repo, title, text, local_dir, priority, kind, size, deadline, created=None,
+               store=None):
         number = 11 + len(self.created)
         self.created.append(SlimIssue(number, title, text, priority, size, deadline))
         url = f"https://github.com/{repo}/issues/{number}"
@@ -533,6 +534,76 @@ class GroupTest(Base):
         self.assertEqual(self.approve(), [f"{REPO}#11", f"{REPO}#12"])
         self.assertEqual([c.title for c in self.created], ["First", "Second"])
         self.assertIn(f"## Blocked by\n{REPO}#11\n", self.created[1].body)
+
+    def waiting(self, number, blockers, status="Backlog"):
+        self.github.add(number, status, body=body().replace("none\n", f"{blockers}\n"))
+
+    def body_of(self, number):
+        return self.github.issue_text(REPO, number)["body"]
+
+    def rewrites(self):
+        return [(e["task"], e["old"], e["new"], e["when"]) for e in self.events("blocker_rewritten")]
+
+    def test_tasks_that_waited_for_the_split_task_wait_for_its_last_slice(self):
+        self.waiting(20, "#10")
+        self.waiting(21, f"acme-org/website#2\n{REPO}#10")
+        self.approve()
+        self.assertEqual(blockers_in(self.body_of(20), REPO), [(REPO, 12)])
+        self.assertEqual(blockers_in(self.body_of(21), REPO), [("acme-org/website", 2), (REPO, 12)])
+        self.assertIn("## Goal\nA goal.", self.body_of(20))
+        self.assertEqual(sorted(self.rewrites()), [(f"{REPO}#20", f"{REPO}#10", f"{REPO}#12", "split"),
+                                                   (f"{REPO}#21", f"{REPO}#10", f"{REPO}#12", "split")])
+
+    def test_a_task_that_names_a_task_not_split_is_left_as_it_was(self):
+        self.waiting(20, "acme-org/website#2")
+        self.waiting(21, "none")
+        self.waiting(22, "#9")
+        before = [self.body_of(n) for n in (20, 21, 22)]
+        self.approve()
+        self.assertEqual([self.body_of(n) for n in (20, 21, 22)], before)
+        self.assertEqual(self.rewrites(), [])
+
+    def test_a_closed_task_keeps_its_blockers(self):
+        self.waiting(20, "#10", status="Done")
+        before = self.body_of(20)
+        self.approve()
+        self.assertEqual(self.body_of(20), before)
+
+    def test_a_task_that_names_the_last_slice_too_names_it_once(self):
+        self.waiting(20, "#10\n#12")
+        self.approve()
+        self.assertEqual(blockers_in(self.body_of(20), REPO), [(REPO, 12)])
+
+    def test_a_retry_after_a_failed_slice_rewrites_the_waiting_tasks(self):
+        self.waiting(20, "#10")
+        real = split.create_task.side_effect
+        split.create_task.side_effect = lambda *a, **k: (_ for _ in ()).throw(TaskError("gh failed")) \
+            if len(self.created) == 1 else real(*a, **k)
+        with self.assertRaises(TaskError):
+            self.approve()
+        split.create_task.side_effect = real
+        self.approve()
+        self.assertEqual(blockers_in(self.body_of(20), REPO), [(REPO, 12)])
+        self.assertEqual(self.rewrites(), [(f"{REPO}#20", f"{REPO}#10", f"{REPO}#12", "split")])
+
+    def test_a_retry_after_a_failed_rewrite_names_no_slice_twice(self):
+        self.waiting(20, "#10")
+        self.waiting(21, "#10\n#12")
+        real = self.github.edit_issue
+        edits = []
+        def fail_on_second(repo, number, title, text):
+            edits.append(number)
+            if len(edits) == 2:
+                raise GitHubError("gh issue edit: down")
+            real(repo, number, title, text)
+        with mock.patch.object(self.github, "edit_issue", side_effect=fail_on_second), self.assertRaises(GitHubError):
+            self.approve()
+        self.assertIsNone(self.store.last_event("task_split", task=self.key))
+        self.assertEqual(self.approve(), [f"{REPO}#11", f"{REPO}#12"])
+        for number in (20, 21):
+            self.assertEqual(blockers_in(self.body_of(number), REPO), [(REPO, 12)])
+        self.assertEqual(sorted(self.rewrites()), [(f"{REPO}#20", f"{REPO}#10", f"{REPO}#12", "split"),
+                                                   (f"{REPO}#21", f"{REPO}#10", f"{REPO}#12", "split")])
 
     def test_declining_sends_it_back_to_be_sized_again(self):
         self.store.record("task_sized", task=self.key, project="website", run_id=None, size="Large", files=40,

@@ -16,7 +16,8 @@ from .mirror import open_github
 from .queen import all_events
 from .review import CODE_FENCE
 from .state import StateStore
-from .tasks import TaskError, check_body, check_english, check_fields, check_private, create_task, place_task, private_words
+from .tasks import (TaskError, check_body, check_english, check_fields, check_private, create_task, last_slice,
+                    place_task, private_words, record_rewrites, waits_for_slices)
 
 MIN_SLICES = 2
 BACKLOG = "Backlog"
@@ -243,10 +244,34 @@ def _approve(config, github, store, key, local_dir, slices, seen):
             children.append(child)
 
         create_task(config, github, project.name, item.repo, part["title"], body, local_dir,
-                    item.priority, item.kind, part["size"], item.deadline or None, created=created)
+                    item.priority, item.kind, part["size"], item.deadline or None, created=created, store=store)
         references = [children[-1]]
+    # Before `task_split`: a retry after a failure here rewrites the tasks still left, and each only once.
+    wait_for_last_slice(config, github, store, key, children)
     store.record("task_split", task=key, project=project.name, children=children)
     return children
+
+
+def wait_for_last_slice(config, github, store, key, children):
+    """Every open task that names the split task under `## Blocked by` names its last slice instead."""
+    repo, _, number = key.partition("#")
+    last_of = lambda other: children[-1] if other == key else last_slice(store, other)
+    seen = {key, *children}
+    for project in config.projects:
+        if project.board is None:
+            continue
+        for item in github.board_items(project.board):
+            task = f"{item.repo}#{item.number}"
+            if task in seen or (repo, int(number)) not in blockers_in(item.body, item.repo):
+                continue
+            seen.add(task)
+            if item.status == "Done" or not github.issue_is_open(item.repo, item.number):
+                continue
+            body = github.issue_text(item.repo, item.number)["body"]  # the board's copy may be older
+            body, rewrites = waits_for_slices(body, item.repo, last_of)
+            if rewrites:
+                github.edit_issue(item.repo, item.number, item.title, body)
+                record_rewrites(store, task, project.name, rewrites, "split")
 
 
 def decline(config, github, store, key):

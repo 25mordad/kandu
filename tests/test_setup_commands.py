@@ -8,7 +8,8 @@ from unittest import mock
 from kandu import doctor, tasks
 from kandu.boards import missing_columns
 from kandu.config import BOARD_COLUMNS, BOARD_FIELDS, DEADLINE_FIELD, Board, Machine
-from kandu.github import GitHub, GitHubError
+from kandu.github import GitHub, GitHubError, blockers_in
+from kandu.state import StateStore
 from kandu.usage import Usage, UsageError
 
 import tempfile as _tempfile
@@ -142,7 +143,8 @@ class TaskCommandTest(unittest.TestCase):
         self.github.send.return_value = (4, 0, 0)
         config = mock.Mock(projects=[project()])
         config.projects[0].name = "site"
-        for target, value in (("load_config", config), ("open_github", self.github)):
+        self.store = StateStore(Path(tmp.name) / "state")
+        for target, value in (("load_config", config), ("open_github", self.github), ("StateStore", self.store)):
             patcher = mock.patch.object(tasks, target, return_value=value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -163,6 +165,67 @@ class TaskCommandTest(unittest.TestCase):
         self.assertIn("issues/1", out)
         names = [c[0] for c in self.github.method_calls]
         self.assertLess(names.index("set_status"), names.index("send"))
+
+    def blocked_by(self, blockers):
+        self.body.write_text(re.sub(r"## Blocked by\ntext", f"## Blocked by\n{blockers}", BODY), encoding="utf-8")
+
+    def test_a_task_that_names_a_split_task_waits_for_its_last_slice(self):
+        self.store.record("task_split", task="o/r#5", project="site", children=["o/r#6", "o/r#7"])
+        self.blocked_by("#5\n#3")
+        code, _, err = self.new_task()
+        self.assertEqual(code, 0)
+        sent = self.github.create_issue.call_args.args[2]
+        self.assertIn("## Blocked by\n#7\n#3", sent)
+        self.assertIn("o/r#5 was split", err)
+        self.assertIn("o/r#7", err)
+        rewrite = self.store.last_event("blocker_rewritten", task="o/r#1")
+        self.assertEqual((rewrite["old"], rewrite["new"], rewrite["when"]), ("o/r#5", "o/r#7", "defined"))
+
+    def sent_blockers(self):
+        return blockers_in(self.github.create_issue.call_args.args[2], "o/r")
+
+    def test_a_slice_split_again_leads_on_to_its_own_last_slice(self):
+        self.store.record("task_split", task="o/r#5", project="site", children=["o/r#6", "o/r#7"])
+        self.store.record("task_split", task="o/r#7", project="site", children=["o/r#8", "o/r#9"])
+        self.blocked_by("#5")
+        code, _, _ = self.new_task()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.sent_blockers(), [("o/r", 9)])
+        rewrite = self.store.last_event("blocker_rewritten", task="o/r#1")
+        self.assertEqual((rewrite["old"], rewrite["new"]), ("o/r#5", "o/r#9"))
+
+    def test_a_split_that_loops_back_still_ends(self):
+        self.store.record("task_split", task="o/r#5", project="site", children=["o/r#6", "o/r#7"])
+        self.store.record("task_split", task="o/r#7", project="site", children=["o/r#8", "o/r#5"])
+        self.blocked_by("#5")
+        code, _, _ = self.new_task()
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.sent_blockers()), 1)
+
+    def test_the_authors_words_in_blocked_by_stay(self):
+        self.store.record("task_split", task="o/r#5", project="site", children=["o/r#6", "o/r#7"])
+        self.blocked_by("- #5 (needs the API first)\n<!-- ask about #5 -->\n- #3 the login page")
+        code, _, _ = self.new_task()
+        self.assertEqual(code, 0)
+        sent = self.github.create_issue.call_args.args[2]
+        self.assertIn("## Blocked by\n- #7 (needs the API first)\n<!-- ask about #5 -->\n- #3 the login page", sent)
+
+    def test_the_last_slice_named_too_is_named_once_and_the_rest_stays(self):
+        self.store.record("task_split", task="o/r#5", project="site", children=["o/r#6", "o/r#7"])
+        self.blocked_by("- #5\n- #7\n- #3")
+        code, _, _ = self.new_task()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.sent_blockers(), [("o/r", 7), ("o/r", 3)])
+        self.assertIn("## Blocked by\n- #7\n- #3", self.github.create_issue.call_args.args[2])
+
+    def test_a_task_that_names_no_split_task_is_sent_as_written(self):
+        self.store.record("task_split", task="o/r#5", project="site", children=["o/r#6", "o/r#7"])
+        self.blocked_by("#3")
+        code, _, err = self.new_task()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.github.create_issue.call_args.args[2], self.body.read_text(encoding="utf-8"))
+        self.assertNotIn("split", err)
+        self.assertIsNone(self.store.last_event("blocker_rewritten"))
 
     def test_fields_still_waiting_are_reported(self):
         self.github.send.return_value = (2, 2, 0)

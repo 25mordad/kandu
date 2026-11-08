@@ -12,9 +12,10 @@ from pathlib import Path
 
 from . import sizing
 from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR, DEADLINE_FIELD, ConfigError, load_config
-from .github import GitHubError
+from .github import BLOCKED_BY, HTML_COMMENT, ISSUE_REFERENCE, GitHubError, blockers_in
 from .mirror import open_github
 from .privateterms import all_terms
+from .state import StateStore
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "prompts" / "templates" / "issue.md"
 
@@ -104,6 +105,66 @@ def check_task(github, repo, title, body, local_dir, priority, kind, size, deadl
     check_text(github, repo, title, body, local_dir)
 
 
+def last_slice(store, key):
+    """The slice that ends a split task, or None when `key` was not split. A slice split again leads on to its own."""
+    last, seen = None, set()
+    while key not in seen:
+        seen.add(key)
+        split = store.last_event("task_split", task=key)
+        if split is None or not split["children"]:
+            break
+        key = last = split["children"][-1]
+    return last
+
+
+def waits_for_slices(body, repo, last_of):
+    """Returns the body with every split blocker replaced by its last slice, and the (old, new) pairs replaced.
+
+    Slices merge in order, so the last one closing means all are done. `last_of(key)` names a split task's last
+    slice, or None. Only the references change: the author's own words and comments in `## Blocked by` stay.
+    A body with no split blocker comes back as it was; no blocker is named twice.
+    """
+    blockers = [f"{other}#{number}" for other, number in blockers_in(body, repo)]
+    rewrites = [(old, last_of(old)) for old in dict.fromkeys(blockers)]
+    rewrites = [(old, new) for old, new in rewrites if new is not None and new != old]
+    if not rewrites:
+        return body, []
+    new_of, seen = dict(rewrites), set()
+
+    def reference(match):
+        old = f"{match.group(1) or repo}#{match.group(2)}"
+        key = new_of.get(old, old)
+        if key in seen:
+            return ""
+        seen.add(key)
+        other, _, number = key.partition("#")
+        return f"#{number}" if other == repo and not match.group(1) else key
+
+    def line(text):
+        changed = ISSUE_REFERENCE.sub(reference, text)
+        return None if changed != text and not changed.strip(" \t-*,") else changed
+
+    def outside_comments(text):
+        lines = (line(part) for part in text.split("\n"))
+        return "\n".join(part for part in lines if part is not None)
+
+    def section(match):
+        head, text = match.group(0)[:match.start(1) - match.start(0)], match.group(1)
+        parts, last = [], 0
+        for comment in HTML_COMMENT.finditer(text):
+            parts += [outside_comments(text[last:comment.start()]), comment.group(0)]
+            last = comment.end()
+        return head + "".join(parts + [outside_comments(text[last:])])
+
+    return BLOCKED_BY.sub(section, body, count=1), rewrites
+
+
+def record_rewrites(store, task, project, rewrites, when):
+    """`when` is `split` for a task that waited before the split, `defined` for one defined after it."""
+    for old, new in rewrites:
+        store.record("blocker_rewritten", task=task, project=project, old=old, new=new, when=when)
+
+
 def set_fields(github, board, url, priority, kind, size, deadline):
     for name, value in (("Priority", priority), ("Kind", kind), ("Size", size), (DEADLINE_FIELD, deadline)):
         if value is not None:
@@ -111,19 +172,27 @@ def set_fields(github, board, url, priority, kind, size, deadline):
 
 
 def create_task(config, github, project_name, repo, title, body, local_dir, priority, kind, size, deadline=None,
-                by_hand=False, tokens=False, created=None):
+                by_hand=False, tokens=False, created=None, store=None, rewritten=None):
     """Creates the issue, puts it on the board in `Backlog` and returns its URL.
 
     `created(url)` runs as soon as the issue exists, so a caller can record it before the
-    board steps, which can fail on their own.
+    board steps, which can fail on their own. With the local log in `store`, a blocker that
+    was split is replaced by its last slice, logged, and passed to `rewritten(old, new)`.
     """
     project, repo = find_project(config, project_name, repo)
+    rewrites = []
+    if store is not None:
+        body, rewrites = waits_for_slices(body, repo, lambda key: last_slice(store, key))
     if tokens and not project.task_tokens:
         raise TaskError(f"{project_name} has no task_tokens")
     if tokens and by_hand:
         raise TaskError("a task done by hand runs no worker, so it takes no tokens")
     check_task(github, repo, title, body, local_dir, priority, kind, size, deadline)
     url = github.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens)
+    if rewrites:
+        record_rewrites(store, f"{repo}#{int(url.rstrip().rsplit('/', 1)[1])}", project.name, rewrites, "defined")
+        for old, new in rewrites if rewritten is not None else ():
+            rewritten(old, new)
     if created is not None:
         created(url)
     place_task(github, project.board, url, priority, kind, size, deadline)
@@ -159,6 +228,10 @@ def send_now(github):
     return None
 
 
+def tell_rewrite(old, new):
+    print(f"tasks: {old} was split, so this task waits for its last slice {new} instead", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Put a task on a board.")
     parser.add_argument("--project", required=True)
@@ -186,7 +259,8 @@ def main():
         else:
             body = Path(args.body_file).read_text(encoding="utf-8")
             url = create_task(config, github, args.project, args.repo, args.title, body, args.local, args.priority,
-                              args.kind, args.size, args.deadline, args.by_hand, args.tokens, created=created.append)
+                              args.kind, args.size, args.deadline, args.by_hand, args.tokens, created=created.append,
+                              store=StateStore(), rewritten=tell_rewrite)
     except ConfigError as e:
         print(f"tasks: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1

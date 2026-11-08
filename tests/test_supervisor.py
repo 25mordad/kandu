@@ -326,6 +326,17 @@ class QueenStepsTest(Base):
         self.assertNotIn("none", self.github.items[0].body)
         self.assertEqual(len(self.events("queen_opened")), 1)
 
+    def test_a_task_she_opens_on_a_split_task_waits_for_its_last_slice(self):
+        self.store.record("task_split", task=f"{REPO}#5", project="website", children=[f"{REPO}#6", f"{REPO}#7"])
+        body = "\n\n".join(f"## {s}\n- [ ] text" for s in tasks.required_sections()).replace(
+            "## Blocked by\n- [ ] text", "## Blocked by\n#5")
+        new = self.step("new_task", title="Fix the manifest", body=body, priority="High", kind="Bug", size="Small")
+        refused, _ = self.sup._carry_out([new], [])
+        self.assertEqual(refused, [])
+        self.assertTrue(self.github.created[0][2].endswith("## Blocked by\n#7"))
+        self.assertEqual([(e["task"], e["old"], e["new"], e["when"]) for e in self.events("blocker_rewritten")],
+                         [(f"{REPO}#901", f"{REPO}#5", f"{REPO}#7", "defined")])
+
     def test_a_new_task_is_held_to_the_rules_of_any_task(self):
         new = self.step("new_task", title="Fix it", body="no sections", priority="High", kind="Bug", size="Small")
         refused, _ = self.sup._carry_out([new], [])

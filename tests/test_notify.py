@@ -87,6 +87,15 @@ class WhatIsImportantTest(unittest.TestCase):
         self.assertEqual(self.kind_of("queen_decided", action="ask_user", note="?", **ON_TASK), "needs_decision")
         self.assertIsNone(self.kind_of("queen_decided", action="release", note="", **ON_TASK))
 
+    def test_a_new_task_that_waits_for_a_last_slice_is_told(self):
+        fields = dict(old="o/r#5", new="o/r#7", **ON_TASK)
+        message = message_for({"type": "blocker_rewritten", "when": "defined", "ts": "t", **fields})
+        self.assertEqual(message.kind, "task_done")
+        text = notify._render(message, "en")
+        self.assertIn("o/r#5", text)
+        self.assertIn("o/r#7", text)
+        self.assertIsNone(self.kind_of("blocker_rewritten", when="split", **fields))
+
     def test_with_the_queen_on_she_takes_a_stopped_task_first(self):
         for outcome in notify.QUEENS_OUTCOMES:
             event = {"type": "task_finished", "outcome": outcome, "ts": "t", **ON_TASK}

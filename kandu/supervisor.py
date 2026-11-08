@@ -1189,7 +1189,7 @@ class Supervisor:
         fields = [decision[name] for name in ("priority", "kind", "size")]
         try:
             url = tasks.create_task(self.config, self.github, project.name, item.repo, decision["title"],
-                                    decision["body"], self.local_dir, *fields)
+                                    decision["body"], self.local_dir, *fields, store=self.store)
         except (TaskError, GitHubError) as e:
             return str(e)
         key = f"{item.repo}#{url.rsplit('/', 1)[-1]}"

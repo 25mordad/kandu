@@ -57,6 +57,7 @@ state/
 | `task_sized` | `task`, `project`, `run_id`, `size`, `files`, `door`, `criteria`, `slices` |
 | `slice_created` | `task`, `project`, `parent` |
 | `task_split` | `task`, `project`, `children` |
+| `blocker_rewritten` | `task`, `project`, `old`, `new`, `when` (`split` or `defined`) |
 | `split_declined` | `task`, `project` |
 | `task_held` | `task`, `project`, `areas`, `reason` |
 | `hold_released` | `task`, `project` |

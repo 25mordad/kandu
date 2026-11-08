@@ -35,6 +35,7 @@ EVENT_FIELDS = {
     "task_sized": TASK_FIELDS + ("run_id", "size", "files", "door", "criteria", "slices"),
     "slice_created": TASK_FIELDS + ("parent",),
     "task_split": TASK_FIELDS + ("children",),
+    "blocker_rewritten": TASK_FIELDS + ("old", "new", "when"),
     "split_declined": TASK_FIELDS,
     "task_held": TASK_FIELDS + ("areas", "reason"),
     "hold_released": TASK_FIELDS,
