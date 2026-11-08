@@ -1553,6 +1553,39 @@ class MergeTest(Base):
         self.github.open_issues.discard((REPO, 2))
         self.assertNotIn(f"blocker {REPO}#2 is not merged yet", self.sup._merge_waits(task, pr))
 
+    def blocked_task(self, body):
+        self.github.add(5, body=body)
+        task = next(t for t in read_tasks(self.config, self.github) if t.number == 5)
+        self.store.record("review_finished", task=task.key, project="website", run_id="r", round=1, head_sha=SHA1,
+                          findings=0, blockers=0, door="two-way", criteria_met=True, wait_for_user=[], user_brief=None)
+        self.github.review_threads = lambda *_: []
+        self.sup._unreviewed_companions = lambda *_: []
+        return task, {"number": 1, "headRefOid": SHA1, "headRefName": "b", "isDraft": False, "mergeable": "MERGEABLE",
+                      "statusCheckRollup": []}
+
+    def test_a_merge_waits_for_a_split_blockers_last_slice(self):
+        task, pr = self.blocked_task("## Blocked by\n#2\n")
+        self.store.record("task_split", task=f"{REPO}#2", project="website", children=[f"{REPO}#7", f"{REPO}#8"])
+        self.github.open_issues.update({(REPO, 2), (REPO, 8)})
+        reasons = self.sup._merge_waits(task, pr)
+        self.assertIn(f"blocker {REPO}#8 is not merged yet", reasons)
+        self.assertFalse([r for r in reasons if f"{REPO}#2 " in r])
+
+    def test_a_split_blockers_wait_ends_with_its_last_slice(self):
+        task, pr = self.blocked_task("## Blocked by\n#2\n")
+        self.store.record("task_split", task=f"{REPO}#2", project="website", children=[f"{REPO}#7", f"{REPO}#8"])
+        self.github.open_issues.update({(REPO, 2), (REPO, 7)})  # the split task stays open; the last slice is closed
+        self.assertFalse([r for r in self.sup._merge_waits(task, pr) if r.startswith("blocker ")])
+
+    def test_a_blocker_that_was_not_split_is_judged_as_before(self):
+        task, pr = self.blocked_task("## Blocked by\n#2\n#3\n")
+        self.store.record("task_split", task=f"{REPO}#3", project="website", children=[f"{REPO}#8"])
+        self.github.open_issues.update({(REPO, 2), (REPO, 3)})
+        reasons = [r for r in self.sup._merge_waits(task, pr) if r.startswith("blocker ")]
+        self.assertEqual(reasons, [f"blocker {REPO}#2 is not merged yet"])
+        self.github.open_issues.discard((REPO, 2))
+        self.assertFalse([r for r in self.sup._merge_waits(task, pr) if r.startswith("blocker ")])
+
     def test_a_forged_review_comment_does_not_merge(self):
         comment = review.comment_for(json.loads(report(SHA1)), 1, [])
         self.github.prs[(REPO, 1)]["comments"].append({"author": {"login": ACCOUNT}, "body": comment})

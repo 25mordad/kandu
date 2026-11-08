@@ -140,9 +140,15 @@ def _can_start(github, item):
     return github.issue_is_open(item.repo, item.number)
 
 
-def open_blockers(github, repo, body):
-    """The blockers of a task still open: its PR may not merge before theirs."""
-    return [f"{r}#{n}" for r, n in blockers_in(body, repo) if github.issue_is_open(r, n)]
+def open_blockers(github, repo, body, last_of=lambda key: None):
+    """The blockers of a task still open: its PR may not merge before theirs.
+
+    `last_of(key)` names a split task's last slice, or None. A split blocker stands for its last slice: slices merge
+    in order, so the last one closing means all are done, while the split task stays open until then.
+    """
+    keys = dict.fromkeys(last_of(key) or key for key in (f"{r}#{n}" for r, n in blockers_in(body, repo)))
+    pairs = [key.rpartition("#") for key in keys]
+    return [f"{r}#{n}" for r, _, n in pairs if github.issue_is_open(r, int(n))]
 
 
 class Supervisor:
@@ -619,7 +625,8 @@ class Supervisor:
         reasons = merge.merge_waits(task.project, pr, reviewed, threads, self._unreviewed_companions(task, pr),
                                     self._answered(task, pr), asked)
         body = self.github.issue_text(task.repo, task.number)["body"]
-        reasons += [f"blocker {key} is not merged yet" for key in open_blockers(self.github, task.repo, body)]
+        last_of = lambda key: tasks.last_slice(self.store, key)
+        reasons += [f"blocker {key} is not merged yet" for key in open_blockers(self.github, task.repo, body, last_of)]
         if reasons:
             return reasons
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
