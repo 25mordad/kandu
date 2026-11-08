@@ -17,10 +17,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import backup, bazras, flights, ghmeter, queen, questions, review, sessions, split, timer
+from . import backup, bazras, flights, ghmeter, queen, questions, review, sessions, split, tasks, timer
 from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup, set_inspect,
                      set_limits, set_parallel)
-from .github import AGENT_LABEL, GitHubError
+from .github import AGENT_LABEL, GitHubError, blockers_in
 from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
 from .state import StateStore
@@ -46,6 +46,14 @@ TOOL_DETAIL_KEYS = ("file_path", "path", "pattern", "command")
 MAX_DETAIL = 200
 CARD_KEYS = ("title", "url", "status", "labels", "priority", "kind", "size", "deadline", "closed_at", "item_id")
 USER_DECIDES = "the user decides next"
+WAITS_FOR_BLOCKER = re.compile(r"blocker \S+#\d+ is not merged yet")  # as the merge gate words it
+REASONS_APART = "; "  # how the merge gate joins its reasons in one decision
+ONE_WAY_DOOR = "this is a one-way door"  # as `merge.merge_waits` words it: with the review's questions, all a yes answers
+
+
+def held_by_blockers(reasons):
+    """True when every reason a merge waited is a blocker: nothing the user could approve away."""
+    return bool(reasons) and all(WAITS_FOR_BLOCKER.fullmatch(reason) for reason in reasons)
 
 
 def recommendation(record):
@@ -65,32 +73,37 @@ def flower_marks(store):
     """What each task's flower shows beyond its column. The local log alone, so it costs GitHub nothing."""
     events = queen.all_events(store)
     marks = {}
+    asked = {}  # the questions each task's reviews asked: a yes answers them
     for event in events:
         task, kind = event.get("task"), event["type"]
         if task is None:
             continue
         mark = marks.setdefault(task, {"size": None, "door": None, "sent_back": False, "slice": False, "pr": None,
-                                       "questions": 0, "yours": False})
+                                       "questions": 0, "yours": False, "waited": []})
         if kind == "task_sized":
             mark |= {"size": event["size"], "door": event["door"]}
         elif kind == "slice_created":
             mark["slice"] = True
         elif kind == "review_finished":
             mark |= {"door": event["door"], "sent_back": bool(event["blockers"])}
-        elif kind == "decision" and (event["decision"] == "merge_waits" or event["reason"] == USER_DECIDES):
-            mark["pr"] = "waits"
-            mark["yours"] = mark["yours"] or event["reason"] == USER_DECIDES
+            asked.setdefault(task, set()).update(event["wait_for_user"])
+        elif kind == "decision" and event["decision"] == "merge_waits":
+            reasons = event["reason"].split(REASONS_APART)
+            mark |= {"pr": "held" if held_by_blockers(reasons) else "waits", "waited": reasons}
+        elif kind == "decision" and event["reason"] == USER_DECIDES:
+            mark |= {"pr": "waits", "yours": True}
         elif kind == "loop_stopped":
             mark["yours"] = True
         elif kind in ("user_approved", "queen_approved"):
-            mark |= {"pr": "approved", "yours": False}
+            answered = asked.get(task, set()) | {ONE_WAY_DOOR}  # a yes answers these and nothing else
+            mark |= {"pr": "approved", "yours": False, "waited": [r for r in mark["waited"] if r not in answered]}
         elif kind in ("task_picked", "user_resumed"):
-            mark |= {"pr": None, "yours": False}
+            mark |= {"pr": None, "yours": False, "waited": []}
         elif kind == "task_finished":
             if event["outcome"] in questions.ENDED:
                 del marks[task]
             else:
-                mark["pr"] = None
+                mark |= {"pr": None, "waited": []}
     for question in questions.open_questions(store, events):
         if question["task"] in marks:
             marks[question["task"]]["questions"] += 1
@@ -332,20 +345,44 @@ class Api:
     def _read_queue(self):
         projects = {p.name: {c: [] for c in QUEUE_COLUMNS} for p in self.config.projects}
         by_repo = {repo: p.name for p in self.config.projects for repo in p.repos}
-        for board in self._boards():
-            for item in self.github.board_items(board):
-                name = by_repo.get(item.repo)
-                if name is None or item.status not in QUEUE_COLUMNS:
-                    continue
-                if item.status == DONE and not closed_lately(item):
-                    continue
-                task = f"{item.repo}#{item.number}"
-                if item.status == split.NEEDS_SPLIT and self.store.last_event("task_split", task=task) is not None:
-                    continue  # Accepted: it waits for nobody, and its slices stand for it until the last one closes it.
-                # A task without `agent` is the user's to do by hand: shown for a free flight, never worked by Kandu.
-                projects[name][item.status].append({"task": task, "title": item.title, "url": item.url,
-                                                    "by_hand": AGENT_LABEL not in item.labels})
+        items = [item for board in self._boards() for item in self.github.board_items(board)]
+        columns = {f"{item.repo}#{item.number}": item.status for item in items}
+        for item in items:
+            name = by_repo.get(item.repo)
+            if name is None or item.status not in QUEUE_COLUMNS:
+                continue
+            if item.status == DONE and not closed_lately(item):
+                continue
+            task = f"{item.repo}#{item.number}"
+            if item.status == split.NEEDS_SPLIT and self.store.last_event("task_split", task=task) is not None:
+                continue  # Accepted: it waits for nobody, and its slices stand for it until the last one closes it.
+            # A task without `agent` is the user's to do by hand: shown for a free flight, never worked by Kandu.
+            entry = {"task": task, "title": item.title, "url": item.url, "by_hand": AGENT_LABEL not in item.labels}
+            if item.status in MERGEABLE_COLUMNS:
+                entry["blockers"] = self._blockers(item, columns)
+            projects[name][item.status].append(entry)
         return {"projects": projects, "done_days": DONE_KEEP_DAYS}
+
+    def _blockers(self, item, columns):
+        """The open blockers in a task's `## Blocked by`, each with its column; a split one with its slices.
+
+        From the copy and the local log only. A split blocker is open until its last slice closes, as at the
+        merge gate. `columns` maps each task on a board to its column.
+        """
+        held = []
+        for repo, number in dict.fromkeys(blockers_in(item.body, item.repo)):
+            key = f"{repo}#{number}"
+            last = tasks.last_slice(self.store, key) or key
+            last_repo, _, last_number = last.rpartition("#")
+            try:
+                if not self.github.issue_is_open(last_repo, int(last_number)):
+                    continue
+            except GitHubError:
+                pass  # the copy does not know it: the merge gate cannot pass it either
+            split_ = self.store.last_event("task_split", task=key)
+            slices = [{"task": child, "column": columns.get(child)} for child in (split_ or {}).get("children", [])]
+            held.append({"task": key, "column": columns.get(key), "slices": slices})
+        return held
 
     def days(self, query):
         return {"days": self.store.days()}
@@ -424,14 +461,26 @@ class Api:
             return {"task": f"{full}#{number}", "pr": None, "rounds": []}
         task, head = f"{full}#{number}", pr["headRefOid"]
         why_not = self._why_no_approval(task, pr)
+        item, columns = self._card(full, int(number))
+        blockers = self._blockers(item, columns) if item is not None and pr["state"] == "OPEN" else []
+        waited = (flower_marks(self.store).get(task) or {}).get("waited", [])
+        gate = [tasks.last_slice(self.store, b["task"]) or b["task"] for b in blockers]  # named as the gate names them
+        holds = list(dict.fromkeys([*(f"blocker {key} is not merged yet" for key in gate), *waited]))
         rounds = review.reviews_on(pr, self.config.settings.github.account)
         return {"task": task, "pr": {"number": pr["number"], "title": pr["title"], "url": pr["url"],
                                      "state": pr["state"], "head_sha": head,
                                      "approved": self.store.last_event("user_approved", task=task,
                                                                        head_sha=head) is not None,
                                      "can_approve": why_not is None, "why_not": why_not},
+                "blockers": blockers, "waited": waited, "holds": holds,
                 "rounds": [r | {"recommendation": recommendation(r), "user_brief": self._user_brief(full, number, r)}
                            for r in rounds]}
+
+    def _card(self, repo, number):
+        """A task's card on any board, or None, and the column of every card: all from the copy."""
+        items = [item for board in self._boards() for item in self.github.board_items(board)]
+        card = next((i for i in items if i.repo == repo and i.number == number), None)
+        return card, {f"{i.repo}#{i.number}": i.status for i in items}
 
     def _user_brief(self, repo, number, round_):
         """It stays in the local log: a PR comment holds only English."""
@@ -455,10 +504,13 @@ class Api:
             return "this project is paused: resume it first"
         if project.board is None:
             return "this project has no board"
-        status = next((i.status for i in self.github.board_items(project.board)
-                       if i.repo == repo and i.number == int(number)), None)
+        item, columns = self._card(repo, int(number))
+        status = item and item.status
         if status not in MERGEABLE_COLUMNS:
             return f"its task is in {status or 'no column'}, so no cycle would pick it up"
+        blockers = self._blockers(item, columns)
+        if blockers:  # The merge gate holds it until they merge, whatever the user says.
+            return f"it waits for {', '.join(b['task'] for b in blockers)} to merge first"
         return None
 
     def approve(self, query, owner, repo, number):

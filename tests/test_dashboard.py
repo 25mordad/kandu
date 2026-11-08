@@ -855,6 +855,122 @@ class HiveTest(unittest.TestCase):
         self.assertIn("prefers-reduced-motion: reduce", self.page)
 
 
+class HeldByBlockerTest(Base):
+    """A merge that waits for another task says so, from the local log and the copy alone (issue #17)."""
+    COPY_READS = {"board_items", "board_version", "issue_is_open", "find_pr"}
+
+    def setUp(self):
+        super().setUp()
+        self.open = {f"{REPO}#1", f"{REPO}#2", f"{REPO}#3", f"{REPO}#4"}
+        self.github.issue_is_open.side_effect = lambda repo, number: f"{repo}#{number}" in self.open
+        self.cards = {1: BoardItem(REPO, 1, "Ours", "u", "In review", ["agent"], "## Blocked by\n#2\n"),
+                      2: BoardItem(REPO, 2, "Theirs", "u", "In progress", ["agent"], "")}
+        self.github.board_items.side_effect = lambda board: list(self.cards.values())
+        self.store.record("review_finished", task=f"{REPO}#1", project="website", run_id="r", round=1, head_sha="abc",
+                          findings=0, blockers=0, door="two-way", criteria_met=True, wait_for_user=[], user_brief=None)
+        self.github.find_pr.return_value = {"number": 7, "title": "T", "url": "u", "state": "OPEN", "headRefOid": "abc",
+                                            "comments": []}
+
+    def waited(self, *reasons):
+        self.store.record("decision", task=f"{REPO}#1", project="website", decision="merge_waits",
+                          reason="; ".join(reasons))
+
+    def marks(self):
+        return self.get("/api/v1/state")[1]["flowers"][f"{REPO}#1"]
+
+    def page(self):
+        return self.get(f"/api/v1/reviews/{REPO}/1")[1]
+
+    def queued(self, number=1):
+        projects = self.get("/api/v1/queue")[1]["projects"]["website"]
+        return next(t for tasks in projects.values() for t in tasks if t["task"] == f"{REPO}#{number}")
+
+    def split_blocker(self):
+        self.cards[2] = BoardItem(REPO, 2, "Theirs", "u", "Needs split", ["agent"], "")
+        self.cards[3] = BoardItem(REPO, 3, "First slice", "u", "Done", ["agent"], "")
+        self.cards[4] = BoardItem(REPO, 4, "Last slice", "u", "In progress", ["agent"], "")
+        self.open -= {f"{REPO}#3"}
+        self.store.record("task_split", task=f"{REPO}#2", project="website", children=[f"{REPO}#3", f"{REPO}#4"])
+
+    def test_a_merge_that_waits_only_for_a_blocker_is_not_the_users_approval(self):
+        self.waited(f"blocker {REPO}#2 is not merged yet")
+        self.assertEqual(self.marks()["pr"], "held")
+        self.assertFalse(self.marks()["yours"])
+
+    def test_a_merge_that_also_waits_for_something_else_still_waits(self):
+        self.waited("this is a one-way door", f"blocker {REPO}#2 is not merged yet")
+        self.assertEqual(self.marks()["pr"], "waits")
+
+    def test_the_card_and_the_window_show_the_latest_reasons(self):
+        self.waited("CI is running")
+        self.waited("the PR has conflicts", f"blocker {REPO}#2 is not merged yet")
+        expected = ["the PR has conflicts", f"blocker {REPO}#2 is not merged yet"]
+        self.assertEqual(self.marks()["waited"], expected)
+        self.assertEqual(self.page()["waited"], expected)
+
+    def test_the_card_names_its_open_blocker_and_its_column(self):
+        self.assertEqual(self.queued()["blockers"], [{"task": f"{REPO}#2", "column": "In progress", "slices": []}])
+        self.assertEqual(self.page()["blockers"], [{"task": f"{REPO}#2", "column": "In progress", "slices": []}])
+
+    def test_a_merged_blocker_is_not_shown(self):
+        self.open -= {f"{REPO}#2"}
+        self.assertEqual(self.queued()["blockers"], [])
+        self.assertEqual(self.page()["blockers"], [])
+
+    def test_a_split_blocker_shows_its_slices_and_their_columns(self):
+        self.split_blocker()
+        expected = [{"task": f"{REPO}#2", "column": "Needs split",
+                     "slices": [{"task": f"{REPO}#3", "column": "Done"}, {"task": f"{REPO}#4", "column": "In progress"}]}]
+        self.assertEqual(self.queued()["blockers"], expected)
+        self.assertEqual(self.page()["blockers"], expected)
+
+    def test_a_split_blocker_whose_last_slice_closed_holds_nothing(self):
+        self.split_blocker()
+        self.open -= {f"{REPO}#4"}
+        self.assertEqual(self.page()["blockers"], [])
+        self.assertTrue(self.page()["pr"]["can_approve"])
+
+    def test_no_approve_while_a_blocker_is_open_and_the_window_says_why(self):
+        pr = self.page()["pr"]
+        self.assertFalse(pr["can_approve"])
+        self.assertEqual(pr["why_not"], f"it waits for {REPO}#2 to merge first")
+        status, _ = dispatch(self.api, "POST", f"/api/v1/reviews/{REPO}/1/approve?head=abc", TOKEN)
+        self.assertEqual(status, 409)
+        self.assertIsNone(self.store.last_event("user_approved"))
+
+    def test_after_an_approval_the_window_names_what_still_holds_the_merge(self):
+        self.store.record("user_approved", task=f"{REPO}#1", project="website", head_sha="abc")
+        self.waited("CI is running")
+        page = self.page()
+        self.assertTrue(page["pr"]["approved"])
+        self.assertEqual(page["holds"], [f"blocker {REPO}#2 is not merged yet", "CI is running"])
+
+    def test_an_approval_with_nothing_left_holds_nothing(self):
+        self.open -= {f"{REPO}#2"}
+        self.waited("this is a one-way door")
+        self.store.record("user_approved", task=f"{REPO}#1", project="website", head_sha="abc")
+        self.assertEqual(self.page()["holds"], [])
+
+    def test_a_yes_keeps_what_a_yes_cannot_answer(self):
+        self.open -= {f"{REPO}#2"}
+        self.store.record("review_finished", task=f"{REPO}#1", project="website", run_id="r", round=2, head_sha="abc",
+                          findings=0, blockers=0, door="one-way", criteria_met=True, wait_for_user=["Ship it now?"],
+                          user_brief=None)
+        self.waited("Ship it now?", "this is a one-way door", "the tests fail on this head", "the PR has conflicts")
+        self.store.record("user_approved", task=f"{REPO}#1", project="website", head_sha="abc")
+        self.assertEqual(self.page()["holds"], ["the tests fail on this head", "the PR has conflicts"])
+        self.assertEqual(self.marks()["waited"], ["the tests fail on this head", "the PR has conflicts"])
+
+    def test_everything_shown_comes_from_the_copy(self):
+        self.split_blocker()
+        self.waited(f"blocker {REPO}#4 is not merged yet")
+        self.get("/api/v1/state")
+        self.get("/api/v1/queue")
+        self.page()
+        called = {name.split(".")[0] for name, *_ in self.github.mock_calls}
+        self.assertLessEqual(called, self.COPY_READS)
+
+
 class LanguageTest(unittest.TestCase):
     def setUp(self):
         self.page = dashboard.PAGE.read_text(encoding="utf-8")
@@ -890,8 +1006,18 @@ class LanguageTest(unittest.TestCase):
         reasons = (ROOT / "kandu" / "dashboard.py").read_text(encoding="utf-8").split("def _why_no_approval")[1].split("    def approve")[0]
         values += [r for r in re.findall(r'return "([a-z][^"]*)"', reasons) if r != "this PR is not open"]
         values.append("its task is in Blocked, so no cycle would pick it up")
+        values.append(f"it waits for {REPO}#2, {REPO}#3 to merge first")
         missing = [v for v in values if not self.translate(v)]
         self.assertEqual(missing, [])
+
+
+    def test_every_reason_a_merge_waits_has_a_persian_form(self):
+        gate = (ROOT / "kandu" / "merge.py").read_text(encoding="utf-8")
+        values = re.findall(r'reasons\.append\("([^"]+)"\)', gate)
+        values += ["this head has no review in the local log", "CI is running", "CI is failing",
+                   f"companion {REPO}#3 is open and unreviewed", f"blocker {REPO}#2 is not merged yet",
+                   "the tests fail on this head"]
+        self.assertEqual([v for v in values if not self.translate(v)], [])
 
 
 class StreamTest(Base):

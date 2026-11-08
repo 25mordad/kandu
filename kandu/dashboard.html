@@ -347,6 +347,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "split_decline_hint": "To decline or change it, go to Didban.",
   "files_touched": "files",
   "approved_waits": "You approved this. Kandu merges it in its next cycle.",
+  "approved_held": "You approved this. Its merge still waits:",
+  "waits_for_task": "Waits for",
+  "merge_waited": "Its merge waited",
+  "slices": "slices",
   "token_required": "A valid token is required.",
   "request_failed": "The request failed.",
   "api_unreachable": "The dashboard API cannot be reached.",
@@ -512,6 +516,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "split_decline_hint": "برای رد یا تغییر آن، به دیدبان برو.",
   "files_touched": "فایل",
   "approved_waits": "تأیید کردی. کندو در چرخه‌ی بعدی ادغامش می‌کند.",
+  "approved_held": "تأیید کردی. ادغامش هنوز منتظر است:",
+  "waits_for_task": "منتظر",
+  "merge_waited": "ادغامش منتظر ماند",
+  "slices": "تکه‌ها",
   "token_required": "توکن معتبر لازم است.",
   "request_failed": "درخواست انجام نشد.",
   "api_unreachable": "به API داشبورد دسترسی نیست.",
@@ -660,6 +668,17 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "wait: a blocker is open": "صبر کن: یک مانع باز است",
   "this head has no review": "این نسخه از PR بازبینی نشده است",
   "a blocker is open": "یک مانع باز است",
+  "no column": "بی‌ستون",
+  "this head has no review in the local log": "این نسخه از PR در لاگ محلی بازبینی ندارد",
+  "this is a one-way door": "برگرداندن این کار سخت است",
+  "the PR is a draft": "PR پیش‌نویس است",
+  "the PR has conflicts": "PR تداخل دارد",
+  "CI is running": "CI در حال اجراست",
+  "CI is failing": "CI شکست می‌خورد",
+  "the project is frozen": "پروژه منجمد است",
+  "a review thread is open": "یک رشتهٔ بازبینی باز است",
+  "a thread was resolved by someone other than its author": "رشته‌ای را کسی جز نویسنده‌اش بسته است",
+  "the tests fail on this head": "تست‌ها روی این نسخه رد می‌شوند",
   "the session's link did not come in time": "لینک جلسه به‌موقع نیامد",
   "the session did not start": "جلسه باز نشد",
   "an acceptance criterion is not met": "یک معیار پذیرش برآورده نشده است",
@@ -791,6 +810,18 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   [
    "^its task is in (.*), so no cycle would pick it up$",
    "تسکش در ستون $1 است و هیچ چرخه‌ای آن را برنمی‌دارد"
+  ],
+  [
+   "^blocker (.+) is not merged yet$",
+   "مانع \u2066$1\u2069 هنوز ادغام نشده"
+  ],
+  [
+   "^companion (.+) is open and unreviewed$",
+   "PR همراه \u2066$1\u2069 باز است و بازبینی نشده"
+  ],
+  [
+   "^it waits for (.+) to merge first$",
+   "اول باید \u2066$1\u2069 ادغام شود"
   ],
   [
    "^could not read the boards: (.*)$",
@@ -1103,7 +1134,7 @@ function hive(x, y, asleep, queenRun) {
 
 function fields(state, queue) {
   const projects = Object.entries(queue?.projects || {}).map(([name, columns]) => ({name, tasks:
-    Object.entries(columns).flatMap(([column, tasks]) => tasks.map(task => ({task: task.task, title: task.title, url: task.url, by_hand: !!task.by_hand, column})))}));
+    Object.entries(columns).flatMap(([column, tasks]) => tasks.map(task => ({task: task.task, title: task.title, url: task.url, by_hand: !!task.by_hand, blockers: task.blockers || [], column})))}));
   const seen = new Set(projects.flatMap(p => p.tasks.map(item => item.task)));
   const strays = [...(state.workers || []).filter(w => !seen.has(w.task)).map(w => ({task: w.task, title: "", column: "In progress", project: w.project})),
                   ...(state.waiting_for_machine || []).filter(task => !seen.has(task)).map(task => ({task, title: "", column: "waiting"}))];
@@ -1122,7 +1153,9 @@ function fields(state, queue) {
     patch.paused = (state.paused_projects || []).includes(patch.name);
     for (const item of patch.tasks) {
       item.mark = state.flowers?.[item.task] || {};
-      if (item.mark.pr && ON_THE_WAY.includes(item.column)) item.column = item.mark.pr === "waits" ? "Your approval" : "Approved";
+      // A merge held by an open blocker is nobody's to approve yet: it keeps its column and says what it waits for.
+      const held = item.mark.pr === "held" || (item.blockers || []).length > 0;
+      if (item.mark.pr && ON_THE_WAY.includes(item.column) && !held) item.column = item.mark.pr === "waits" ? "Your approval" : "Approved";
     }
   }
   return projects;
@@ -1180,7 +1213,7 @@ function renderScene(state, queue) {
       const x = patch.x + (i % patch.perRow) * CELL_W + CELL_W / 2 + (patch.width - patch.perRow * CELL_W) / 2;
       const y = patch.y + Math.floor(i / patch.perRow) * CELL_H + 54;
       spots[item.task] = {x, y};
-      const title = `${item.task} · ${item.title} · ${tr(item.column === "waiting" ? "waiting for machine" : item.column)}${item.by_hand ? ` · ${t("by_hand")}` : ""}`;
+      const title = `${item.task} · ${item.title} · ${tr(item.column === "waiting" ? "waiting for machine" : item.column)}${item.by_hand ? ` · ${t("by_hand")}` : ""}${heldLines(item.mark, item.blockers).map(line => ` · ${line}`).join("")}`;
       return `<g class="clickable" data-review="${esc(item.task)}" transform="translate(${x} ${y})"><title>${esc(title)}</title>${flower(item, i)}
         <text class="flower-number" y="52">${numberOf(item.task)}</text></g>`;
     }).join("");
@@ -1347,7 +1380,7 @@ function projectCard(project, shown, total, searching) {
   const counts = COLUMN_ORDER.map(column => [column, sorted.filter(item => item.column === column).length]).filter(([, count]) => count);
   const rows = sorted.map(item => {
     const label = item.column === "waiting" ? "waiting for machine" : item.column;
-    return `<tr data-review="${esc(item.task)}"><td class="fit number">${numberOf(item.task)}</td><td dir="auto"><button class="textlink">${esc(item.title || item.task)}</button>${item.by_hand ? ` <span class="badge" title="${esc(t("by_hand_hint"))}">${t("by_hand")}</span>` : ""}${item.mark?.yours ? ` <span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : ""}</td>
+    return `<tr data-review="${esc(item.task)}"><td class="fit number">${numberOf(item.task)}</td><td dir="auto"><button class="textlink">${esc(item.title || item.task)}</button>${item.by_hand ? ` <span class="badge" title="${esc(t("by_hand_hint"))}">${t("by_hand")}</span>` : ""}${item.mark?.yours ? ` <span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : ""}${heldLines(item.mark, item.blockers).map(line => `<div class="muted" dir="auto">${esc(line)}</div>`).join("")}</td>
       <td class="fit">${badge(item.column, label)}</td></tr>`;
   }).join("");
   const table = rows ? `<table class="rows"><thead><tr><th class="fit">${t("number")}</th><th>${t("title")}</th><th class="fit">${t("status")}</th></tr></thead><tbody>${rows}</tbody></table>`
@@ -1567,8 +1600,19 @@ function queued(task) {
   return Object.values(lastQueue?.projects || {}).flatMap(columns => Object.entries(columns).flatMap(([column, tasks]) => tasks.map(item => ({...item, column})))).find(item => item.task === task);
 }
 
-function approval(task, pr) {
-  if (pr.approved) return `<p class="muted">${t("approved_waits")}</p>`;
+// Why a merge waited, from the local log, and the open tasks it waits for, from the copy: one line each.
+function heldLines(mark, blockers) {
+  const column = name => tr(name || "no column");
+  const named = b => `${numberOf(b.task)} ${column(b.column)}${b.slices.length ? ` (${t("slices")}: ${b.slices.map(s => `${numberOf(s.task)} ${column(s.column)}`).join(", ")})` : ""}`;
+  const lines = [];
+  if (blockers?.length) lines.push(`${t("waits_for_task")}: ${blockers.map(named).join(" · ")}`);
+  if (mark?.waited?.length) lines.push(`${t("merge_waited")}: ${mark.waited.map(tr).join(" · ")}`);
+  return lines;
+}
+
+// After a yes, the merge is promised only when nothing else still holds it.
+function approval(task, pr, holds = []) {
+  if (pr.approved) return `<p class="muted">${holds.length ? `${t("approved_held")} ${esc(holds.map(tr).join(" · "))}` : t("approved_waits")}</p>`;
   if (!pr.can_approve) return pr.state === "OPEN" ? `<p class="muted">${esc(tr(pr.why_not))}</p>` : "";
   if (!confirming) return `<button class="btn primary" data-sure>${t("approve")}</button>`;
   return `<div class="confirm"><div>${t("approve_sure")}</div><div class="actions"><button class="btn primary" data-approve="${esc(task)}" data-head="${esc(pr.head_sha)}">${t("approve")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`;
@@ -1626,7 +1670,8 @@ async function showReviews(task) {
   $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? badge(item.column) : ""}${yoursChip(task)}</div>
     ${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}
     <div class="actions">${sendBack(task, item)}</div>
-    <div class="actions">${approval(task, r.pr)}${link(r.pr.url, t("open_github"))}</div>
+    ${heldLines({waited: r.waited}, r.blockers).map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
+    <div class="actions">${approval(task, r.pr, r.holds)}${link(r.pr.url, t("open_github"))}</div>
     <div id="taskflight" class="actions"></div>
     ${r.rounds.slice().reverse().map((round, i) => roundBox(round, i === 0)).join("")}`;
   renderFlights();
