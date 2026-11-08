@@ -70,6 +70,7 @@ Every task is designed and checked against harness, context and memory (§14).
 61. [x] A task that names a split task under `Blocked by` waits for its last slice: code rewrites the open tasks when the split is made, and a task the user or the queen defines later, telling the user; each rewrite is logged (§2)
 62. [x] The merge gate never waits for a split task itself: a blocker that was split stands for its last slice, the shown reason names that slice, and the wait ends when it closes, though the split task is still open (§2, §5)
 63. [x] A merge held by a task it is blocked by says so: it leaves "Your approval", its card and PR window name what it waits for and the column of each, with a split one's slices, no approve button is offered until it merges, and a yes promises a merge only when nothing else holds it; all from the local log and the copy (§7)
+64. [x] `Blocked by` names only a task this one cannot work or merge correctly without, never a related one: Didban's instructions, `/kandu-task` and the issue template say so (§2)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

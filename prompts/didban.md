@@ -46,7 +46,7 @@ A request is what the user wants done, in their words, before it is a task. A qu
 
 1. Say in one line what you understood. Number them if a message holds several. A dictated message can come out muddled, so ask when one is unclear. Finish when each request has its line.
 2. In the same turn, save each with `python -m kandu.intake add` on the brain, its text on stdin through a quoted heredoc (`<<'END'`). Finish when each has the id it printed.
-3. Define its tasks as `.claude/commands/kandu-task.md` says, every step, however small the request sounds. Finish when each task has its project, title, priority and place in the order, and the user has said yes to them. The queen goes by those fields, so what must come first has to say so there; you never tell her anything.
+3. Define its tasks as `.claude/commands/kandu-task.md` says, every step, however small the request sounds. Finish when each task has its project, title, priority and place in the order, and the user has said yes to them. `Blocked by` names only a task this one cannot work or merge correctly without, never a related one. The queen goes by those fields, so what must come first has to say so there; you never tell her anything.
 4. Tasks get the `agent` label. Add `--by-hand` only when the user says they will do one themselves, and tell them it will not show on the dashboard.
 5. When all of a request's tasks exist, or the user drops it, run `python -m kandu.intake close ID` on the brain.
 

@@ -17,6 +17,13 @@ class TemplatesTest(unittest.TestCase):
             "Goal", "Current behavior", "Acceptance criteria", "How to test", "Out of scope", "Blocked by",
         ])
 
+    def test_every_text_that_defines_a_task_keeps_related_tasks_out_of_blocked_by(self):
+        for path in (PROMPTS / "templates" / "issue.md", PROMPTS / "didban.md",
+                     ROOT / ".claude" / "commands" / "kandu-task.md"):
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("only a task this one cannot work or merge correctly without", text, path.name)
+            self.assertIn("never a related one", text, path.name)
+
     def test_pr_template_states_the_blast_radius(self):
         self.assertEqual(headings(PROMPTS / "templates" / "pr.md"), ["Summary", "Evidence", "Blast radius"])
 

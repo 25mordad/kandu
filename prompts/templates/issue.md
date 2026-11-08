@@ -15,4 +15,4 @@
 <!-- What must not be changed here. -->
 
 ## Blocked by
-<!-- Issue references, or "none". -->
+<!-- Issue references, or "none". Name only a task this one cannot work or merge correctly without, never a related one: each name holds the merge. -->
