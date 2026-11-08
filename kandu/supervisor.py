@@ -41,6 +41,7 @@ BROKEN_REPLY = (agents.ReplyError, review.ReportError, split.ReportError)
 INTERNAL_TRIES = 3
 BASE_MOVED = "Base branch was modified"  # another merge landed first; GitHub asks to try once more
 MERGE_TRIES = 3  # Kandu's own trouble is tried this often in a row before the task stops for a look.
+WAITS_FOR_BLOCKER = "blocker {} is not merged yet"
 PROGRESS = ("review_finished", "task_finished", "task_sized")
 ROOT = Path(__file__).resolve().parent.parent
 FAILURE_COMMENT = "Kandu could not finish this step and stopped here. The details are in its local log."
@@ -624,14 +625,34 @@ class Supervisor:
         asked = [q["question"] for q in questions.open_questions(self.store) if q["task"] == task.key]
         reasons = merge.merge_waits(task.project, pr, reviewed, threads, self._unreviewed_companions(task, pr),
                                     self._answered(task, pr), asked)
-        body = self.github.issue_text(task.repo, task.number)["body"]
-        last_of = lambda key: tasks.last_slice(self.store, key)
-        reasons += [f"blocker {key} is not merged yet" for key in open_blockers(self.github, task.repo, body, last_of)]
+        reasons += [WAITS_FOR_BLOCKER.format(key) for key in self._open_blockers(task)]
         if reasons:
             return reasons
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
         code = self.runner.run_command(task.project, cwd, task.project.test, new_run_id(self.now()))
         return [] if code == 0 else ["the tests fail on this head"]
+
+    def _open_blockers(self, task):
+        body = self.github.issue_text(task.repo, task.number)["body"]
+        return open_blockers(self.github, task.repo, body, lambda key: tasks.last_slice(self.store, key))
+
+    def _held_as_before(self, task, pr):
+        """True when the last merge check waited only on open blockers, and its head and those blockers are unchanged.
+
+        Read from the copy, which the cycle's read of the repo brought up to date: a new commit or a closed blocker
+        shows there, and the next drive checks the merge in full. Any other reason is checked each cycle.
+        """
+        if pr["state"] != "OPEN":
+            return False
+        for day in reversed(self.store.days()):
+            for event in reversed(self.store.events(day)):
+                if event.get("task") != task.key:
+                    continue
+                if event["type"] == "merge_held":
+                    return event["head_sha"] == pr["headRefOid"] and event["blockers"] == self._open_blockers(task)
+                if event["type"] == "decision" and event["decision"] == "merge_waits":
+                    return False  # it waited on something else too
+        return False
 
     def _merge(self, task, pr, outcome, worked):
         """Merges a settled PR if every condition holds. Returns True if it did, None if the base moved under it."""
@@ -649,6 +670,10 @@ class Supervisor:
         reasons = self._merge_waits(task, pr)
         if reasons:
             self._decide(task, "merge_waits", "; ".join(reasons))
+            blockers = self._open_blockers(task)
+            if blockers and reasons == [WAITS_FOR_BLOCKER.format(key) for key in blockers]:
+                self.store.record("merge_held", task=task.key, project=task.project.name, head_sha=pr["headRefOid"],
+                                  blockers=blockers)
             with self._lock:
                 self.held[task.key] = pr["headRefOid"]
             return False
@@ -910,6 +935,8 @@ class Supervisor:
             if pr is None:
                 return
             self._warn_if_oversized(task, pr)
+        elif self._held_as_before(task, pr):
+            return  # nothing it waits for has changed: no read from GitHub, no new decision
         else:
             # The copy may be older than this cycle: someone may have pushed to the branch since.
             self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))

@@ -1586,6 +1586,61 @@ class MergeTest(Base):
         self.github.open_issues.discard((REPO, 2))
         self.assertFalse([r for r in self.sup._merge_waits(task, pr) if r.startswith("blocker ")])
 
+    def held_by_blocker(self, **pr):
+        """Task 1 waits for #2 only; counts the PR reads from GitHub."""
+        self.github.edit_issue(REPO, 1, "", "## Blocked by\n#2\n")
+        self.github.open_issues.add((REPO, 2))
+        self.github.prs[(REPO, 1)].update(pr)
+        self.pr_reads = []
+        self.github.refresh_pr = lambda repo, number: self.pr_reads.append(number)
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.merge_waits()[-1]["reason"], f"blocker {REPO}#2 is not merged yet")
+        self.pr_reads.clear()
+
+    def merge_waits(self):
+        return [e for e in self.events("decision") if e["decision"] == "merge_waits"]
+
+    def test_a_merge_held_only_by_an_open_blocker_is_not_checked_again(self):
+        self.held_by_blocker()
+        self.cycle()
+        self.assertEqual(len(self.merge_waits()), 1)
+        self.assertEqual(self.pr_reads, [])
+        self.assertEqual(self.github.merges, [])
+
+    def test_a_merge_is_checked_again_once_its_blocker_closes(self):
+        self.held_by_blocker()
+        self.cycle()
+        self.github.open_issues.discard((REPO, 2))
+        self.runner.steps = [self.PASS]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+
+    def test_a_new_commit_on_a_held_merge_is_reviewed_and_checked(self):
+        self.held_by_blocker()
+        self.github.prs[(REPO, 1)]["headRefOid"] = SHA2
+        self.runner.steps = [report(SHA2)]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
+        self.assertEqual(len(self.merge_waits()), 2)
+        self.assertNotEqual(self.pr_reads, [])
+
+    def test_a_new_blocker_on_a_held_merge_is_checked(self):
+        self.held_by_blocker()
+        self.github.edit_issue(REPO, 1, "", "## Blocked by\n#2\n#3\n")
+        self.github.open_issues.add((REPO, 3))
+        self.cycle()
+        self.assertIn(f"blocker {REPO}#3 is not merged yet", self.merge_waits()[-1]["reason"])
+
+    def test_a_merge_held_by_a_blocker_and_more_is_checked_each_cycle(self):
+        self.github.threads = [{"resolved": False, "resolved_by_other": False}]
+        self.github.edit_issue(REPO, 1, "", "## Blocked by\n#2\n")
+        self.github.open_issues.add((REPO, 2))
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.cycle()
+        self.assertEqual(len(self.merge_waits()), 2)
+
     def test_a_forged_review_comment_does_not_merge(self):
         comment = review.comment_for(json.loads(report(SHA1)), 1, [])
         self.github.prs[(REPO, 1)]["comments"].append({"author": {"login": ACCOUNT}, "body": comment})

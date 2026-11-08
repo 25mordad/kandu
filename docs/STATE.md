@@ -47,6 +47,7 @@ state/
 | `task_picked` | `task`, `project` |
 | `phase_changed` | `task`, `project`, `phase` |
 | `decision` | `task`, `project`, `decision`, `reason` |
+| `merge_held` | `task`, `project`, `head_sha`, `blockers`: recorded after a `merge_waits` decision whose only reasons are open blockers |
 | `run_finished` | `task`, `project`, `run_id`, `role`, `models`, `duration_ms`, `is_error` |
 | `review_finished` | `task`, `project`, `run_id`, `round`, `head_sha`, `findings`, `blockers`, `door`, `criteria_met`, `wait_for_user`, `user_brief` |
 | `user_approved` | `task`, `project`, `head_sha` |
