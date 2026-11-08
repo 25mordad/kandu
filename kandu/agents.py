@@ -17,7 +17,8 @@ SHOW = PROMPTS_DIR.parent / "bin" / "kandu-show"
 SHOW_RULE = f"Bash({SHOW} *)"
 WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
 LIVE_RESULTS = ("pass", "fail")
-QUEEN_ACTIONS = ("release", "retry", "rework", "verify", "new_task", "block_on", "approve", "ask_user", "park")
+QUEEN_ACTIONS = ("release", "retry", "rework", "verify", "new_task", "block_on", "approve", "ask_user", "park",
+                 "drop_blocker")
 CHECK_RESULTS = ("pass", "fail", "unclear")
 NEW_TASK_FIELDS = ("title", "body", "priority", "kind", "size")
 # Given to `claude`, so her reply is always one JSON object. parse_queen_report still checks the rest.
@@ -263,11 +264,12 @@ def notes_prompt(project, repo, number, pr, notes, local_dir=DEFAULT_LOCAL_DIR, 
                       *_memory(project, local_dir), *_copies(copy, [(repo, number), (repo, pr)])])
 
 
-def queen_prompt(events, projects, steps, step_limit, language, logs_dir, today, debts=()):
+def queen_prompt(events, projects, steps, step_limit, language, logs_dir, today, debts=(), drop_blockers=False):
     facts = [f"- Today: {today}", f"- Language of the brief: {language}", f"- Logs folder: `{logs_dir}`",
              f"- Read an issue or a PR with: `{show_command('OWNER/REPO', 'NUMBER')}`",
              f"- Each of {', '.join(f'`{a}`' for a in ('retry', 'rework', 'verify', 'new_task', 'block_on'))} "
-             f"may be taken {step_limit} times per task"]
+             f"may be taken {step_limit} times per task",
+             f"- `drop_blocker` is {'on' if drop_blockers else 'off: code refuses it, so do not use it'}"]
     parts = [_read("queen.md"), "## This look", *facts, "## Projects", "```json",
              json.dumps(projects, ensure_ascii=False, indent=2), "```", "## Your steps so far on these tasks", "```json",
              json.dumps(steps, ensure_ascii=False, indent=2), "```", "## Events since your last look", "```json",
@@ -343,6 +345,8 @@ def parse_queen_report(text):
             raise ReplyError("an approve decision has no head_sha")
         if decision["action"] == "block_on" and not isinstance(decision.get("on"), str):
             raise ReplyError("a block_on decision has no task it waits on")
+        if decision["action"] == "drop_blocker" and not isinstance(decision.get("on"), str):
+            raise ReplyError("a drop_blocker decision names no blocker")
         if decision["action"] == "new_task" and not all(isinstance(decision.get(name), str) and decision[name].strip()
                                                          for name in NEW_TASK_FIELDS):
             raise ReplyError(f"a new_task decision needs {', '.join(NEW_TASK_FIELDS)}")

@@ -352,6 +352,51 @@ class QueenStepsTest(Base):
         refused, _ = self.sup._carry_out([self.step("block_on", on=KEY)], queen.all_events(self.store))
         self.assertIn("not another task", refused[0])
 
+    def drop(self, on=f"{REPO}#2", body="## Blocked by\n#2\n#3\n", events=()):
+        self.config.settings.supervisor.queen_drop_blockers = True
+        self.github.edit_issue(REPO, 1, "", body)
+        return self.sup._carry_out([self.step("drop_blocker", on=on, note="It touches other files.")],
+                                   list(events))[0]
+
+    def test_her_ask_to_drop_a_blocker_waits_for_the_user_and_leaves_the_issue_as_it_is(self):
+        refused = self.drop()
+        self.assertEqual(refused, [])
+        self.assertEqual(self.github.items[0].body, "## Blocked by\n#2\n#3\n")
+        asked = self.events("blocker_drop_asked")
+        self.assertEqual([(e["task"], e["blocker"], e["reason"]) for e in asked],
+                         [(KEY, f"{REPO}#2", "It touches other files.")])
+        self.assertEqual(self.events("blocker_dropped"), [])
+
+    def test_an_ask_to_drop_a_blocker_the_task_does_not_name_is_refused(self):
+        refused = self.drop(on=f"{REPO}#9")
+        self.assertEqual(len(refused), 1)
+        self.assertIn(f"does not name {REPO}#9", refused[0])
+        self.assertEqual(self.events("blocker_drop_asked"), [])
+        self.assertEqual(self.github.items[0].body, "## Blocked by\n#2\n#3\n")
+
+    def test_a_second_ask_to_drop_the_same_blocker_is_refused(self):
+        self.assertEqual(self.drop(), [])
+        refused = self.drop(events=queen.all_events(self.store))
+        self.assertEqual(len(refused), 1)
+        self.assertIn(f"already asks to drop {REPO}#2", refused[0])
+        self.assertEqual(len(self.events("blocker_drop_asked")), 1)
+
+    def test_an_ask_to_drop_a_blocker_named_in_another_repo_form_is_taken(self):
+        self.assertEqual(self.drop(on=f"{OTHER_REPO}#4", body=f"## Blocked by\n{OTHER_REPO}#4\n"), [])
+        self.assertEqual([e["blocker"] for e in self.events("blocker_drop_asked")], [f"{OTHER_REPO}#4"])
+
+    def test_asking_to_drop_a_blocker_ships_off(self):
+        self.github.edit_issue(REPO, 1, "", "## Blocked by\n#2\n")
+        self.assertFalse(load_config(self.local).settings.supervisor.queen_drop_blockers)
+        refused, _ = self.sup._carry_out([self.step("drop_blocker", on=f"{REPO}#2")], [])
+        self.assertIn("off", refused[0])
+        self.assertEqual(self.events("blocker_drop_asked"), [])
+
+    def test_she_tells_the_user_she_asks_to_drop_a_blocker(self):
+        self.drop()
+        message = notify.message_for(self.events("queen_decided")[-1], True)
+        self.assertEqual(message.kind, "needs_decision")
+
     def test_past_the_limit_the_task_stops_and_the_user_hears_once(self):
         told = []
         self.sup.notifier = SimpleNamespace(on_event=lambda e: told.append(notify.message_for(e, True)))
@@ -1624,6 +1669,15 @@ class MergeTest(Base):
         self.assertEqual(len(self.runner.runs), 2)
         self.assertEqual(len(self.merge_waits()), 2)
         self.assertNotEqual(self.pr_reads, [])
+
+    def test_after_the_users_yes_to_drop_a_blocker_the_next_cycle_checks_the_merge_again(self):
+        self.held_by_blocker()
+        self.github.edit_issue(REPO, 1, "", queen.without_blocker("## Blocked by\n#2\n", REPO, f"{REPO}#2"))
+        self.store.record("blocker_dropped", task=KEY, project="website", blocker=f"{REPO}#2")
+        self.runner.steps = [self.PASS]
+        self.cycle()
+        self.assertNotEqual(self.pr_reads, [])
+        self.assertEqual(self.github.merges, [SHA1])
 
     def test_a_new_blocker_on_a_held_merge_is_checked(self):
         self.held_by_blocker()

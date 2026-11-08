@@ -18,8 +18,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import backup, bazras, flights, ghmeter, queen, questions, review, sessions, split, tasks, timer
-from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup, set_inspect,
-                     set_limits, set_parallel)
+from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup,
+                     set_drop_blockers, set_inspect, set_limits, set_parallel)
 from .github import AGENT_LABEL, GitHubError, blockers_in
 from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
@@ -203,6 +203,7 @@ class Api:
             "bazras": {"running": self.store.read_bazras(),
                        "last": {p.name: bazras.last_look(p.name, self.local_dir) for p in bazras.inspected(self.config)}},
             "backup": self._backup(),
+            "drop_blockers": self.config.settings.supervisor.queen_drop_blockers,
         }
 
     def _backup(self):
@@ -279,7 +280,22 @@ class Api:
         if report is None:
             return None
         return report | {"today": self.store.tokens_counted(self.store.today(), role="queen"),
-                         "limit": self.config.settings.supervisor.queen_daily_token_limit}
+                         "limit": self.config.settings.supervisor.queen_daily_token_limit, "drops": self._drop_asks()}
+
+    def _drop_asks(self):
+        """Her asks to drop a blocker that wait for the user's yes. One whose blocker is already gone is not shown.
+
+        Read from the copy, so it costs GitHub nothing. An unreadable copy shows them all: a yes is checked again.
+        """
+        asks = queen.drop_asks(queen.all_events(self.store))
+        if not asks:
+            return []
+        try:
+            bodies = {f"{i.repo}#{i.number}": (i.repo, i.body) for b in self._boards() for i in self.github.board_items(b)}
+        except GitHubError:
+            return asks
+        return [a for a in asks if a["task"] in bodies and queen.names_blocker(bodies[a["task"]][1], bodies[a["task"]][0],
+                                                                               a["blocker"])]
 
     def queue(self, query):
         """Each project's columns. All pages share one read, and a failed read keeps the last good answer.
@@ -592,6 +608,41 @@ class Api:
         self._queue = None
         return {"children": children}
 
+    def drop_blocker(self, query, owner, repo, number):
+        """The user's yes to her ask: the blocker leaves the issue's `## Blocked by`, and its other blockers stay.
+
+        Only an ask she made counts, and only while the issue still names that blocker. The next cycle checks the
+        merge again.
+        """
+        task = self._split_task(owner, repo, number)
+        blocker = query.get("blocker", [""])[0]
+        ask = next((a for a in queen.drop_asks(queen.all_events(self.store))
+                    if a["task"] == task and a["blocker"] == blocker), None)
+        if ask is None:
+            raise ApiError(409, f"the queen has not asked to drop {blocker or 'a blocker'} from {task}")
+        item, _ = self._card(f"{owner}/{repo}", int(number))
+        if item is None:
+            raise ApiError(404, "its task is on no board")
+        if not queen.names_blocker(item.body, item.repo, blocker):
+            raise ApiError(409, f"its issue no longer names {blocker}")
+        self.github.edit_issue(item.repo, item.number, item.title, queen.without_blocker(item.body, item.repo, blocker))
+        self.store.record("blocker_dropped", task=task, project=ask["project"], blocker=blocker)
+        self._queue_time = None
+        return {"task": task, "dropped": blocker, "cycle_started": self.start_cycle()}
+
+    def change_drop_blockers(self, query):
+        """Lets the queen ask to drop a blocker, or stops her. Her next look uses it, through the config."""
+        enabled = query.get("enabled", [""])[0]
+        if enabled not in ("true", "false"):
+            raise ApiError(400, "give enabled=true or enabled=false")
+        try:
+            set_drop_blockers(enabled == "true", self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        self.config.settings.supervisor.queen_drop_blockers = enabled == "true"
+        self.store.record("drop_blockers_changed", enabled=enabled == "true")
+        return {"drop_blockers": enabled == "true"}
+
     def stop(self, query):
         self.store.request_stop()
         return {"stop_requested": True}
@@ -718,6 +769,8 @@ ROUTES = [
     ("POST", "/reviews/{owner}/{repo}/{number}/approve", Api.approve),
     ("GET", "/splits/{owner}/{repo}/{number}", Api.split),
     ("POST", "/splits/{owner}/{repo}/{number}/approve", Api.approve_split),
+    ("POST", "/drop-blockers", Api.change_drop_blockers),
+    ("POST", "/drop-blockers/{owner}/{repo}/{number}", Api.drop_blocker),
     ("POST", "/stop", Api.stop),
     ("POST", "/resume", Api.resume),
     ("POST", "/limits", Api.change_limits),

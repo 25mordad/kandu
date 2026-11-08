@@ -10,7 +10,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `timer_on`, `language`, `limits`, `queen`, `flowers` and `bazras` |
+| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `timer_on`, `language`, `limits`, `queen`, `flowers`, `bazras`, `backup` and `drop_blockers` |
 | GET | `/api/v1/queue` | each project's board columns, with `Done` holding only what closed in the last `done_days` days, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes or moves |
 | GET | `/api/v1/boards` | every board in the config, with its projects, columns, fields and cards, read from Kandu's copy of GitHub, so it costs GitHub nothing; `?fresh=1` reads each board into the copy first, at most once a minute |
 | GET | `/api/v1/days` | dates that have events |
@@ -31,6 +31,8 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | POST | `/api/v1/reviews/{owner}/{repo}/{number}/approve` | the user's yes to merge the PR's head, given as `?head=SHA`; a cycle starts |
 | GET | `/api/v1/splits/{owner}/{repo}/{number}` | the proposal to split a task that waits for the user, or `null` |
 | POST | `/api/v1/splits/{owner}/{repo}/{number}/approve` | the user's yes to that proposal; its slices become issues |
+| POST | `/api/v1/drop-blockers/{owner}/{repo}/{number}` | the user's yes to the queen's ask to drop a blocker from a task, given as `?blocker=OWNER/REPO%23N`; the blocker leaves the issue's `## Blocked by` and a cycle starts |
+| POST | `/api/v1/drop-blockers` | `enabled=true` or `false`: let the queen ask to drop a blocker, or stop her, in `kandu.yaml`; off is the default |
 | POST | `/api/v1/stop` | stop the supervisor; running agents are killed |
 | POST | `/api/v1/resume` | allow the next cycle to run |
 | POST | `/api/v1/limits` | set the 5-hour and weekly usage limits, as `?session=85&week=60`; the next cycle uses them |
@@ -113,6 +115,10 @@ data: {"v": 1, "ts": "2026-10-30T12:00:00+01:00", "type": "supervisor_woke"}
 The `pr` object also has `approved`, true once the user said yes to this head, `can_approve`, true when the page may offer that, and `why_not`, which says in English why not, otherwise null. While a task it is blocked by is open, `why_not` is `it waits for OWNER/REPO#N to merge first`. Beside `pr`, `blockers` is the task's open blockers as in `GET /queue`, `waited` the latest reasons its merge waited, as in `flowers`, and `holds` what still holds the merge after a yes: each open blocker as the merge gate words it, then `waited`. The page promises a merge in the next cycle only when `holds` is empty.
 
 `POST /api/v1/reviews/acme-org/website/12/approve?head=abc123` answers `{"approved": "abc123", "cycle_started": true}`. `cycle_started` is `null` if a cycle is already running, and `false` if `systemd` refused. Either way the yes is saved, and the next cycle uses it. The answer is `409` if `head` is no longer the PR's head, if the local log shows no review of it, an open blocker or an unmet criterion, if a task it is blocked by is still open, or if no cycle would pick the task up: its project is paused, or its column is not `Ready`, `In progress` or `In review`. The yes answers the review's questions and a one-way door. Every other merge condition still applies, including the tests.
+
+`queen` in `GET /state` is her newest look, or null: its `brief`, `questions` (her `ask_user` questions from that look), `tokens`, `today`, `limit`, and `drops`, her asks to drop a blocker that wait for the user's yes, each with `task`, `project`, `blocker`, `reason` and `ts`. An ask leaves `drops` once the user says yes, once the issue no longer names its blocker, or once its task ends. `drop_blockers` is true when she may ask.
+
+`POST /api/v1/drop-blockers/acme-org/website/12?blocker=acme-org/website%235` answers `{"task": "acme-org/website#12", "dropped": "acme-org/website#5", "cycle_started": true}`. Only that blocker leaves the issue; its other blockers stay, and the yes is saved as `blocker_dropped`. The next cycle checks the task's merge again. The answer is `409` if the queen has not asked to drop that blocker from that task, or if the issue no longer names it, and nothing changes. `POST /api/v1/drop-blockers?enabled=true` answers `{"drop_blockers": true}`.
 
 `POST /api/v1/stop` answers `{"stop_requested": true}`, `POST /api/v1/resume` answers `{"stop_requested": false}`, and `POST /api/v1/workers/{run_id}/stop` answers `{"stopping": "<run_id>"}`.
 

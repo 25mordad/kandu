@@ -16,7 +16,8 @@ Read `docs/COMMANDS.md`, then set up this install, once. The result is `local/ka
    8. Which port does the dashboard use? The default is 8790; `ss -ltn` on the brain's machine must not show it in use.
    9. Which model does each role use (`claude.models`)? Recommend a cheaper model for the splitter and the live check, and Claude's default for the worker, reviewer and queen, who judge the work.
    10. Should Kandu back up `local/` and `state/` once a day (`backup`, off by default)? If so: the hour, a folder on the brain's machine outside the install, and how many copies to keep. Point out that a copy holds the secrets of `local/.env`, and that it stays on this machine.
-   11. May the agents do everything, or should some roles be limited (`permissions`)? Without `permissions` every role may run any command, use the network and SSH, and read secrets files. To limit a role, start from the commented set in `config.example/kandu.example.yaml`.
+   11. May the queen ask the user to drop a blocker a task does not need (`supervisor.queen_drop_blockers`, off by default)? She only asks: the blocker leaves the issue only on the user's yes in the dashboard, where it can also be turned on later.
+   12. May the agents do everything, or should some roles be limited (`permissions`)? Without `permissions` every role may run any command, use the network and SSH, and read secrets files. To limit a role, start from the commented set in `config.example/kandu.example.yaml`.
 4. Write `local/kandu.yaml`. For Didban, write `local/didban.yaml` on the user's own machine, from `config.example/didban.example.yaml`.
 5. Write `local/.env` from `config.example/example.env`, mode 600. Fill `KANDU_DASHBOARD_TOKEN` with `openssl rand -hex 32`, without showing it. The user fills in the Telegram values themselves.
 6. Ask for the words that must never reach a public repo, and write them to `local/private-words.txt`, one per line.

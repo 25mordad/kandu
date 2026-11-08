@@ -24,6 +24,12 @@ class TemplatesTest(unittest.TestCase):
             self.assertIn("only a task this one cannot work or merge correctly without", text, path.name)
             self.assertIn("never a related one", text, path.name)
 
+    def test_the_queen_asks_to_drop_only_a_blocker_the_task_does_not_need(self):
+        text = (PROMPTS / "queen.md").read_text(encoding="utf-8")
+        self.assertIn("`drop_blocker` asks the user to drop one blocker", text)
+        self.assertIn("Use it only for a blocker the task does not need", text)
+        self.assertIn('"action": "drop_blocker", "on": "owner/repo#5"', text)
+
     def test_pr_template_states_the_blast_radius(self):
         self.assertEqual(headings(PROMPTS / "templates" / "pr.md"), ["Summary", "Evidence", "Blast radius"])
 

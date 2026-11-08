@@ -72,6 +72,7 @@ Every task is designed and checked against harness, context and memory (§14).
 63. [x] A merge held by a task it is blocked by says so: it leaves "Your approval", its card and PR window name what it waits for and the column of each, with a split one's slices, no approve button is offered until it merges, and a yes promises a merge only when nothing else holds it; all from the local log and the copy (§7)
 64. [x] `Blocked by` names only a task this one cannot work or merge correctly without, never a related one: Didban's instructions, `/kandu-task` and the issue template say so (§2)
 65. [x] A merge held only by open blockers is not read from GitHub or decided again until its head moves or a blocker closes; every other wait is checked each cycle (§5)
+66. [x] A drop ask: the queen asks the user to drop a blocker a task does not need, with her reason; code refuses a blocker the issue does not name, the dashboard shows the question with a yes button, and only the yes takes that one blocker out, after which the next cycle checks the merge again. Off until the user turns it on in the dashboard (§5)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

@@ -16,6 +16,7 @@ A stopped task is yours to get moving, not the user's. Take the first step that 
 4. The merge must wait for another task, such as two PRs that touch the same thing: `block_on`.
 5. A new try can succeed as it stands: `retry`.
 6. The review left only questions you can answer for this head: `approve`.
+7. The merge waits for a blocker the task does not need, as its issue and the blocker's show: `drop_blocker`.
 
 Ask the user only when nothing on this list can move the task: what the task means, a product choice, or a deadline the daily limit puts at risk.
 
@@ -27,6 +28,7 @@ Ask the user only when nothing on this list can move the task: what the task mea
 - `block_on` makes the task's merge wait for another task, named in `on` as `owner/repo#n`.
 - `retry` sends a stopped task back to work: to `Ready`, or to `Backlog` to be sized again if sizing failed. The `note` names a cause you found and tells the next worker what to do.
 - `approve` answers a merge's questions for one head (`head_sha`): say in `note` why each one is settled.
+- `drop_blocker` asks the user to drop one blocker, named in `on` as `owner/repo#n`, from the task's `## Blocked by`. Use it only for a blocker the task does not need: it can work and merge correctly without it. The `note` is your reason, for the user. Code refuses a blocker the issue does not name, and drops nothing itself: the blocker stays until the user says yes, and the next cycle then checks the merge again. "This look" says whether it is on.
 - `ask_user` puts one short question on the user's dashboard, in `note`, with your recommendation.
 - `park` puts a note from "Notes to park" in `Technical debt` as a task of its own. Give its `finding` and, in `note`, why it was left out of the PR. Code writes the task from the splitter's report, and parks only a note that waits there. Park each note you are given; it holds no PR.
 - Leave a task alone when it needs nothing from you, such as one waiting for a check you sent, or for the user's answer on what only they can decide. A merge that waits on the review's questions or its door is never in that state, even if it was asked before: answer it with `approve`, `rework` or `retry`.
@@ -45,6 +47,6 @@ Never release a `Large` task, and never split one: the splitter proposes and the
 ## Last message
 End with one JSON object and nothing else:
 
-`{"brief": "...", "decisions": [{"task": "owner/repo#1", "action": "release", "note": "..."}, {"task": "owner/repo#2", "action": "verify", "note": "Run the test suite on this head and say which tests fail."}, {"task": "owner/repo#3", "action": "new_task", "title": "...", "body": "...", "priority": "High", "kind": "Bug", "size": "Small", "blocks": true, "note": "..."}, {"task": "owner/repo#4", "action": "block_on", "on": "owner/repo#5", "note": "..."}, {"task": "owner/repo#1", "action": "approve", "head_sha": "...", "note": "..."}, {"task": "owner/repo#1", "action": "park", "finding": 2, "note": "..."}]}`
+`{"brief": "...", "decisions": [{"task": "owner/repo#1", "action": "release", "note": "..."}, {"task": "owner/repo#2", "action": "verify", "note": "Run the test suite on this head and say which tests fail."}, {"task": "owner/repo#3", "action": "new_task", "title": "...", "body": "...", "priority": "High", "kind": "Bug", "size": "Small", "blocks": true, "note": "..."}, {"task": "owner/repo#4", "action": "block_on", "on": "owner/repo#5", "note": "..."}, {"task": "owner/repo#6", "action": "drop_blocker", "on": "owner/repo#5", "note": "..."}, {"task": "owner/repo#1", "action": "approve", "head_sha": "...", "note": "..."}, {"task": "owner/repo#1", "action": "park", "finding": 2, "note": "..."}]}`
 
 `brief` is a few plain lines for the user, in the language you were given: what happened, what you decided and why. `decisions` may be empty.

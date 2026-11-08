@@ -10,12 +10,8 @@ import sys
 from pathlib import Path
 
 from .config import DEFAULT_LOCAL_DIR
-from .queen import all_events
+from .queen import ENDED, all_events
 from .state import StateStore
-
-
-# The rest can come back, as the queen or the user sends the task on, and the merge still waits on its questions.
-ENDED = ("merged", "pr_closed", "stopped_by_user", "deploy_failed", "live_check_failed")
 
 
 class QuestionError(Exception):

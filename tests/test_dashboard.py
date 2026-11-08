@@ -14,7 +14,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from kandu import flights, dashboard, review, sessions, split
+from kandu import flights, dashboard, queen, review, sessions, split
 from kandu.config import load_config
 from kandu.dashboard import Api, actions_in, dispatch, make_handler, new_events, recommendation
 from kandu.github import BoardItem, GitHubError
@@ -1079,3 +1079,85 @@ class ServerTest(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DropAskTest(Base):
+    """The queen's ask to drop a blocker, and the user's yes to it (issue #22)."""
+    BODY = f"## Goal\nx\n\n## Blocked by\n#2\n{REPO}#3\n\n## Out of scope\ny\n"
+
+    def setUp(self):
+        super().setUp()
+        self.cards = {1: BoardItem(REPO, 1, "Ours", "u", "In review", ["agent"], self.BODY)}
+        self.github.board_items.side_effect = lambda board: list(self.cards.values())
+        self.github.edit_issue.side_effect = lambda repo, number, title, body: self.cards.update(
+            {number: BoardItem(repo, number, title, "u", "In review", ["agent"], body)})
+        self.github.board_version.return_value = 1
+        self.api.start_cycle = lambda: True
+
+    def ask(self, blocker=f"{REPO}#2", task=f"{REPO}#1"):
+        self.store.record("queen_decided", task=task, project="website", action="drop_blocker", note="Not needed.")
+        self.store.record("blocker_drop_asked", task=task, project="website", blocker=blocker, reason="Not needed.")
+        self.store.record("queen_finished", run_id="r-1", brief="b", backlog=[])
+
+    def drops(self):
+        return [(d["task"], d["blocker"], d["reason"]) for d in self.get("/api/v1/state")[1]["queen"]["drops"]]
+
+    def say_yes(self, blocker=f"{REPO}%232", token=TOKEN):
+        return dispatch(self.api, "POST", f"/api/v1/drop-blockers/{REPO}/1?blocker={blocker}", token)
+
+    def test_her_ask_shows_beside_her_questions_with_the_blocker_and_her_reason(self):
+        self.ask()
+        self.assertEqual(self.drops(), [(f"{REPO}#1", f"{REPO}#2", "Not needed.")])
+        self.github.edit_issue.assert_not_called()
+
+    def test_the_users_yes_drops_only_that_blocker_and_is_recorded(self):
+        self.ask()
+        status, body = self.say_yes()
+        self.assertEqual((status, body), (200, {"task": f"{REPO}#1", "dropped": f"{REPO}#2", "cycle_started": True}))
+        self.assertEqual(self.cards[1].body, f"## Goal\nx\n\n## Blocked by\n{REPO}#3\n\n## Out of scope\ny\n")
+        dropped = self.store.last_event("blocker_dropped")
+        self.assertEqual((dropped["task"], dropped["blocker"]), (f"{REPO}#1", f"{REPO}#2"))
+        self.assertEqual(self.drops(), [])
+
+    def test_no_yes_without_her_ask(self):
+        status, _ = self.say_yes()
+        self.assertEqual(status, 409)
+        self.github.edit_issue.assert_not_called()
+        self.assertIsNone(self.store.last_event("blocker_dropped"))
+
+    def test_the_yes_needs_the_token(self):
+        self.ask()
+        self.assertEqual(self.say_yes(token="wrong")[0], 403)
+        self.github.edit_issue.assert_not_called()
+
+    def test_an_ask_whose_blocker_is_already_gone_no_longer_shows_and_takes_no_yes(self):
+        self.ask()
+        self.cards[1] = BoardItem(REPO, 1, "Ours", "u", "In review", ["agent"], f"## Blocked by\n{REPO}#3\n")
+        self.assertEqual(self.drops(), [])
+        self.assertEqual(self.say_yes()[0], 409)
+        self.github.edit_issue.assert_not_called()
+
+    def test_an_ask_of_a_task_that_ended_no_longer_shows(self):
+        self.ask()
+        self.store.record("task_finished", task=f"{REPO}#1", project="website", outcome="merged")
+        self.assertEqual(self.drops(), [])
+
+    def test_the_last_blocker_dropped_leaves_none(self):
+        self.cards[1] = BoardItem(REPO, 1, "Ours", "u", "In review", ["agent"], "## Blocked by\n#2\n")
+        self.ask()
+        self.assertEqual(self.say_yes()[0], 200)
+        self.assertEqual(self.cards[1].body, "## Blocked by\nnone\n\n")
+
+    def test_a_line_that_names_more_than_one_keeps_the_others(self):
+        self.assertEqual(queen.without_blocker("## Blocked by\n- #2, #3\n", REPO, f"{REPO}#2"), "## Blocked by\n- #3\n\n")
+        self.assertEqual(queen.without_blocker("## Blocked by\n- #3, #2\n", REPO, f"{REPO}#2"), "## Blocked by\n- #3\n\n")
+
+    def test_it_ships_off_and_is_turned_on_from_the_dashboard(self):
+        self.assertFalse(self.get("/api/v1/state")[1]["drop_blockers"])
+        status, body = dispatch(self.api, "POST", "/api/v1/drop-blockers?enabled=true", TOKEN)
+        self.assertEqual((status, body), (200, {"drop_blockers": True}))
+        self.assertTrue(load_config(self.root / "local").settings.supervisor.queen_drop_blockers)
+        self.assertTrue(self.get("/api/v1/state")[1]["drop_blockers"])
+        self.assertIn("# her own limit", (self.root / "local" / "kandu.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/drop-blockers?enabled=maybe", TOKEN)[0], 400)
+        self.assertEqual(self.store.last_event("drop_blockers_changed")["enabled"], True)

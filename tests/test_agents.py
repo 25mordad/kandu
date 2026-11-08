@@ -279,6 +279,17 @@ class QueenReportTest(unittest.TestCase):
         with self.assertRaises(agents.ReplyError):
             agents.parse_queen_report(text.replace('"head_sha": "abc", ', ""))
 
+    def test_a_drop_blocker_decision_names_its_blocker(self):
+        text = '{"brief": "b", "decisions": [{"task": "o/r#1", "action": "drop_blocker", "on": "o/r#2", "note": "n"}]}'
+        self.assertEqual(agents.parse_queen_report(text)["decisions"][0]["on"], "o/r#2")
+        with self.assertRaises(agents.ReplyError):
+            agents.parse_queen_report(text.replace('"on": "o/r#2", ', ""))
+
+    def test_she_is_told_whether_she_may_ask_to_drop_a_blocker(self):
+        self.assertIn("`drop_blocker` is off", agents.queen_prompt([], [], {}, 3, "en", "/logs", "2026-01-01"))
+        self.assertIn("`drop_blocker` is on", agents.queen_prompt([], [], {}, 3, "en", "/logs", "2026-01-01",
+                                                                 drop_blockers=True))
+
     def test_a_bad_report_is_refused(self):
         for text in ('no', '{}', '{"brief": "", "decisions": []}', '{"brief": "b"}',
                      '{"brief": "b", "decisions": [{"task": "o/r#1", "action": "merge", "note": "n"}]}',

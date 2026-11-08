@@ -72,6 +72,7 @@ supervisor:                    # optional; these are the defaults
   queen: true                  # true = an LLM runs the cycle for every project; it wakes only when needed
   queen_max_retries: 3         # how often the queen may take each kind of step on one task (retry, rework, check, new task, merge order); past it the task stops and you hear of it
   queen_daily_token_limit: 2000000   # her own limit; past it, running work ends and nothing new starts
+  queen_drop_blockers: false   # true = the queen may ask you to drop a blocker a task does not need; off until you turn it on, here or in the dashboard
 
 # permissions:                 # optional; what each role may do. Without it every role may do everything:
 #                              # Bash, the network, SSH, secrets files. A role named here may do only what its

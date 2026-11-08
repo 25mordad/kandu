@@ -108,6 +108,7 @@ class Supervisor:
     queen: bool = True
     queen_max_retries: int = 3
     queen_daily_token_limit: int = 2000000
+    queen_drop_blockers: bool = False   # she may ask the user to drop a blocker; off until the user turns it on
 
 
 @dataclass
@@ -605,6 +606,16 @@ def _set_top_block(text, block, values):
         else:
             lines[hit] = f"{pad}{key}: {value}"  # Its old comment goes: it spoke of the old value.
     return "\n".join(lines)
+
+
+def set_drop_blockers(enabled, local_dir=DEFAULT_LOCAL_DIR):
+    """Lets the queen ask to drop a blocker, or stops her, in `kandu.yaml`'s `supervisor` block, line by line."""
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_top_block(path.read_text(encoding="utf-8"), "supervisor",
+                          {"queen_drop_blockers": "true" if enabled else "false"})
+    if ((yaml.safe_load(text) or {}).get("supervisor") or {}).get("queen_drop_blockers") is not enabled:
+        raise ConfigError(["supervisor.queen_drop_blockers: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
 
 
 def set_parallel(total=None, projects=None, local_dir=DEFAULT_LOCAL_DIR):

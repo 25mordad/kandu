@@ -152,7 +152,7 @@ def message_for(event, queen=False):
     if kind == "blocker_rewritten" and event["when"] == "defined":  # one waiting before the split is no news
         return Message("task_done", "blocker_rewritten",
                        values={"task": event["task"], "old": event["old"], "new": event["new"]})
-    if kind == "queen_decided" and event["action"] == "ask_user":
+    if kind == "queen_decided" and event["action"] in ("ask_user", "drop_blocker"):
         return _task_message("needs_decision", "queen_asks", event)
     if kind == "decision" and event["decision"] in READY_FOR_USER:
         return _task_message("pr_ready", "pr_ready", event)

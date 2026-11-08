@@ -315,6 +315,14 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "by_hand_hint": "No agent label: Kandu leaves it alone. Open a free flight to do it yourself.",
   "queen": "The queen",
   "queen_asks": "She asks you",
+  "drop_ask": "She asks to drop the blocker {blocker}",
+  "drop_yes": "Yes, drop it",
+  "drop_done": "The blocker is dropped; the next cycle checks the merge again",
+  "drop_blockers": "Dropping blockers",
+  "drop_on": "The queen may ask",
+  "drop_off": "Off",
+  "drop_turn_on": "turn on",
+  "drop_turn_off": "turn off",
   "queen_cost": "This look / today / limit",
   "queen_deciding": "Deciding",
   "sent_back": "Back from review",
@@ -484,6 +492,14 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "by_hand_hint": "برچسب agent ندارد: ملکه سراغش نمی‌رود. با پرواز آزاد خودت انجامش بده.",
   "queen": "ملکه",
   "queen_asks": "از تو می‌پرسد",
+  "drop_ask": "می‌خواهد مانع {blocker} برداشته شود",
+  "drop_yes": "بله، بردار",
+  "drop_done": "مانع برداشته شد؛ چرخه‌ی بعد ادغام را دوباره بررسی می‌کند",
+  "drop_blockers": "برداشتن مانع‌ها",
+  "drop_on": "ملکه می‌تواند بپرسد",
+  "drop_off": "خاموش",
+  "drop_turn_on": "روشن کن",
+  "drop_turn_off": "خاموش کن",
   "queen_cost": "این بار / امروز / سقف",
   "queen_deciding": "در حال تصمیم",
   "sent_back": "برگشت از بازبینی",
@@ -718,12 +734,17 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "verify": "بررسی به دستور ملکه",
   "new_task": "تسک تازه از ملکه",
   "block_on": "منتظر تسک دیگر",
+  "drop_blocker": "پیشنهاد برداشتن مانع",
+  "blocker_drop_asked": "ملکه پرسید که مانع برداشته شود",
+  "blocker_dropped": "مانع با تأیید تو برداشته شد",
+  "drop_blockers_changed": "پرسیدن ملکه درباره‌ی مانع‌ها روشن یا خاموش شد",
   "queen_step_done": "قدم ملکه انجام شد",
   "queen_opened": "ملکه تسک تازه باز کرد",
   "loop_stopped": "ملکه دور خودش چرخید و تسک متوقف شد",
   "queen's rework": "کار دوباره به دستور ملکه",
   "queen's check": "بررسی به دستور ملکه",
   "it is Done": "تسک تمام شده است",
+  "asking to drop a blocker is off": "پرسیدن درباره‌ی برداشتن مانع خاموش است",
   "review_finished": "بازبینی تمام شد",
   "task_finished": "تسک تمام شد",
   "user_approved": "تأیید تو",
@@ -1304,7 +1325,22 @@ function renderStats(s) {
   const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${!s.timer_on ? t("timer_off") : s.next_wake ? esc(when(s.next_wake)) : "—"}</div></div>`;
   const parked = lastQueue && Object.values(lastQueue.projects).reduce((sum, columns) => sum + columns["Technical debt"].length, 0);
   const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
-  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + debt + wake + backupCard(s.backup);
+  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + debt + wake + backupCard(s.backup) + dropCard(s.drop_blockers);
+}
+
+// Whether the queen may ask to drop a blocker: off until the user turns it on here.
+function dropCard(on) {
+  if (on === undefined) return "";
+  return `<div class="card stat"><div class="stat-label">${t("drop_blockers")}</div><div class="stat-value stat-small">${t(on ? "drop_on" : "drop_off")}</div>
+    <small><button class="textlink limit-edit" data-drops="${on ? "false" : "true"}">${t(on ? "drop_turn_off" : "drop_turn_on")}</button></small></div>`;
+}
+
+async function dropBlocker(button) {
+  const [repo, number] = button.dataset.drop.split("#");
+  if (await act(button, `/drop-blockers/${repo}/${number}?blocker=${encodeURIComponent(button.dataset.blocker)}`)) {
+    toast(t("drop_done"));
+    await refreshState().catch(() => {});
+  }
 }
 
 // The daily backup: off until the user turns it on here. A failed last try shows, so it is never silent.
@@ -1343,7 +1379,7 @@ function renderBees(s) {
 
 function renderQueen(s) {
   $("queenbox").hidden = !s.queen;
-  $("asks").hidden = !s.queen?.questions.length;
+  $("asks").hidden = !s.queen?.questions.length && !s.queen?.drops?.length;
   if (!s.queen) return;
   const cost = [s.queen.tokens, s.queen.today, s.queen.limit].map(short).join(" / ");
   const long = s.queen.brief.length > 420;
@@ -1351,7 +1387,11 @@ function renderQueen(s) {
     <div dir="auto" class="brief${long && !briefOpen ? " clamp" : ""}">${esc(s.queen.brief)}</div>
     ${long ? `<button class="btn plain small" data-brief>${t(briefOpen ? "show_less" : "show_more")}</button>` : ""}`;
   $("asks").innerHTML = s.queen.questions.map(q => `<div class="ask"><div class="ask-text"><div class="ask-who">${t("queen_asks")} · ${bdi(repoOf(q.task))} ${numberOf(q.task)}</div><div dir="auto">${esc(q.question)}</div></div>
-    <button class="btn small" data-review="${esc(q.task)}">${t("open")}</button></div>`).join("");
+    <button class="btn small" data-review="${esc(q.task)}">${t("open")}</button></div>`).join("")
+    + (s.queen.drops || []).map(d => `<div class="ask"><div class="ask-text"><div class="ask-who">${t("queen_asks")} · ${bdi(repoOf(d.task))} ${numberOf(d.task)}</div>
+    <div>${esc(t("drop_ask").replace("{blocker}", d.blocker))}</div><div dir="auto">${esc(d.reason)}</div></div>
+    <button class="btn small primary" data-drop="${esc(d.task)}" data-blocker="${esc(d.blocker)}">${t("drop_yes")}</button>
+    <button class="btn small" data-review="${esc(d.task)}">${t("open")}</button></div>`).join("");
 }
 
 async function refreshState() {
@@ -1688,6 +1728,8 @@ document.addEventListener("click", e => {
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }
   if (hit("backup")) { changeBackup(hit("backup")); return; }
+  if (hit("drops")) { act(hit("drops"), `/drop-blockers?enabled=${hit("drops").dataset.drops}`).then(() => refreshState()).catch(() => {}); return; }
+  if (hit("drop")) { dropBlocker(hit("drop")); return; }
   if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); sendingBack = false; showReviews(shownTask); return; }
   if (hit("back-sure")) { sendingBack = true; confirming = false; showReviews(shownTask); return; }
   if (hit("back")) { doSendBack(hit("back")); return; }

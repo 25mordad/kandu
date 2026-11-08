@@ -58,6 +58,8 @@ state/
 | `task_sized` | `task`, `project`, `run_id`, `size`, `files`, `door`, `criteria`, `slices` |
 | `slice_created` | `task`, `project`, `parent` |
 | `task_split` | `task`, `project`, `children` |
+| `blocker_drop_asked` | `task`, `project`, `blocker`, `reason`: the queen asks the user to drop this blocker from the task's issue; nothing changes until the user says yes |
+| `blocker_dropped` | `task`, `project`, `blocker`: the user said yes, and the blocker left the issue's `## Blocked by` |
 | `blocker_rewritten` | `task`, `project`, `old`, `new`, `when` (`split` or `defined`) |
 | `split_declined` | `task`, `project` |
 | `task_held` | `task`, `project`, `areas`, `reason` |
@@ -68,6 +70,7 @@ state/
 | `project_paused` | `project` |
 | `project_resumed` | `project` |
 | `limits_changed` | `session`, `week` |
+| `drop_blockers_changed` | `enabled`: the user let the queen ask to drop a blocker, or stopped her, from the dashboard |
 | `parallel_changed` | `total` (or null), `projects`: name → number, for those changed |
 | `kandu_restarted` | none |
 | `wake_requested` | none |

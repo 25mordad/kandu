@@ -5,15 +5,20 @@ Code decides when she wakes, so a quiet cycle costs no tokens, and code checks
 each decision before it happens. She can release a task from Backlog, send a
 stopped task back, send a worker back to a PR with her own order, have a
 checker find something out, open a new task, make a merge wait for another,
-answer a merge's questions for one head, park a note, or ask the user. She
+answer a merge's questions for one head, park a note, or ask the user, also to drop a blocker
+the task does not need: only the user's yes takes it out of the issue. She
 cannot merge, deploy or pass a lock: the merge gate still decides.
 
 The loop guard is in code: each of her steps on one task has a limit. A step
 past it stops the task in `Blocked` and tells the user, and she takes no step on
 that task again until the user has acted on it.
 """
-from .github import BLOCKED_BY, HTML_COMMENT
+import re
 
+from .github import BLOCKED_BY, HTML_COMMENT, ISSUE_REFERENCE, blockers_in
+
+# A task that ended asks nothing. The rest can come back, as the queen or the user sends the task on.
+ENDED = ("merged", "pr_closed", "stopped_by_user", "deploy_failed", "live_check_failed")
 RETRYABLE = ("failed", "blocked", "needs_info", "sizing_failed")
 LIMITED = ("retry", "rework", "verify", "new_task", "block_on")  # each one this often per task
 SENT_ON = ("rework", "verify")  # code carries these out when it next drives the task
@@ -136,6 +141,60 @@ def with_blocker(body, repo, key):
              if line.strip() and line.strip().lower() != "none"]
     text = "\n".join([*lines, reference])
     return BLOCKED_BY.sub(lambda _: f"## Blocked by\n{text}\n\n", body, count=1)
+
+
+def _pair(key):
+    repo, _, number = key.partition("#")
+    return (repo, int(number)) if repo and number.isdigit() else None
+
+
+def names_blocker(body, repo, key):
+    """True when the issue's `## Blocked by` names `key`, as `#n` or as `owner/repo#n`."""
+    return _pair(key) is not None and _pair(key) in blockers_in(body, repo)
+
+
+def without_blocker(body, repo, key):
+    """The issue's body with `key` taken out of `## Blocked by`, its other blockers left in place.
+
+    A line that names only `key` goes; on a line that names others too, only its reference goes.
+    """
+    target = _pair(key)
+    section = BLOCKED_BY.search(body or "")
+    if section is None or target is None:
+        return body
+
+    def resolve(match):
+        return (match.group(1) or repo, int(match.group(2)))
+
+    lines = []
+    for line in HTML_COMMENT.sub("", section.group(1)).strip().splitlines():
+        found = [resolve(m) for m in ISSUE_REFERENCE.finditer(line)]
+        if not line.strip() or line.strip().lower() == "none" or found and set(found) == {target}:
+            continue
+        if target in found:
+            line = ISSUE_REFERENCE.sub(lambda m: "" if resolve(m) == target else m.group(0), line)
+            line = re.sub(r"(?<=[-*] )\s*[,;]\s*|\s*[,;]\s*$", "", re.sub(r"\s*[,;]\s*(?=[,;])", "", line))
+        lines.append(line)
+    text = "\n".join(lines) or "none"
+    return BLOCKED_BY.sub(lambda _: f"## Blocked by\n{text}\n\n", body, count=1)
+
+
+def drop_asks(events):
+    """Her asks to drop a blocker that the user has not said yes to, oldest first: one per task and blocker.
+
+    A task that ended asks nothing. Whether the issue still names the blocker is for the caller to check.
+    """
+    asks = {}
+    for event in events:
+        pair = (event.get("task"), event.get("blocker"))
+        if event["type"] == "blocker_drop_asked":
+            asks[pair] = {"task": event["task"], "project": event["project"], "blocker": event["blocker"],
+                          "reason": event["reason"], "ts": event["ts"]}
+        elif event["type"] == "blocker_dropped":
+            asks.pop(pair, None)
+        elif event["type"] == "task_finished" and event["outcome"] in ENDED:
+            asks = {key: ask for key, ask in asks.items() if key[0] != event["task"]}
+    return list(asks.values())
 
 
 def note_for(events, task):

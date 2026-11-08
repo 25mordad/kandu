@@ -640,7 +640,8 @@ class Supervisor:
         """True when the last merge check waited only on open blockers, and its head and those blockers are unchanged.
 
         Read from the copy, which the cycle's read of the repo brought up to date: a new commit or a closed blocker
-        shows there, and the next drive checks the merge in full. Any other reason is checked each cycle.
+        shows there, and the next drive checks the merge in full. So does a blocker the user dropped since.
+        Any other reason is checked each cycle.
         """
         if pr["state"] != "OPEN":
             return False
@@ -648,6 +649,8 @@ class Supervisor:
             for event in reversed(self.store.events(day)):
                 if event.get("task") != task.key:
                     continue
+                if event["type"] == "blocker_dropped":
+                    return False  # the user took a blocker out since: check it all again
                 if event["type"] == "merge_held":
                     return event["head_sha"] == pr["headRefOid"] and event["blockers"] == self._open_blockers(task)
                 if event["type"] == "decision" and event["decision"] == "merge_waits":
@@ -1091,7 +1094,8 @@ class Supervisor:
         steps = {task: done for task, done in queen.steps_on(events, tasks).items() if done}
         prompt = agents.queen_prompt(queen.prompt_events(news), view, steps,
                                      settings.queen_max_retries, self.config.settings.language,
-                                     DEFAULT_LOGS_DIR, self.store.today(), queen.unparked(events))
+                                     DEFAULT_LOGS_DIR, self.store.today(), queen.unparked(events),
+                                     settings.queen_drop_blockers)
         allowed, denied = agents.role_tools(self._rules("queen"))
         run_id = new_run_id(self.now())
         self.queen_run = run_id
@@ -1171,6 +1175,11 @@ class Supervisor:
                 if why is not None:
                     refused.append(f"{action} of {task}: {why}")
                     continue
+            if action == "drop_blocker":
+                why = self._ask_to_drop(project, item, task, decision, events)
+                if why is not None:
+                    refused.append(f"drop_blocker of {task}: {why}")
+                    continue
             if action == "approve":
                 why = self._queen_approve(project, item, task, decision)
                 if why is not None:
@@ -1232,6 +1241,22 @@ class Supervisor:
             why = self._block_on(item, task, key)
             if why is not None:
                 return f"opened {key}, but {why}"
+        return None
+
+    def _ask_to_drop(self, project, item, task, decision, events):
+        """Her ask puts a question on the dashboard and changes nothing: only the user's yes drops the blocker.
+
+        Returns why not, or None.
+        """
+        if not self.config.settings.supervisor.queen_drop_blockers:
+            return "asking to drop a blocker is off"
+        blocker = decision["on"]
+        if not queen.names_blocker(self.github.issue_text(item.repo, item.number)["body"], item.repo, blocker):
+            return f"its issue does not name {blocker} under Blocked by"
+        if any(a["task"] == task and a["blocker"] == blocker for a in queen.drop_asks(events)):
+            return f"it already asks to drop {blocker}"
+        events.append(self.store.record("blocker_drop_asked", task=task, project=project.name, blocker=blocker,
+                                        reason=decision["note"]))
         return None
 
     def _queen_approve(self, project, item, task, decision):
