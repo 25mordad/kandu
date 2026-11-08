@@ -46,14 +46,17 @@ BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
   }} }} }} }}
 }}"""
 
-ISSUE_NODE = "number title body url state updatedAt labels(first: 30) { nodes { name } }"
+COMMENTS = "comments(last: 100) { nodes { author { login } body createdAt } }"
+# A new comment changes an issue's `updatedAt`, so reading what changed reads its comments too, in the same request.
+ISSUE_NODE = f"number title body url state updatedAt labels(first: 30) {{ nodes {{ name }} }} {COMMENTS}"
 PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable updatedAt "
-           "labels(first: 30) { nodes { name } } comments(last: 100) { nodes { author { login } body createdAt } }")
+           f"labels(first: 30) {{ nodes {{ name }} }} {COMMENTS}")
 # Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
 PR_DEEP = """files(first: 100) { nodes { path additions deletions } }
   commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 50) { nodes {
     __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }
-  reviewThreads(first: 20) { nodes { isResolved resolvedBy { login } comments(first: 1) { nodes { author { login } } } } }"""
+  reviewThreads(first: 20) { nodes { isResolved resolvedBy { login } path line
+    comments(first: 20) { nodes { author { login } body createdAt } } } }"""
 # One request reads what a repo holds for Kandu: what changed in its issues, every open PR, the PRs that closed lately.
 REPO_QUERY = f"""query($owner: String!, $name: String!, $since: DateTime, $issuesAfter: String, $openAfter: String,
       $issues: Boolean!, $open: Boolean!, $closed: Boolean!) {{
@@ -115,8 +118,7 @@ def _pr(node, deep):
     pr = {key: node.get(key) for key in ("number", "title", "state", "url", "body", "changedFiles", "headRefName",
                                           "headRefOid", "isDraft", "isCrossRepository", "mergeable", "updatedAt")}
     pr["labels"] = [label for label in node["labels"]["nodes"]]
-    pr["comments"] = [{"author": c.get("author") or {}, "body": c["body"], "createdAt": c.get("createdAt")}
-                      for c in node["comments"]["nodes"]]
+    pr["comments"] = _comments(node)
     pr["files"], pr["statusCheckRollup"], pr["reviewThreads"] = [], [], []
     if deep:
         pr["files"] = node["files"]["nodes"]
@@ -128,14 +130,21 @@ def _pr(node, deep):
             author = (comments[0].get("author") or {}).get("login") if comments else None
             resolver = (thread.get("resolvedBy") or {}).get("login")
             pr["reviewThreads"].append({"resolved": thread["isResolved"],
-                                        "resolved_by_other": bool(resolver) and resolver != author})
+                                        "resolved_by_other": bool(resolver) and resolver != author,
+                                        "path": thread.get("path"), "line": thread.get("line"),
+                                        "comments": _comments(thread)})
     return pr
+
+
+def _comments(node):
+    return [{"author": c.get("author") or {}, "body": c.get("body") or "", "createdAt": c.get("createdAt")}
+            for c in (node.get("comments") or {}).get("nodes", [])]
 
 
 def _issue(node):
     return {"number": node["number"], "title": node["title"], "body": node.get("body") or "", "url": node["url"],
             "state": node["state"], "labels": [label["name"] for label in node["labels"]["nodes"]],
-            "updatedAt": node.get("updatedAt")}
+            "updatedAt": node.get("updatedAt"), "comments": _comments(node)}
 
 
 def run_gh(args):
@@ -277,8 +286,14 @@ class GitHub:
         return _issue(node) if node else None
 
     def read_pr(self, repo, number):
+        """None if there is no such PR: the number may be an issue's."""
         owner, name = repo.split("/")
-        node = self._graphql(PR_QUERY, owner=owner, name=name, number=number)["data"]["repository"]["pullRequest"]
+        try:
+            node = self._graphql(PR_QUERY, owner=owner, name=name, number=number)["data"]["repository"]["pullRequest"]
+        except GitHubError as e:
+            if "Could not resolve" in str(e):
+                return None
+            raise
         return _pr(node, True) if node else None
 
     def edit_cards(self, project_id, edits):

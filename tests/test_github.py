@@ -141,10 +141,12 @@ class GitHubTest(unittest.TestCase):
               "files": {"nodes": [{"path": "a.py", "additions": 1, "deletions": 0}]},
               "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [
                   {"__typename": "CheckRun", "name": "ci", "status": "COMPLETED", "conclusion": "SUCCESS"}]}}}}]},
-              "reviewThreads": {"nodes": [{"isResolved": True, "resolvedBy": {"login": "other"},
-                                           "comments": {"nodes": [{"author": {"login": "me"}}]}}]}}
+              "reviewThreads": {"nodes": [{"isResolved": True, "resolvedBy": {"login": "other"}, "path": "a.py",
+                                           "line": 4, "comments": {"nodes": [
+                                               {"author": {"login": "me"}, "body": "why?", "createdAt": "z"}]}}]}}
         issue = {"number": 3, "title": "t", "body": None, "url": "u", "state": "OPEN", "updatedAt": "x",
-                 "labels": {"nodes": [{"name": "agent"}]}}
+                 "labels": {"nodes": [{"name": "agent"}]},
+                 "comments": {"nodes": [{"author": None, "body": "a note", "createdAt": "w"}]}}
         reply = {"data": {"repository": {"defaultBranchRef": {"name": "main"},
                                          "issues": {"pageInfo": {"hasNextPage": False}, "nodes": [issue]},
                                          "open": {"pageInfo": {"hasNextPage": False}, "nodes": [pr]},
@@ -159,7 +161,10 @@ class GitHubTest(unittest.TestCase):
         self.assertEqual((got["labels"], got["files"][0]["path"], got["comments"][0]["author"]["login"]),
                          ([{"name": "kandu"}], "a.py", "me"))
         self.assertEqual(got["statusCheckRollup"][0]["conclusion"], "SUCCESS")
-        self.assertEqual(got["reviewThreads"], [{"resolved": True, "resolved_by_other": True}])
+        self.assertEqual(got["reviewThreads"], [{"resolved": True, "resolved_by_other": True, "path": "a.py", "line": 4,
+                                                 "comments": [{"author": {"login": "me"}, "body": "why?",
+                                                               "createdAt": "z"}]}])
+        self.assertEqual(found["issues"][0]["comments"], [{"author": {}, "body": "a note", "createdAt": "w"}])
 
     def test_a_second_page_asks_only_for_what_has_more(self):
         page = lambda more, n: {"data": {"repository": {"defaultBranchRef": None,
@@ -171,6 +176,17 @@ class GitHubTest(unittest.TestCase):
         self.assertEqual([i["number"] for i in found["issues"]], [1, 2])
         self.assertIn("open=false", gh.calls[1])
         self.assertIn("issuesAfter=c", gh.calls[1])
+
+    def test_one_issue_is_read_with_its_comments(self):
+        issue = {"number": 3, "title": "t", "body": "b", "url": "u", "state": "OPEN", "labels": {"nodes": []},
+                 "comments": {"nodes": [{"author": {"login": "me"}, "body": "hi", "createdAt": "y"}]}}
+        got = GitHub(FakeGh({"data": {"repository": {"issue": issue}}})).read_issue("o/r", 3)
+        self.assertEqual(got["comments"], [{"author": {"login": "me"}, "body": "hi", "createdAt": "y"}])
+
+    def test_a_number_that_is_no_pr_reads_as_none(self):
+        def gh(args):
+            raise GitHubError("gh api graphql: Could not resolve to a PullRequest with the number of 3.")
+        self.assertIsNone(GitHub(gh).read_pr("o/r", 3))
 
     def test_an_issue_is_created_through_rest(self):
         gh = FakeGh(None, {"html_url": "https://github.com/o/r/issues/5"})

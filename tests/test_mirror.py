@@ -32,7 +32,8 @@ class FakeRemote:
     def __init__(self):
         self.items = [BoardItem(REPO, 3, "Task 3", URL, "Backlog", ["agent"], "body", item_id="card-3")]
         self.issues = {3: {"number": 3, "title": "Task 3", "body": "body", "url": URL, "state": "OPEN",
-                           "labels": ["agent"]}}
+                           "labels": ["agent"], "comments": [{"author": {"login": "user"}, "body": "a note",
+                                                              "createdAt": "2026-11-01T10:00:00Z"}]}}
         self.prs = {}
         self.calls = []
         self.fail = None  # a function of the call's name that may raise
@@ -73,8 +74,9 @@ class FakeRemote:
 
     def comment_issue(self, repo, number, body):
         self._call("comment", number, body)
-        if number in self.prs:
-            self.prs[number]["comments"].append({"author": {"login": ACCOUNT}, "body": body})
+        for kind in (self.prs, self.issues):
+            if number in kind:
+                kind[number]["comments"].append({"author": {"login": ACCOUNT}, "body": body})
 
     def close_issue(self, repo, number):
         self._call("close", number)
@@ -313,6 +315,65 @@ class MirrorTest(unittest.TestCase):
         self.mirror.mark_pr(REPO, self.mirror.pr(REPO, 7))
         self.mirror.mark_pr(REPO, self.mirror.pr(REPO, 7))
         self.assertEqual(len(self.mirror.outbox()), 1)
+
+    # One item, as `kandu.show` prints it.
+
+    def test_an_issue_comes_from_the_copy_with_its_comments(self):
+        self.mirror.refresh_repo(REPO)
+        calls = len(self.remote.calls)
+        item = self.open().item(REPO, 3)
+        self.assertEqual((item["kind"], item["title"]), ("issue", "Task 3"))
+        self.assertEqual([c["body"] for c in item["comments"]], ["a note"])
+        self.assertEqual(len(self.remote.calls), calls)
+
+    def test_a_pr_comes_from_the_copy_with_its_threads_and_checks(self):
+        self.remote.prs = {7: dict(pr(comments=[{"author": {"login": "user"}, "body": "looks fine"}]),
+                                   statusCheckRollup=[{"__typename": "CheckRun", "name": "ci", "conclusion": "SUCCESS"}],
+                                   reviewThreads=[{"resolved": False, "resolved_by_other": False, "path": "a.py",
+                                                   "line": 2, "comments": [{"author": {"login": "r"}, "body": "why?"}]}])}
+        self.mirror.refresh_repo(REPO)
+        calls = len(self.remote.calls)
+        item = self.open().item(REPO, 7)
+        self.assertEqual(item["kind"], "pr")
+        self.assertEqual(item["comments"][0]["body"], "looks fine")
+        self.assertEqual(item["reviewThreads"][0]["comments"][0]["body"], "why?")
+        self.assertEqual(item["statusCheckRollup"][0]["conclusion"], "SUCCESS")
+        self.assertEqual(len(self.remote.calls), calls)
+
+    def test_an_item_the_copy_lacks_is_read_once_and_kept(self):
+        self.mirror.refresh_repo(REPO)
+        self.remote.issues[4] = dict(self.remote.issues[3], number=4, title="Old")
+        self.remote.prs[8] = pr(number=8, issue=4, state="MERGED")
+        self.assertEqual(self.mirror.item(REPO, 4)["title"], "Old")
+        self.assertEqual(self.mirror.item(REPO, 8)["kind"], "pr")
+        calls = len(self.remote.calls)
+        self.assertEqual(self.open().item(REPO, 4)["comments"][0]["body"], "a note")
+        self.assertEqual(self.open().item(REPO, 8)["number"], 8)
+        self.assertEqual(len(self.remote.calls), calls)
+        self.assertEqual(self.names(), ["read_repo", "read_issue", "read_issue", "read_pr"])
+
+    def test_an_issue_kept_without_comments_is_read_once(self):
+        self.mirror.refresh_repo(REPO)
+        path = f"{self.root}/repos/acme__app.json"
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        del data["issues"]["3"]["comments"]  # a copy written before issues kept their comments
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        self.assertEqual(self.mirror.item(REPO, 3)["comments"][0]["body"], "a note")
+        self.mirror.item(REPO, 3)
+        self.assertEqual(self.names(), ["read_repo", "read_issue"])
+
+    def test_an_item_github_does_not_have_is_an_error(self):
+        with self.assertRaises(GitHubError):
+            self.mirror.item(REPO, 99)
+
+    def test_a_comment_on_an_issue_shows_at_once_and_only_once(self):
+        self.mirror.comment_issue(REPO, 3, "Blocked: needs a key")
+        self.assertEqual(self.mirror.item(REPO, 3)["comments"][-1]["author"]["login"], ACCOUNT)
+        self.mirror.send()
+        self.mirror.refresh_repo(REPO)
+        self.assertEqual([c["body"] for c in self.mirror.item(REPO, 3)["comments"]], ["a note", "Blocked: needs a key"])
 
     # Writes that go at once.
 

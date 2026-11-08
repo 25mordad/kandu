@@ -261,6 +261,28 @@ class Mirror:
     def review_threads(self, repo, number):
         return self.pr(repo, number)["reviewThreads"]
 
+    def item(self, repo, number):
+        """An issue with its comments, or a PR with its comments, review threads and checks, for `kandu.show`.
+
+        Served from the copy. Only what the copy does not hold is read from GitHub, once, and kept: an issue
+        older than the copy, a PR long closed, or an issue kept before issues kept their comments.
+        """
+        data = self._repo(repo)
+        issue = data["issues"].get(str(number))
+        if issue is not None and "comments" in issue:
+            return {"kind": "issue", "repo": repo, **issue}
+        if str(number) in data["prs"]:
+            return {"kind": "pr", "repo": repo, **self.pr(repo, number)}
+        self._put(repo, "issues", number, self.remote.read_issue(repo, number))
+        issue = self._repo(repo)["issues"].get(str(number))
+        if issue is not None and "comments" in issue:
+            return {"kind": "issue", "repo": repo, **issue}
+        self.refresh_pr(repo, number)
+        pr = self._repo(repo)["prs"].get(str(number))
+        if pr is None:
+            raise GitHubError(f"{repo}#{number}: no such issue or PR")
+        return {"kind": "pr", "repo": repo, **pr}
+
     def companions(self, repo, pr, repos):
         """Returns the open companion PRs of `pr` in `repos`, as (repo, number) pairs."""
         found = []
@@ -404,11 +426,15 @@ class Mirror:
             elif entry["kind"] == "label" and pr is not None:
                 if not any(label["name"] == entry["label"] for label in pr["labels"]):
                     pr["labels"].append({"name": entry["label"]})
-            elif entry["kind"] == "comment" and entry.get("pr") and pr is not None:
+            elif entry["kind"] == "comment":
+                target = pr if entry.get("pr") else issue
+                comments = (target or {}).get("comments")
+                if comments is None:
+                    continue  # not in the copy, or an issue kept before issues kept their comments
                 comment = {"author": {"login": self.account}, "body": entry["body"], "createdAt": entry["queued_at"]}
                 if not any(c["body"] == entry["body"] and (c.get("author") or {}).get("login") == self.account
-                           for c in pr["comments"]):
-                    pr["comments"].append(comment)
+                           for c in comments):
+                    comments.append(comment)
 
     # Reading everything, and sending the queue.
 
