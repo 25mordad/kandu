@@ -477,6 +477,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "mark_unsized": "Not sized",
   "mark_questions": "Open questions for you",
   "waits_for_you": "Waits for your decision",
+  "waits_for_you_count": "Waits for you",
   "send_back": "Back to work",
   "send_back_sure": "Send this task back to work? Its next cycle reviews the newest head, or fixes what the last review found. It merges nothing: the merge gate still decides.",
   "sent_back_done": "Back on the board in Ready. A cycle is picking it up."
@@ -663,6 +664,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "mark_unsized": "اندازه‌گیری نشده",
   "mark_questions": "سؤال‌های باز برای تو",
   "waits_for_you": "منتظر تصمیم توست",
+  "waits_for_you_count": "منتظر توست",
   "send_back": "دوباره به کار",
   "send_back_sure": "این تسک دوباره به کار برگردد؟ چرخه‌ی بعدی آخرین نسخه را بازبینی می‌کند، یا ایرادهای بازبینی قبلی را درست می‌کند. چیزی ادغام نمی‌شود: دروازه‌ی ادغام همچنان تصمیم می‌گیرد.",
   "sent_back_done": "برگشت به ستون Ready. یک چرخه سراغش می‌رود."
@@ -1181,7 +1183,7 @@ function hive(x, y, asleep, queenRun) {
 
 function fields(state, queue) {
   const projects = Object.entries(queue?.projects || {}).map(([name, columns]) => ({name, tasks:
-    Object.entries(columns).flatMap(([column, tasks]) => tasks.map(task => ({task: task.task, title: task.title, url: task.url, by_hand: !!task.by_hand, blockers: task.blockers || [], column})))}));
+    Object.entries(columns).flatMap(([column, tasks]) => tasks.map(task => ({task: task.task, title: task.title, url: task.url, by_hand: !!task.by_hand, yours: !!task.yours, blockers: task.blockers || [], column})))}));
   const seen = new Set(projects.flatMap(p => p.tasks.map(item => item.task)));
   const strays = [...(state.workers || []).filter(w => !seen.has(w.task)).map(w => ({task: w.task, title: "", column: "In progress", project: w.project})),
                   ...(state.waiting_for_machine || []).filter(task => !seen.has(task)).map(task => ({task, title: "", column: "waiting"}))];
@@ -1200,6 +1202,7 @@ function fields(state, queue) {
     patch.paused = (state.paused_projects || []).includes(patch.name);
     for (const item of patch.tasks) {
       item.mark = state.flowers?.[item.task] || {};
+      if (item.yours) item.mark = {...item.mark, yours: true};  // an open by-hand task is the user's to do
       // A merge held by an open blocker is nobody's to approve yet: it keeps its column and says what it waits for.
       const held = item.mark.pr === "held" || (item.blockers || []).length > 0;
       if (item.mark.pr && ON_THE_WAY.includes(item.column) && !held) item.column = item.mark.pr === "waits" ? "Your approval" : "Approved";
@@ -1347,10 +1350,11 @@ function renderStats(s) {
   const workers = s.workers || [];
   const most = s.parallel ? `<small>${t("limit")} ${num(s.parallel.total)}<button class="textlink limit-edit" data-parallel>${t("change")}</button></small>` : "";
   const bees = `<div class="card stat"><div class="stat-label">${t("active_workers")}</div><div class="stat-value">${num(workers.length)}</div>${most}</div>`;
+  const yours = `<div class="card stat"><div class="stat-label">${t("waits_for_you_count")}</div><div class="stat-value" style="color:${s.waits_for_you ? "#e8590c" : "inherit"}">${num(s.waits_for_you || 0)}</div></div>`;
   const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${!s.timer_on ? t("timer_off") : s.next_wake ? esc(when(s.next_wake)) : "—"}</div></div>`;
   const parked = lastQueue && Object.values(lastQueue.projects).reduce((sum, columns) => sum + columns["Technical debt"].length, 0);
   const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
-  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + debt + wake + backupCard(s.backup) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
+  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + yours + debt + wake + backupCard(s.backup) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
 }
 
 // Whether open requests show with their decision maps: off until the user turns it on here.

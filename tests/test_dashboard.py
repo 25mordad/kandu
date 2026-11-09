@@ -84,6 +84,29 @@ class ReadTest(Base):
         self.assertEqual(ready, [(f"{REPO}#1", False), (f"{REPO}#3", True)])
         self.assertEqual([t["task"] for t in projects["website"]["Blocked"]], [f"{REPO}#2"])
 
+    def test_an_open_by_hand_task_waits_for_the_user_and_is_counted(self):
+        def item(number, status, labels=(), closed_at=""):
+            return BoardItem(REPO, number, "t", "u", status, list(labels), "", closed_at=closed_at)
+        just_now = datetime.now(timezone.utc).isoformat()
+        self.github.board_items.return_value = [
+            item(1, "Backlog"), item(2, "Blocked"), item(3, "Ready", ("agent",)),
+            item(4, "Done", closed_at=just_now), item(5, "Backlog", closed_at=just_now),
+        ]
+        self.assertEqual(self.get("/api/v1/state")[1]["waits_for_you"], 0)  # nothing read yet, nothing by hand known
+        projects = self.get("/api/v1/queue")[1]["projects"]["website"]
+        yours = {t["task"]: t["yours"] for column in projects.values() for t in column}
+        self.assertEqual(yours, {f"{REPO}#1": True, f"{REPO}#2": True, f"{REPO}#3": False,
+                                 f"{REPO}#4": False, f"{REPO}#5": False})
+        self.assertEqual(self.get("/api/v1/state")[1]["waits_for_you"], 2)
+
+    def test_the_count_of_what_waits_for_the_user_adds_by_hand_tasks_to_the_marked_ones(self):
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "Backlog", [], ""),
+                                                BoardItem(REPO, 2, "t", "u", "Ready", ["agent"], "")]
+        self.store.record("loop_stopped", task=f"{REPO}#2", project="website", action="retry", reason="used up")
+        self.store.record("loop_stopped", task=f"{REPO}#1", project="website", action="retry", reason="used up")
+        self.get("/api/v1/queue")
+        self.assertEqual(self.get("/api/v1/state")[1]["waits_for_you"], 2)  # #1 is counted once
+
     def test_boards_answer_columns_fields_and_cards_from_the_copy(self):
         self.github.board_layout.return_value = {"columns": ["Backlog", "Ready"], "fields": {"Status": ["Backlog", "To do"]}}
         self.github.board_items.return_value = [BoardItem(REPO, 1, "Add search", "u", "Ready", ["agent"], "long body",

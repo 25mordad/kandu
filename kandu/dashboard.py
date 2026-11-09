@@ -194,6 +194,7 @@ class Api:
 
     def state(self, query):
         limits = self.config.settings.claude.limits
+        marks = flower_marks(self.store)
         return self.store.read_current() | {
             "timer_on": self.timer_on(),
             "stop_requested": self.store.stop_file.exists(),
@@ -204,13 +205,24 @@ class Api:
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
             "parallel": self._parallel(),
             "queen": self._queen_report(),
-            "flowers": flower_marks(self.store),
+            "flowers": marks,
+            "waits_for_you": self._waits_for_you(marks),
             "bazras": {"running": self.store.read_bazras(),
                        "last": {p.name: bazras.last_look(p.name, self.local_dir) for p in bazras.inspected(self.config)}},
             "backup": self._backup(),
             "drop_blockers": self.config.settings.supervisor.queen_drop_blockers,
             "show_requests": self.config.settings.dashboard.show_requests,
         }
+
+    def _waits_for_you(self, marks):
+        """How many tasks wait for the user: those the log marks as theirs, and each open by-hand task, once.
+
+        The by-hand ones come from the last queue read, so this costs GitHub nothing.
+        """
+        tasks = {task for task, mark in marks.items() if mark["yours"]}
+        for columns in (self._queue or {}).get("projects", {}).values():
+            tasks |= {entry["task"] for column in columns.values() for entry in column if entry["yours"]}
+        return len(tasks)
 
     def _backup(self):
         """The backup's settings, its copies newest first, and how its last try ended."""
@@ -379,7 +391,10 @@ class Api:
             if item.status == split.NEEDS_SPLIT and self.store.last_event("task_split", task=task) is not None:
                 continue  # Accepted: it waits for nobody, and its slices stand for it until the last one closes it.
             # A task without `agent` is the user's to do by hand: shown for a free flight, never worked by Kandu.
-            entry = {"task": task, "title": item.title, "url": item.url, "by_hand": AGENT_LABEL not in item.labels}
+            by_hand = AGENT_LABEL not in item.labels
+            # One in an open column waits for the user; one done or closed waits for nobody.
+            yours = by_hand and item.status != DONE and not item.closed_at
+            entry = {"task": task, "title": item.title, "url": item.url, "by_hand": by_hand, "yours": yours}
             if item.status in MERGEABLE_COLUMNS:
                 entry["blockers"] = self._blockers(item, columns)
             projects[name][item.status].append(entry)

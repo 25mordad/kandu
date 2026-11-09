@@ -80,6 +80,7 @@ Every task is designed and checked against harness, context and memory (§14).
 71. [x] A drop on the user's yes takes the blocker out of `Blocked by` and out of its GitHub "blocked by" relationship, wherever it is held, through the queue; a blocker held in only one place drops too (§5)
 72. [x] A request of several tasks gets a spec issue first, on the user's yes: `kandu.tasks --spec-issue` refuses one without Problem, Solution, Decisions and Out of scope, and gives it no `agent` label, no fields and no card, so it is never sized and never reaches the queen; a task made with `--spec` names its spec and takes the spec's Out of scope, and the spec closes when the last task that names it closes (§2)
 73. [x] The dashboard lists the open requests by project, and opening one shows its decision map with ✅ ❓ ⏳ ✂️, read-only, or says it has none. It reads only local state, so it costs GitHub nothing. `kandu.intake map` takes the request's project. Off until the user turns it on in the dashboard (§7, §13)
+74. [x] A by-hand task in an open column carries the orange «waits for you» mark beside its «By hand» badge, and the dashboard's count of what waits for the user includes it, each task once; one done or closed has neither (§3, §7)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

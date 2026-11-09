@@ -125,7 +125,7 @@ Then it interviews the user in rounds until no decision is open, written for a u
   - **Writes that go at once:** a merge, because the next step needs GitHub's answer, and creating an issue, whose number names the task (through the REST API, which has its own limit). A worker opens its PR itself.
   - **The local change wins.** A queued card change stays in the queue until GitHub holds it, even if the card changed on GitHub meanwhile: the copy is the base, and the next send makes GitHub follow it. A move made on GitHub stands when nothing for that field waits in the queue.
 - Kandu creates a board only when the user says so.
-- A task only a person can do stays on the board without the `agent` label, so it is visible and Kandu leaves it alone. The dashboard shows it too, marked by hand, with the free-flight button, so the user can work it in a session; the queen and the workers never see it.
+- A task only a person can do stays on the board without the `agent` label, so it is visible and Kandu leaves it alone. The dashboard shows it too, marked by hand, with the free-flight button, so the user can work it in a session; the queen and the workers never see it. While it is in an open column, not `Done` and not closed, it also carries the orange «waits for you» mark and counts in the dashboard's count of what waits for the user.
 
 ## 4. Project registry
 One entry per project in `local/projects.yaml`, written by `/kandu-add`. **A project not in the registry is never touched.** Fields (see [config.example/projects.example.yaml](config.example/projects.example.yaml)):
