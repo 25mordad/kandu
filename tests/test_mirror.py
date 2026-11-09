@@ -364,6 +364,52 @@ class MirrorTest(unittest.TestCase):
         self.mirror.item(REPO, 3)
         self.assertEqual(self.names(), ["read_repo", "read_issue"])
 
+    def test_a_refresh_keeps_each_issues_blocked_by_relationships(self):
+        blockers = [{"repo": REPO, "number": 2}, {"repo": "acme/lib", "number": 5}]
+        self.remote.issues[3]["blocked_by"] = blockers
+        self.remote.items[0].blocked_by = blockers
+        self.remote.issues[4] = dict(self.remote.issues[3], number=4, url=URL[:-1] + "4", blocked_by=[])
+        self.remote.items.append(BoardItem(REPO, 4, "Task 4", URL[:-1] + "4", "Backlog", ["agent"], "", item_id="c4"))
+        self.mirror.refresh(SimpleNamespace(projects=[SimpleNamespace(board=BOARD, repos=[REPO])]), max_age=0)
+        calls = len(self.remote.calls)
+        mirror = self.open()
+        cards = {item.number: item.blocked_by for item in mirror.board_items(BOARD)}
+        self.assertEqual(cards, {3: blockers, 4: []})
+        self.assertEqual(mirror.item(REPO, 3)["blocked_by"], blockers)
+        self.assertEqual(mirror.item(REPO, 4)["blocked_by"], [])
+        self.assertEqual(len(self.remote.calls), calls)
+
+    def test_a_board_read_gives_a_kept_issue_its_cards_new_blocked_by(self):
+        self.mirror.refresh_repo(REPO)
+        self.mirror.refresh_board(BOARD)
+        blockers = [{"repo": REPO, "number": 2}]
+        self.remote.items[0].blocked_by = blockers  # a new relationship on GitHub; the issue's updatedAt stays
+        self.remote.read_repo = lambda repo, since=None: {"default_branch": "main", "issues": [], "prs": []}
+        self.now += 300
+        self.mirror.refresh(SimpleNamespace(projects=[SimpleNamespace(board=BOARD, repos=[REPO])]), max_age=0)
+        mirror = self.open()
+        self.assertEqual(mirror.board_items(BOARD)[0].blocked_by, blockers)
+        self.assertEqual(mirror.item(REPO, 3)["blocked_by"], blockers)
+
+    def test_a_copy_kept_before_relationships_loads_with_none(self):
+        self.remote.issues[3]["blocked_by"] = [{"repo": REPO, "number": 2}]
+        self.remote.items[0].blocked_by = [{"repo": REPO, "number": 2}]
+        self.mirror.refresh_repo(REPO)
+        self.mirror.refresh_board(BOARD)
+        for path, strip in ((f"{self.root}/repos/acme__app.json", lambda d: d["issues"]["3"]),
+                            (f"{self.root}/boards/acme-1.json", lambda d: d["items"][0])):
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            del strip(data)["blocked_by"]  # as a copy written before issues kept their relationships
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        calls = len(self.remote.calls)
+        mirror = self.open()
+        self.assertEqual(mirror.board_items(BOARD)[0].blocked_by, [])
+        self.assertEqual(mirror.item(REPO, 3)["blocked_by"], [])
+        self.assertEqual(mirror.issue_text(REPO, 3)["title"], "Task 3")
+        self.assertEqual(len(self.remote.calls), calls)
+
     def test_an_item_github_does_not_have_is_an_error(self):
         with self.assertRaises(GitHubError):
             self.mirror.item(REPO, 99)

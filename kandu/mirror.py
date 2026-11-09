@@ -115,6 +115,30 @@ class Mirror:
             with self._locked(self._outbox_path):
                 self._overlay_board(board, data, resolve=True)
             self._store(path, data)
+        self._keep_blocked_by(data["items"])
+
+    def _keep_blocked_by(self, items):
+        """Gives each kept issue its card's "blocked by" list, read whole with the board. A repo read takes only
+        issues whose `updatedAt` moved, and a new relationship may not move it."""
+        by_repo = {}
+        for item in items:
+            by_repo.setdefault(item["repo"], {})[str(item["number"])] = item.get("blocked_by", [])
+        for repo, lists in by_repo.items():
+            path = self._path("repos", repo)
+            if not path.exists():
+                continue  # the repo is read whole when it is first needed
+            with self._locked(path):
+                data = self._load(path)
+                if data is None:
+                    continue
+                changed = False
+                for number, blocked_by in lists.items():
+                    issue = data["issues"].get(number)
+                    if issue is not None and issue.get("blocked_by") != blocked_by:
+                        issue["blocked_by"] = blocked_by
+                        changed = True
+                if changed:
+                    self._store(path, data)
 
     def board_version(self, board):
         """Changes with every write of the copy, whichever process made it. Asks GitHub nothing."""
@@ -143,7 +167,8 @@ class Mirror:
             data = self._load(path) or data
             if not any(item["url"] == url for item in data["items"]):
                 data["items"].append(asdict(BoardItem(repo, int(number), issue.get("title", ""), url, "",
-                                                      issue.get("labels", []), issue.get("body", ""), item_id=item_id)))
+                                                      issue.get("labels", []), issue.get("body", ""), item_id=item_id,
+                                                      blocked_by=issue.get("blocked_by", []))))
                 self._store(path, data)
 
     def board_layout(self, board):
@@ -265,18 +290,19 @@ class Mirror:
         """An issue with its comments, or a PR with its comments, review threads and checks, for `kandu.show`.
 
         Served from the copy. Only what the copy does not hold is read from GitHub, once, and kept: an issue
-        older than the copy, a PR long closed, or an issue kept before issues kept their comments.
+        older than the copy, a PR long closed, or an issue kept before issues kept their comments. An issue kept
+        before issues kept their "blocked by" relationships reads as blocked by none, as its card does.
         """
         data = self._repo(repo)
         issue = data["issues"].get(str(number))
         if issue is not None and "comments" in issue:
-            return {"kind": "issue", "repo": repo, **issue}
+            return {"kind": "issue", "repo": repo, "blocked_by": [], **issue}
         if str(number) in data["prs"]:
             return {"kind": "pr", "repo": repo, **self.pr(repo, number)}
         self._put(repo, "issues", number, self.remote.read_issue(repo, number))
         issue = self._repo(repo)["issues"].get(str(number))
         if issue is not None and "comments" in issue:
-            return {"kind": "issue", "repo": repo, **issue}
+            return {"kind": "issue", "repo": repo, "blocked_by": [], **issue}
         self.refresh_pr(repo, number)
         pr = self._repo(repo)["prs"].get(str(number))
         if pr is None:

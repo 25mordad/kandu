@@ -133,6 +133,32 @@ class GitHubTest(unittest.TestCase):
         self.assertEqual(meta, {"project_id": "P1", "fields": {"Status": {"id": "F1", "options": {"Ready": "o1"}},
                                                                "Deadline": {"id": "F2", "options": {}}}})
 
+    def test_the_board_read_keeps_each_cards_blocked_by_relationships(self):
+        blocked = dict(ISSUE, blockedBy={"nodes": [{"number": 2, "repository": {"nameWithOwner": "o/r"}},
+                                                   {"number": 9, "repository": {"nameWithOwner": "o/other"}}]})
+        free = dict(ISSUE, number=4)  # GitHub sent no relationships
+        gh = FakeGh(board_page([{"id": "card-3", "content": blocked}, {"id": "card-4", "content": free}]))
+        items, _ = GitHub(gh).read_board(BOARD)
+        self.assertIn("blockedBy", " ".join(gh.calls[0]))
+        self.assertEqual(items[0].blocked_by, [{"repo": "o/r", "number": 2}, {"repo": "o/other", "number": 9}])
+        self.assertEqual(items[1].blocked_by, [])
+
+    def test_an_issue_is_read_with_its_blocked_by_relationships(self):
+        issue = {"number": 3, "title": "t", "body": "b", "url": "u", "state": "OPEN", "labels": {"nodes": []},
+                 "blockedBy": {"nodes": [{"number": 2, "repository": {"nameWithOwner": "o/r"}}]}}
+        gh = FakeGh({"data": {"repository": {"issue": issue}}})
+        self.assertEqual(GitHub(gh).read_issue("o/r", 3)["blocked_by"], [{"repo": "o/r", "number": 2}])
+        self.assertIn("blockedBy", " ".join(gh.calls[0]))
+        repo = {"data": {"repository": {"defaultBranchRef": None,
+                                        "issues": {"pageInfo": {"hasNextPage": False},
+                                                   "nodes": [issue, dict(issue, number=4, blockedBy=None)]},
+                                        "open": {"pageInfo": {"hasNextPage": False}, "nodes": []},
+                                        "closed": {"nodes": []}}}}
+        gh = FakeGh(repo)
+        found = GitHub(gh).read_repo("o/r")
+        self.assertIn("blockedBy", " ".join(gh.calls[0]))
+        self.assertEqual([i["blocked_by"] for i in found["issues"]], [[{"repo": "o/r", "number": 2}], []])
+
     def test_one_request_reads_a_repo_in_the_shape_gh_shows(self):
         pr = {"number": 7, "title": "t", "state": "OPEN", "url": "u", "body": "", "changedFiles": 1,
               "headRefName": "kandu/3-a", "headRefOid": "abc", "isDraft": False, "isCrossRepository": False,

@@ -3,7 +3,7 @@ import json
 import re
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import ghmeter
 from .config import BOARD_FIELDS, DEADLINE_FIELD
@@ -26,6 +26,8 @@ THREADS_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   } } } }
 }"""
 
+# GitHub's own "blocked by" relationships of an issue, kept as they are: nothing decides by them yet.
+BLOCKED_BY_NODE = "blockedBy(first: 50) { nodes { number repository { nameWithOwner } } }"
 SELECT_VALUE = "... on ProjectV2ItemFieldSingleSelectValue { name }"
 # `fieldValueByName` is what keeps this at one point a page: `gh project item-list` costs 100.
 BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
@@ -41,14 +43,14 @@ BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
       kind: fieldValueByName(name: "Kind") {{ {SELECT_VALUE} }}
       size: fieldValueByName(name: "Size") {{ {SELECT_VALUE} }}
       deadline: fieldValueByName(name: "{DEADLINE_FIELD}") {{ ... on ProjectV2ItemFieldDateValue {{ date }} }}
-      content {{ ... on Issue {{ number title url body closedAt repository {{ nameWithOwner }} labels(first: 50) {{ nodes {{ name }} }} }} }}
+      content {{ ... on Issue {{ number title url body closedAt repository {{ nameWithOwner }} labels(first: 50) {{ nodes {{ name }} }} {BLOCKED_BY_NODE} }} }}
     }}
   }} }} }} }}
 }}"""
 
 COMMENTS = "comments(last: 100) { nodes { author { login } body createdAt } }"
 # A new comment changes an issue's `updatedAt`, so reading what changed reads its comments too, in the same request.
-ISSUE_NODE = f"number title body url state updatedAt labels(first: 30) {{ nodes {{ name }} }} {COMMENTS}"
+ISSUE_NODE = f"number title body url state updatedAt labels(first: 30) {{ nodes {{ name }} }} {COMMENTS} {BLOCKED_BY_NODE}"
 PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable updatedAt "
            f"labels(first: 30) {{ nodes {{ name }} }} {COMMENTS}")
 # Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
@@ -102,6 +104,7 @@ class BoardItem:
     deadline: str = ""
     closed_at: str = ""
     item_id: str = ""              # the card's own id on the board, which a write needs
+    blocked_by: list = field(default_factory=list)  # GitHub's "blocked by" relationships: [{"repo", "number"}]
 
 
 TRANSIENT = re.compile(r"HTTP 5\d\d|\b50[234]\b|rate limit|secondary|abuse|too quickly|timed out|Timeout|"
@@ -141,10 +144,15 @@ def _comments(node):
             for c in (node.get("comments") or {}).get("nodes", [])]
 
 
+def _blocked_by(node):
+    return [{"repo": n["repository"]["nameWithOwner"], "number": n["number"]}
+            for n in (node.get("blockedBy") or {}).get("nodes", [])]
+
+
 def _issue(node):
     return {"number": node["number"], "title": node["title"], "body": node.get("body") or "", "url": node["url"],
             "state": node["state"], "labels": [label["name"] for label in node["labels"]["nodes"]],
-            "updatedAt": node.get("updatedAt"), "comments": _comments(node)}
+            "updatedAt": node.get("updatedAt"), "comments": _comments(node), "blocked_by": _blocked_by(node)}
 
 
 def run_gh(args):
@@ -241,7 +249,8 @@ class GitHub:
                                        labels=[label["name"] for label in content["labels"]["nodes"]],
                                        body=content.get("body") or "", priority=value("priority"), kind=value("kind"),
                                        size=value("size"), deadline=value("deadline", "date"),
-                                       closed_at=content.get("closedAt") or "", item_id=node.get("id", "")))
+                                       closed_at=content.get("closedAt") or "", item_id=node.get("id", ""),
+                                       blocked_by=_blocked_by(content)))
             if not page["pageInfo"]["hasNextPage"] or len(items) >= BOARD_ITEM_LIMIT:
                 return items, meta
             after = ["-f", f"after={page['pageInfo']['endCursor']}"]
