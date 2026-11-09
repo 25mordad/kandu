@@ -124,7 +124,7 @@ Check: `.venv/bin/python -m kandu.doctor` shows the project's copy, its test too
 
 In Didban, say what you want in your own words, in any language. Or run `/kandu-task`.
 
-Kandu first reads the code the task touches and checks that the behavior does not exist yet. For a large or vague task it asks numbered questions, each with a recommended answer. Then it shows you the final text. The task is created only after your yes.
+Kandu first reads the code the task touches and checks that the behavior does not exist yet. Then it asks you numbered questions in rounds, each with one line on why it matters and a recommended answer: "yes" accepts them all. You need no engineering background; technical choices it makes itself and tells you as assumptions you can reject. After each round it shows a decision map (✅ decided, ❓ asked now, ⏳ later, ✂️ out of scope), and it stops asking only when nothing is open and you agree with its summary. Then it shows you the final text. The task is created only after your yes.
 
 A task is written in English on GitHub, whatever language you speak, and always has the same sections: goal, current behavior, acceptance criteria, how to test, out of scope, and `Blocked by`. Kandu sets its `Priority`, `Kind` and `Size`. A `Large` task is split into slices before it reaches the board.
 

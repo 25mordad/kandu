@@ -185,7 +185,7 @@ class DidbanTest(unittest.TestCase):
 
     def test_defining_or_promoting_a_task_checks_it_against_the_forbidden_areas(self):
         root = Path(brief.__file__).resolve().parent.parent
-        task = (root / ".claude" / "commands" / "kandu-task.md").read_text(encoding="utf-8")
+        task = (root / "prompts" / "defining.md").read_text(encoding="utf-8")
         didban = (root / "prompts" / "didban.md").read_text(encoding="utf-8")
         debt = didban[didban.index("## Technical debt"):]
         for text in (task, debt):

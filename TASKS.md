@@ -73,6 +73,7 @@ Every task is designed and checked against harness, context and memory (§14).
 64. [x] `Blocked by` names only a task this one cannot work or merge correctly without, never a related one: Didban's instructions, `/kandu-task` and the issue template say so (§2)
 65. [x] A merge held only by open blockers is not read from GitHub or decided again until its head moves or a blocker closes; every other wait is checked each cycle (§5)
 66. [x] A drop ask: the queen asks the user to drop a blocker a task does not need, with her reason; code refuses a blocker the issue does not name, the dashboard shows the question with a yes button, and only the yes takes that one blocker out, after which the next cycle checks the merge again. Off until the user turns it on in the dashboard (§5)
+67. [x] Defining a task interviews the user until the decision map holds no open decision, for a user who is not a software engineer: every decidable question per round, each with why it matters and a recommended answer, technical choices stated as assumptions, a map after each round and a confirmed shared understanding at the end. `/kandu-task` and Didban follow one file, `prompts/defining.md` (§2)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

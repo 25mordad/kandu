@@ -19,7 +19,7 @@ class TemplatesTest(unittest.TestCase):
 
     def test_every_text_that_defines_a_task_keeps_related_tasks_out_of_blocked_by(self):
         for path in (PROMPTS / "templates" / "issue.md", PROMPTS / "didban.md",
-                     ROOT / ".claude" / "commands" / "kandu-task.md"):
+                     PROMPTS / "defining.md"):
             text = path.read_text(encoding="utf-8")
             self.assertIn("only a task this one cannot work or merge correctly without", text, path.name)
             self.assertIn("never a related one", text, path.name)
@@ -53,6 +53,22 @@ class PromptsTest(unittest.TestCase):
             text = (PROMPTS / name).read_text(encoding="utf-8")
             self.assertNotIn("prompts/", text, name)
             self.assertNotIn("DESIGN.md", text, name)
+
+    def test_kandu_task_and_didban_define_a_task_from_one_file(self):
+        command = (ROOT / ".claude" / "commands" / "kandu-task.md").read_text(encoding="utf-8")
+        self.assertIn("`prompts/defining.md`", command)
+        self.assertNotIn("kandu.tasks", command)
+        self.assertIn("`prompts/defining.md` says", (PROMPTS / "didban.md").read_text(encoding="utf-8"))
+
+    def test_refining_ends_on_an_empty_decision_map_and_a_shared_understanding(self):
+        text = (PROMPTS / "defining.md").read_text(encoding="utf-8")
+        for mark in ("✅", "❓", "⏳", "✂️"):
+            self.assertIn(mark, text)
+        self.assertIn("Finish when the map holds no ❓ or ⏳", text)
+        self.assertIn("shared understanding", text)
+        self.assertIn("why it matters", text)
+        self.assertIn("recommended answer", text)
+        self.assertNotIn("skips the interview", text)
 
     def test_didban_keeps_to_the_project_the_user_named(self):
         text = (PROMPTS / "didban.md").read_text(encoding="utf-8")
