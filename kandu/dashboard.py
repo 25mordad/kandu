@@ -137,6 +137,11 @@ def closed_lately(item):
     return datetime.now(timezone.utc) - closed < timedelta(days=DONE_KEEP_DAYS)
 
 
+def _holds(card, blocker):
+    """True when a card's issue holds `blocker` under `## Blocked by` or in a GitHub "blocked by" relationship."""
+    return queen.names_blocker(card.body, card.repo, blocker) or queen.in_relationships(card.blocked_by, blocker)
+
+
 class ApiError(Exception):
     def __init__(self, status, message):
         super().__init__(message)
@@ -283,7 +288,8 @@ class Api:
                          "limit": self.config.settings.supervisor.queen_daily_token_limit, "drops": self._drop_asks()}
 
     def _drop_asks(self):
-        """Her asks to drop a blocker that wait for the user's yes. One whose blocker is already gone is not shown.
+        """Her asks to drop a blocker that wait for the user's yes. One whose blocker is already gone, from both
+        `## Blocked by` and the relationships, is not shown.
 
         Read from the copy, so it costs GitHub nothing. An unreadable copy shows them all: a yes is checked again.
         """
@@ -291,11 +297,10 @@ class Api:
         if not asks:
             return []
         try:
-            bodies = {f"{i.repo}#{i.number}": (i.repo, i.body) for b in self._boards() for i in self.github.board_items(b)}
+            cards = {f"{i.repo}#{i.number}": i for b in self._boards() for i in self.github.board_items(b)}
         except GitHubError:
             return asks
-        return [a for a in asks if a["task"] in bodies and queen.names_blocker(bodies[a["task"]][1], bodies[a["task"]][0],
-                                                                               a["blocker"])]
+        return [a for a in asks if a["task"] in cards and _holds(cards[a["task"]], a["blocker"])]
 
     def queue(self, query):
         """Each project's columns. All pages share one read, and a failed read keeps the last good answer.
@@ -610,9 +615,10 @@ class Api:
         return {"children": children}
 
     def drop_blocker(self, query, owner, repo, number):
-        """The user's yes to her ask: the blocker leaves the issue's `## Blocked by`, and its other blockers stay.
+        """The user's yes to her ask: the blocker leaves the issue's `## Blocked by` and its GitHub "blocked by"
+        relationship, wherever it is held, and its other blockers stay. Both writes are queued, as every edit is.
 
-        Only an ask she made counts, and only while the issue still names that blocker. The next cycle checks the
+        Only an ask she made counts, and only while the issue still holds that blocker in one of the two places. The next cycle checks the
         merge again.
         """
         task = self._split_task(owner, repo, number)
@@ -624,9 +630,13 @@ class Api:
         item, _ = self._card(f"{owner}/{repo}", int(number))
         if item is None:
             raise ApiError(404, "its task is on no board")
-        if not queen.names_blocker(item.body, item.repo, blocker):
+        if not _holds(item, blocker):
             raise ApiError(409, f"its issue no longer names {blocker}")
-        self.github.edit_issue(item.repo, item.number, item.title, queen.without_blocker(item.body, item.repo, blocker))
+        if queen.names_blocker(item.body, item.repo, blocker):
+            self.github.edit_issue(item.repo, item.number, item.title, queen.without_blocker(item.body, item.repo, blocker))
+        if queen.in_relationships(item.blocked_by, blocker):
+            other, _, other_number = blocker.partition("#")
+            self.github.remove_blocked_by(item.repo, item.number, other, int(other_number))
         self.store.record("blocker_dropped", task=task, project=ask["project"], blocker=blocker)
         self._queue_time = None
         return {"task": task, "dropped": blocker, "cycle_started": self.start_cycle()}

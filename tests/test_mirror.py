@@ -88,6 +88,14 @@ class FakeRemote:
     def add_label(self, repo, number, label, description):
         self._call("label", number, label)
 
+    def remove_blocked_by(self, repo, number, blocker_repo, blocker_number):
+        self._call("unblock", number, blocker_repo, blocker_number)
+        gone = lambda b: (b["repo"].lower(), b["number"]) == (blocker_repo.lower(), blocker_number)
+        self.issues[number]["blocked_by"] = [b for b in self.issues[number]["blocked_by"] if not gone(b)]
+        for item in self.items:
+            if item.number == number:
+                item.blocked_by = [b for b in item.blocked_by if not gone(b)]
+
     def create_issue(self, repo, title, body, by_hand=False, tokens=False):
         self._call("create_issue", title)
         return f"https://github.com/{repo}/issues/9"
@@ -309,6 +317,48 @@ class MirrorTest(unittest.TestCase):
         self.assertFalse(self.mirror.issue_is_open(REPO, 3))
         self.mirror.send()
         self.assertEqual(self.remote.issues[3]["state"], "CLOSED")
+
+    def blocked(self, *numbers):
+        blockers = [{"repo": REPO, "number": n} for n in numbers]
+        self.remote.issues[3]["blocked_by"] = deepcopy(blockers)
+        self.remote.items[0].blocked_by = deepcopy(blockers)
+
+    def test_a_removed_relationship_leaves_the_copy_at_once_and_goes_with_the_queue(self):
+        self.blocked(2, 5)
+        self.mirror.board_items(BOARD)
+        self.mirror.issue_text(REPO, 3)
+        self.mirror.remove_blocked_by(REPO, 3, "ACME/app", 2)  # GitHub's repo names ignore case
+        left = [{"repo": REPO, "number": 5}]
+        for mirror in (self.mirror, self.open()):
+            self.assertEqual(mirror.board_items(BOARD)[0].blocked_by, left)
+            self.assertEqual(mirror.issue_text(REPO, 3)["blocked_by"], left)
+        self.assertNotIn("unblock", self.names())
+        self.mirror.refresh_board(BOARD)
+        self.mirror.refresh_repo(REPO)
+        self.assertEqual(self.mirror.board_items(BOARD)[0].blocked_by, left)  # a read before the send keeps it out
+        self.assertEqual(self.mirror.issue_text(REPO, 3)["blocked_by"], left)
+        self.assertEqual(self.mirror.send(), (1, 0, 0))
+        self.assertIn(("unblock", 3, "ACME/app", 2), self.remote.calls)
+        self.assertEqual(self.remote.issues[3]["blocked_by"], left)
+        self.assertEqual(self.mirror.outbox(), [])
+
+    def test_a_removed_relationship_is_sent_again_after_a_refusal_that_passes(self):
+        self.blocked(2)
+        self.mirror.board_items(BOARD)
+        self.mirror.remove_blocked_by(REPO, 3, REPO, 2)
+        self.remote.fail = lambda name, args: (_ for _ in ()).throw(GitHubError("HTTP 502"))
+        self.assertEqual(self.mirror.send(), (0, 1, 0))
+        self.assertEqual(self.mirror.board_items(BOARD)[0].blocked_by, [])
+        self.remote.fail = None
+        self.assertEqual(self.mirror.send(), (1, 0, 0))
+        self.assertEqual(self.remote.items[0].blocked_by, [])
+
+    def test_a_relationship_github_no_longer_holds_leaves_the_queue_quietly(self):
+        self.blocked(2)
+        self.mirror.remove_blocked_by(REPO, 3, REPO, 2)
+        self.blocked()  # taken away on GitHub meanwhile
+        self.mirror.refresh_board(BOARD)
+        self.assertEqual((self.mirror.outbox(), self.dropped()), ([], []))
 
     def test_marking_a_pr_twice_queues_it_once(self):
         self.remote.prs = {7: pr()}

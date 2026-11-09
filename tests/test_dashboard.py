@@ -1128,6 +1128,49 @@ class DropAskTest(Base):
         self.assertEqual((dropped["task"], dropped["blocker"]), (f"{REPO}#1", f"{REPO}#2"))
         self.assertEqual(self.drops(), [])
 
+    def card(self, body, blocked_by=()):
+        self.cards[1] = BoardItem(REPO, 1, "Ours", "u", "In review", ["agent"], body,
+                                  blocked_by=[{"repo": r, "number": n} for r, n in blocked_by])
+
+    def test_a_blocker_held_only_in_the_section_leaves_only_the_section(self):
+        self.card(self.BODY, [(REPO, 3)])
+        self.ask()
+        self.assertEqual(self.say_yes()[0], 200)
+        self.assertEqual(self.cards[1].body, f"## Goal\nx\n\n## Blocked by\n{REPO}#3\n\n## Out of scope\ny\n")
+        self.github.remove_blocked_by.assert_not_called()
+
+    def test_a_blocker_held_only_in_a_relationship_leaves_the_relationship(self):
+        body = "## Goal\nx\n\n## Blocked by\n#3\n"
+        self.card(body, [(REPO, 2), (REPO, 3)])
+        self.ask()
+        self.assertEqual(self.drops(), [(f"{REPO}#1", f"{REPO}#2", "Not needed.")])
+        status, body_ = self.say_yes()
+        self.assertEqual((status, body_["dropped"]), (200, f"{REPO}#2"))
+        self.github.edit_issue.assert_not_called()
+        self.github.remove_blocked_by.assert_called_once_with(REPO, 1, REPO, 2)
+        self.assertEqual(self.store.last_event("blocker_dropped")["blocker"], f"{REPO}#2")
+
+    def test_a_blocker_held_in_both_leaves_both_and_the_others_stay(self):
+        self.card(self.BODY, [(REPO.upper(), 2), ("acme/other", 5)])  # GitHub's repo names ignore case
+        self.ask()
+        self.assertEqual(self.say_yes()[0], 200)
+        self.assertEqual(self.cards[1].body, f"## Goal\nx\n\n## Blocked by\n{REPO}#3\n\n## Out of scope\ny\n")
+        self.github.remove_blocked_by.assert_called_once_with(REPO, 1, REPO, 2)
+
+    def test_a_task_with_no_relationship_drops_as_before(self):
+        self.ask()
+        self.assertEqual(self.say_yes()[0], 200)
+        self.github.edit_issue.assert_called_once()
+        self.github.remove_blocked_by.assert_not_called()
+
+    def test_a_blocker_held_in_neither_place_takes_no_yes(self):
+        self.card(f"## Blocked by\n{REPO}#3\n", [(REPO, 3)])
+        self.ask()
+        self.assertEqual(self.drops(), [])
+        self.assertEqual(self.say_yes()[0], 409)
+        self.github.edit_issue.assert_not_called()
+        self.github.remove_blocked_by.assert_not_called()
+
     def test_no_yes_without_her_ask(self):
         status, _ = self.say_yes()
         self.assertEqual(status, 409)

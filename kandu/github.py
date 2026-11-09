@@ -26,7 +26,7 @@ THREADS_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   } } } }
 }"""
 
-# GitHub's own "blocked by" relationships of an issue, kept as they are: nothing decides by them yet.
+# GitHub's own "blocked by" relationships of an issue: `task_blockers` joins them with `## Blocked by`.
 BLOCKED_BY_NODE = "blockedBy(first: 50) { nodes { number repository { nameWithOwner } } }"
 SELECT_VALUE = "... on ProjectV2ItemFieldSingleSelectValue { name }"
 # `fieldValueByName` is what keeps this at one point a page: `gh project item-list` costs 100.
@@ -429,6 +429,12 @@ class GitHub:
 
     def edit_issue(self, repo, number, title, body):
         self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", f"title={title}", "-f", f"body={body}"])
+
+    def remove_blocked_by(self, repo, number, blocker_repo, blocker_number):
+        """Takes away GitHub's "blocked by" relationship of `repo#number` on `blocker_repo#blocker_number`.
+        GitHub names the blocker by its issue id, so that is read first."""
+        blocker_id = self._json(["api", f"repos/{blocker_repo}/issues/{blocker_number}"])["id"]
+        self._run(["api", f"repos/{repo}/issues/{number}/dependencies/blocked_by/{blocker_id}", "-X", "DELETE"])
 
     def repo_is_public(self, repo):
         return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"

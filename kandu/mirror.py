@@ -368,7 +368,7 @@ class Mirror:
         self._queue({"kind": kind, "repo": repo, "number": number, **fields})
         if self._load(self._path("repos", repo)) is not None:
             self._apply_repo(repo)
-        if kind in ("close", "edit"):
+        if kind in ("close", "edit", "unblock"):
             for path in (self.root / "boards").glob("*.json"):
                 data = self._load(path)
                 if data and any(i["repo"] == repo and i["number"] == number for i in data["items"]):
@@ -404,6 +404,10 @@ class Mirror:
     def edit_issue(self, repo, number, title, body):
         self._queue_issue("edit", repo, number, title=title, body=body)
 
+    def remove_blocked_by(self, repo, number, blocker_repo, blocker_number):
+        """The relationship leaves the copy at once and goes to GitHub with the queue, as an edit does."""
+        self._queue_issue("unblock", repo, number, blocker={"repo": blocker_repo, "number": blocker_number})
+
     def mark_pr(self, repo, pr):
         if any(label["name"] == "kandu" for label in pr["labels"]):
             return
@@ -436,6 +440,15 @@ class Mirror:
                             item["closed_at"] = item["closed_at"] or entry["queued_at"]
                         else:
                             item["title"], item["body"] = entry["title"], entry["body"]
+            elif entry["kind"] == "unblock":
+                for item in data["items"]:
+                    if (item["repo"], item["number"]) == (entry["repo"], entry["number"]):
+                        if resolve and not _holds(item.get("blocked_by"), entry["blocker"]):
+                            break  # GitHub already holds it
+                        item["blocked_by"] = _without(item.get("blocked_by"), entry["blocker"])
+                else:
+                    kept.append(entry)
+                continue
             kept.append(entry)
         if len(kept) != len(entries):
             self._store(self._outbox_path, kept)
@@ -450,6 +463,8 @@ class Mirror:
                 issue["state"] = "CLOSED"
             elif entry["kind"] == "edit" and issue is not None:
                 issue["title"], issue["body"] = entry["title"], entry["body"]
+            elif entry["kind"] == "unblock" and issue is not None:
+                issue["blocked_by"] = _without(issue.get("blocked_by"), entry["blocker"])
             elif entry["kind"] == "label" and pr is not None:
                 if not any(label["name"] == entry["label"] for label in pr["labels"]):
                     pr["labels"].append({"name": entry["label"]})
@@ -571,6 +586,8 @@ class Mirror:
             self.remote.edit_issue(repo, number, entry["title"], entry["body"])
         elif entry["kind"] == "label":
             self.remote.add_label(repo, number, entry["label"], entry["description"])
+        elif entry["kind"] == "unblock":
+            self.remote.remove_blocked_by(repo, number, entry["blocker"]["repo"], entry["blocker"]["number"])
 
     def _settle(self, done, failed):
         dropped = 0
@@ -590,6 +607,19 @@ class Mirror:
                 kept.append(entry)
             self._store(self._outbox_path, kept)
         return len(done), len(kept), dropped
+
+
+def _same_issue(one, other):
+    """GitHub's repo names ignore case."""
+    return (one["repo"].lower(), int(one["number"])) == (other["repo"].lower(), int(other["number"]))
+
+
+def _holds(blocked_by, blocker):
+    return any(_same_issue(b, blocker) for b in blocked_by or ())
+
+
+def _without(blocked_by, blocker):
+    return [b for b in blocked_by or () if not _same_issue(b, blocker)]
 
 
 class _BoardRef:

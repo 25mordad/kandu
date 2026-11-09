@@ -174,6 +174,12 @@ class GitHubTest(unittest.TestCase):
         self.assertIn("blockedBy", " ".join(gh.calls[0]))
         self.assertEqual([i["blocked_by"] for i in found["issues"]], [[{"repo": "o/r", "number": 2}], []])
 
+    def test_removing_a_blocked_by_relationship_names_the_blocker_by_its_issue_id(self):
+        gh = FakeGh({"id": 4242, "number": 2})
+        GitHub(gh).remove_blocked_by("o/r", 3, "o/other", 2)
+        self.assertEqual(gh.calls, [["api", "repos/o/other/issues/2"],
+                                    ["api", "repos/o/r/issues/3/dependencies/blocked_by/4242", "-X", "DELETE"]])
+
     def test_one_request_reads_a_repo_in_the_shape_gh_shows(self):
         pr = {"number": 7, "title": "t", "state": "OPEN", "url": "u", "body": "", "changedFiles": 1,
               "headRefName": "kandu/3-a", "headRefOid": "abc", "isDraft": False, "isCrossRepository": False,

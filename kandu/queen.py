@@ -153,6 +153,13 @@ def names_blocker(body, repo, key):
     return _pair(key) is not None and _pair(key) in blockers_in(body, repo)
 
 
+def in_relationships(blocked_by, key):
+    """True when GitHub's "blocked by" relationships (`[{"repo", "number"}]`) hold `key`. Repo names ignore case."""
+    pair = _pair(key)
+    return pair is not None and any((b["repo"].lower(), int(b["number"])) == (pair[0].lower(), pair[1])
+                                    for b in blocked_by or ())
+
+
 def without_blocker(body, repo, key):
     """The issue's body with `key` taken out of `## Blocked by`, its other blockers left in place.
 

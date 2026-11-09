@@ -77,6 +77,7 @@ Every task is designed and checked against harness, context and memory (§14).
 68. [x] A request's decision map is saved on the brain after each round of refining and replaces the earlier one; the list shows it, the next Didban session continues from it, closing the request drops it, and code refuses a map in another shape with the reason (§13)
 69. [x] Kandu's copy keeps each issue's GitHub "blocked by" relationships (repo and number), read in the same requests as its issues and cards; an issue and its card give the same list, and a copy kept before reads as none (§3)
 70. [x] GitHub's "blocked by" relationships are blockers beside `Blocked by`: the two join with no duplicates, and the merge gate, the worker's note, what the queen sees and the dashboard (task and PR) all read that one set; a split relationship blocker waits for its last slice (§2)
+71. [x] A drop on the user's yes takes the blocker out of `Blocked by` and out of its GitHub "blocked by" relationship, wherever it is held, through the queue; a blocker held in only one place drops too (§5)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)
