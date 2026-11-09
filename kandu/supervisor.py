@@ -22,7 +22,7 @@ from pathlib import Path
 
 from . import agents, debt, merge, queen, questions, review, show, sizing, split, tasks
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
-from .github import AGENT_LABEL, TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
+from .github import TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
 from .mirror import open_github
 from .notify import notifier_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
@@ -104,6 +104,18 @@ def board_items(config, github, paused=()):
 
     `paused` names the projects the user paused on the dashboard.
     """
+    return ((project, item) for project, item in _registered_items(config, github, paused) if not item.by_hand)
+
+
+def by_hand_items(config, github, paused=()):
+    """Yields (project, item) for each open by-hand task of a registered project that is not paused.
+
+    They are for the queen to name, never to work: `board_items` leaves them out, so no decision can reach them.
+    """
+    return ((project, item) for project, item in _registered_items(config, github, paused) if item.waits_by_hand)
+
+
+def _registered_items(config, github, paused):
     by_board = {}
     for project in config.projects:
         if project.board is not None and not project.paused and project.name not in paused:
@@ -112,7 +124,7 @@ def board_items(config, github, paused=()):
         by_repo = {repo: project for project in projects for repo in project.repos}
         for item in github.board_items(projects[0].board):
             project = by_repo.get(item.repo)
-            if project is not None and AGENT_LABEL in item.labels:
+            if project is not None:
                 yield project, item
 
 
@@ -183,6 +195,12 @@ class Supervisor:
         """A spec issue is never work, even when someone puts it on the board with the `agent` label."""
         specs = tasks.specs(self.store)
         return [(project, item) for project, item in board_items(self.config, self.github, self.store.paused_projects())
+                if f"{item.repo}#{item.number}" not in specs]
+
+    def _by_hand(self):
+        """The open by-hand tasks the queen names in her brief. A spec issue is never one."""
+        specs = tasks.specs(self.store)
+        return [(project, item) for project, item in by_hand_items(self.config, self.github, self.store.paused_projects())
                 if f"{item.repo}#{item.number}" not in specs]
 
     def _read_tasks(self):
@@ -1082,8 +1100,11 @@ class Supervisor:
                                 "stopped_for_a_loop": queen.waits_after_loop(events, key)})
         return waiting
 
-    def _project_view(self, items, backlog, events=()):
-        """What she sees of every project: fields, not task bodies, so a long Backlog stays cheap."""
+    def _project_view(self, items, backlog, events=(), by_hand=()):
+        """What she sees of every project: fields, not task bodies, so a long Backlog stays cheap.
+
+        `by_hand` holds the open by-hand tasks: hers to name, never to act on.
+        """
         today = self.store.today()
         board = {f"{item.repo}#{item.number}": (project, item) for project, item in items}
         view = []
@@ -1102,6 +1123,8 @@ class Supervisor:
                 "backlog": [{"task": f"{item.repo}#{item.number}", "title": item.title, "priority": item.priority,
                              "kind": item.kind, "size": item.size, "deadline": item.deadline}
                             for owner, item in backlog if owner is project],
+                "by_hand": [{"task": f"{item.repo}#{item.number}", "title": item.title, "status": item.status}
+                            for owner, item in by_hand if owner is project],
             })
         return view
 
@@ -1113,16 +1136,18 @@ class Supervisor:
         items = list(self._board_items())
         backlog = self._startable(items)
         keys = [f"{item.repo}#{item.number}" for _, item in backlog]
+        by_hand = self._by_hand()
+        hand_keys = sorted(f"{item.repo}#{item.number}" for _, item in by_hand)
         before, news = queen.since_last_look(self.store)
         paused = [p for p in self.config.projects if self._is_paused(p)]
         news = [e for e in news if e.get("project") not in {p.name for p in paused}]
         hidden = {repo for p in paused for repo in p.repos}
-        if not queen.worth_a_look(before, news, keys, self.store.today(), hidden):
+        if not queen.worth_a_look(before, news, keys, self.store.today(), hidden, hand_keys):
             return False
         if self._gate() is not None or self._queen_limit() is not None:
             return False
         events = before + news
-        view = self._project_view(items, backlog, events)
+        view = self._project_view(items, backlog, events, by_hand)
         tasks = sorted({e["task"] for e in news if e.get("task")} | {w["task"] for p in view for w in p["waiting"]})
         steps = {task: done for task, done in queen.steps_on(events, tasks).items() if done}
         prompt = agents.queen_prompt(queen.prompt_events(news), view, steps,
@@ -1151,11 +1176,12 @@ class Supervisor:
         except agents.ReplyError as e:
             # Everything stays as it is. Nothing here is worth paying for again each cycle.
             self.store.record("queen_finished", run_id=run_id, brief=f"{queen.COULD_NOT_FINISH}: {e}.",
-                              backlog=keys)
+                              backlog=keys, by_hand=hand_keys)
             return True
         refused, released = self._carry_out(report["decisions"], events)
         brief = "\n".join([report["brief"], *[f"Refused: {reason}" for reason in refused]])
-        self.store.record("queen_finished", run_id=run_id, brief=brief, backlog=[k for k in keys if k not in released])
+        self.store.record("queen_finished", run_id=run_id, brief=brief, backlog=[k for k in keys if k not in released],
+                          by_hand=hand_keys)
         return True
 
     def _carry_out(self, decisions, events):

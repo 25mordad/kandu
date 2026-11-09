@@ -115,8 +115,8 @@ class WhatIsImportantTest(unittest.TestCase):
 
     def test_the_queen_failing_uses_the_words_the_supervisor_writes(self):
         brief = f"{queen.COULD_NOT_FINISH}: no JSON."
-        self.assertEqual(self.kind_of("queen_finished", run_id="r", brief=brief, backlog=[]), "failure")
-        self.assertIsNone(self.kind_of("queen_finished", run_id="r", brief="All fine.", backlog=[]))
+        self.assertEqual(self.kind_of("queen_finished", run_id="r", brief=brief, backlog=[], by_hand=[]), "failure")
+        self.assertIsNone(self.kind_of("queen_finished", run_id="r", brief="All fine.", backlog=[], by_hand=[]))
 
     def test_every_language_has_every_message(self):
         self.assertEqual(set(MESSAGES["fa"]), set(MESSAGES["en"]))
@@ -286,7 +286,7 @@ class SupervisorMainTest(Base):
 class EventLogTest(Base):
     def test_a_new_kind_of_event_does_not_wake_the_queen(self):
         self.finished("merged")
-        self.store.record("queen_finished", run_id="r", brief="b", backlog=[])
+        self.store.record("queen_finished", run_id="r", brief="b", backlog=[], by_hand=[])
         self.store.record("notification_sent", kind="failure", key=None)
         before, news = queen.since_last_look(self.store)
         self.assertFalse(queen.worth_a_look(before, news, [], self.store.today()))

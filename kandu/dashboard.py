@@ -391,10 +391,8 @@ class Api:
             if item.status == split.NEEDS_SPLIT and self.store.last_event("task_split", task=task) is not None:
                 continue  # Accepted: it waits for nobody, and its slices stand for it until the last one closes it.
             # A task without `agent` is the user's to do by hand: shown for a free flight, never worked by Kandu.
-            by_hand = AGENT_LABEL not in item.labels
-            # One in an open column waits for the user; one done or closed waits for nobody.
-            yours = by_hand and item.status != DONE and not item.closed_at
-            entry = {"task": task, "title": item.title, "url": item.url, "by_hand": by_hand, "yours": yours}
+            entry = {"task": task, "title": item.title, "url": item.url, "by_hand": item.by_hand,
+                     "yours": item.waits_by_hand}
             if item.status in MERGEABLE_COLUMNS:
                 entry["blockers"] = self._blockers(item, columns)
             projects[name][item.status].append(entry)

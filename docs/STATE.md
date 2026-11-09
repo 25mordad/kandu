@@ -40,7 +40,7 @@ state/
 | `notes_sized` | `task`, `project`, `run_id`, `head_sha`, `notes` |
 | `debt_reported` | `task`, `project`, `finding`, `title`, `body`, `size`, `reason` |
 | `debt_parked` | `task`, `project`, `finding`, `url`, `note` |
-| `queen_finished` | `run_id`, `brief`, `backlog` |
+| `queen_finished` | `run_id`, `brief`, `backlog`, `by_hand` |
 | `queen_step_done` | `task`, `project`, `action`, `decided`, `result`, `summary`, `head_sha`, `run_id` |
 | `queen_opened` | `task`, `project`, `url` |
 | `loop_stopped` | `task`, `project`, `action`, `reason` |

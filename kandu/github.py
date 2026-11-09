@@ -106,6 +106,16 @@ class BoardItem:
     item_id: str = ""              # the card's own id on the board, which a write needs
     blocked_by: list = field(default_factory=list)  # GitHub's "blocked by" relationships: [{"repo", "number"}]
 
+    @property
+    def by_hand(self):
+        """A task without `agent` is the user's to do by hand: Kandu never sizes, releases or works it."""
+        return AGENT_LABEL not in self.labels
+
+    @property
+    def waits_by_hand(self):
+        """A by-hand task in an open column waits for the user; one done or closed waits for nobody."""
+        return self.by_hand and self.status != "Done" and not self.closed_at
+
 
 TRANSIENT = re.compile(r"HTTP 5\d\d|\b50[234]\b|rate limit|secondary|abuse|too quickly|timed out|Timeout|"
                        r"temporarily|try again|connection|EOF", re.IGNORECASE)

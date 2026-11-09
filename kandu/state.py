@@ -61,7 +61,7 @@ EVENT_FIELDS = {
     "kandu_restarted": (),
     "wake_requested": (),
     "queen_decided": TASK_FIELDS + ("action", "note"),
-    "queen_finished": ("run_id", "brief", "backlog"),
+    "queen_finished": ("run_id", "brief", "backlog", "by_hand"),
     "queen_step_done": TASK_FIELDS + ("action", "decided", "result", "summary", "head_sha", "run_id"),
     "queen_opened": TASK_FIELDS + ("url",),
     "loop_stopped": TASK_FIELDS + ("action", "reason"),

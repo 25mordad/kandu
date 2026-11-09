@@ -822,6 +822,109 @@ class QueenTest(Base):
                          (["Read", agents.SHOW_RULE], ["Edit"]))
 
 
+class QueenByHandTest(Base):
+    """A by-hand task is the user's: the queen names it in her brief, and code keeps her hands off it."""
+
+    def setUp(self):
+        super().setUp()
+        self.config.settings.supervisor.queen = True
+        self.github.on_add = lambda key, size: None  # nothing sizes a by-hand task
+        self.github.add(1, status="Backlog", labels=())
+
+    def reply(self, *decisions):
+        return json.dumps({"brief": "What happened.", "decisions": list(decisions)})
+
+    def view(self, run=0):
+        projects = self.runner.runs[run].prompt.split("## Projects\n```json\n", 1)[1].split("\n```", 1)[0]
+        return {p["project"]: p for p in json.loads(projects)}
+
+    def test_a_backlog_of_only_a_by_hand_task_reaches_her_by_number_and_title(self):
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+        website = self.view()["website"]
+        self.assertEqual(website["backlog"], [])
+        self.assertEqual(website["by_hand"], [{"task": f"{REPO}#1", "title": "Task 1", "status": "Backlog"}])
+
+    def test_her_prompt_says_a_backlog_with_a_by_hand_task_is_not_empty(self):
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        prompt = self.runner.runs[0].prompt
+        self.assertIn("by number and title", prompt)
+        self.assertIn("never call it empty", prompt)
+
+    def test_a_new_by_hand_task_wakes_her_once(self):
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+
+    def test_an_unchanged_set_does_not_wake_her_the_next_day(self):
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        tomorrow = (datetime.now().astimezone() + timedelta(days=1)).date().isoformat()
+        with mock.patch.object(StateStore, "today", return_value=tomorrow):
+            self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+
+    def test_another_new_by_hand_task_wakes_her_again(self):
+        self.runner.steps = [self.reply(), self.reply()]
+        self.cycle()
+        self.github.add(2, status="In progress", labels=())
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
+        self.assertEqual([t["task"] for t in self.view(1)["website"]["by_hand"]], [f"{REPO}#1", f"{REPO}#2"])
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
+
+    def test_a_by_hand_task_leaving_does_not_wake_her(self):
+        self.github.add(2, status="Backlog", labels=())
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.github.statuses[self.github.items[1].url] = "Done"
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+
+    def test_a_done_or_closed_by_hand_task_does_not_wake_her(self):
+        self.github.statuses[self.github.items[0].url] = "Done"
+        self.github.items.append(replace(self.github.items[0], number=2, url=f"https://github.com/{REPO}/issues/2",
+                                         closed_at="2026-11-01T00:00:00Z"))
+        self.github.statuses[self.github.items[1].url] = "Backlog"
+        self.cycle()
+        self.assertEqual(self.runner.runs, [])
+
+    def test_a_paused_projects_by_hand_task_does_not_wake_her(self):
+        self.store.pause_project("website")
+        self.cycle()
+        self.assertEqual(self.runner.runs, [])
+
+    def test_a_spec_issue_on_the_board_is_not_a_by_hand_task(self):
+        self.github.add(2, status="Backlog", labels=())
+        self.store.record("spec_created", task=f"{REPO}#2", project="website")
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.assertEqual([t["task"] for t in self.view()["website"]["by_hand"]], [f"{REPO}#1"])
+
+    def test_a_spec_issue_alone_on_the_board_does_not_wake_her(self):
+        self.github.statuses[self.github.items[0].url] = "Done"
+        self.github.add(2, status="Backlog", labels=())
+        self.store.record("spec_created", task=f"{REPO}#2", project="website")
+        self.cycle()
+        self.assertEqual(self.runner.runs, [])
+
+    def test_she_cannot_release_size_or_work_a_by_hand_task(self):
+        task = f"{REPO}#1"
+        decisions = [{"task": task, "action": action, "note": "n"} for action in ("release", "retry", "rework", "verify")]
+        self.runner.steps = [self.reply(*decisions)]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)  # her look only: no splitter, worker or checker
+        self.assertEqual(self.github.status(1), "Backlog")
+        self.assertEqual(self.events("queen_decided"), [])
+        self.assertIsNone(self.store.last_event("task_sized", task=task))
+        brief = self.events("queen_finished")[0]["brief"]
+        self.assertEqual(brief.count(f"{task}: not a task of a running project"), 4)
+
+
 class QueenPacesTest(Base):
     def setUp(self):
         super().setUp()
