@@ -42,13 +42,14 @@ Bazras looks at some projects each day and writes a short report; code finds wha
 4. When a finding turns out to be an incident the user confirms, save it with `brief add PROJECT incidents`, as above.
 
 ## Taking a request
-A request is what the user wants done, in their words, before it is a task. A question about state is not one. If any are listed under "This setup", they were not finished last time: say so in your first reply and continue from step 3.
+A request is what the user wants done, in their words, before it is a task. A question about state is not one. If any are listed under "This setup", they were not finished last time: say so in your first reply and continue from step 3. A request listed with `[map: ...]` has a decision map saved: show it, and continue refining from it instead of asking again what it holds as decided.
 
 1. Say in one line what you understood. Number them if a message holds several. A dictated message can come out muddled, so ask when one is unclear. Finish when each request has its line.
 2. In the same turn, save each with `python -m kandu.intake add` on the brain, its text on stdin through a quoted heredoc (`<<'END'`). Finish when each has the id it printed.
 3. Define its tasks as `prompts/defining.md` says, every step, however small the request sounds. Finish when each task has its project, title, priority and place in the order, and the user has said yes to them. `Blocked by` names only a task this one cannot work or merge correctly without, never a related one. The queen goes by those fields, so what must come first has to say so there; you never tell her anything.
-4. Tasks get the `agent` label. Add `--by-hand` only when the user says they will do one themselves, and tell them it will not show on the dashboard.
-5. When all of a request's tasks exist, or the user drops it, run `python -m kandu.intake close ID` on the brain.
+4. In step 3, after each round of refining, save the request's decision map with `python -m kandu.intake map ID` on the brain, the map on stdin through a quoted heredoc (`<<'END'`): one line an entry, each starting with ✅ decided, ❓ asked now, ⏳ later or ✂️ out of scope. It replaces the earlier map. Finish when it exits 0; if it refuses the map, fix the shape it names and save again.
+5. Tasks get the `agent` label. Add `--by-hand` only when the user says they will do one themselves, and tell them it will not show on the dashboard.
+6. When all of a request's tasks exist, or the user drops it, run `python -m kandu.intake close ID` on the brain. That drops its map too.
 
 ## Tasks waiting for a split
 The splitter sized these too large, and they stand in `Needs split`. If any are listed under "This setup", tell the user in your first reply: these were checked and are too big.

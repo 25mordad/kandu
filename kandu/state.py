@@ -266,12 +266,15 @@ class StateStore:
             yield
 
     def write_request(self, request):
-        """A request is the user's own words, so it stays out of the event log."""
+        """A request is the user's own words, so it stays out of the event log. Rewriting one keeps its place."""
         self._make_dirs()
         self.requests_dir.mkdir(mode=0o700, exist_ok=True)
         path = self.requests_dir / f"{request['id']}.json"
+        made = path.stat().st_mtime_ns if path.exists() else None
         path.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
         path.chmod(0o600)
+        if made is not None:
+            os.utime(path, ns=(made, made))
 
     def drop_request(self, request_id):
         (self.requests_dir / f"{request_id}.json").unlink(missing_ok=True)

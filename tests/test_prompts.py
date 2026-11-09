@@ -54,6 +54,11 @@ class PromptsTest(unittest.TestCase):
             self.assertNotIn("prompts/", text, name)
             self.assertNotIn("DESIGN.md", text, name)
 
+    def test_didban_saves_a_requests_map_each_round_and_resumes_from_it(self):
+        text = (PROMPTS / "didban.md").read_text(encoding="utf-8")
+        self.assertIn("after each round of refining, save the request's decision map with `python -m kandu.intake map ID`", text)
+        self.assertIn("continue refining from it", text)
+
     def test_kandu_task_and_didban_define_a_task_from_one_file(self):
         command = (ROOT / ".claude" / "commands" / "kandu-task.md").read_text(encoding="utf-8")
         self.assertIn("`prompts/defining.md`", command)
