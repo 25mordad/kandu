@@ -67,17 +67,19 @@ class FakeGitHub:
         self.on_add = lambda key, size: None
         self.boarded = []
 
-    def add(self, number, status="Ready", repo=REPO, labels=("agent",), body="", priority="Medium", size="Small", deadline=""):
+    def add(self, number, status="Ready", repo=REPO, labels=("agent",), body="", priority="Medium", size="Small", deadline="",
+            blocked_by=()):
         url = f"https://github.com/{repo}/issues/{number}"
         self.items.append(BoardItem(repo, number, f"Task {number}", url, status, list(labels), body,
-                                    priority, "Chore", size, deadline))
+                                    priority, "Chore", size, deadline, blocked_by=list(blocked_by)))
         self.open_issues.add((repo, number))
         self.statuses[url] = status
         if status == "Backlog":
             self.on_add(f"{repo}#{number}", size)
 
     def issue_text(self, repo, number):
-        return {"body": next((i.body for i in self.items if i.number == number), "")}
+        issue = next((i for i in self.items if i.number == number), None)
+        return {"body": issue.body if issue else "", "blocked_by": issue.blocked_by if issue else []}
 
     def item(self, repo, number):
         issue = next(i for i in self.items if (i.repo, i.number) == (repo, number))
@@ -1598,8 +1600,8 @@ class MergeTest(Base):
         self.github.open_issues.discard((REPO, 2))
         self.assertNotIn(f"blocker {REPO}#2 is not merged yet", self.sup._merge_waits(task, pr))
 
-    def blocked_task(self, body):
-        self.github.add(5, body=body)
+    def blocked_task(self, body, blocked_by=()):
+        self.github.add(5, body=body, blocked_by=blocked_by)
         task = next(t for t in read_tasks(self.config, self.github) if t.number == 5)
         self.store.record("review_finished", task=task.key, project="website", run_id="r", round=1, head_sha=SHA1,
                           findings=0, blockers=0, door="two-way", criteria_met=True, wait_for_user=[], user_brief=None)
@@ -1630,6 +1632,42 @@ class MergeTest(Base):
         self.assertEqual(reasons, [f"blocker {REPO}#2 is not merged yet"])
         self.github.open_issues.discard((REPO, 2))
         self.assertFalse([r for r in self.sup._merge_waits(task, pr) if r.startswith("blocker ")])
+
+    def test_a_merge_waits_for_a_blocker_set_only_as_a_github_relationship(self):
+        task, pr = self.blocked_task("## Goal\nx\n", blocked_by=[{"repo": OTHER_REPO, "number": 4}])
+        self.github.open_issues.add((OTHER_REPO, 4))
+        self.assertIn(f"blocker {OTHER_REPO}#4 is not merged yet", self.sup._merge_waits(task, pr))
+        self.github.open_issues.discard((OTHER_REPO, 4))
+        self.assertFalse([r for r in self.sup._merge_waits(task, pr) if r.startswith("blocker ")])
+
+    def test_a_blocker_in_the_section_and_in_a_relationship_counts_once(self):
+        task, pr = self.blocked_task("## Blocked by\n#2\n", blocked_by=[{"repo": REPO, "number": 2}])
+        self.github.open_issues.add((REPO, 2))
+        reasons = [r for r in self.sup._merge_waits(task, pr) if r.startswith("blocker ")]
+        self.assertEqual(reasons, [f"blocker {REPO}#2 is not merged yet"])
+
+    def test_a_split_relationship_blocker_waits_for_its_last_slice(self):
+        task, pr = self.blocked_task("", blocked_by=[{"repo": REPO, "number": 2}])
+        self.store.record("task_split", task=f"{REPO}#2", project="website", children=[f"{REPO}#7", f"{REPO}#8"])
+        self.github.open_issues.update({(REPO, 2), (REPO, 8)})
+        reasons = [r for r in self.sup._merge_waits(task, pr) if r.startswith("blocker ")]
+        self.assertEqual(reasons, [f"blocker {REPO}#8 is not merged yet"])
+        self.github.open_issues.discard((REPO, 8))
+        self.assertFalse([r for r in self.sup._merge_waits(task, pr) if r.startswith("blocker ")])
+
+    def test_a_task_with_no_blockers_of_either_kind_waits_for_none(self):
+        task, pr = self.blocked_task("## Goal\nx\n\n## Blocked by\nnone\n")
+        self.github.open_issues.update({(REPO, 2), (OTHER_REPO, 4)})
+        self.assertFalse([r for r in self.sup._merge_waits(task, pr) if r.startswith("blocker ")])
+
+    def test_the_worker_is_told_of_an_open_relationship_blocker(self):
+        self.github.add(6, blocked_by=[{"repo": OTHER_REPO, "number": 4}])
+        self.github.open_issues.add((OTHER_REPO, 4))
+        task = next(t for t in read_tasks(self.config, self.github) if t.number == 6)
+        self.sup.workers[task.key] = {}
+        self.runner.steps = [PR_OPENED]
+        self.sup._work(task)
+        self.assertIn(f"This task is blocked by {OTHER_REPO}#4", self.runner.runs[0].prompt)
 
     def held_by_blocker(self, **pr):
         """Task 1 waits for #2 only; counts the PR reads from GitHub."""

@@ -379,6 +379,14 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(mirror.item(REPO, 4)["blocked_by"], [])
         self.assertEqual(len(self.remote.calls), calls)
 
+    def test_an_issues_text_carries_its_kept_relationships(self):
+        blockers = [{"repo": REPO, "number": 2}]
+        self.remote.issues[3]["blocked_by"] = blockers
+        self.mirror.refresh_repo(REPO)
+        calls = len(self.remote.calls)
+        self.assertEqual(self.open().issue_text(REPO, 3)["blocked_by"], blockers)
+        self.assertEqual(len(self.remote.calls), calls)
+
     def test_a_board_read_gives_a_kept_issue_its_cards_new_blocked_by(self):
         self.mirror.refresh_repo(REPO)
         self.mirror.refresh_board(BOARD)

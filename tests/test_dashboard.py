@@ -912,6 +912,15 @@ class HeldByBlockerTest(Base):
         self.assertEqual(self.queued()["blockers"], [{"task": f"{REPO}#2", "column": "In progress", "slices": []}])
         self.assertEqual(self.page()["blockers"], [{"task": f"{REPO}#2", "column": "In progress", "slices": []}])
 
+    def test_the_card_and_the_window_show_a_relationship_blocker_once_with_its_column(self):
+        self.cards[1].blocked_by = [{"repo": REPO, "number": 2}, {"repo": REPO, "number": 3}]
+        self.cards[3] = BoardItem(REPO, 3, "Third", "u", "Ready", ["agent"], "")
+        expected = [{"task": f"{REPO}#2", "column": "In progress", "slices": []},
+                    {"task": f"{REPO}#3", "column": "Ready", "slices": []}]
+        self.assertEqual(self.queued()["blockers"], expected)
+        self.assertEqual(self.page()["blockers"], expected)
+        self.assertIn(f"blocker {REPO}#3 is not merged yet", self.page()["holds"])
+
     def test_a_merged_blocker_is_not_shown(self):
         self.open -= {f"{REPO}#2"}
         self.assertEqual(self.queued()["blockers"], [])

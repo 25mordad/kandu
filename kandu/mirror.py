@@ -253,7 +253,8 @@ class Mirror:
         issue = self._issue(repo, number)
         if issue is None:
             raise GitHubError(f"{repo}#{number}: no such issue")
-        return {"title": issue["title"], "body": issue["body"], "url": issue["url"]}
+        return {"title": issue["title"], "body": issue["body"], "url": issue["url"],
+                "blocked_by": issue.get("blocked_by", [])}
 
     def issue_is_open(self, repo, number):
         issue = self._issue(repo, number)

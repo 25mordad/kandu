@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from . import backup, bazras, flights, ghmeter, queen, questions, review, sessions, split, tasks, timer
 from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup,
                      set_drop_blockers, set_inspect, set_limits, set_parallel)
-from .github import AGENT_LABEL, GitHubError, blockers_in
+from .github import AGENT_LABEL, GitHubError, task_blockers
 from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
 from .state import StateStore
@@ -380,13 +380,14 @@ class Api:
         return {"projects": projects, "done_days": DONE_KEEP_DAYS}
 
     def _blockers(self, item, columns):
-        """The open blockers in a task's `## Blocked by`, each with its column; a split one with its slices.
+        """The open blockers of a task, each with its column; a split one with its slices. They are the merge gate's:
+        its `## Blocked by` joined with its GitHub "blocked by" relationships, each once.
 
         From the copy and the local log only. A split blocker is open until its last slice closes, as at the
         merge gate. `columns` maps each task on a board to its column.
         """
         held = []
-        for repo, number in dict.fromkeys(blockers_in(item.body, item.repo)):
+        for repo, number in task_blockers(item.body, item.repo, item.blocked_by):
             key = f"{repo}#{number}"
             last = tasks.last_slice(self.store, key) or key
             last_repo, _, last_number = last.rpartition("#")

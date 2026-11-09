@@ -183,6 +183,16 @@ def blockers_in(body, repo):
     return [(other or repo, int(number)) for other, number in ISSUE_REFERENCE.findall(text)]
 
 
+def task_blockers(body, repo, blocked_by=()):
+    """A task's blockers: the (repo, number) pairs under its `## Blocked by` and in its GitHub "blocked by"
+    relationships (`[{"repo", "number"}]`), each once. GitHub's repo names ignore case, so a blocker named in
+    both places counts once; the section's spelling is kept."""
+    pairs = {}
+    for other, number in [*blockers_in(body, repo), *((b["repo"], int(b["number"])) for b in blocked_by or ())]:
+        pairs.setdefault((other.lower(), number), (other, number))
+    return list(pairs.values())
+
+
 def _branch_slug(branch):
     match = re.fullmatch(r"kandu/\d+-(.+)", branch)
     return match.group(1) if match else None

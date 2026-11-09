@@ -2,7 +2,7 @@ import json
 import unittest
 
 from kandu.config import Board
-from kandu.github import GitHub, GitHubError, blockers_in, branch_for, is_companion, slugify, transient
+from kandu.github import GitHub, GitHubError, blockers_in, task_blockers, branch_for, is_companion, slugify, transient
 
 BOARD = Board(owner="acme", number=1)
 ISSUE = {"number": 3, "title": "t", "url": "u", "body": "b", "repository": {"nameWithOwner": "o/r"},
@@ -54,6 +54,21 @@ class BlockedByTest(unittest.TestCase):
     def test_the_templates_comment_does_not_count(self):
         self.assertEqual(blockers_in("## Blocked by\n<!-- like #5 -->\nnone\n", "o/r"), [])
 
+
+class TaskBlockersTest(unittest.TestCase):
+    def test_the_section_and_the_relationships_join(self):
+        body = "## Blocked by\n#2\n"
+        self.assertEqual(task_blockers(body, "o/r", [{"repo": "acme/api", "number": 7}]), [("o/r", 2), ("acme/api", 7)])
+
+    def test_a_blocker_named_in_both_counts_once(self):
+        body = "## Blocked by\n#2\nAcme/API#7\n"
+        relationships = [{"repo": "o/r", "number": 9}, {"repo": "o/r", "number": 2}, {"repo": "acme/api", "number": 7}]
+        self.assertEqual(task_blockers(body, "o/r", relationships), [("o/r", 2), ("Acme/API", 7), ("o/r", 9)])
+
+    def test_no_blockers_of_either_kind(self):
+        self.assertEqual(task_blockers("## Blocked by\nnone\n", "o/r", []), [])
+        self.assertEqual(task_blockers(None, "o/r", None), [])
+        self.assertEqual(task_blockers("## Blocked by\n#2\n", "o/r"), [("o/r", 2)])
 
 class CompanionTest(unittest.TestCase):
     def pr(self, branch, body="", number=1):

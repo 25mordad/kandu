@@ -22,7 +22,7 @@ from pathlib import Path
 
 from . import agents, debt, merge, queen, questions, review, show, sizing, split, tasks
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
-from .github import AGENT_LABEL, TOKENS_LABEL, GitHubError, blockers_in, branch_for, transient
+from .github import AGENT_LABEL, TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
 from .mirror import open_github
 from .notify import notifier_for
 from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
@@ -141,13 +141,16 @@ def _can_start(github, item):
     return github.issue_is_open(item.repo, item.number)
 
 
-def open_blockers(github, repo, body, last_of=lambda key: None):
+def open_blockers(github, repo, issue, last_of=lambda key: None):
     """The blockers of a task still open: its PR may not merge before theirs.
+
+    `issue` is its `issue_text`: the references under `## Blocked by` and GitHub's "blocked by" relationships the
+    copy keeps for it both count, each once (`task_blockers`).
 
     `last_of(key)` names a split task's last slice, or None. A split blocker stands for its last slice: slices merge
     in order, so the last one closing means all are done, while the split task stays open until then.
     """
-    keys = dict.fromkeys(last_of(key) or key for key in (f"{r}#{n}" for r, n in blockers_in(body, repo)))
+    keys = dict.fromkeys(last_of(key) or key for key in (f"{r}#{n}" for r, n in task_blockers(issue["body"], repo, issue.get("blocked_by"))))
     pairs = [key.rpartition("#") for key in keys]
     return [f"{r}#{n}" for r, _, n in pairs if github.issue_is_open(r, int(n))]
 
@@ -342,7 +345,7 @@ class Supervisor:
         base = self.github.default_branch(task.repo)
         cwd = self.runner.prepare_worktree(task.project, task.repo, task.branch, base)
         note = queen.note_for(queen.all_events(self.store), task.key)
-        blockers = open_blockers(self.github, task.repo, self.github.issue_text(task.repo, task.number)["body"])
+        blockers = open_blockers(self.github, task.repo, self.github.issue_text(task.repo, task.number))
         prompt = agents.worker_prompt(task.project, task.repo, task.number, task.branch, run_id,
                                       findings=findings, pr=pr, local_dir=self.local_dir,
                                       queen_note=note, tokens=task.tokens, open_blockers=blockers, order=order,
@@ -633,8 +636,8 @@ class Supervisor:
         return [] if code == 0 else ["the tests fail on this head"]
 
     def _open_blockers(self, task):
-        body = self.github.issue_text(task.repo, task.number)["body"]
-        return open_blockers(self.github, task.repo, body, lambda key: tasks.last_slice(self.store, key))
+        issue = self.github.issue_text(task.repo, task.number)
+        return open_blockers(self.github, task.repo, issue, lambda key: tasks.last_slice(self.store, key))
 
     def _held_as_before(self, task, pr):
         """True when the last merge check waited only on open blockers, and its head and those blockers are unchanged.
