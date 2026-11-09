@@ -71,6 +71,17 @@ class IntakeTest(unittest.TestCase):
         self.assertEqual(self.store.requests()[0]["map"],
                          {"decided": ["By email"], "asked": [], "later": [], "out": ["Password reset"]})
 
+    def test_a_map_can_name_its_project_and_a_later_map_keeps_it(self):
+        request_id = intake.add(self.store, "Fix the login")
+        intake.save_map(self.store, request_id, self.MAP, project="website")
+        intake.save_map(self.store, request_id, "✅ Welcome mail: yes")
+        self.assertEqual(self.store.requests()[0]["project"], "website")
+
+    def test_the_command_saves_the_maps_project(self):
+        request_id = intake.add(self.store, "Fix the login")
+        self.assertEqual(self.run_main(["map", request_id, "--project", "website"], "✅ By email\n"), (0, ""))
+        self.assertEqual(self.store.requests()[0]["project"], "website")
+
     def test_a_map_needs_an_open_request(self):
         with self.assertRaisesRegex(intake.IntakeError, "no open request abc123"):
             intake.save_map(self.store, "abc123", self.MAP)

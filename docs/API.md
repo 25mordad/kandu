@@ -10,13 +10,15 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `timer_on`, `language`, `limits`, `queen`, `flowers`, `bazras`, `backup` and `drop_blockers` |
+| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `timer_on`, `language`, `limits`, `queen`, `flowers`, `bazras`, `backup`, `drop_blockers` and `show_requests` |
 | GET | `/api/v1/queue` | each project's board columns, with `Done` holding only what closed in the last `done_days` days, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes or moves |
 | GET | `/api/v1/boards` | every board in the config, with its projects, columns, fields and cards, read from Kandu's copy of GitHub, so it costs GitHub nothing; `?fresh=1` reads each board into the copy first, at most once a minute |
 | GET | `/api/v1/days` | dates that have events |
 | GET | `/api/v1/days/{day}` | one day's tokens by task, model and role, and its finished tasks |
 | GET | `/api/v1/bazras` | every project in priority order: whether Bazras looks at it (`enabled`), its hour (`at`), `paused_in_config`, and its newest reports, newest first, each with `date`, `all_well`, `findings` (a count) and `text`; `default_at` is `bazras.at` |
 | GET | `/api/v1/didban` | the last Didban sessions: when, title, tokens and what each did; counted in no limit |
+| GET | `/api/v1/requests` | the open requests by project, in priority order, then those whose project is not named yet (`project` null): each with `id`, `text` and its decision `map` (`decided`, `asked`, `later`, `out`), or null when it has none; read from local state only, so it costs GitHub nothing. While `show_requests` is off: `{"show_requests": false, "projects": []}` |
+| POST | `/api/v1/requests` | `enabled=true` or `false`: show the open requests on the dashboard, or hide them, in `kandu.yaml`; off is the default |
 | GET | `/api/v1/flights` | the sessions opened from this page, each with its status (`opening`, `open`, `failed`) and link, and the last free flights that ended, with tokens; counted in no limit |
 | POST | `/api/v1/flights/didban` | open Didban on the brain, or keep the one already open; `?language=en` or `fa` is the language it speaks; `&project=NAME` opens it on that project, for Bazras's reports |
 | POST | `/api/v1/flights/zanbourdar` | open Zanbourdar on the brain: a session with full access tied to no task, or keep the one already open; `?language=` as above |
@@ -119,6 +121,8 @@ The `pr` object also has `approved`, true once the user said yes to this head, `
 `queen` in `GET /state` is her newest look, or null: its `brief`, `questions` (her `ask_user` questions from that look), `tokens`, `today`, `limit`, and `drops`, her asks to drop a blocker that wait for the user's yes, each with `task`, `project`, `blocker`, `reason` and `ts`. An ask leaves `drops` once the user says yes, once the issue no longer names its blocker, or once its task ends. `drop_blockers` is true when she may ask.
 
 `POST /api/v1/drop-blockers/acme-org/website/12?blocker=acme-org/website%235` answers `{"task": "acme-org/website#12", "dropped": "acme-org/website#5", "cycle_started": true}`. Only that blocker leaves the issue; its other blockers stay, and the yes is saved as `blocker_dropped`. The next cycle checks the task's merge again. The answer is `409` if the queen has not asked to drop that blocker from that task, or if the issue no longer names it, and nothing changes. `POST /api/v1/drop-blockers?enabled=true` answers `{"drop_blockers": true}`.
+
+`GET /api/v1/requests` answers `{"show_requests": true, "projects": [{"project": "website", "requests": [{"id": "3f9a2c", "text": "Fix the login", "map": {"decided": ["By email"], "asked": ["Welcome mail?"], "later": [], "out": ["Password reset"]}}]}, {"project": null, "requests": [{"id": "b71e04", "text": "Add dark mode", "map": null}]}]}`. The page shows each map read-only; a map changes only in Didban. `POST /api/v1/requests?enabled=true` answers `{"show_requests": true}`.
 
 `POST /api/v1/stop` answers `{"stop_requested": true}`, `POST /api/v1/resume` answers `{"stop_requested": false}`, and `POST /api/v1/workers/{run_id}/stop` answers `{"stopping": "<run_id>"}`.
 

@@ -106,3 +106,4 @@ language: en                   # optional; what Kandu says to you: messages, bri
 dashboard:
   bind: 127.0.0.1             # stay on this machine; reach it from another through an SSH tunnel
   port: 8790                 # keep this port free for Kandu on the brain's machine
+  show_requests: false        # true = list open requests with their decision maps; off until you turn it on, here or in the dashboard

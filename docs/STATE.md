@@ -71,6 +71,7 @@ state/
 | `project_resumed` | `project` |
 | `limits_changed` | `session`, `week` |
 | `drop_blockers_changed` | `enabled`: the user let the queen ask to drop a blocker, or stopped her, from the dashboard |
+| `requests_shown_changed` | `enabled`: the user showed the open requests on the dashboard, or hid them |
 | `parallel_changed` | `total` (or null), `projects`: name → number, for those changed |
 | `kandu_restarted` | none |
 | `wake_requested` | none |

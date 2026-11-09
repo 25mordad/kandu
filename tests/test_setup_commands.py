@@ -495,7 +495,7 @@ class CommandsTest(unittest.TestCase):
     def test_setup_and_add_ask_every_question_of_the_design(self):
         setup = (COMMANDS / "kandu-setup.md").read_text(encoding="utf-8")
         add = (COMMANDS / "kandu-add.md").read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"^   \d+\. ", setup, re.MULTILINE)), 12)
+        self.assertEqual(len(re.findall(r"^   \d+\. ", setup, re.MULTILINE)), 13)
         self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 17)
 
     def test_add_never_creates_a_board_unasked(self):

@@ -58,6 +58,7 @@ class PromptsTest(unittest.TestCase):
         text = (PROMPTS / "didban.md").read_text(encoding="utf-8")
         self.assertIn("after each round of refining, save the request's decision map with `python -m kandu.intake map ID`", text)
         self.assertIn("continue refining from it", text)
+        self.assertIn("with `--project PROJECT` once you know which project it belongs to", text)
 
     def test_kandu_task_and_didban_define_a_task_from_one_file(self):
         command = (ROOT / ".claude" / "commands" / "kandu-task.md").read_text(encoding="utf-8")

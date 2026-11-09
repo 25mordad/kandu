@@ -148,6 +148,7 @@ class Permissions:
 class Dashboard:
     bind: str
     port: int
+    show_requests: bool = False    # list open requests with their decision maps; off until the user turns it on
 
 
 @dataclass
@@ -615,6 +616,16 @@ def set_drop_blockers(enabled, local_dir=DEFAULT_LOCAL_DIR):
                           {"queen_drop_blockers": "true" if enabled else "false"})
     if ((yaml.safe_load(text) or {}).get("supervisor") or {}).get("queen_drop_blockers") is not enabled:
         raise ConfigError(["supervisor.queen_drop_blockers: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
+def set_show_requests(enabled, local_dir=DEFAULT_LOCAL_DIR):
+    """Shows open requests on the dashboard, or hides them, in `kandu.yaml`'s `dashboard` block, line by line."""
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_top_block(path.read_text(encoding="utf-8"), "dashboard",
+                          {"show_requests": "true" if enabled else "false"})
+    if ((yaml.safe_load(text) or {}).get("dashboard") or {}).get("show_requests") is not enabled:
+        raise ConfigError(["dashboard.show_requests: could not be written; change it in kandu.yaml by hand"])
     _replace_file(path, text)
 
 

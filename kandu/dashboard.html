@@ -117,6 +117,7 @@ tr:last-child td { border-bottom:0; }
 .chip { padding:2px 10px; border-radius:8px; background:var(--sunken); font-size:13px; }
 .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
 .empty { padding:26px 16px; text-align:center; color:var(--muted); }
+.map { list-style:none; margin:6px 0 10px; padding:0; } .map li { padding:2px 0; }
 
 .feed td { font-size:13px; padding-block:7px; }
 .feed-scroll { max-height:68vh; overflow:auto; }
@@ -252,6 +253,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     <div class="side">
       <div class="card pad"><h2 class="card-title" data-t="active_workers"></h2><div id="workers"></div></div>
       <div class="card pad" id="queenbox" hidden><h2 class="card-title" data-t="queen"></h2><div id="queen"></div></div>
+      <div class="card pad" id="requestsbox" hidden><h2 class="card-title" data-t="open_requests"></h2><div id="requests"></div></div>
     </div>
   </section>
   <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
@@ -323,6 +325,15 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "drop_off": "Off",
   "drop_turn_on": "turn on",
   "drop_turn_off": "turn off",
+  "open_requests": "Open requests",
+  "requests_shown": "Shown",
+  "no_requests": "No open request",
+  "no_project_yet": "No project yet",
+  "no_map": "No decision map yet",
+  "map_decided": "decided",
+  "map_asked": "asked now",
+  "map_later": "waits for another answer",
+  "map_out": "out of scope",
   "queen_cost": "This look / today / limit",
   "queen_deciding": "Deciding",
   "sent_back": "Back from review",
@@ -500,6 +511,15 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "drop_off": "خاموش",
   "drop_turn_on": "روشن کن",
   "drop_turn_off": "خاموش کن",
+  "open_requests": "درخواست‌های باز",
+  "requests_shown": "نشان داده می‌شود",
+  "no_requests": "درخواست بازی نیست",
+  "no_project_yet": "هنوز بی‌پروژه",
+  "no_map": "هنوز نقشه‌ی تصمیم ندارد",
+  "map_decided": "تصمیم گرفته شد",
+  "map_asked": "الان پرسیده شد",
+  "map_later": "منتظر پاسخی دیگر",
+  "map_out": "بیرون از دامنه",
   "queen_cost": "این بار / امروز / سقف",
   "queen_deciding": "در حال تصمیم",
   "sent_back": "برگشت از بازبینی",
@@ -738,6 +758,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "blocker_drop_asked": "ملکه پرسید که مانع برداشته شود",
   "blocker_dropped": "مانع با تأیید تو برداشته شد",
   "drop_blockers_changed": "پرسیدن ملکه درباره‌ی مانع‌ها روشن یا خاموش شد",
+  "requests_shown_changed": "نمایش درخواست‌های باز روشن یا خاموش شد",
   "queen_step_done": "قدم ملکه انجام شد",
   "queen_opened": "ملکه تسک تازه باز کرد",
   "loop_stopped": "ملکه دور خودش چرخید و تسک متوقف شد",
@@ -1329,7 +1350,32 @@ function renderStats(s) {
   const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${!s.timer_on ? t("timer_off") : s.next_wake ? esc(when(s.next_wake)) : "—"}</div></div>`;
   const parked = lastQueue && Object.values(lastQueue.projects).reduce((sum, columns) => sum + columns["Technical debt"].length, 0);
   const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
-  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + debt + wake + backupCard(s.backup) + dropCard(s.drop_blockers);
+  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + debt + wake + backupCard(s.backup) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
+}
+
+// Whether open requests show with their decision maps: off until the user turns it on here.
+function requestsCard(on) {
+  if (on === undefined) return "";
+  return `<div class="card stat"><div class="stat-label">${t("open_requests")}</div><div class="stat-value stat-small">${t(on ? "requests_shown" : "drop_off")}</div>
+    <small><button class="textlink limit-edit" data-requests="${on ? "false" : "true"}">${t(on ? "drop_turn_off" : "drop_turn_on")}</button></small></div>`;
+}
+
+const MAP_MARKS = [["decided", "✅"], ["asked", "❓"], ["later", "⏳"], ["out", "✂️"]];
+const openRequests = new Set();  // a re-render keeps the maps the user opened
+
+async function refreshRequests() {
+  const body = await get("/requests");
+  $("requestsbox").hidden = !body.show_requests;
+  if (body.show_requests) renderRequests(body.projects);
+}
+
+// Read-only: a map is changed in Didban, never here.
+function renderRequests(projects) {
+  const map = m => !m ? `<div class="empty">${t("no_map")}</div>`
+    : `<ul class="map">${MAP_MARKS.flatMap(([name, mark]) => m[name].map(entry => `<li><span title="${esc(t("map_" + name))}">${mark}</span> <span dir="auto">${esc(entry)}</span></li>`)).join("")}</ul>`;
+  const request = r => `<details data-request="${esc(r.id)}"${openRequests.has(r.id) ? " open" : ""}><summary dir="auto">${esc(r.text)}</summary>${map(r.map)}</details>`;
+  $("requests").innerHTML = projects.length ? projects.map(p => `<h3>${p.project === null ? t("no_project_yet") : bdi(p.project)}</h3>${p.requests.map(request).join("")}`).join("")
+    : `<div class="empty">${t("no_requests")}</div>`;
 }
 
 // Whether the queen may ask to drop a blocker: off until the user turns it on here.
@@ -1412,6 +1458,7 @@ async function refreshState() {
   renderQueen(s);
   renderScene(s, lastQueue);
   renderProjects();
+  refreshRequests().catch(() => {});
   return s;
 }
 
@@ -1732,6 +1779,7 @@ document.addEventListener("click", e => {
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }
   if (hit("backup")) { changeBackup(hit("backup")); return; }
+  if (hit("requests")) { act(hit("requests"), `/requests?enabled=${hit("requests").dataset.requests}`).then(() => refreshState()).catch(() => {}); return; }
   if (hit("drops")) { act(hit("drops"), `/drop-blockers?enabled=${hit("drops").dataset.drops}`).then(() => refreshState()).catch(() => {}); return; }
   if (hit("drop")) { dropBlocker(hit("drop")); return; }
   if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); sendingBack = false; showReviews(shownTask); return; }
@@ -1753,6 +1801,8 @@ document.addEventListener("click", e => {
   if (e.target === $("modal")) $("modal").close();
 });
 document.addEventListener("toggle", e => {
+  const asked = e.target.dataset?.request;
+  if (asked !== undefined) { if (e.target.open) openRequests.add(asked); else openRequests.delete(asked); return; }
   const name = e.target.dataset?.project;
   if (name === undefined || $("search").value.trim()) return;
   if (e.target.open) closed.delete(name); else closed.add(name);

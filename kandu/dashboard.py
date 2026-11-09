@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import backup, bazras, flights, ghmeter, queen, questions, review, sessions, split, tasks, timer
 from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup,
-                     set_drop_blockers, set_inspect, set_limits, set_parallel)
+                     set_drop_blockers, set_inspect, set_limits, set_parallel, set_show_requests)
 from .github import AGENT_LABEL, GitHubError, task_blockers
 from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
@@ -209,6 +209,7 @@ class Api:
                        "last": {p.name: bazras.last_look(p.name, self.local_dir) for p in bazras.inspected(self.config)}},
             "backup": self._backup(),
             "drop_blockers": self.config.settings.supervisor.queen_drop_blockers,
+            "show_requests": self.config.settings.dashboard.show_requests,
         }
 
     def _backup(self):
@@ -411,6 +412,33 @@ class Api:
 
     def didban(self, query):
         return {"sessions": sessions.recent(self.store)}
+
+    def requests(self, query):
+        """Open requests by project, each with its decision map or null. Read from local state only: no GitHub call."""
+        shown = self.config.settings.dashboard.show_requests
+        if not shown:
+            return {"show_requests": False, "projects": []}
+        order = [p.name for p in sorted(self.config.projects, key=lambda p: p.priority)]
+        groups = {}
+        for request in self.store.requests():
+            groups.setdefault(request.get("project"), []).append(
+                {"id": request["id"], "text": request["text"], "map": request.get("map")})
+        names = [n for n in order if n in groups] + sorted(n for n in groups if n is not None and n not in order)
+        names += [None] if None in groups else []
+        return {"show_requests": True, "projects": [{"project": n, "requests": groups[n]} for n in names]}
+
+    def change_show_requests(self, query):
+        """Shows open requests on the dashboard, or hides them, through the config."""
+        enabled = query.get("enabled", [""])[0]
+        if enabled not in ("true", "false"):
+            raise ApiError(400, "give enabled=true or enabled=false")
+        try:
+            set_show_requests(enabled == "true", self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        self.config.settings.dashboard.show_requests = enabled == "true"
+        self.store.record("requests_shown_changed", enabled=enabled == "true")
+        return {"show_requests": enabled == "true"}
 
     def list_flights(self, query):
         return self.flights.list()
@@ -765,6 +793,8 @@ ROUTES = [
     ("GET", "/days", Api.days),
     ("GET", "/days/{day}", Api.day),
     ("GET", "/didban", Api.didban),
+    ("GET", "/requests", Api.requests),
+    ("POST", "/requests", Api.change_show_requests),
     ("GET", "/bazras", Api.bazras_reports),
     ("GET", "/flights", Api.list_flights),
     ("POST", "/flights/didban", Api.open_didban),

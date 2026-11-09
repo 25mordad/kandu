@@ -1213,3 +1213,58 @@ class DropAskTest(Base):
         self.assertIn("# her own limit", (self.root / "local" / "kandu.yaml").read_text(encoding="utf-8"))
         self.assertEqual(dispatch(self.api, "POST", "/api/v1/drop-blockers?enabled=maybe", TOKEN)[0], 400)
         self.assertEqual(self.store.last_event("drop_blockers_changed")["enabled"], True)
+
+
+class RequestsTest(Base):
+    """Open requests and their decision maps, read from local state only (DESIGN §13)."""
+
+    def turn_on(self):
+        return dispatch(self.api, "POST", "/api/v1/requests?enabled=true", TOKEN)
+
+    def test_a_map_saved_through_intake_shows_on_the_dashboard(self):
+        from kandu import intake
+        mapped = intake.add(self.store, "Fix the login")
+        intake.save_map(self.store, mapped, "✅ By email\n❓ Welcome mail?\n⏳ Which mail service\n✂️ Password reset",
+                        project="website")
+        bare = intake.add(self.store, "Add dark mode")
+        intake.save_map(self.store, bare, "❓ Which pages?", project="internal-tool")
+        unplaced = intake.add(self.store, "Something new")
+        self.turn_on()
+        status, body = self.get("/api/v1/requests")
+        self.assertEqual(status, 200)
+        self.assertTrue(body["show_requests"])
+        self.assertEqual(body["projects"], [
+            {"project": "website", "requests": [{"id": mapped, "text": "Fix the login", "map": {
+                "decided": ["By email"], "asked": ["Welcome mail?"], "later": ["Which mail service"],
+                "out": ["Password reset"]}}]},
+            {"project": "internal-tool", "requests": [{"id": bare, "text": "Add dark mode", "map": {
+                "decided": [], "asked": ["Which pages?"], "later": [], "out": []}}]},
+            {"project": None, "requests": [{"id": unplaced, "text": "Something new", "map": None}]},
+        ])
+        self.github.assert_not_called()
+        self.assertEqual(self.github.method_calls, [])
+
+    def test_it_ships_off_and_is_turned_on_from_the_dashboard(self):
+        from kandu import intake
+        intake.add(self.store, "Fix the login")
+        self.assertFalse(self.get("/api/v1/state")[1]["show_requests"])
+        self.assertEqual(self.get("/api/v1/requests")[1], {"show_requests": False, "projects": []})
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/requests?enabled=true")[0], 403)
+        self.assertEqual(self.turn_on(), (200, {"show_requests": True}))
+        self.assertTrue(load_config(self.root / "local").settings.dashboard.show_requests)
+        self.assertTrue(self.get("/api/v1/state")[1]["show_requests"])
+        self.assertEqual(len(self.get("/api/v1/requests")[1]["projects"]), 1)
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/requests?enabled=maybe", TOKEN)[0], 400)
+        self.assertEqual(self.store.last_event("requests_shown_changed")["enabled"], True)
+
+    def test_the_page_shows_each_map_read_only_and_says_when_there_is_none(self):
+        page = dashboard.PAGE.read_text(encoding="utf-8")
+        body = page.split("function renderRequests")[1].split("\n}\n")[0]
+        marks = page.split("const MAP_MARKS")[1].split("\n")[0]
+        for mark in ("✅", "❓", "⏳", "✂️"):
+            self.assertIn(mark, marks)
+        self.assertIn("MAP_MARKS", body)
+        self.assertIn('t("no_map")', body)
+        self.assertNotIn("<button", body)
+        self.assertNotIn("<input", body)
+        self.assertNotIn("<textarea", body)

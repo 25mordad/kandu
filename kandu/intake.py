@@ -59,10 +59,11 @@ def parse_map(text):
     return decision_map
 
 
-def save_map(store, request_id, text):
-    """Replaces the request's earlier map."""
+def save_map(store, request_id, text, project=None):
+    """Replaces the request's earlier map. A project, once named, stays with the request, so the dashboard can group it."""
     request = _open(store, request_id)
-    store.write_request({**request, "map": parse_map(text)})
+    decision_map = parse_map(text)
+    store.write_request({**request, **({"project": project} if project else {}), "map": decision_map})
 
 
 def close(store, request_id):
@@ -84,6 +85,7 @@ def main():
     parser = argparse.ArgumentParser(description="Keep what the user asked for until it is tasks.")
     parser.add_argument("command", choices=("list", "add", "map", "close"))
     parser.add_argument("id", nargs="?", help="the request's id, from `add` or `list`")
+    parser.add_argument("--project", help="with `map`: the project the request belongs to")
     args = parser.parse_args()
     store = StateStore()
     try:
@@ -95,7 +97,7 @@ def main():
         elif args.id is None:
             parser.error(f"{args.command} needs a request id")
         elif args.command == "map":
-            save_map(store, args.id, sys.stdin.read())
+            save_map(store, args.id, sys.stdin.read(), args.project)
         else:
             close(store, args.id)
     except IntakeError as e:

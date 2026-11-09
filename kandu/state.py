@@ -57,6 +57,7 @@ EVENT_FIELDS = {
     "limits_changed": ("session", "week"),
     "parallel_changed": ("total", "projects"),
     "drop_blockers_changed": ("enabled",),
+    "requests_shown_changed": ("enabled",),
     "kandu_restarted": (),
     "wake_requested": (),
     "queen_decided": TASK_FIELDS + ("action", "note"),
