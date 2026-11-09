@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DEADLINE_FIELD
-from .github import BoardItem, GitHub, GitHubError, is_companion, transient
+from .github import AGENT_LABEL, BY_HAND_LABEL, TOKENS_LABEL, BoardItem, GitHub, GitHubError, is_companion, transient
 
 MIRROR_DIR = Path(__file__).resolve().parent.parent / "state" / "mirror"
 FRESH_SECONDS = 60            # a copy younger than this is not read again: a burst of wakes costs GitHub one read
@@ -323,10 +323,15 @@ class Mirror:
 
     # Writes that go at once.
 
-    def create_issue(self, repo, title, body, by_hand=False, tokens=False):
-        url = self.remote.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens)
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False):
+        url = self.remote.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens, spec=spec)
         number = int(url.rstrip("/").split("/")[-1])
-        labels = [] if by_hand else ["agent", *(["uses-tokens"] if tokens else [])]
+        if spec:
+            labels = []
+        elif by_hand:
+            labels = [BY_HAND_LABEL]
+        else:
+            labels = [AGENT_LABEL, *([TOKENS_LABEL] if tokens else [])]
         self._put(repo, "issues", number, {"number": number, "title": title, "body": body, "url": url,
                                            "state": "OPEN", "labels": labels, "updatedAt": _now_iso(self.clock)})
         return url
@@ -368,7 +373,7 @@ class Mirror:
         self._queue({"kind": kind, "repo": repo, "number": number, **fields})
         if self._load(self._path("repos", repo)) is not None:
             self._apply_repo(repo)
-        if kind in ("close", "edit", "unblock"):
+        if kind in ("close", "edit", "unblock", "label"):
             for path in (self.root / "boards").glob("*.json"):
                 data = self._load(path)
                 if data and any(i["repo"] == repo and i["number"] == number for i in data["items"]):
@@ -408,6 +413,13 @@ class Mirror:
         """The relationship leaves the copy at once and goes to GitHub with the queue, as an edit does."""
         self._queue_issue("unblock", repo, number, blocker={"repo": blocker_repo, "number": blocker_number})
 
+    def add_label(self, repo, number, label, description):
+        """Labels an issue. One the copy shows with the label already queues nothing."""
+        issue = self._issue(repo, number) or {}
+        if label in issue.get("labels", []):
+            return
+        self._queue_issue("label", repo, number, label=label, description=description)
+
     def mark_pr(self, repo, pr):
         if any(label["name"] == "kandu" for label in pr["labels"]):
             return
@@ -440,6 +452,11 @@ class Mirror:
                             item["closed_at"] = item["closed_at"] or entry["queued_at"]
                         else:
                             item["title"], item["body"] = entry["title"], entry["body"]
+            elif entry["kind"] == "label":
+                for item in data["items"]:
+                    if (item["repo"], item["number"]) == (entry["repo"], entry["number"]) \
+                            and entry["label"] not in item["labels"]:
+                        item["labels"].append(entry["label"])
             elif entry["kind"] == "unblock":
                 for item in data["items"]:
                     if (item["repo"], item["number"]) == (entry["repo"], entry["number"]):
@@ -468,6 +485,9 @@ class Mirror:
             elif entry["kind"] == "label" and pr is not None:
                 if not any(label["name"] == entry["label"] for label in pr["labels"]):
                     pr["labels"].append({"name": entry["label"]})
+            elif entry["kind"] == "label" and issue is not None:
+                if entry["label"] not in issue["labels"]:
+                    issue["labels"].append(entry["label"])
             elif entry["kind"] == "comment":
                 target = pr if entry.get("pr") else issue
                 comments = (target or {}).get("comments")

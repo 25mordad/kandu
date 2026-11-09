@@ -7,7 +7,9 @@ from types import SimpleNamespace
 from kandu.config import Board
 from kandu.github import BoardItem, GitHubError
 from kandu.mirror import FRESH_SECONDS, MISSING_CARD_TRIES, Mirror
+from kandu.state import StateStore
 from kandu.sync import sync
+from kandu.tasks import label_by_hand
 
 BOARD = Board(owner="acme", number=1, columns={"Ready": "Todo"})
 REPO = "acme/app"
@@ -87,6 +89,13 @@ class FakeRemote:
 
     def add_label(self, repo, number, label, description):
         self._call("label", number, label)
+        if number in self.prs:
+            self.prs[number]["labels"].append({"name": label})
+        if number in self.issues:
+            self.issues[number]["labels"].append(label)
+        for item in self.items:
+            if item.number == number:
+                item.labels.append(label)
 
     def remove_blocked_by(self, repo, number, blocker_repo, blocker_number):
         self._call("unblock", number, blocker_repo, blocker_number)
@@ -96,8 +105,8 @@ class FakeRemote:
             if item.number == number:
                 item.blocked_by = [b for b in item.blocked_by if not gone(b)]
 
-    def create_issue(self, repo, title, body, by_hand=False, tokens=False):
-        self._call("create_issue", title)
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False):
+        self._call("create_issue", title, by_hand, spec)
         return f"https://github.com/{repo}/issues/9"
 
     def merge_pr(self, repo, number, head_sha):
@@ -360,6 +369,63 @@ class MirrorTest(unittest.TestCase):
         self.mirror.refresh_board(BOARD)
         self.assertEqual((self.mirror.outbox(), self.dropped()), ([], []))
 
+    def test_a_task_made_by_hand_shows_its_by_hand_label_in_the_copy(self):
+        url = self.mirror.create_issue(REPO, "By hand", "body", by_hand=True)
+        self.mirror.add_to_board(BOARD, url)
+        item = next(i for i in self.open().board_items(BOARD) if i.number == 9)
+        self.assertEqual(item.labels, ["by-hand"])
+        self.assertTrue(item.by_hand)
+
+    def test_a_spec_shows_no_label_in_the_copy(self):
+        self.mirror.add_to_board(BOARD, self.mirror.create_issue(REPO, "Spec", "body", by_hand=True, spec=True))
+        self.assertEqual(next(i for i in self.open().board_items(BOARD) if i.number == 9).labels, [])
+
+    def test_a_label_shows_at_once_and_goes_to_github_once(self):
+        self.remote.items.append(BoardItem(REPO, 4, "Task 4", URL[:-1] + "4", "Backlog", [], "b", item_id="card-4"))
+        self.remote.issues[4] = dict(self.remote.issues[3], number=4, labels=[])
+        self.mirror.board_items(BOARD)
+        self.mirror.add_label(REPO, 4, "by-hand", "d")
+        self.mirror.add_label(REPO, 4, "by-hand", "d")
+        self.assertEqual(self.mirror.item(REPO, 4)["labels"], ["by-hand"])
+        self.assertEqual(self.open().board_items(BOARD)[1].labels, ["by-hand"])
+        self.assertEqual(len(self.mirror.outbox()), 1)
+        self.mirror.send()
+        self.assertEqual([c for c in self.remote.calls if c[0] == "label"], [("label", 4, "by-hand")])
+
+    def test_the_backfill_labels_each_open_by_hand_task_once(self):
+        def task(number, status="Backlog", labels=(), closed_at=""):
+            url = f"https://github.com/{REPO}/issues/{number}"
+            self.remote.items.append(BoardItem(REPO, number, f"Task {number}", url, status, list(labels), "b",
+                                               closed_at=closed_at, item_id=f"card-{number}"))
+            self.remote.issues[number] = dict(self.remote.issues[3], number=number, url=url, labels=list(labels))
+
+        task(4)                                   # by hand, open: gets the label
+        task(5, status="Done")                    # done: waits for nobody
+        task(6, closed_at="2026-11-01T00:00:00Z")  # closed
+        task(7)                                   # a spec
+        task(8, labels=["by-hand"])               # labelled already
+        task(10, status="Ready", labels=["agent", "uses-tokens"])  # Kandu's: never by hand
+        self.remote.items.append(BoardItem("acme/other", 4, "t", "https://github.com/acme/other/issues/4",
+                                           "Backlog", [], "b", item_id="card-o"))  # not a registered repo
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        store = StateStore(folder.name)
+        store.record("spec_created", task=f"{REPO}#7", project="app")
+        config = SimpleNamespace(projects=[SimpleNamespace(name="app", board=BOARD, repos=[REPO])])
+
+        self.assertEqual(label_by_hand(config, self.mirror, store), [f"{REPO}#4"])
+        self.mirror.send()
+        self.assertEqual([c for c in self.remote.calls if c[0] == "label"], [("label", 4, "by-hand")])
+        self.assertEqual(self.remote.issues[4]["labels"], ["by-hand"])
+
+        self.mirror.refresh(config)
+        calls = len(self.remote.calls)
+        self.assertEqual(label_by_hand(config, self.open(), store), [])
+        self.assertEqual(self.mirror.outbox(), [])
+        self.mirror.send()
+        self.assertEqual(len(self.remote.calls), calls)  # a second run asks GitHub for no change
+        self.assertNotIn("by-hand", self.remote.issues[3]["labels"] + self.remote.issues[10]["labels"])
+
     def test_marking_a_pr_twice_queues_it_once(self):
         self.remote.prs = {7: pr()}
         self.mirror.mark_pr(REPO, self.mirror.pr(REPO, 7))
@@ -518,6 +584,50 @@ class MirrorTest(unittest.TestCase):
         self.remote.items[0].status = "Done"
         self.assertIn("sent 1, waiting 0, dropped 0", sync(config, self.mirror))
         self.assertIn("edit_cards", self.names())
+
+    def test_the_first_sync_labels_each_open_by_hand_task_once_by_itself(self):
+        def task(number, status="Backlog", labels=(), closed_at=""):
+            url = f"https://github.com/{REPO}/issues/{number}"
+            self.remote.items.append(BoardItem(REPO, number, f"Task {number}", url, status, list(labels), "b",
+                                               closed_at=closed_at, item_id=f"card-{number}"))
+            self.remote.issues[number] = dict(self.remote.issues[3], number=number, url=url, labels=list(labels))
+
+        task(4)                                   # by hand, open: gets the label
+        task(5, status="Done")                    # done
+        task(6, closed_at="2026-11-01T00:00:00Z")  # closed
+        task(7)                                   # a spec
+        task(10, status="Ready", labels=["agent"])  # Kandu's: never by hand
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        store = StateStore(folder.name)
+        store.record("spec_created", task=f"{REPO}#7", project="app")
+        config = SimpleNamespace(projects=[SimpleNamespace(name="app", board=BOARD, repos=[REPO])])
+
+        sync(config, self.mirror, store)
+        self.assertEqual([c for c in self.remote.calls if c[0] == "label"], [("label", 4, "by-hand")])
+        for number in (5, 6, 7, 10):
+            self.assertNotIn("by-hand", self.remote.issues[number]["labels"])
+
+        self.remote.items.append(BoardItem(REPO, 11, "Task 11", URL[:-1] + "11", "Backlog", [], "b",
+                                           item_id="card-11"))  # by hand, but made after the backfill
+        self.remote.issues[11] = dict(self.remote.issues[3], number=11, labels=[])
+        calls = len(self.remote.calls)
+        self.assertIn("sent 0, waiting 0, dropped 0", sync(config, self.open(), store))
+        self.assertNotIn("label", [c[0] for c in self.remote.calls[calls:]])  # the second sync does not run it
+
+    def test_a_sync_that_could_not_read_a_board_leaves_the_backfill_for_the_next(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        store = StateStore(folder.name)
+        config = SimpleNamespace(projects=[SimpleNamespace(name="app", board=BOARD, repos=[REPO])])
+        self.remote.items.append(BoardItem(REPO, 4, "Task 4", URL[:-1] + "4", "Backlog", [], "b", item_id="card-4"))
+        self.remote.issues[4] = dict(self.remote.issues[3], number=4, labels=[])
+        self.remote.fail = lambda name, args: name.startswith("read") and (_ for _ in ()).throw(GitHubError("502"))
+        sync(config, self.mirror, store)
+        self.assertNotIn("label", self.names())
+        self.remote.fail = None
+        sync(config, self.mirror, store)
+        self.assertIn(("label", 4, "by-hand"), self.remote.calls)
 
 
 if __name__ == "__main__":

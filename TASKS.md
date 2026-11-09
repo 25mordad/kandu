@@ -82,6 +82,7 @@ Every task is designed and checked against harness, context and memory (§14).
 73. [x] The dashboard lists the open requests by project, and opening one shows its decision map with ✅ ❓ ⏳ ✂️, read-only, or says it has none. It reads only local state, so it costs GitHub nothing. `kandu.intake map` takes the request's project. Off until the user turns it on in the dashboard (§7, §13)
 74. [x] A by-hand task in an open column carries the orange «waits for you» mark beside its «By hand» badge, and the dashboard's count of what waits for the user includes it, each task once; one done or closed has neither (§3, §7)
 75. [x] The queen's look lists each project's open by-hand tasks by number and title, so her brief names them and never calls a Backlog that holds one empty; one she has not seen wakes her once, an unchanged set never again, and code still refuses any decision of hers on one (§3, §5)
+76. [x] A task created with `--by-hand` gets the `by-hand` label on GitHub and in the copy, and a spec gets no label; the first sync gives it by itself, once, to the open by-hand tasks that lack it, never to one with `agent`, and later syncs do not run it again; `kandu.tasks --label-by-hand` does the same by hand and a second run changes nothing (§3)
 
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)

@@ -12,7 +12,8 @@ from pathlib import Path
 
 from . import sizing
 from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR, DEADLINE_FIELD, ConfigError, load_config
-from .github import BLOCKED_BY, HTML_COMMENT, ISSUE_REFERENCE, GitHubError, blockers_in
+from .github import (BLOCKED_BY, BY_HAND_DESCRIPTION, BY_HAND_LABEL, HTML_COMMENT, ISSUE_REFERENCE, GitHubError,
+                     blockers_in)
 from .mirror import open_github
 from .privateterms import all_terms
 from .queen import all_events
@@ -238,7 +239,7 @@ def create_spec(config, github, project_name, repo, title, body, local_dir, stor
     project, repo = find_project(config, project_name, repo)
     check_spec_body(body)
     check_text(github, repo, title, body, local_dir)
-    url = github.create_issue(repo, title, body, by_hand=True)
+    url = github.create_issue(repo, title, body, by_hand=True, spec=True)
     store.record("spec_created", task=f"{repo}#{int(url.rstrip().rsplit('/', 1)[1])}", project=project.name)
     return url
 
@@ -303,6 +304,48 @@ def place_existing(config, github, project_name, url, priority, kind, size, dead
     return url
 
 
+def label_by_hand(config, github, store):
+    """Gives each open by-hand task of a registered board the `by-hand` label, once, and returns their keys.
+
+    A task with `agent`, a spec, a task done or closed, and one that has the label already are left alone,
+    so a second run changes nothing.
+    """
+    specs_made, labelled, boards = specs(store), [], {}
+    for project in config.projects:
+        if project.board is not None:
+            boards.setdefault((project.board.owner, project.board.number), (project.board, set()))[1].update(
+                project.repos)
+    for board, repos in boards.values():
+        for item in github.board_items(board):
+            key = f"{item.repo}#{item.number}"
+            if (item.repo in repos and item.waits_by_hand and key not in specs_made
+                    and BY_HAND_LABEL not in item.labels):
+                github.add_label(item.repo, item.number, BY_HAND_LABEL, BY_HAND_DESCRIPTION)
+                labelled.append(key)
+    return labelled
+
+
+def label_existing(args):
+    """`--label-by-hand`: the one-time backfill of the `by-hand` label."""
+    try:
+        config = load_config(args.local)
+        github = open_github(config, refresh=True)
+        labelled = label_by_hand(config, github, StateStore())
+    except ConfigError as e:
+        print(f"tasks: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
+        return 1
+    except GitHubError as e:
+        print(f"tasks: {e}", file=sys.stderr)
+        return 1
+    print(", ".join(labelled) or "every by-hand task has the label")
+    if labelled:
+        try:
+            github.send()
+        except GitHubError as e:
+            print(f"tasks: the labels wait in the queue, and kandu.sync sends them: {e}", file=sys.stderr)
+    return 0
+
+
 def send_now(github):
     """The card's fields wait in the queue; the user ordered this task, so they go to GitHub now, not at the next sync."""
     try:
@@ -320,7 +363,7 @@ def tell_rewrite(old, new):
 
 def main():
     parser = argparse.ArgumentParser(description="Put a task on a board.")
-    parser.add_argument("--project", required=True)
+    parser.add_argument("--project")
     parser.add_argument("--repo", help="needed when the project has several repos")
     parser.add_argument("--title")
     parser.add_argument("--body-file")
@@ -334,8 +377,14 @@ def main():
     parser.add_argument("--deadline", help="the date it must be done by, YYYY-MM-DD")
     parser.add_argument("--by-hand", action="store_true", help="a person does this: no `agent` label")
     parser.add_argument("--tokens", action="store_true", help="its worker gets the project's task_tokens")
+    parser.add_argument("--label-by-hand", action="store_true",
+                        help="give each open by-hand task the `by-hand` label; a second run changes nothing")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
     args = parser.parse_args()
+    if args.label_by_hand:
+        return label_existing(args)
+    if not args.project:
+        parser.error("the following arguments are required: --project")
     if not args.place and not (args.title and args.body_file):
         parser.error("a new task needs --title and --body-file")
     if args.spec_issue:

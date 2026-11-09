@@ -11,6 +11,8 @@ from .config import BOARD_FIELDS, DEADLINE_FIELD
 KANDU_LABEL = "kandu"
 AGENT_LABEL = "agent"
 TOKENS_LABEL = "uses-tokens"
+BY_HAND_LABEL = "by-hand"
+BY_HAND_DESCRIPTION = "A person does this; Kandu leaves it alone"
 FALLBACK_SLUG = "task"
 TIMEOUT_SECONDS = 60
 LOOK_AGAIN_SECONDS = 5  # after a lost answer to a create, before looking whether the issue was made
@@ -400,12 +402,20 @@ class GitHub:
                  "{ clientMutationId } }" % (json.dumps(status["id"]), ", ".join(kept + added)))
         self._run(["api", "graphql", "-f", f"query={query}"])
 
-    def create_issue(self, repo, title, body, by_hand=False, tokens=False):
-        """Creates an issue through the REST API and returns its URL. It is labelled `agent` unless a person will do it.
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False):
+        """Creates an issue through the REST API and returns its URL. It is labelled `agent` unless a person will
+        do it, and then `by-hand`.
 
         `tokens` also labels it `uses-tokens`, which gives its worker the project's `task_tokens`.
+        A `spec` is never work, by hand or not, so it gets no label.
         """
         labels = []
+        if spec:
+            by_hand, tokens = True, False
+        elif by_hand:
+            self._run(["label", "create", BY_HAND_LABEL, "--repo", repo, "--force",
+                       "--description", BY_HAND_DESCRIPTION])
+            labels.append(BY_HAND_LABEL)
         if not by_hand:
             self._run(["label", "create", AGENT_LABEL, "--repo", repo, "--force",
                        "--description", "Kandu may work on this"])

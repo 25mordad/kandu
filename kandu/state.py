@@ -121,6 +121,7 @@ class StateStore:
         self.flights_dir = self.root / "flights"
         self.flown_dir = self.root / "flown"
         self.bazras_file = self.root / "bazras.json"
+        self.by_hand_labelled_file = self.root / "by-hand-labelled"  # The one-time `by-hand` backfill ran.
         self.listeners = []  # Called with each event once it is in the log.
 
     def _make_dirs(self):
@@ -249,6 +250,13 @@ class StateStore:
     def request_stop(self):
         self._make_dirs()
         self.stop_file.touch(mode=0o600)
+
+    def by_hand_labelled(self):
+        return self.by_hand_labelled_file.exists()
+
+    def mark_by_hand_labelled(self):
+        self._make_dirs()
+        self.by_hand_labelled_file.touch(mode=0o600)
 
     def pause_project(self, name):
         self._make_dirs()

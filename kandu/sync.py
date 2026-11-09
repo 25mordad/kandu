@@ -9,17 +9,34 @@ import json
 import sys
 
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
+from .github import GitHubError
 from .mirror import MIRROR_DIR, open_github
+from .state import StateStore
+from .tasks import label_by_hand
 
 DROPPED_SHOWN = 10
 
 
-def sync(config, mirror):
-    """Reads first, then sends the queue, which wins over what changed on GitHub meanwhile. Returns a line to print."""
+def sync(config, mirror, store=None):
+    """Reads first, then sends the queue, which wins over what changed on GitHub meanwhile. Returns a line to print.
+
+    With a `store`, the first sync that reads everything also gives the open by-hand tasks made before the
+    `by-hand` label that label, once: a marker in the state keeps later syncs from doing it again.
+    """
     failed = mirror.refresh(config, max_age=0)
+    lines = []
+    if store is not None and not failed and not store.by_hand_labelled():
+        try:
+            labelled = label_by_hand(config, mirror, store)
+        except GitHubError as e:
+            lines.append(f"  by-hand labels wait for the next sync: {e}")
+        else:
+            store.mark_by_hand_labelled()
+            if labelled:
+                lines.append(f"  labelled by hand: {', '.join(labelled)}")
     sent, kept, dropped = mirror.send()
     line = f"sync: sent {sent}, waiting {kept}, dropped {dropped}"
-    return "\n".join([line, *[f"  could not read {f}" for f in failed]])
+    return "\n".join([line, *lines, *[f"  could not read {f}" for f in failed]])
 
 
 def show_queue(mirror):
@@ -56,7 +73,7 @@ def main():
     elif args.read:
         print("\n".join(mirror.refresh(config, max_age=0)) or "sync: read")
     else:
-        print(sync(config, mirror))
+        print(sync(config, mirror, StateStore()))
     return 0
 
 

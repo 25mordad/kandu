@@ -241,6 +241,24 @@ class GitHubTest(unittest.TestCase):
         self.assertEqual(gh.calls[1][:4], ["api", "repos/o/r/issues", "-X", "POST"])
         self.assertIn("labels[]=agent", gh.calls[1])
 
+    def test_a_task_done_by_hand_is_labelled_by_hand_and_not_agent(self):
+        gh = FakeGh(None, {"html_url": "https://github.com/o/r/issues/5"})
+        GitHub(gh).create_issue("o/r", "T", "B", by_hand=True)
+        self.assertEqual(gh.calls[0][:3], ["label", "create", "by-hand"])
+        self.assertIn("labels[]=by-hand", gh.calls[1])
+        self.assertNotIn("labels[]=agent", gh.calls[1])
+
+    def test_a_task_for_kandu_is_not_labelled_by_hand(self):
+        gh = FakeGh(None, {"html_url": "https://github.com/o/r/issues/5"})
+        GitHub(gh).create_issue("o/r", "T", "B")
+        self.assertFalse(any("labels[]=by-hand" in call or "by-hand" in call for call in gh.calls))
+
+    def test_a_spec_gets_no_label(self):
+        gh = FakeGh({"html_url": "https://github.com/o/r/issues/5"})
+        GitHub(gh).create_issue("o/r", "T", "B", by_hand=True, spec=True)
+        self.assertEqual(len(gh.calls), 1)
+        self.assertFalse(any(arg.startswith("labels[]=") for arg in gh.calls[0]))
+
     def test_a_lost_answer_finds_the_issue_it_made(self):
         def gh(args):
             gh.calls.append(args)

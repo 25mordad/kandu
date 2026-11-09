@@ -281,6 +281,81 @@ class TaskCommandTest(unittest.TestCase):
         self.github.add_to_board.assert_not_called()
 
 
+
+class LabelByHandCommandTest(unittest.TestCase):
+    """`python -m kandu.tasks --label-by-hand`, the one-time backfill of the `by-hand` label."""
+
+    def setUp(self):
+        from test_mirror import ACCOUNT, BOARD, REPO, FakeRemote
+        from kandu.github import BoardItem
+        from kandu.mirror import Mirror
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.remote = FakeRemote()
+        url = f"https://github.com/{REPO}/issues/4"
+        self.remote.items.append(BoardItem(REPO, 4, "Task 4", url, "Backlog", [], "b", item_id="card-4"))
+        self.remote.issues[4] = dict(self.remote.issues[3], number=4, url=url, labels=[])
+        self.mirror = Mirror(self.remote, Path(tmp.name) / "mirror", ACCOUNT, pause=lambda seconds: None)
+        self.repo = REPO
+        config = mock.Mock(projects=[mock.Mock(board=BOARD, repos=[REPO])])
+        self.patches = {"load_config": mock.patch.object(tasks, "load_config", return_value=config),
+                        "open_github": mock.patch.object(tasks, "open_github", return_value=self.mirror),
+                        "StateStore": mock.patch.object(tasks, "StateStore",
+                                                        return_value=StateStore(Path(tmp.name) / "state"))}
+        for patcher in self.patches.values():
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def run_command(self, *argv):
+        with mock.patch("sys.argv", ["tasks", *argv]), mock.patch("sys.stdout") as out, \
+                mock.patch("sys.stderr") as err:
+            code = tasks.main()
+        text = lambda stream: "".join(c.args[0] for c in stream.write.call_args_list)
+        return code, text(out), text(err)
+
+    def labels_sent(self):
+        return [c for c in self.remote.calls if c[0] == "label"]
+
+    def test_labels_each_by_hand_task_once_and_a_second_run_changes_nothing(self):
+        code, out, _ = self.run_command("--label-by-hand")
+        self.assertEqual(code, 0)
+        self.assertIn(f"{self.repo}#4", out)
+        self.assertEqual(self.labels_sent(), [("label", 4, "by-hand")])
+        self.assertEqual(self.mirror.outbox(), [])
+        code, out, _ = self.run_command("--label-by-hand")
+        self.assertEqual(code, 0)
+        self.assertIn("every by-hand task has the label", out)
+        self.assertEqual(self.labels_sent(), [("label", 4, "by-hand")])
+        self.assertNotIn("by-hand", self.remote.issues[3]["labels"])
+
+    def test_labels_that_cannot_be_sent_wait_in_the_queue(self):
+        with mock.patch.object(self.mirror, "send", side_effect=GitHubError("gh: HTTP 502")):
+            code, _, err = self.run_command("--label-by-hand")
+        self.assertEqual(code, 0)
+        self.assertIn("the labels wait in the queue", err)
+        self.assertEqual(len(self.mirror.outbox()), 1)
+
+    def test_a_bad_config_stops_it(self):
+        self.patches["load_config"].stop()
+        with mock.patch.object(tasks, "load_config", side_effect=tasks.ConfigError(["no board"])):
+            code, _, err = self.run_command("--label-by-hand")
+        self.patches["load_config"].start()
+        self.assertEqual(code, 1)
+        self.assertIn("1 problem(s) in config", err)
+        self.assertEqual(self.labels_sent(), [])
+
+    def test_a_github_failure_stops_it(self):
+        self.remote.fail = lambda name, args: (_ for _ in ()).throw(GitHubError("gh: HTTP 401"))
+        code, _, err = self.run_command("--label-by-hand")
+        self.assertEqual(code, 1)
+        self.assertIn("HTTP 401", err)
+
+    def test_it_needs_no_project_but_a_new_task_does(self):
+        self.assertEqual(self.run_command("--label-by-hand")[0], 0)
+        with self.assertRaises(SystemExit):
+            self.run_command("--title", "T", "--body-file", "b.md")
+
+
 SPEC = "## Problem\nP\n\n## Solution\nS\n\n## Decisions\n- D\n\n## Out of scope\nNo emails.\n"
 
 
