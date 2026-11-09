@@ -247,10 +247,123 @@ class TaskCommandTest(unittest.TestCase):
         self.github.add_to_board.assert_called_once()
         self.github.send.assert_called_once()
 
+    def test_the_command_makes_a_spec_without_fields(self):
+        self.body.write_text(SPEC, encoding="utf-8")
+        argv = ["tasks", "--project", "site", "--spec-issue", "--title", "T", "--body-file", str(self.body)]
+        with mock.patch("sys.argv", argv), mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+            self.assertEqual(tasks.main(), 0)
+        self.assertTrue(self.github.create_issue.call_args.kwargs["by_hand"])
+        self.github.add_to_board.assert_not_called()
+        self.assertEqual(tasks.specs(self.store), {"o/r#1"})
+        code, _, err = self.run_command("--spec-issue", "--title", "T", "--body-file", str(self.body))
+        self.assertEqual(code, 1)
+        self.assertIn("not sized", err)
+
+    def test_a_spec_without_its_sections_is_refused_by_the_command(self):
+        argv = ["tasks", "--project", "site", "--spec-issue", "--title", "T", "--body-file", str(self.body)]
+        with mock.patch("sys.argv", argv), mock.patch("sys.stdout"), mock.patch("sys.stderr") as err:
+            self.assertEqual(tasks.main(), 1)
+        self.assertIn("Problem", "".join(c.args[0] for c in err.write.call_args_list))
+        self.github.create_issue.assert_not_called()
+
+    def test_the_command_links_a_task_to_its_spec(self):
+        self.store.record("spec_created", task="o/r#4", project="site")
+        self.github.issue_text.return_value = {"title": "S", "body": SPEC, "url": "u"}
+        self.github.issue_is_open.return_value = True
+        code, _, _ = self.run_command("--title", "T", "--body-file", str(self.body), "--spec", "#4")
+        self.assertEqual(code, 0)
+        self.assertTrue(self.github.create_issue.call_args.args[2].startswith("Spec: #4\n"))
+        self.assertEqual(self.store.last_event("spec_named", task="o/r#1")["spec"], "o/r#4")
+
     def test_place_refuses_an_issue_of_another_project(self):
         code, _, err = self.run_command("--place", "https://github.com/x/y/issues/1")
         self.assertEqual(code, 1)
         self.github.add_to_board.assert_not_called()
+
+
+SPEC = "## Problem\nP\n\n## Solution\nS\n\n## Decisions\n- D\n\n## Out of scope\nNo emails.\n"
+
+
+class SpecTest(unittest.TestCase):
+    """A spec issue holds a request of several tasks; each task names it."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.local = Path(tmp.name)
+        self.store = StateStore(self.local / "state")
+        self.github = mock.Mock()
+        self.github.repo_is_public.return_value = False
+        self.github.create_issue.side_effect = lambda repo, *a, **k: \
+            f"https://github.com/{repo}/issues/{10 + self.github.create_issue.call_count}"
+        self.github.issue_text.return_value = {"title": "Spec", "body": SPEC, "url": "u"}
+        self.github.issue_is_open.return_value = True
+        self.config = mock.Mock(projects=[project()])
+        self.config.projects[0].name = "site"
+
+    def spec(self, body=SPEC):
+        return tasks.create_spec(self.config, self.github, "site", None, "A request", body, self.local, self.store)
+
+    def task(self, spec, body=BODY):
+        return tasks.create_task(self.config, self.github, "site", None, "T", body, self.local, "High", "Bug",
+                                 "Small", store=self.store, spec=spec)
+
+    def test_a_spec_needs_all_four_sections(self):
+        self.assertEqual(tasks.spec_sections(), ["Problem", "Solution", "Decisions", "Out of scope"])
+        for section in tasks.spec_sections():
+            with self.assertRaisesRegex(tasks.TaskError, section):
+                self.spec(SPEC.replace(f"## {section}\n", "## Other\n"))
+        self.github.create_issue.assert_not_called()
+
+    def test_a_spec_is_checked_as_a_task_is(self):
+        with self.assertRaisesRegex(tasks.TaskError, "English"):
+            self.spec(SPEC + "\nیک خط")
+        (self.local / "private-words.txt").write_text("SecretName\n", encoding="utf-8")
+        self.github.repo_is_public.return_value = True
+        with self.assertRaises(tasks.TaskError):
+            self.spec(SPEC + "\nSecretName")
+        self.github.create_issue.assert_not_called()
+
+    def test_a_spec_has_no_agent_label_no_fields_and_no_card(self):
+        self.assertEqual(self.spec(), "https://github.com/o/r/issues/11")
+        self.assertTrue(self.github.create_issue.call_args.kwargs["by_hand"])
+        self.github.add_to_board.assert_not_called()
+        self.github.set_field.assert_not_called()
+        self.assertEqual(tasks.specs(self.store), {"o/r#11"})
+
+    def test_a_task_names_its_spec_and_takes_its_out_of_scope(self):
+        self.spec()
+        url = self.task("#11")
+        sent = self.github.create_issue.call_args.args[2]
+        self.assertTrue(sent.startswith("Spec: #11\n"))
+        self.assertIn("## Out of scope\nNo emails.\n", sent)
+        self.assertNotIn("## Out of scope\ntext", sent)
+        self.assertEqual(sent.count("## Out of scope"), 1)
+        self.github.issue_text.assert_called_with("o/r", 11)
+        named = self.store.last_event("spec_named", task="o/r#12")
+        self.assertEqual((named["spec"], named["project"]), ("o/r#11", "site"))
+        self.assertEqual(url, "https://github.com/o/r/issues/12")
+
+    def test_a_spec_in_another_repo_is_named_in_full(self):
+        self.config.projects[0].repos = ["o/r", "o/b"]
+        tasks.create_spec(self.config, self.github, "site", "o/b", "A request", SPEC, self.local, self.store)
+        tasks.create_task(self.config, self.github, "site", "o/r", "T", BODY, self.local, "High", "Bug", "Small",
+                          store=self.store, spec="o/b#11")
+        self.assertTrue(self.github.create_issue.call_args.args[2].startswith("Spec: o/b#11\n"))
+
+    def test_a_task_refuses_what_is_not_an_open_spec_of_its_project(self):
+        self.spec()
+        self.github.issue_is_open.return_value = False
+        with self.assertRaisesRegex(tasks.TaskError, "closed"):
+            self.task("#11")
+        self.github.issue_is_open.return_value = True
+        for bad in ("#5", "o/r#5", "nothing"):
+            with self.assertRaises(tasks.TaskError):
+                self.task(bad)
+        self.store.record("spec_created", task="o/r#30", project="other")
+        with self.assertRaises(tasks.TaskError):
+            self.task("#30")
+        self.assertEqual(self.github.create_issue.call_count, 1)
 
 
 class GitHubBoardTest(unittest.TestCase):

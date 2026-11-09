@@ -75,6 +75,9 @@ state/
 | `kandu_restarted` | none |
 | `wake_requested` | none |
 | `group_closed` | `task`, `project` |
+| `spec_created` | `task`, `project`: `task` is the spec issue |
+| `spec_named` | `task`, `project`, `spec`: the task was created as part of this spec |
+| `spec_closed` | `task`, `project`: the last task that names the spec closed, so the spec did too |
 | `deployed` | `task`, `project`, `run_id` |
 | `project_checked` | `project`, `passed`, `detail` |
 | `project_inspected` | `project`, `run_id`, `passed`, `findings`, `judged` |

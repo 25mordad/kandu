@@ -15,24 +15,43 @@ from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR, DEADLINE_FIELD, ConfigError
 from .github import BLOCKED_BY, HTML_COMMENT, ISSUE_REFERENCE, GitHubError, blockers_in
 from .mirror import open_github
 from .privateterms import all_terms
+from .queen import all_events
 from .state import StateStore
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "prompts" / "templates" / "issue.md"
+SPEC_TEMPLATE = TEMPLATE.with_name("spec.md")
+OUT_OF_SCOPE = "Out of scope"
 
 
 class TaskError(Exception):
     pass
 
 
+def _headings(path):
+    return re.findall(r"^## (.+)$", path.read_text(encoding="utf-8"), re.MULTILINE)
+
+
 def required_sections():
-    return re.findall(r"^## (.+)$", TEMPLATE.read_text(encoding="utf-8"), re.MULTILINE)
+    return _headings(TEMPLATE)
+
+
+def spec_sections():
+    return _headings(SPEC_TEMPLATE)
+
+
+def _check_sections(body, required, what):
+    sections = re.findall(r"^## (.+?)\s*$", body, re.MULTILINE)
+    missing = [s for s in required if s not in sections]
+    if missing:
+        raise TaskError(f"{what} misses: {', '.join(missing)}")
 
 
 def check_body(body):
-    sections = re.findall(r"^## (.+?)\s*$", body, re.MULTILINE)
-    missing = [s for s in required_sections() if s not in sections]
-    if missing:
-        raise TaskError(f"the issue misses: {', '.join(missing)}")
+    _check_sections(body, required_sections(), "the issue")
+
+
+def check_spec_body(body):
+    _check_sections(body, spec_sections(), "the spec")
 
 
 def check_english(text):
@@ -165,6 +184,65 @@ def record_rewrites(store, task, project, rewrites, when):
         store.record("blocker_rewritten", task=task, project=project, old=old, new=new, when=when)
 
 
+def _section(name):
+    return re.compile(rf"^## {re.escape(name)}[ \t]*\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+
+
+def section_text(body, name):
+    """The text under `## name`, up to the next section, or None when the body has no such section."""
+    match = _section(name).search(body)
+    return match.group(1) if match else None
+
+
+def with_section(body, name, text):
+    """The body with the text under `## name` replaced, or the section added at the end when it is missing."""
+    text = text.rstrip("\n") + "\n"
+    if _section(name).search(body) is None:
+        return f"{body.rstrip()}\n\n## {name}\n{text}"
+    return _section(name).sub(lambda m: f"## {name}\n{text}" + ("\n" if m.end() < len(body) else ""), body, count=1)
+
+
+def specs(store):
+    """The spec issues Kandu made, open or closed. None of them is work."""
+    return {e["task"] for e in all_events(store) if e["type"] == "spec_created"}
+
+
+def spec_key(reference, repo):
+    """`#12`, `12` or `owner/repo#12` as `owner/repo#12`; a bare number is in `repo`."""
+    match = re.fullmatch(r"\s*([\w.-]+/[\w.-]+)?#?(\d+)\s*", reference or "")
+    if match is None:
+        raise TaskError("--spec takes the spec issue as #12 or owner/repo#12")
+    return f"{match.group(1) or repo}#{match.group(2)}"
+
+
+def with_spec(github, store, project, repo, body, reference):
+    """Returns (body, spec): the body names its spec at the top and takes the spec's Out of scope as its own."""
+    key = spec_key(reference, repo)
+    made = store.last_event("spec_created", task=key)
+    if made is None or made["project"] != project.name:
+        raise TaskError(f"{key} is not a spec of {project.name}: make one with --spec-issue first")
+    spec_repo, _, number = key.partition("#")
+    if not github.issue_is_open(spec_repo, int(number)):
+        raise TaskError(f"the spec {key} is closed: its tasks are done")
+    out_of_scope = section_text(github.issue_text(spec_repo, int(number))["body"], OUT_OF_SCOPE)
+    if out_of_scope is None:
+        raise TaskError(f"the spec {key} has no {OUT_OF_SCOPE}")
+    named = f"#{number}" if spec_repo == repo else key
+    return f"Spec: {named}\n\n{with_section(body, OUT_OF_SCOPE, out_of_scope)}", key
+
+
+def create_spec(config, github, project_name, repo, title, body, local_dir, store):
+    """Creates a spec issue and returns its URL. It holds a request of several tasks and is never work itself:
+    it has no `agent` label, no fields and no card, so it is never sized and never reaches the queen.
+    """
+    project, repo = find_project(config, project_name, repo)
+    check_spec_body(body)
+    check_text(github, repo, title, body, local_dir)
+    url = github.create_issue(repo, title, body, by_hand=True)
+    store.record("spec_created", task=f"{repo}#{int(url.rstrip().rsplit('/', 1)[1])}", project=project.name)
+    return url
+
+
 def set_fields(github, board, url, priority, kind, size, deadline):
     for name, value in (("Priority", priority), ("Kind", kind), ("Size", size), (DEADLINE_FIELD, deadline)):
         if value is not None:
@@ -172,25 +250,33 @@ def set_fields(github, board, url, priority, kind, size, deadline):
 
 
 def create_task(config, github, project_name, repo, title, body, local_dir, priority, kind, size, deadline=None,
-                by_hand=False, tokens=False, created=None, store=None, rewritten=None):
+                by_hand=False, tokens=False, created=None, store=None, rewritten=None, spec=None):
     """Creates the issue, puts it on the board in `Backlog` and returns its URL.
 
     `created(url)` runs as soon as the issue exists, so a caller can record it before the
     board steps, which can fail on their own. With the local log in `store`, a blocker that
     was split is replaced by its last slice, logged, and passed to `rewritten(old, new)`.
+    `spec` names the spec issue the task belongs to (`with_spec`); it needs `store`.
     """
     project, repo = find_project(config, project_name, repo)
     rewrites = []
     if store is not None:
         body, rewrites = waits_for_slices(body, repo, lambda key: last_slice(store, key))
+    if spec is not None:
+        if store is None:
+            raise TaskError("a task of a spec needs the local log")
+        body, spec = with_spec(github, store, project, repo, body, spec)
     if tokens and not project.task_tokens:
         raise TaskError(f"{project_name} has no task_tokens")
     if tokens and by_hand:
         raise TaskError("a task done by hand runs no worker, so it takes no tokens")
     check_task(github, repo, title, body, local_dir, priority, kind, size, deadline)
     url = github.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens)
+    key = f"{repo}#{int(url.rstrip().rsplit('/', 1)[1])}"
+    if spec is not None:
+        store.record("spec_named", task=key, project=project.name, spec=spec)
     if rewrites:
-        record_rewrites(store, f"{repo}#{int(url.rstrip().rsplit('/', 1)[1])}", project.name, rewrites, "defined")
+        record_rewrites(store, key, project.name, rewrites, "defined")
         for old, new in rewrites if rewritten is not None else ():
             rewritten(old, new)
     if created is not None:
@@ -239,9 +325,12 @@ def main():
     parser.add_argument("--title")
     parser.add_argument("--body-file")
     parser.add_argument("--place", metavar="URL", help="put an existing issue on the board, with these fields")
-    parser.add_argument("--priority", required=True, choices=BOARD_FIELDS["Priority"])
-    parser.add_argument("--kind", required=True, choices=BOARD_FIELDS["Kind"])
-    parser.add_argument("--size", required=True, choices=BOARD_FIELDS["Size"])
+    parser.add_argument("--spec-issue", action="store_true",
+                        help="make the spec issue of a request of several tasks: no fields, no card")
+    parser.add_argument("--spec", metavar="ISSUE", help="the spec issue this task belongs to, as #12 or owner/repo#12")
+    parser.add_argument("--priority", choices=BOARD_FIELDS["Priority"])
+    parser.add_argument("--kind", choices=BOARD_FIELDS["Kind"])
+    parser.add_argument("--size", choices=BOARD_FIELDS["Size"])
     parser.add_argument("--deadline", help="the date it must be done by, YYYY-MM-DD")
     parser.add_argument("--by-hand", action="store_true", help="a person does this: no `agent` label")
     parser.add_argument("--tokens", action="store_true", help="its worker gets the project's task_tokens")
@@ -249,6 +338,17 @@ def main():
     args = parser.parse_args()
     if not args.place and not (args.title and args.body_file):
         parser.error("a new task needs --title and --body-file")
+    if args.spec_issue:
+        given = [name for name in ("place", "spec", "priority", "kind", "size", "deadline", "by_hand", "tokens")
+                 if getattr(args, name)]
+        if given:
+            print(f"tasks: a spec is not sized and is not work, so it takes no --{given[0].replace('_', '-')}",
+                  file=sys.stderr)
+            return 1
+        return make_spec(args)
+    missing = [name for name in ("priority", "kind", "size") if getattr(args, name) is None]
+    if missing:
+        parser.error(f"a task needs --{', --'.join(missing)}")
     created = []
     try:
         config = load_config(args.local)
@@ -260,7 +360,7 @@ def main():
             body = Path(args.body_file).read_text(encoding="utf-8")
             url = create_task(config, github, args.project, args.repo, args.title, body, args.local, args.priority,
                               args.kind, args.size, args.deadline, args.by_hand, args.tokens, created=created.append,
-                              store=StateStore(), rewritten=tell_rewrite)
+                              store=StateStore(), rewritten=tell_rewrite, spec=args.spec)
     except ConfigError as e:
         print(f"tasks: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1
@@ -275,6 +375,22 @@ def main():
     waiting = send_now(github)
     if waiting:
         print(waiting, file=sys.stderr)
+    return 0
+
+
+def make_spec(args):
+    try:
+        config = load_config(args.local)
+        github = open_github(config, refresh=True)
+        body = Path(args.body_file).read_text(encoding="utf-8")
+        url = create_spec(config, github, args.project, args.repo, args.title, body, args.local, StateStore())
+    except ConfigError as e:
+        print(f"tasks: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
+        return 1
+    except (TaskError, GitHubError) as e:
+        print(f"tasks: {e}", file=sys.stderr)
+        return 1
+    print(url)
     return 0
 
 

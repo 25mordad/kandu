@@ -180,10 +180,15 @@ class Supervisor:
         return project.paused or project.name in self.store.paused_projects()
 
     def _board_items(self):
-        return board_items(self.config, self.github, self.store.paused_projects())
+        """A spec issue is never work, even when someone puts it on the board with the `agent` label."""
+        specs = tasks.specs(self.store)
+        return [(project, item) for project, item in board_items(self.config, self.github, self.store.paused_projects())
+                if f"{item.repo}#{item.number}" not in specs]
 
     def _read_tasks(self):
-        return read_tasks(self.config, self.github, self.store.paused_projects())
+        specs = tasks.specs(self.store)
+        return [task for task in read_tasks(self.config, self.github, self.store.paused_projects())
+                if task.key not in specs]
 
     def _sent_on(self):
         """Tasks outside the working columns that the queen sent a worker or a checker to."""
@@ -749,6 +754,10 @@ class Supervisor:
             self._close_groups()
         except GitHubError as e:  # the slice is done; the next cycle closes its parent
             self._decide(task, "group_not_closed", str(e))
+        try:
+            self._close_specs()
+        except GitHubError as e:  # the task is done; the next cycle closes its spec
+            self._decide(task, "spec_not_closed", str(e))
 
     def _close_groups(self):
         """The parent of a group closes with its last slice, however that slice ended."""
@@ -762,6 +771,27 @@ class Supervisor:
             self.github.close_issue(repo, int(number))
             self.github.set_status(project.board, f"https://github.com/{repo}/issues/{number}", DONE)
             self.store.record("group_closed", task=group["task"], project=project.name)
+
+    def _close_specs(self):
+        """A spec issue closes when the last task that names it closes, however that task ended.
+
+        A spec no task names yet stays open.
+        """
+        events = queen.all_events(self.store)
+        closed = {e["task"] for e in events if e["type"] == "spec_closed"}
+        tasks_of = {}
+        for event in events:
+            if event["type"] == "spec_named":
+                tasks_of.setdefault(event["spec"], []).append(event["task"])
+        for spec in (e for e in events if e["type"] == "spec_created" and e["task"] not in closed):
+            project = next((p for p in self.config.projects if p.name == spec["project"]), None)
+            named = tasks_of.get(spec["task"], [])
+            if project is None or self._is_paused(project) or not named or any(self._is_open(t) for t in named):
+                continue
+            repo, number = spec["task"].split("#")
+            self.github.close_issue(repo, int(number))
+            self.store.record("spec_closed", task=spec["task"], project=project.name)
+            closed.add(spec["task"])
 
     def _is_open(self, key):
         repo, number = key.split("#")
@@ -1380,6 +1410,7 @@ class Supervisor:
         if reason is None:
             try:
                 self._close_groups()
+                self._close_specs()
                 self._size_backlog()
                 self._queen()
             except (GitHubError, RunnerError) as e:

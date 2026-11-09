@@ -75,6 +75,15 @@ class PromptsTest(unittest.TestCase):
         self.assertIn("recommended answer", text)
         self.assertNotIn("skips the interview", text)
 
+    def test_a_request_of_several_tasks_writes_its_spec_first_on_the_users_yes(self):
+        self.assertEqual(headings(PROMPTS / "templates" / "spec.md"), ["Problem", "Solution", "Decisions", "Out of scope"])
+        text = (PROMPTS / "defining.md").read_text(encoding="utf-8")
+        spec = text.index("A request of more than one task gets a **spec** issue first")
+        self.assertIn("create it only on the user's yes", text[spec:])
+        self.assertIn("--spec-issue", text[spec:])
+        self.assertLess(spec, text.index("--spec #N"))
+        self.assertLess(spec, text.index("7. Save the body"))
+
     def test_didban_keeps_to_the_project_the_user_named(self):
         text = (PROMPTS / "didban.md").read_text(encoding="utf-8")
         self.assertIn("One project at a time", headings(PROMPTS / "didban.md"))

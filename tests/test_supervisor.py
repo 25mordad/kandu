@@ -2029,6 +2029,100 @@ class MergedWhileBlockedTest(Base):
         self.assertEqual(self.runner.commands, [])
 
 
+class SpecTest(Base):
+    """A spec issue is never work: it closes when the last task that names it closes."""
+
+    def spec(self, number=20, tasks_of=(21, 22)):
+        self.store.record("spec_created", task=f"{REPO}#{number}", project="website")
+        self.github.open_issues.add((REPO, number))
+        for task in tasks_of:
+            self.github.open_issues.add((REPO, task))
+            self.store.record("spec_named", task=f"{REPO}#{task}", project="website", spec=f"{REPO}#{number}")
+
+    def test_the_spec_closes_with_the_last_of_its_tasks(self):
+        self.spec()
+        self.sup._close_specs()
+        self.github.open_issues.discard((REPO, 21))
+        self.sup._close_specs()
+        self.assertEqual(self.github.closed, [])
+        self.github.open_issues.discard((REPO, 22))
+        self.sup._close_specs()
+        self.sup._close_specs()
+        self.assertEqual(self.github.closed, [(REPO, 20)])
+        self.assertEqual(len(self.events("spec_closed")), 1)
+
+    def test_a_spec_with_no_task_yet_stays_open(self):
+        self.spec(tasks_of=())
+        self.cycle()
+        self.assertEqual(self.github.closed, [])
+
+    def test_a_cycle_closes_the_spec(self):
+        self.spec(tasks_of=(21,))
+        self.github.open_issues.discard((REPO, 21))
+        self.cycle()
+        self.assertIn((REPO, 20), self.github.closed)
+
+    def test_a_spec_on_the_board_is_neither_sized_nor_worked(self):
+        self.github.on_add = lambda key, size: None
+        self.github.add(20, "Backlog")
+        self.github.add(23, "Ready")
+        self.store.record("spec_created", task=f"{REPO}#20", project="website")
+        self.store.record("spec_created", task=f"{REPO}#23", project="website")
+        self.cycle()
+        self.assertEqual(self.runner.runs, [])
+        self.assertEqual([item.number for _, item in self.new_supervisor()._board_items()], [])
+
+    def test_a_spec_on_the_board_is_not_a_task(self):
+        self.github.add(20, "Ready")
+        self.store.record("spec_created", task=f"{REPO}#20", project="website")
+        self.assertEqual(self.sup.dry_run(), ["would sleep: nothing ready"])
+
+    def landing(self):
+        """Task 1 of spec 20 merged while blocked: it lands this cycle, and GitHub closes it as it reaches Done."""
+        self.config.projects[0].deploy.live_url = ""
+        self.github.add(1, "Blocked")
+        self.github.open_pr(REPO, 1, SHA1, state="MERGED")
+        self.spec(tasks_of=(1,))
+        set_status = self.github.set_status
+
+        def closing_on_done(board, url, status):
+            set_status(board, url, status)
+            if url.endswith(f"{REPO}/issues/1") and status == "Done":
+                self.github.open_issues.discard((REPO, 1))
+        self.github.set_status = closing_on_done
+
+    def test_the_spec_closes_as_its_last_task_lands(self):
+        self.landing()
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Done")
+        self.assertEqual(self.github.closed, [(REPO, 20)])
+
+    def test_a_spec_that_could_not_close_closes_in_the_next_cycle(self):
+        self.landing()
+        close_issue = self.github.close_issue
+        failures = [GitHubError("gh issue close: HTTP 502")]
+
+        def failing_once(repo, number):
+            if failures:
+                raise failures.pop()
+            close_issue(repo, number)
+        self.github.close_issue = failing_once
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Done")
+        self.assertEqual(self.github.closed, [])
+        self.assertEqual([e["decision"] for e in self.events("decision")], ["spec_not_closed"])
+        self.cycle()
+        self.assertEqual(self.github.closed, [(REPO, 20)])
+
+    def test_a_paused_projects_spec_stays_open(self):
+        self.spec(tasks_of=(21,))
+        self.github.open_issues.discard((REPO, 21))
+        self.config.projects[0].paused = True
+        self.cycle()
+        self.assertEqual(self.github.closed, [])
+        self.assertEqual(self.events("spec_closed"), [])
+
+
 class DryRunTest(Base):
     def test_no_agent_and_no_writes(self):
         self.github.add(1)
