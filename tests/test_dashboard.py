@@ -722,6 +722,44 @@ class ControlTest(Base):
         self.assertEqual(self.post("/api/v1/projects/website/resume")[0], 409)
         self.assertEqual(self.get("/api/v1/state")[1]["paused_projects"], ["website"])
 
+    def test_the_settings_list_every_project_in_the_registrys_order(self):
+        self.api.config.projects[0].priority, self.api.config.projects[1].priority = 2, 1
+        self.store.pause_project("internal-tool")
+        self.api.config.projects[0].paused = True
+        self.assertEqual(self.get("/api/v1/state")[1]["project_settings"], [
+            {"name": "website", "paused": True, "paused_in_config": True, "split_approval": "user"},
+            {"name": "internal-tool", "paused": True, "paused_in_config": False, "split_approval": "user"}])
+
+    def test_the_split_switch_is_kept_wins_over_the_registry_and_is_logged(self):
+        self.api.config.projects[0].split_approval = "queen"
+        self.assertEqual(self.post("/api/v1/projects/website/settings?split_approval=user"), (200, {"split_approval": "user"}))
+        self.assertEqual(self.store.project_settings(), {"website": {"split_approval": "user"}})
+        settings = self.get("/api/v1/state")[1]["project_settings"]
+        self.assertEqual([p["split_approval"] for p in settings], ["user", "user"])
+        changed = self.store.last_event("project_setting_changed")
+        self.assertEqual((changed["project"], changed["setting"], changed["old"], changed["new"]),
+                         ("website", "split_approval", "queen", "user"))
+        self.post("/api/v1/projects/website/settings?split_approval=queen")
+        changed = self.store.last_event("project_setting_changed")
+        self.assertEqual((changed["old"], changed["new"]), ("user", "queen"))
+
+    def test_the_split_switch_needs_the_token_a_real_project_and_a_known_value(self):
+        self.assertEqual(self.post("/api/v1/projects/website/settings?split_approval=queen", "")[0], 403)
+        self.assertEqual(self.post("/api/v1/projects/ghost/settings?split_approval=queen")[0], 404)
+        for query in ("split_approval=anyone", "", "colour=red"):
+            self.assertEqual(self.post(f"/api/v1/projects/website/settings?{query}")[0], 400, query)
+        self.assertEqual(self.store.project_settings(), {})
+        self.assertIsNone(self.store.last_event("project_setting_changed"))
+
+    def test_the_split_switch_leaves_proposals_and_splits_as_they_are(self):
+        self.store.write_split(f"{REPO}#1", {"title": "t", "reason": "Too big.", "slices": []})
+        self.store.write_split(f"{REPO}#2", {"title": "u", "reason": "Too big.", "slices": []})
+        self.store.record("task_split", task=f"{REPO}#2", project="website", children=[f"{REPO}#3"])
+        before = (self.store.splits(), [s["task"] for s in split.pending(self.store)])
+        self.post("/api/v1/projects/website/settings?split_approval=queen")
+        self.assertEqual((self.store.splits(), [s["task"] for s in split.pending(self.store)]), before)
+        self.assertEqual(self.store.last_event("task_split")["children"], [f"{REPO}#3"])
+
     def proposal(self):
         self.store.write_split(f"{REPO}#1", {"title": "t", "reason": "Too big.", "slices": []})
 

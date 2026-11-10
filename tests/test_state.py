@@ -63,6 +63,17 @@ class StateTest(unittest.TestCase):
         event = self.store.events(DAY)[0]
         self.assertEqual((event["head_sha"], event["findings"]), ("abc123", 0))
 
+    def test_a_project_setting_is_kept_and_only_a_known_one(self):
+        self.assertEqual(self.store.project_settings(), {})
+        self.store.set_project_setting("website", "split_approval", "queen")
+        self.store.set_project_setting("blog", "split_approval", "user")
+        self.assertEqual(self.store.project_settings(), {"website": {"split_approval": "queen"},
+                                                         "blog": {"split_approval": "user"}})
+        for key, value in (("split_approval", "anyone"), ("colour", "red")):
+            with self.assertRaises(StateError):
+                self.store.set_project_setting("website", key, value)
+        self.assertEqual(self.store.project_settings()["website"], {"split_approval": "queen"})
+
     def test_days_are_sorted(self):
         self.store.record("supervisor_woke", now=NOW)
         self.store.record("supervisor_woke", now=NOW - timedelta(days=1))

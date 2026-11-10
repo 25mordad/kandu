@@ -238,6 +238,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     <button class="tab" role="tab" data-tab="meadow" data-t="queue"></button>
     <button class="tab" role="tab" data-tab="work" data-t="tab_work"></button>
     <button class="tab" role="tab" data-tab="bazras" data-t="tab_bazras"></button>
+    <button class="tab" role="tab" data-tab="settings" data-t="tab_settings"></button>
     <button class="tab" role="tab" data-tab="days" data-t="by_day"></button>
     <button class="tab" role="tab" data-tab="activity" data-t="live_stream"></button>
   </nav>
@@ -258,6 +259,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   </section>
   <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
+  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div id="projectsettings" class="card"></div></section>
   <section data-panel="days" class="list" hidden>
     <div class="toolbar"><select id="day" data-t-attr="aria-label" data-t="day"></select><div id="daytotals" class="chips"></div></div>
     <div id="byday" class="card"></div>
@@ -452,6 +454,12 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bee_splitter": "Splitter bee",
   "bee_inspector": "Bazras, the inspector bee",
   "tab_bazras": "Bazras",
+  "tab_settings": "Settings",
+  "settings_about": "One row per project, in the order of its registry. A switch changes the setting at once; Kandu keeps your choice, and it wins over the registry.",
+  "setting_pause": "Pause",
+  "queen_accepts_splits": "The queen accepts splits",
+  "queen_accepts_splits_hint": "Off: every split proposal waits for your yes. On: a proposal still waits for your yes until the queen can accept one.",
+  "paused_in_config_hint": "Paused in its config; only a change of config resumes it.",
   "bazras_all_well": "All was well",
   "bazras_findings": "{count} finding(s)",
   "bazras_not_checked": "Could not check everything",
@@ -639,6 +647,12 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bee_splitter": "زنبور اندازه‌گیر",
   "bee_inspector": "بازرس، زنبور بازرسی",
   "tab_bazras": "بازرس",
+  "tab_settings": "تنظیمات",
+  "settings_about": "برای هر پروژه یک ردیف، به ترتیب رجیستری. هر کلید تنظیم را همان لحظه عوض می‌کند؛ کندو انتخابت را نگه می‌دارد و بر رجیستری مقدم است.",
+  "setting_pause": "توقف",
+  "queen_accepts_splits": "ملکه شکستن‌ها را می‌پذیرد",
+  "queen_accepts_splits_hint": "خاموش: هر پیشنهاد شکستن منتظر بلهٔ تو می‌ماند. روشن: تا وقتی ملکه نتواند پیشنهادی را بپذیرد، باز هم منتظر بلهٔ تو می‌ماند.",
+  "paused_in_config_hint": "در تنظیماتش متوقف است؛ فقط تغییر تنظیمات از توقف درش می‌آورد.",
   "bazras_all_well": "همه درست بود",
   "bazras_findings": "{count} یافته",
   "bazras_not_checked": "همه‌چیز بررسی نشد",
@@ -815,6 +829,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "notification_sent": "اعلان فرستاده شد",
   "notification_failed": "اعلان فرستاده نشد",
   "project_resumed": "پروژه ادامه یافت",
+  "project_setting_changed": "تنظیم پروژه تغییر کرد",
   "project_inspected": "بازرس پروژه را نگاه کرد",
   "inspect_changed": "بازرس پروژه روشن یا خاموش شد",
   "backup_made": "پشتیبان گرفته شد",
@@ -1462,6 +1477,7 @@ async function refreshState() {
   renderQueen(s);
   renderScene(s, lastQueue);
   renderProjects();
+  renderSettings(s);
   refreshRequests().catch(() => {});
   return s;
 }
@@ -1532,6 +1548,27 @@ async function saveInspect(button) {
     toast(t(on ? "bazras_saved_on" : "bazras_saved_off").replace("{project}", name).replace("{at}", num(at)));
     await refreshBazras(true).catch(() => {});
   }
+}
+
+// The settings section: one row per project, in the registry's order. A project paused in its config shows a
+// switch that cannot move, since only the config resumes it. A change goes to the API at once and the next state redraws.
+function renderSettings(s) {
+  const rows = s.project_settings || [];
+  const key = JSON.stringify([lang, rows]);
+  if (key === renderSettings.key) return;
+  renderSettings.key = key;
+  const body = rows.map(p => `<tr><td>${bdi(p.name)}</td>
+    <td class="fit"><label title="${esc(p.paused_in_config ? t("paused_in_config_hint") : "")}"><input type="checkbox" data-setting-pause="${esc(p.name)}"${p.paused ? " checked" : ""}${p.paused_in_config ? " disabled" : ""}> ${t("setting_pause")}</label></td>
+    <td class="fit"><label title="${esc(t("queen_accepts_splits_hint"))}"><input type="checkbox" data-setting-splits="${esc(p.name)}"${p.split_approval === "queen" ? " checked" : ""}> ${t("queen_accepts_splits")}</label></td></tr>`).join("");
+  $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th><th class="fit">${t("setting_pause")}</th><th class="fit">${t("queen_accepts_splits")}</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+async function changeSetting(box) {
+  const name = box.dataset.settingPause ?? box.dataset.settingSplits;
+  const path = box.dataset.settingPause !== undefined ? `/projects/${encodeURIComponent(name)}/${box.checked ? "pause" : "resume"}`
+    : `/projects/${encodeURIComponent(name)}/settings?split_approval=${box.checked ? "queen" : "user"}`;
+  renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
+  if (!await act(box, path)) refreshState().catch(() => {});
 }
 
 // The config's priority, 1 first; a project the config does not name goes last.
@@ -1803,6 +1840,9 @@ document.addEventListener("click", e => {
   const review = hit("review");
   if (review) { confirming = false; sendingBack = false; showReviews(review.dataset.review); }
   if (e.target === $("modal")) $("modal").close();
+});
+document.addEventListener("change", e => {
+  if (e.target.matches?.("[data-setting-pause], [data-setting-splits]")) changeSetting(e.target);
 });
 document.addEventListener("toggle", e => {
   const asked = e.target.dataset?.request;

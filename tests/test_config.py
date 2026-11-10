@@ -151,6 +151,15 @@ class ConfigTest(unittest.TestCase):
         self.edit("kandu.yaml", lambda d: d["supervisor"].update(auto_merg=True))
         self.assertIn("supervisor.auto_merg: unknown key", self.problems())
 
+    def test_split_approval_is_the_user_or_the_queen_the_user_by_default(self):
+        self.assertIn("split_approval: user", (EXAMPLES / "projects.example.yaml").read_text(encoding="utf-8"))
+        self.edit("projects.yaml", lambda d: d["projects"][0].pop("split_approval", None))
+        self.assertEqual([p.split_approval for p in load_config(self.local).projects], ["user", "user"])
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(split_approval="queen"))
+        self.assertEqual(load_config(self.local).projects[0].split_approval, "queen")
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(split_approval="anyone"))
+        self.assertIn("projects[0] (website).split_approval: must be one of user, queen", self.problems())
+
     def test_wrong_type(self):
         self.edit("kandu.yaml", lambda d: d["dashboard"].update(port="8790"))
         self.assertIn("dashboard.port: must be int", self.problems())

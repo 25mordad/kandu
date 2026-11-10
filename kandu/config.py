@@ -22,6 +22,7 @@ MODEL_ROLES = ROLES + ("bazras",)  # Bazras's tools are fixed in code, so it has
 CLOCK = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 MODEL = re.compile(r"[a-z][\w.\[\]-]*")  # It reaches `claude --model`, so it cannot be a flag.
 TECHNICAL_DEBT = "Technical debt"
+SPLIT_APPROVALS = ("user", "queen")   # who accepts a split proposal; the dashboard's switch wins over the registry
 BOARD_COLUMNS = ("Backlog", TECHNICAL_DEBT, "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", "Done")
 BOARD_FIELDS = {"Priority": ("High", "Medium", "Low"), "Kind": ("Bug", "Feature", "Chore"),
                 "Size": ("Small", "Medium", "Large")}
@@ -206,6 +207,7 @@ class Project:
     queen_rules: str = ""
     auto_merge: bool | None = None
     frozen: bool = False
+    split_approval: str = "user"     # who accepts this project's split proposals (SPLIT_APPROVALS)
     allowed_tools: list[str] = field(default_factory=list)   # added to the worker's and live check's rules, if they have any
     reports: list[str] = field(default_factory=list)   # files on its machine that `kandu.brief show` reads, read-only
 
@@ -451,6 +453,7 @@ def _check_projects(projects, s, problems):
                 problems.append(f"{where}.reports: a path must not be empty")
         if p.deploy is not None:
             _check_one_of(p.deploy.mode, ("direct", "preview"), f"{where}.deploy.mode", problems)
+        _check_one_of(p.split_approval, SPLIT_APPROVALS, f"{where}.split_approval", problems)
         _check_positive(p.priority, f"{where}.priority", problems)
         _check_positive(p.max_parallel_workers, f"{where}.max_parallel_workers", problems)
         _check_positive(p.daily_token_limit, f"{where}.daily_token_limit", problems)

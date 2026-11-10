@@ -84,6 +84,8 @@ Every task is designed and checked against harness, context and memory (§14).
 75. [x] The queen's look lists each project's open by-hand tasks by number and title, so her brief names them and never calls a Backlog that holds one empty; one she has not seen wakes her once, an unchanged set never again, and code still refuses any decision of hers on one (§3, §5)
 76. [x] A task created with `--by-hand` gets the `by-hand` label on GitHub and in the copy, and a spec gets no label; the first sync gives it by itself, once, to the open by-hand tasks that lack it, never to one with `agent`, and later syncs do not run it again; `kandu.tasks --label-by-hand` does the same by hand and a second run changes nothing (§3)
 
+77. [x] The dashboard has a project settings section: one row per project in the registry's order, with its pause switch and a «The queen accepts splits» switch. A project's split approval, `user` (the default) or `queen`, comes from the registry or the switch, whose choice is kept in Kandu's state, wins and is logged; every split proposal waits for the user's yes, also when every slice is two-way, until the queen can accept one (§2, §7)
+
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)
 39. [x] An open dashboard spent GitHub's hourly limit: one heavy board read a minute. It now shares one light read every 15 minutes, and a hidden page asks for nothing (§7)

@@ -12,6 +12,8 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+from .config import SPLIT_APPROVALS
+
 DEFAULT_STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 FORMAT_VERSION = 1
 
@@ -54,6 +56,7 @@ EVENT_FIELDS = {
     "inspect_changed": ("project", "enabled", "at"),
     "project_paused": ("project",),
     "project_resumed": ("project",),
+    "project_setting_changed": ("project", "setting", "old", "new"),
     "limits_changed": ("session", "week"),
     "parallel_changed": ("total", "projects"),
     "drop_blockers_changed": ("enabled",),
@@ -72,6 +75,8 @@ EVENT_FIELDS = {
     "notification_failed": ("kind", "key", "reason"),
     "copy_not_read": ("detail",),
 }
+# Each setting a project may have in the dashboard's settings section, with its values. One there wins over the registry.
+PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS}
 NO_TASK_ROLES = ("supervisor", "queen", "bazras")
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
 
@@ -115,6 +120,7 @@ class StateStore:
         self.stop_file = self.root / "stopped"
         self.worker_stops_dir = self.root / "stop-workers"
         self.paused_dir = self.root / "paused"
+        self.project_settings_file = self.root / "project-settings.json"
         self.splits_dir = self.root / "splits"
         self.requests_dir = self.root / "requests"
         self.didban_dir = self.root / "didban"
@@ -268,6 +274,29 @@ class StateStore:
 
     def paused_projects(self):
         return {path.name for path in self.paused_dir.iterdir()} if self.paused_dir.exists() else set()
+
+    def project_settings(self):
+        """Returns each project's settings chosen in the dashboard, by project name."""
+        if not self.project_settings_file.exists():
+            return {}
+        return json.loads(self.project_settings_file.read_text(encoding="utf-8"))
+
+    def set_project_setting(self, name, setting, value):
+        """Keeps one project's choice; the file is replaced at once, so a reader never sees half of it."""
+        if value not in PROJECT_SETTINGS.get(setting, ()):
+            raise StateError(f"not a project setting: {setting}={value!r}")
+        settings = self.project_settings()
+        settings.setdefault(name, {})[setting] = value
+        self._make_dirs()
+        tmp = self.project_settings_file.with_suffix(f".{os.getpid()}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False)
+        os.replace(tmp, self.project_settings_file)
+
+    def project_setting(self, project, setting):
+        """The project's setting: the dashboard's choice, else the registry's."""
+        return self.project_settings().get(project.name, {}).get(setting, getattr(project, setting))
 
     @contextmanager
     def split_lock(self):

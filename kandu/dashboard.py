@@ -23,7 +23,7 @@ from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, lo
 from .github import AGENT_LABEL, GitHubError, task_blockers
 from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
-from .state import StateStore
+from .state import PROJECT_SETTINGS, StateStore
 from .tasks import TaskError
 
 PAGE = Path(__file__).with_name("dashboard.html")
@@ -201,6 +201,7 @@ class Api:
             "paused_projects": sorted(self._paused()),
             "paused_in_config": sorted(p.name for p in self.config.projects if p.paused),
             "project_order": [p.name for p in sorted(self.config.projects, key=lambda p: p.priority)],
+            "project_settings": self._project_settings(),
             "language": self.config.settings.language,
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
             "parallel": self._parallel(),
@@ -790,6 +791,31 @@ class Api:
             self.store.record("project_resumed", project=project.name)
         return {"paused": False}
 
+    def _project_settings(self):
+        """One row per project, in the registry's order: its pause and each setting the dashboard may change."""
+        paused = self._paused()
+        return [{"name": p.name, "paused": p.name in paused, "paused_in_config": p.paused}
+                | {setting: self.store.project_setting(p, setting) for setting in PROJECT_SETTINGS}
+                for p in self.config.projects]
+
+    def change_project_settings(self, query, name):
+        """Changes a project's settings in Kandu's state, where they win over the registry. Each change is logged.
+
+        Proposals already accepted and splits already made stay as they are: only a later proposal reads it.
+        """
+        project = self._project(name)
+        changes = {setting: values[0] for setting, values in query.items()}
+        if not changes:
+            raise ApiError(400, "give a setting, such as split_approval=user")
+        for setting, value in changes.items():
+            if value not in PROJECT_SETTINGS.get(setting, ()):
+                raise ApiError(400, f"not a project setting: {setting}={value}")
+        for setting, value in changes.items():
+            old = self.store.project_setting(project, setting)
+            self.store.set_project_setting(project.name, setting, value)
+            self.store.record("project_setting_changed", project=project.name, setting=setting, old=old, new=value)
+        return changes
+
     def stop_worker(self, query, run_id):
         workers = self.store.read_current().get("workers", [])
         if not any(w.get("run_id") == run_id for w in workers):
@@ -835,6 +861,7 @@ ROUTES = [
     ("POST", "/projects/{name}/pause", Api.pause_project),
     ("POST", "/projects/{name}/resume", Api.resume_project),
     ("POST", "/projects/{name}/inspect", Api.change_inspect),
+    ("POST", "/projects/{name}/settings", Api.change_project_settings),
     ("POST", "/backup", Api.change_backup),
 ]
 

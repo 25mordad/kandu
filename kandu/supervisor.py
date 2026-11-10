@@ -888,7 +888,7 @@ class Supervisor:
                           slices=len(slices))
         if slices:
             self._move(task, NEEDS_SPLIT)
-            self._split_or_wait(task, slices)
+            self._wait_for_split(task)
 
     def _hold(self, task, item, run_id, report, areas):
         """A task that must change a forbidden area stays in Backlog, out of the queen's sight, until the user
@@ -902,19 +902,11 @@ class Supervisor:
         self.github.comment_issue(task.repo, task.number, "Kandu held this task: it needs a forbidden area of its "
                                   "project. It waits for the owner before any work starts.")
 
-    def _split_or_wait(self, task, slices):
-        """Slices that can all be undone are made at once; any other proposal waits for the user's yes."""
-        why = None if all(part["door"] == "two-way" for part in slices) else "a slice is not two-way"
-        if why is None:
-            try:
-                children = split.approve(self.config, self.github, self.store, task.key, self.local_dir)
-            except (TaskError, split.ReportError, GitHubError) as e:
-                why = f"could not split it: {e}"
-            else:
-                self._decide(task, "split_approved", f"{len(children)} two-way slices: {', '.join(children)}")
-                self.github.comment_issue(task.repo, task.number, f"Kandu sized this {sizing.LARGE} and split it "
-                                          f"into {', '.join(children)}. Every slice can be undone.")
-                return
+    def _wait_for_split(self, task):
+        """Every proposal waits for the user's yes, also when every slice is two-way: while the project's split
+        approval is the user's, and while it is the queen's, since she cannot accept one yet."""
+        approval = self.store.project_setting(task.project, "split_approval")
+        why = "the user accepts this project's splits" if approval == "user" else "the queen cannot accept a split yet"
         self._decide(task, "split_waits", why)
         self.github.comment_issue(task.repo, task.number, f"Kandu sized this {sizing.LARGE}. "
                                   "A proposal to split it waits for the owner.")

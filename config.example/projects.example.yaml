@@ -33,6 +33,8 @@ projects:
     repo_rules: "CI must be green before merge"
     auto_merge: false                  # overrides supervisor.auto_merge for this project
     frozen: false                      # true: nothing merges by itself, for example before a release
+    split_approval: user               # user | queen: who accepts a split proposal; the dashboard's switch wins.
+                                       # Today every proposal waits for the user's yes either way
     priority: 1                        # 1 = highest
     max_parallel_workers: 2
     daily_token_limit: 2000000         # no new task starts past this; cache reads do not count

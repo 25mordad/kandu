@@ -123,23 +123,28 @@ class SizingTest(Base):
         self.assertEqual(self.events("run_finished")[0]["role"], "splitter")
         self.assertEqual(self.github.status(1), "Backlog")
 
-    def test_slices_that_can_all_be_undone_are_made_at_once(self):
-        self.github.add(1, "Backlog", body=body())
-        two_way = sized("Large", 40, "mixed", [part("First"), part("Second")])
-        self.runner.steps = [ok(json.dumps(two_way))]
-        made = []
-        with mock.patch.object(split, "approve", side_effect=lambda *a, **k: made.append(a[3]) or [f"{REPO}#5", f"{REPO}#6"]):
-            self.cycle()
-        self.assertEqual(made, [f"{REPO}#1"])
-        self.assertEqual(self.events("decision")[0]["decision"], "split_approved")
-
-    def test_a_split_that_cannot_be_made_waits_for_the_user(self):
+    def large_two_way(self):
         self.github.add(1, "Backlog", body=body())
         self.runner.steps = [ok(json.dumps(sized("Large", 40, "mixed", [part("First"), part("Second")])))]
-        with mock.patch.object(split, "approve", side_effect=TaskError("no")):
+        with mock.patch.object(split, "approve") as approve:
             self.cycle()
+        approve.assert_not_called()
         self.assertEqual(self.github.status(1), "Needs split")
-        self.assertEqual([e["decision"] for e in self.events("decision")], ["split_waits"])
+        self.assertEqual([s["task"] for s in split.pending(self.store)], [f"{REPO}#1"])
+        return [(e["decision"], e["reason"]) for e in self.events("decision")]
+
+    def test_a_two_way_proposal_waits_for_the_user_while_the_user_accepts_splits(self):
+        self.assertEqual(self.config.projects[0].split_approval, "user")
+        self.assertEqual(self.large_two_way(), [("split_waits", "the user accepts this project's splits")])
+
+    def test_a_two_way_proposal_waits_for_the_user_while_the_queen_cannot_accept_one(self):
+        self.config.projects[0].split_approval = "queen"
+        self.assertEqual(self.large_two_way(), [("split_waits", "the queen cannot accept a split yet")])
+
+    def test_the_dashboards_choice_wins_over_the_registry(self):
+        self.config.projects[0].split_approval = "queen"
+        self.store.set_project_setting(self.config.projects[0].name, "split_approval", "user")
+        self.assertEqual(self.large_two_way(), [("split_waits", "the user accepts this project's splits")])
 
     def test_every_unsized_task_is_sized_in_one_cycle(self):
         for number in range(1, 7):
