@@ -23,7 +23,7 @@ from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, lo
 from .github import AGENT_LABEL, GitHubError, task_blockers
 from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
-from .state import PROJECT_SETTINGS, StateStore
+from .state import PROJECT_SETTINGS, StateStore, is_project_setting
 from .tasks import TaskError
 
 PAGE = Path(__file__).with_name("dashboard.html")
@@ -807,12 +807,15 @@ class Api:
         Proposals already accepted and splits already made stay as they are: only a later proposal reads it.
         """
         project = self._project(name)
-        changes = {setting: values[0] for setting, values in query.items()}
-        if not changes:
+        given = {setting: values[0] for setting, values in query.items()}
+        if not given:
             raise ApiError(400, "give a setting, such as split_approval=user")
-        for setting, value in changes.items():
-            if value not in PROJECT_SETTINGS.get(setting, ()):
-                raise ApiError(400, f"not a project setting: {setting}={value}")
+        changes = {}
+        for setting, text in given.items():
+            value = {"true": True, "false": False}.get(text, text) if True in PROJECT_SETTINGS.get(setting, ()) else text
+            if not is_project_setting(setting, value):
+                raise ApiError(400, f"not a project setting: {setting}={text}")
+            changes[setting] = value
         for setting, value in changes.items():
             old = self.store.project_setting(project, setting)
             self.store.set_project_setting(project.name, setting, value)

@@ -10,6 +10,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Worker** | An agent that does one task in its own `git worktree` |
 | **Technical debt** | The column for tasks the user parked without refining them; no agent reads it, and Didban brings them up |
 | **Splitter** | A read-only agent that sizes every task in `Backlog` against the scale and proposes how to split a `Large` one |
+| **Queen answers one-way merges** | A project's switch, off by default: on, the queen's yes to a merge answers its one-way door and the review's questions for the user; off, those wait for the user's yes |
 | **Split approval** | Who accepts a project's split proposals, the user or the queen; the user by default, set in the registry or the dashboard's settings section |
 | **Held task** | A task in `Backlog` that the splitter found must change a forbidden area of its project; no agent works on it until the user releases it in Didban |
 | **Group** | The slices of one split task: chained by `Blocked by`, each with its own PR; built side by side, merged one after another |

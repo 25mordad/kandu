@@ -208,6 +208,7 @@ class Project:
     auto_merge: bool | None = None
     frozen: bool = False
     split_approval: str = "user"     # who accepts this project's split proposals (SPLIT_APPROVALS)
+    queen_answers_one_way: bool = False   # the queen's yes to a head answers its one-way door and its questions
     allowed_tools: list[str] = field(default_factory=list)   # added to the worker's and live check's rules, if they have any
     reports: list[str] = field(default_factory=list)   # files on its machine that `kandu.brief show` reads, read-only
 

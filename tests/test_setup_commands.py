@@ -571,7 +571,7 @@ class CommandsTest(unittest.TestCase):
         setup = (COMMANDS / "kandu-setup.md").read_text(encoding="utf-8")
         add = (COMMANDS / "kandu-add.md").read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"^   \d+\. ", setup, re.MULTILINE)), 13)
-        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 18)
+        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 19)
 
     def test_add_never_creates_a_board_unasked(self):
         self.assertIn("only if the user said yes", (COMMANDS / "kandu-add.md").read_text(encoding="utf-8"))

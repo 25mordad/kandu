@@ -744,8 +744,10 @@ class ControlTest(Base):
         self.store.pause_project("internal-tool")
         self.api.config.projects[0].paused = True
         self.assertEqual(self.get("/api/v1/state")[1]["project_settings"], [
-            {"name": "website", "paused": True, "paused_in_config": True, "split_approval": "user"},
-            {"name": "internal-tool", "paused": True, "paused_in_config": False, "split_approval": "user"}])
+            {"name": "website", "paused": True, "paused_in_config": True, "split_approval": "user",
+             "queen_answers_one_way": False},
+            {"name": "internal-tool", "paused": True, "paused_in_config": False, "split_approval": "user",
+             "queen_answers_one_way": False}])
 
     def test_the_split_switch_is_kept_wins_over_the_registry_and_is_logged(self):
         self.api.config.projects[0].split_approval = "queen"
@@ -765,6 +767,29 @@ class ControlTest(Base):
         self.assertEqual(self.post("/api/v1/projects/ghost/settings?split_approval=queen")[0], 404)
         for query in ("split_approval=anyone", "", "colour=red"):
             self.assertEqual(self.post(f"/api/v1/projects/website/settings?{query}")[0], 400, query)
+        self.assertEqual(self.store.project_settings(), {})
+        self.assertIsNone(self.store.last_event("project_setting_changed"))
+
+    def test_the_one_way_switch_is_kept_wins_over_the_registry_and_is_logged(self):
+        self.api.config.projects[0].queen_answers_one_way = True
+        self.assertEqual(self.post("/api/v1/projects/website/settings?queen_answers_one_way=false"),
+                         (200, {"queen_answers_one_way": False}))
+        self.assertEqual(self.store.project_settings(), {"website": {"queen_answers_one_way": False}})
+        settings = self.get("/api/v1/state")[1]["project_settings"]
+        self.assertEqual([p["queen_answers_one_way"] for p in settings], [False, False])
+        changed = self.store.last_event("project_setting_changed")
+        self.assertEqual((changed["project"], changed["setting"], changed["old"], changed["new"]),
+                         ("website", "queen_answers_one_way", True, False))
+        self.post("/api/v1/projects/website/settings?queen_answers_one_way=true")
+        changed = self.store.last_event("project_setting_changed")
+        self.assertEqual((changed["old"], changed["new"]), (False, True))
+        self.assertEqual(self.get("/api/v1/state")[1]["project_settings"][0]["queen_answers_one_way"], True)
+
+    def test_the_one_way_switch_needs_the_token_and_a_boolean(self):
+        self.assertEqual(self.post("/api/v1/projects/website/settings?queen_answers_one_way=true", "")[0], 403)
+        for value in ("yes", "1", "True", ""):
+            self.assertEqual(self.post(f"/api/v1/projects/website/settings?queen_answers_one_way={value}")[0], 400,
+                             value)
         self.assertEqual(self.store.project_settings(), {})
         self.assertIsNone(self.store.last_event("project_setting_changed"))
 

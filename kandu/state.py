@@ -58,6 +58,7 @@ EVENT_FIELDS = {
     "project_paused": ("project",),
     "project_resumed": ("project",),
     "project_setting_changed": ("project", "setting", "old", "new"),
+    "project_setting_carried": ("project", "setting", "value"),
     "limits_changed": ("session", "week"),
     "parallel_changed": ("total", "projects"),
     "drop_blockers_changed": ("enabled",),
@@ -77,7 +78,16 @@ EVENT_FIELDS = {
     "copy_not_read": ("detail",),
 }
 # Each setting a project may have in the dashboard's settings section, with its values. One there wins over the registry.
-PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS}
+PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS, "queen_answers_one_way": (True, False)}
+# Carried once, on the first cycle after the switch came, for the projects an install had: today's behaviour stays.
+CARRIED_SETTINGS = {"queen_answers_one_way": True}
+
+
+def is_project_setting(setting, value):
+    """A value the setting may take, of the same type: `1` is not `True`."""
+    return any(value == allowed and type(value) is type(allowed) for allowed in PROJECT_SETTINGS.get(setting, ()))
+
+
 NO_TASK_ROLES = ("supervisor", "queen", "bazras")
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
 
@@ -122,6 +132,7 @@ class StateStore:
         self.worker_stops_dir = self.root / "stop-workers"
         self.paused_dir = self.root / "paused"
         self.project_settings_file = self.root / "project-settings.json"
+        self.settings_carried_file = self.root / "settings-carried"  # The one-time carry of CARRIED_SETTINGS ran.
         self.splits_dir = self.root / "splits"
         self.requests_dir = self.root / "requests"
         self.didban_dir = self.root / "didban"
@@ -284,7 +295,7 @@ class StateStore:
 
     def set_project_setting(self, name, setting, value):
         """Keeps one project's choice; the file is replaced at once, so a reader never sees half of it."""
-        if value not in PROJECT_SETTINGS.get(setting, ()):
+        if not is_project_setting(setting, value):
             raise StateError(f"not a project setting: {setting}={value!r}")
         settings = self.project_settings()
         settings.setdefault(name, {})[setting] = value
@@ -294,6 +305,25 @@ class StateStore:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(settings, f, ensure_ascii=False)
         os.replace(tmp, self.project_settings_file)
+
+    def carry_settings(self, projects):
+        """Once per install: a setting that came later keeps today's behaviour for each project it already had.
+
+        An install whose supervisor ran before (it left `current.json`) sets each value of CARRIED_SETTINGS in the
+        state for its registered projects, unless the dashboard already chose one, and logs each. A new install,
+        and a project added later, start from the registry. A marker keeps it from running again.
+        """
+        if self.settings_carried_file.exists():
+            return
+        if self.current_file.exists():
+            chosen = self.project_settings()
+            for project in projects:
+                for setting, value in CARRIED_SETTINGS.items():
+                    if setting not in chosen.get(project.name, {}):
+                        self.set_project_setting(project.name, setting, value)
+                        self.record("project_setting_carried", project=project.name, setting=setting, value=value)
+        self._make_dirs()
+        self.settings_carried_file.touch(mode=0o600)
 
     def project_setting(self, project, setting):
         """The project's setting: the dashboard's choice, else the registry's."""

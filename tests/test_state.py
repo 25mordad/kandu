@@ -74,6 +74,14 @@ class StateTest(unittest.TestCase):
                 self.store.set_project_setting("website", key, value)
         self.assertEqual(self.store.project_settings()["website"], {"split_approval": "queen"})
 
+    def test_the_queen_answers_one_way_merges_is_kept_only_as_a_boolean(self):
+        self.store.set_project_setting("website", "queen_answers_one_way", True)
+        self.assertEqual(self.store.project_settings(), {"website": {"queen_answers_one_way": True}})
+        for value in ("true", 1, 0, None):
+            with self.assertRaises(StateError):
+                self.store.set_project_setting("website", "queen_answers_one_way", value)
+        self.assertIs(self.store.project_settings()["website"]["queen_answers_one_way"], True)
+
     def test_days_are_sorted(self):
         self.store.record("supervisor_woke", now=NOW)
         self.store.record("supervisor_woke", now=NOW - timedelta(days=1))

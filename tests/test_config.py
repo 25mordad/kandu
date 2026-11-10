@@ -160,6 +160,15 @@ class ConfigTest(unittest.TestCase):
         self.edit("projects.yaml", lambda d: d["projects"][0].update(split_approval="anyone"))
         self.assertIn("projects[0] (website).split_approval: must be one of user, queen", self.problems())
 
+    def test_the_queen_answers_one_way_merges_is_a_boolean_off_by_default(self):
+        self.assertIn("queen_answers_one_way: false", (EXAMPLES / "projects.example.yaml").read_text(encoding="utf-8"))
+        self.edit("projects.yaml", lambda d: d["projects"][0].pop("queen_answers_one_way", None))
+        self.assertEqual([p.queen_answers_one_way for p in load_config(self.local).projects], [False, False])
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(queen_answers_one_way=True))
+        self.assertTrue(load_config(self.local).projects[0].queen_answers_one_way)
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(queen_answers_one_way="yes"))
+        self.assertIn("projects[0].queen_answers_one_way: must be bool", self.problems())
+
     def test_wrong_type(self):
         self.edit("kandu.yaml", lambda d: d["dashboard"].update(port="8790"))
         self.assertIn("dashboard.port: must be int", self.problems())

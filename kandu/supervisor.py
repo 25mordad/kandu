@@ -639,9 +639,11 @@ class Supervisor:
         return self.store.last_event("user_approved", task=task.key, head_sha=pr["headRefOid"]) is not None
 
     def _answered(self, task, pr):
-        """The user's yes or the queen's, for this head: either settles the review's questions and the door."""
-        return self._approved(task, pr) or self.store.last_event(
-            "queen_approved", task=task.key, head_sha=pr["headRefOid"]) is not None
+        """The user's yes for this head settles the review's questions and the door. So does the queen's, on a
+        project whose switch lets her yes answer one-way merges."""
+        return self._approved(task, pr) or (
+            self.store.project_setting(task.project, "queen_answers_one_way")
+            and self.store.last_event("queen_approved", task=task.key, head_sha=pr["headRefOid"]) is not None)
 
     def _merge_waits(self, task, pr):
         """Returns why Kandu may not merge. The tests run last: they are the slow check."""
@@ -1115,6 +1117,7 @@ class Supervisor:
             ours = [item for owner, item in items if owner is project]
             view.append({
                 "project": project.name, "rules": project.queen_rules,
+                "queen_answers_one_way": self.store.project_setting(project, "queen_answers_one_way"),
                 "tokens_today": self.store.tokens_counted(today, project=project.name),
                 "daily_token_limit": project.daily_token_limit,
                 "max_parallel_workers": project.max_parallel_workers,
@@ -1332,8 +1335,10 @@ class Supervisor:
         return None
 
     def _queen_approve(self, project, item, task, decision):
-        """Her yes to one head answers its questions and its door. The merge gate still checks everything else,
-        and `auto_merge` stays the user's: she never merges a project the user merges by hand. Returns why not, or None.
+        """Her yes to one head answers its questions and its door, on a project whose switch lets it. While the switch
+        is off, code refuses her yes to a head with a one-way door or a question for the user: those wait for the
+        user's yes. The merge gate still checks everything else, and `auto_merge` stays the user's: she never merges
+        a project the user merges by hand. Returns why not, or None.
         """
         pr = self.github.find_pr(item.repo, item.number)
         head = decision["head_sha"]
@@ -1341,6 +1346,10 @@ class Supervisor:
         why = queen.why_no_approval(pr, reviewed, head)
         if why is not None:
             return why
+        if not self.store.project_setting(project, "queen_answers_one_way"):
+            asked = [q for q in questions.open_questions(self.store) if q["task"] == task]
+            if reviewed["door"] != "two-way" or reviewed["wait_for_user"] or asked:
+                return "the user answers this project's one-way merges"
         self.store.record("queen_approved", task=task, project=project.name, head_sha=head, note=decision["note"])
         return None
 
@@ -1452,6 +1461,7 @@ class Supervisor:
         woke = self.now()
         self.merged.clear()
         self.held.clear()
+        self.store.carry_settings(self.config.projects)  # before the first snapshot: it tells an install that ran before
         self.store.record("supervisor_woke")
         self._snapshot("awake")
         settings = self.config.settings.supervisor

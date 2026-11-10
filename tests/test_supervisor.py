@@ -614,13 +614,59 @@ class QueenTest(Base):
                           head_sha=head, findings=0, blockers=blockers, door="one-way", criteria_met=criteria_met,
                           wait_for_user=["Deferred work?"], user_brief=None)
 
+    def answers_one_way(self):
+        self.store.set_project_setting("website", "queen_answers_one_way", True)
+
     def test_her_yes_to_a_reviewed_head_is_recorded(self):
+        self.answers_one_way()
         self.github.open_pr(REPO, 1, SHA1)
         self.reviewed()
         refused, _ = self.sup._carry_out([self.approve()], [])
         self.assertEqual(refused, [])
         self.assertIsNotNone(self.store.last_event("queen_approved", task=f"{REPO}#1", head_sha=SHA1))
         self.assertEqual(questions.open_questions(self.store), [])
+
+    def test_while_her_yes_does_not_answer_one_way_merges_code_refuses_it_on_a_one_way_door_or_a_question(self):
+        self.assertFalse(self.config.projects[0].queen_answers_one_way)
+        cases = (("one-way", []), ("two-way", ["Deferred work?"]))
+        for door, asked in cases:
+            with self.subTest(door=door):
+                self.github.open_pr(REPO, 1, SHA1)
+                self.store.record("review_finished", task=f"{REPO}#1", project="website", run_id="r", round=1,
+                                  head_sha=SHA1, findings=0, blockers=0, door=door, criteria_met=True,
+                                  wait_for_user=asked, user_brief=None)
+                refused, _ = self.sup._carry_out([self.approve()], [])
+                self.assertEqual(refused, [f"approve of {REPO}#1: the user answers this project's one-way merges"])
+        self.assertIsNone(self.store.last_event("queen_approved"))
+
+    def test_while_it_is_off_her_yes_to_a_head_with_nothing_for_the_user_is_kept(self):
+        self.github.open_pr(REPO, 1, SHA1)
+        self.store.record("review_finished", task=f"{REPO}#1", project="website", run_id="r", round=1,
+                          head_sha=SHA1, findings=0, blockers=0, door="two-way", criteria_met=True,
+                          wait_for_user=[], user_brief=None)
+        refused, _ = self.sup._carry_out([self.approve()], [])
+        self.assertEqual(refused, [])
+
+    def test_a_question_an_earlier_head_left_open_waits_for_the_user_while_it_is_off(self):
+        self.github.open_pr(REPO, 1, SHA1)
+        self.store.record("review_finished", task=f"{REPO}#1", project="website", run_id="r", round=1,
+                          head_sha="0" * 40, findings=0, blockers=0, door="two-way", criteria_met=True,
+                          wait_for_user=["Deferred work?"], user_brief=None)
+        self.store.record("review_finished", task=f"{REPO}#1", project="website", run_id="r", round=2,
+                          head_sha=SHA1, findings=0, blockers=0, door="two-way", criteria_met=True,
+                          wait_for_user=[], user_brief=None)
+        refused, _ = self.sup._carry_out([self.approve()], [])
+        self.assertEqual(refused, [f"approve of {REPO}#1: the user answers this project's one-way merges"])
+
+    def test_her_look_says_per_project_whether_her_yes_answers_one_way_merges(self):
+        self.answers_one_way()
+        self.github.statuses[self.github.items[0].url] = "Done"
+        self.report_debt()  # a note to park wakes her
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        projects = self.runner.runs[0].prompt.split("## Projects\n```json\n", 1)[1].split("\n```", 1)[0]
+        view = {p["project"]: p["queen_answers_one_way"] for p in json.loads(projects)}
+        self.assertEqual(view, {"website": True, "internal-tool": False})
 
     def test_her_yes_needs_the_current_head_and_a_clean_review(self):
         cases = (("0" * 40, {}, "newer head"), (SHA1, {"blockers": 1}, "blocker"),
@@ -1176,6 +1222,47 @@ class ParallelTest(Base):
         self.cycle()
         self.assertEqual(self.runner.most_running, 2)
         self.assertEqual(len(self.runner.runs), 3)
+
+
+class OneWayCarriedTest(Base):
+    """The first run after the switch came keeps today's behaviour for the projects already registered."""
+
+    def carried(self):
+        return [(e["project"], e["setting"], e["value"]) for e in self.events("project_setting_carried")]
+
+    def test_an_install_that_ran_before_sets_each_registered_project_on_once_and_logs_it(self):
+        self.store.write_current({"supervisor": "asleep"})  # a cycle ran before this change
+        self.cycle()
+        self.assertEqual(self.store.project_settings(), {"website": {"queen_answers_one_way": True},
+                                                         "internal-tool": {"queen_answers_one_way": True}})
+        self.assertEqual(self.carried(), [("website", "queen_answers_one_way", True),
+                                          ("internal-tool", "queen_answers_one_way", True)])
+        self.store.set_project_setting("website", "queen_answers_one_way", False)
+        self.cycle()
+        self.assertEqual(self.store.project_setting(self.config.projects[0], "queen_answers_one_way"), False)
+        self.assertEqual(len(self.carried()), 2)
+
+    def test_a_project_added_later_starts_off(self):
+        self.store.write_current({"supervisor": "asleep"})
+        self.cycle()
+        later = replace(self.config.projects[1], name="blog")
+        self.config.projects.append(later)
+        self.cycle()
+        self.assertFalse(self.store.project_setting(later, "queen_answers_one_way"))
+        self.assertNotIn("blog", [project for project, _, _ in self.carried()])
+
+    def test_a_new_install_sets_nothing_on(self):
+        self.cycle()
+        self.cycle()
+        self.assertEqual(self.store.project_settings(), {})
+        self.assertEqual(self.carried(), [])
+
+    def test_a_choice_already_made_in_the_dashboard_is_kept(self):
+        self.store.write_current({"supervisor": "asleep"})
+        self.store.set_project_setting("website", "queen_answers_one_way", False)
+        self.cycle()
+        self.assertFalse(self.store.project_setting(self.config.projects[0], "queen_answers_one_way"))
+        self.assertEqual(self.carried(), [("internal-tool", "queen_answers_one_way", True)])
 
 
 class FirstRunTest(Base):
@@ -1883,13 +1970,38 @@ class MergeTest(Base):
         self.store.record("queen_approved", task=f"{REPO}#1", project="website", head_sha=sha, note="Fine.")
 
     def test_the_queens_yes_passes_a_one_way_door_and_the_questions(self):
+        self.store.set_project_setting("website", "queen_answers_one_way", True)
         self.waits("one-way", report(SHA1, door="one-way", wait=["Deferred work?"]))
         self.queen_approves()
         self.runner.steps = [self.PASS]
         self.cycle()
         self.assertEqual(self.github.merges, [SHA1])
 
+    def test_while_it_is_off_a_one_way_head_she_approved_still_waits_for_the_user(self):
+        self.waits("one-way", report(SHA1, door="one-way", wait=["Deferred work?"]))
+        self.queen_approves()  # a yes she gave while the switch was on
+        self.cycle()
+        self.assertEqual(self.github.merges, [])
+        self.assertIn("one-way", self.events("decision")[-1]["reason"])
+        self.assertIn("Deferred work?", self.events("decision")[-1]["reason"])
+        self.approve()
+        self.runner.steps = [self.PASS]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+
+    def test_while_it_is_off_her_approve_of_a_one_way_head_is_refused_and_nothing_merges(self):
+        self.config.settings.supervisor.queen = True
+        none = json.dumps({"brief": "Nothing.", "decisions": []})
+        yes = json.dumps({"brief": "Fine.", "decisions": [{"task": f"{REPO}#1", "action": "approve",
+                                                            "head_sha": SHA1, "note": "Deferring it is fine."}]})
+        self.runner.steps = [report(SHA1, door="one-way"), yes, none]
+        self.cycle()
+        self.assertEqual(self.github.merges, [])
+        self.assertIsNone(self.store.last_event("queen_approved"))
+        self.assertIn("the user answers this project's one-way merges", self.events("queen_finished")[0]["brief"])
+
     def test_a_merge_she_says_yes_to_lands_in_the_same_cycle(self):
+        self.store.set_project_setting("website", "queen_answers_one_way", True)
         self.config.settings.supervisor.queen = True
         none = json.dumps({"brief": "Nothing.", "decisions": []})
         yes = json.dumps({"brief": "Fine.", "decisions": [{"task": f"{REPO}#1", "action": "approve",

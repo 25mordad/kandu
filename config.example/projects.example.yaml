@@ -35,6 +35,8 @@ projects:
     frozen: false                      # true: nothing merges by itself, for example before a release
     split_approval: user               # user | queen: who accepts a split proposal; the dashboard's switch wins.
                                        # Today every proposal waits for the user's yes either way
+    queen_answers_one_way: false       # true: the queen's yes to a merge answers its one-way door and the review's
+                                       # questions for the user; off, those wait for the user's yes. The dashboard's switch wins
     priority: 1                        # 1 = highest
     max_parallel_workers: 2
     daily_token_limit: 2000000         # no new task starts past this; cache reads do not count
