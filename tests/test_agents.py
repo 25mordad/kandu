@@ -59,6 +59,10 @@ class ToolsTest(unittest.TestCase):
         self.assertNotIn("docs/**", text)
         self.assertIn("## Run it", text)
 
+    def test_a_first_review_is_told_to_leave_earlier_empty(self):
+        text = agents.reviewer_prompt(project(), "o/r", 12, 7, "abc123", "en", [], ["It works"], 4, "main")
+        self.assertIn("No finding is open in this review, so `earlier` stays empty", text)
+
     def test_every_limited_role_may_read_an_issue_or_pr_from_the_copy(self):
         for allowed, _ in (agents.worker_tools(project(), "kandu/1-a", RULES), agents.reviewer_tools(project(), RULES),
                            agents.live_check_tools(project(), RULES), agents.role_tools(RULES)):

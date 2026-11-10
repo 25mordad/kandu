@@ -65,7 +65,7 @@ Add one short question to `wait_for_user` for each of these. Do not add anything
 Those questions stay open for the user in Didban, so a choice the issue left open is asked, not assumed.
 
 ## Report
-Reply with one JSON object and nothing else. Be direct: "This breaks when X." State when and what breaks, and how to fix it. `criteria` has one result per criterion you were given, in their order, and a criterion that is not met needs a blocker that names its number. `criterion` is null on any other finding.
+Reply with one JSON object and nothing else. Be direct: "This breaks when X." State when and what breaks, and how to fix it. `criteria` has one result per criterion you were given, in their order, and a criterion that is not met needs a blocker that names its number. `criterion` is null on any other finding. No finding is open in this review, so `earlier` stays empty, even if the PR shows findings from earlier reviews.
 
 ```json
 {

@@ -73,7 +73,11 @@ def _check_finding(finding):
 
 
 def validate_report(report, still_open, second=False):
-    """Checks a report against the items left by the last review. A second review judges no criteria and adds nothing."""
+    """Checks a report against the items left by the last review. A second review judges no criteria and adds nothing.
+
+    A first review has no finding open, so results it gives in `earlier` are for findings already settled: they are
+    taken out of the report and returned, for the caller to log.
+    """
     if set(report) != REPORT_KEYS:
         raise ReportError("report has the wrong keys")
     if not isinstance(report["head_sha"], str) or not report["head_sha"]:
@@ -87,6 +91,9 @@ def validate_report(report, still_open, second=False):
     for name in ("criteria", "earlier", "findings"):
         if not isinstance(report[name], list):
             raise ReportError(f"{name} must be a list")
+    stale = []
+    if not second and not still_open:
+        stale, report["earlier"] = report["earlier"], []
     if not second:
         if not report["criteria"]:
             raise ReportError("no acceptance criterion has a result")
@@ -106,6 +113,7 @@ def validate_report(report, still_open, second=False):
         new = [f["n"] for f in report["findings"]]
         if len(set(new)) != len(new) or used & set(new):
             raise ReportError("finding numbers must not repeat")
+    return stale
 
 
 def _in_scope(finding, criteria, changed):

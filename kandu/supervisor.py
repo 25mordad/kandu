@@ -444,9 +444,11 @@ class Supervisor:
         tools = agents.reviewer_tools(task.project, self._rules("reviewer"), self._remote(task.project))
         result = self._agent(task, "reviewer", cwd, prompt, tools, run_id, schema=review.REPORT_SCHEMA)
 
+        stale = []
+
         def read(text):
             report = review.parse_report(text)
-            review.validate_report(report, to_fix, second=bool(to_fix))
+            stale[:] = review.validate_report(report, to_fix, second=bool(to_fix))
             return report
         try:
             report = self._reply(task, "reviewer", cwd, tools, result, read, schema=review.REPORT_SCHEMA)
@@ -457,6 +459,9 @@ class Supervisor:
         if report["head_sha"] != head:
             self._decide(task, "review_voided", "the head moved during the review")
             return
+        if stale:
+            self._decide(task, "stale_earlier_ignored",
+                         f"{len(stale)} results for findings no longer open: {[e.get('n') if isinstance(e, dict) else e for e in stale]}")
         if dropped:
             self._decide(task, "findings_dropped", f"{dropped} outside what this review may report")
         findings = review.open_after(report, to_fix)

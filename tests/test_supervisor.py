@@ -1662,6 +1662,20 @@ class ReviewRoundsTest(Base):
         self.cycle()
         self.assertIn("# Reviewer", self.runner.runs[-1].prompt)
 
+    def test_a_round_three_first_review_ignores_stale_earlier_results(self):
+        fixed = [{"n": 1, "result": "fixed", "body": "ok"}]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), self.worker_pushes(SHA2),
+                             report(SHA2, earlier=fixed)]
+        self.cycle()
+        self.github.prs[(REPO, 1)]["headRefOid"] = SHA3
+        self.runner.steps = [report(SHA3, earlier=fixed)]
+        self.cycle()
+        self.assertIn("# Reviewer", self.runner.runs[-1].prompt)
+        self.assertEqual(self.runner.steps, [])
+        finished = self.events("review_finished")[-1]
+        self.assertEqual((finished["round"], finished["head_sha"], finished["findings"]), (3, SHA3, 0))
+        self.assertIn("stale_earlier_ignored", [e["decision"] for e in self.events("decision")])
+
     def test_an_invalid_report_is_blocked_and_posts_nothing(self):
         self.tried_before()
         self.runner.steps = [self.worker_makes_pr(), "looks fine to me"]

@@ -43,7 +43,6 @@ class ReportTest(unittest.TestCase):
             report(head_sha=""), report(findings=[{"n": 1}]), report(findings=[FINDING | {"blocker": "yes"}]),
             report(findings=[FINDING | {"n": True}]), report(findings=[FINDING | {"body": " "}]),
             report(findings=[FINDING, FINDING]), report(findings="none"), report(extra=1),
-            report(earlier=[{"n": 9, "result": "fixed"}]),
         ]
         for item in bad:
             with self.assertRaises(ReportError, msg=item):
@@ -58,6 +57,20 @@ class ReportTest(unittest.TestCase):
         twice = [{"n": 1, "result": "fixed"}, {"n": 1, "result": "fixed"}]
         with self.assertRaises(ReportError):
             validate_report(report(earlier=twice), [FINDING])
+
+    def test_a_first_review_ignores_results_for_findings_no_longer_open(self):
+        stale = [{"n": 1, "result": "fixed", "body": "ok"}, {"n": 2, "result": "not_fixed", "body": "old"}]
+        result = report(earlier=stale, findings=[FINDING | {"n": 3}])
+        self.assertEqual(validate_report(result, []), stale)
+        self.assertEqual(result["earlier"], [])
+        self.assertEqual(open_after(result, []), [FINDING | {"n": 3}])
+
+    def test_a_second_review_still_needs_one_result_per_open_finding(self):
+        with self.assertRaises(ReportError):
+            validate_report(report(criteria=[], earlier=[]), [FINDING], second=True)
+        stale = [{"n": 1, "result": "fixed"}, {"n": 7, "result": "fixed"}]
+        with self.assertRaises(ReportError):
+            validate_report(report(criteria=[], earlier=stale), [FINDING], second=True)
 
     def test_a_new_finding_cannot_reuse_an_open_number(self):
         with self.assertRaises(ReportError):
