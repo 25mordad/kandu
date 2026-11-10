@@ -394,6 +394,9 @@ class Api:
             # A task without `agent` is the user's to do by hand: shown for a free flight, never worked by Kandu.
             entry = {"task": task, "title": item.title, "url": item.url, "by_hand": item.by_hand,
                      "yours": item.waits_by_hand}
+            if item.by_hand:  # Its dialog shows what the user is to do, read from the copy: no GitHub call.
+                entry |= {"goal": (tasks.section_text(item.body or "", "Goal") or "").strip(),
+                          "criteria": (tasks.section_text(item.body or "", "Acceptance criteria") or "").strip()}
             if item.status in MERGEABLE_COLUMNS:
                 entry["blockers"] = self._blockers(item, columns)
             projects[name][item.status].append(entry)

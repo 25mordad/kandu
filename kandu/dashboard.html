@@ -317,6 +317,12 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "project_on_pause": "Paused",
   "by_hand": "By hand",
   "by_hand_hint": "No agent label: Kandu leaves it alone. Open a free flight to do it yourself.",
+  "by_hand_yours": "By hand, waits for you",
+  "by_hand_what": "A task by hand: no agent works it and the queen never picks it.",
+  "by_hand_how": "Do it yourself, or with the free flight in this window.",
+  "by_hand_done": "When it is done, close its issue: it moves to Done.",
+  "issue_goal": "Goal",
+  "issue_criteria": "Acceptance criteria",
   "queen": "The queen",
   "queen_asks": "She asks you",
   "drop_ask": "She asks to drop the blocker {blocker}",
@@ -510,6 +516,12 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "project_on_pause": "متوقف",
   "by_hand": "دستی",
   "by_hand_hint": "برچسب agent ندارد: ملکه سراغش نمی‌رود. با پرواز آزاد خودت انجامش بده.",
+  "by_hand_yours": "دستی، منتظر توست",
+  "by_hand_what": "تسک دستی: هیچ ایجنتی رویش کار نمی‌کند و ملکه هرگز سراغش نمی‌رود.",
+  "by_hand_how": "خودت انجامش بده، یا با پرواز آزاد همین پنجره.",
+  "by_hand_done": "وقتی تمام شد، ایشوی آن را ببند: به ستون Done می‌رود.",
+  "issue_goal": "هدف",
+  "issue_criteria": "معیارهای پذیرش",
   "queen": "ملکه",
   "queen_asks": "از تو می‌پرسد",
   "drop_ask": "می‌خواهد مانع {blocker} برداشته شود",
@@ -932,6 +944,9 @@ const bdi = text => `<bdi>${esc(text)}</bdi>`;
 const numberOf = task => `\u2066#${num(Number(task.split("#")[1]))}\u2069`;
 const repoOf = task => task.split("#")[0].split("/").pop();
 const badge = (column, label) => `<span class="badge" style="--c:${FLOWERS[column]?.swatch || "#a8a297"}">${esc(tr(label || column))}</span>`;
+// An open by-hand task waits for the user, never for the queen, whatever its column.
+const stateText = item => item.yours ? t("by_hand_yours") : tr(item.column === "waiting" ? "waiting for machine" : item.column);
+const stateBadge = item => item.yours ? `<span class="badge" style="--c:#e8590c">${esc(t("by_hand_yours"))}</span>` : badge(item.column, item.column === "waiting" ? "waiting for machine" : item.column);
 
 // What the API says stays in English; the page translates the values it knows.
 function tr(value) {
@@ -1067,6 +1082,8 @@ const ON_THE_WAY = ["Ready", "In progress", "In review"];  // A column that says
 const PETALS = [0, 60, 120, 180, 240, 300];
 const RAYS = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
 const CROWN = "M-7 -5 l3.5 4 3.5 -5 3.5 5 3.5 -4 v8 h-14z";
+// An open by-hand task is the user's: a hand in place of the queen's crown, as she never picks it.
+const HAND = '<path class="sign" style="fill:#f08c4a;stroke-width:1.2" transform="translate(0 -6)" d="M-4 4 V-2 a1 1 0 0 1 2 0 V-5 a1 1 0 0 1 2 0 V-6 a1 1 0 0 1 2 0 V-5 a1 1 0 0 1 2 0 V0 l1.6 -1.6 a1 1 0 0 1 1.4 1.4 L2 4.5 Q1 6 -1 6 H-2 Q-4 6 -4 4z"/>';
 const SCALES = {Small: .72, Medium: 1, Large: 1.4};
 const CELL_W = 72, CELL_H = 124, COMB_ROW = 12;
 const CHECK = '<path class="sign light" d="M-4.5 0 L-1 3.5 L5 -3.5"/>';
@@ -1091,9 +1108,8 @@ const MARKS = {
   yours: '<text class="mark-text" y="3.4">!</text>',
 };
 
-function bloom(column, index) {
+function bloom(column, index, sign = SIGNS[column]) {
   const sway = `sway${index % 2 ? " alt" : ""}`;
-  const sign = SIGNS[column];
   if (column === "Blocked") {
     return `<g><path d="M0 34 Q2 10 -13 6" fill="none" stroke="#8a7f66" stroke-width="3"/>
       <circle cx="-15" cy="9" r="6" fill="#9a8f80"/><path class="sign" style="stroke:#c43d2f;stroke-width:2.2" d="M-18 6 l6 6 M-12 6 l-6 6"/><circle cx="-5" cy="33" r="3" fill="#9a8f80"/><circle cx="7" cy="34" r="3" fill="#9a8f80"/></g>`;
@@ -1127,10 +1143,10 @@ function flower(item, index) {
   const {size, door, sent_back: back, slice, questions, yours} = item.mark || {};
   const scale = SCALES[size] || 1;
   const marks = [door && door !== "two-way" ? [MARKS.door] : null, back ? [MARKS.back] : null, slice ? [MARKS.slice] : null,
-                 size || item.column === "Technical debt" ? null : [MARKS.unsized], questions ? [`<text class="mark-text" y="3.4">${num(questions)}</text>`, "ask"] : null,
+                 size || item.column === "Technical debt" || item.by_hand ? null : [MARKS.unsized], questions ? [`<text class="mark-text" y="3.4">${num(questions)}</text>`, "ask"] : null,
                  yours ? [MARKS.yours, "yours"] : null].filter(Boolean);
   const start = -(marks.length - 1) * 7.5;
-  return `<g class="bloom" transform="translate(0 34) scale(${scale}) translate(0 -34)">${bloom(item.column, index)}</g>
+  return `<g class="bloom" transform="translate(0 34) scale(${scale}) translate(0 -34)">${bloom(item.column, index, item.yours ? HAND : undefined)}</g>
     ${marks.map(([drawing, kind], i) => markAt(start + i * 15, drawing, kind)).join("")}`;
 }
 
@@ -1282,7 +1298,7 @@ function renderScene(state, queue) {
       const x = patch.x + (i % patch.perRow) * CELL_W + CELL_W / 2 + (patch.width - patch.perRow * CELL_W) / 2;
       const y = patch.y + Math.floor(i / patch.perRow) * CELL_H + 54;
       spots[item.task] = {x, y};
-      const title = `${item.task} · ${item.title} · ${tr(item.column === "waiting" ? "waiting for machine" : item.column)}${item.by_hand ? ` · ${t("by_hand")}` : ""}${heldLines(item.mark, item.blockers).map(line => ` · ${line}`).join("")}`;
+      const title = `${item.task} · ${item.title} · ${stateText(item)}${item.by_hand && !item.yours ? ` · ${t("by_hand")}` : ""}${heldLines(item.mark, item.blockers).map(line => ` · ${line}`).join("")}`;
       return `<g class="clickable" data-review="${esc(item.task)}" transform="translate(${x} ${y})"><title>${esc(title)}</title>${flower(item, i)}
         <text class="flower-number" y="52">${numberOf(item.task)}</text></g>`;
     }).join("");
@@ -1320,7 +1336,8 @@ function renderLegend() {
   const entry = (drawing, label, box, height) => `<span><svg viewBox="${box}" style="height:${height}px" aria-hidden="true">${drawing}</svg>${esc(label)}</span>`;
   const group = (title, entries) => `<div class="legend-group"><b>${t(title)}</b>${entries.join("")}</div>`;
   const kinds = ["Your approval", "Approved", "Needs info", "Needs split", "In review", "In progress", "Ready", "waiting", "Blocked", "Backlog", "Technical debt"];
-  const flowers = kinds.map(kind => entry(bloom(kind, 0), tr(kind === "waiting" ? "waiting for machine" : kind), "-28 -28 56 66", 46));
+  const flowers = [...kinds.map(kind => entry(bloom(kind, 0), tr(kind === "waiting" ? "waiting for machine" : kind), "-28 -28 56 66", 46)),
+                   entry(bloom("Backlog", 0, HAND), t("by_hand_yours"), "-28 -28 56 66", 46)];
   const sizes = Object.keys(SCALES).map(size => entry(flower({column: "In progress", mark: {size}}, 0), tr(size), "-34 -46 68 84", 58));
   const mark = (drawing, key, kind) => entry(markAt(0, drawing, kind), t(key), "-9 25 18 18", 20);
   const signs = [mark(MARKS.door, "mark_door"), mark(MARKS.back, "sent_back"), mark(MARKS.slice, "mark_slice"), mark(MARKS.unsized, "mark_unsized"),
@@ -1487,7 +1504,7 @@ async function refreshState() {
 }
 
 function matches(project, item, words) {
-  const text = `${project} ${item.task} ${item.title} ${tr(item.column)} ${item.by_hand ? t("by_hand") : ""} ${item.mark?.yours ? t("waits_for_you") : ""}`.toLowerCase();
+  const text = `${project} ${item.task} ${item.title} ${stateText(item)} ${item.by_hand ? t("by_hand") : ""} ${item.mark?.yours ? t("waits_for_you") : ""}`.toLowerCase();
   return words.every(word => text.includes(word));
 }
 
@@ -1495,9 +1512,8 @@ function projectCard(project, shown, total, searching) {
   const sorted = [...shown].sort((a, b) => COLUMN_ORDER.indexOf(a.column) - COLUMN_ORDER.indexOf(b.column));
   const counts = COLUMN_ORDER.map(column => [column, sorted.filter(item => item.column === column).length]).filter(([, count]) => count);
   const rows = sorted.map(item => {
-    const label = item.column === "waiting" ? "waiting for machine" : item.column;
-    return `<tr data-review="${esc(item.task)}"><td class="fit number">${numberOf(item.task)}</td><td dir="auto"><button class="textlink">${esc(item.title || item.task)}</button>${item.by_hand ? ` <span class="badge" title="${esc(t("by_hand_hint"))}">${t("by_hand")}</span>` : ""}${item.mark?.yours ? ` <span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : ""}${heldLines(item.mark, item.blockers).map(line => `<div class="muted" dir="auto">${esc(line)}</div>`).join("")}</td>
-      <td class="fit">${badge(item.column, label)}</td></tr>`;
+    return `<tr data-review="${esc(item.task)}"><td class="fit number">${numberOf(item.task)}</td><td dir="auto"><button class="textlink">${esc(item.title || item.task)}</button>${item.by_hand && !item.yours ? ` <span class="badge" title="${esc(t("by_hand_hint"))}">${t("by_hand")}</span>` : ""}${item.mark?.yours && !item.yours ? ` <span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : ""}${heldLines(item.mark, item.blockers).map(line => `<div class="muted" dir="auto">${esc(line)}</div>`).join("")}</td>
+      <td class="fit">${stateBadge(item)}</td></tr>`;
   }).join("");
   const table = rows ? `<table class="rows"><thead><tr><th class="fit">${t("number")}</th><th>${t("title")}</th><th class="fit">${t("status")}</th></tr></thead><tbody>${rows}</tbody></table>`
     : `<div class="empty">${t("empty")}</div>`;
@@ -1762,7 +1778,15 @@ function sendBack(task, item) {
   return `<div class="confirm"><div>${t("send_back_sure")}</div><div class="actions"><button class="btn primary" data-back="${esc(task)}">${t("send_back")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`;
 }
 
-const yoursChip = task => lastState?.flowers?.[task]?.yours ? `<span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : "";
+const yoursChip = (task, item) => item?.yours || lastState?.flowers?.[task]?.yours ? `<span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : "";
+
+// What a by-hand task is and how the user does it, with its goal and criteria from the copy, read-only.
+function byHandBox(item) {
+  if (!item?.by_hand) return "";
+  const part = (label, text) => text ? `<div><div class="muted">${label}</div><div class="slice-body" dir="auto">${esc(text)}</div></div>` : "";
+  return `<div class="card pad"><p>${t("by_hand_what")}</p><p>${t("by_hand_how")}</p><p>${t("by_hand_done")}</p></div>
+    ${part(t("issue_goal"), item.goal)}${part(t("issue_criteria"), item.criteria)}`;
+}
 
 function splitBox(task, proposal) {
   // The user's language, also one the page has no text for. The English is what reaches the issue.
@@ -1799,13 +1823,13 @@ async function showReviews(task) {
   const link = (url, label) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${label} ↗</a>`;
   if (!r.pr) {
     openModal(`${numberOf(task)} ${bdi(item?.title || repoOf(task))}`);
-    $("modalbody").innerHTML = `<div class="actions">${item ? badge(item.column) : ""}${yoursChip(task)}<span class="muted">${t("no_pr")}</span></div>${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}<div class="actions">${sendBack(task, item)}</div>${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}<div id="taskflight" class="actions"></div>`;
+    $("modalbody").innerHTML = `<div class="actions">${item ? stateBadge(item) : ""}${yoursChip(task, item)}<span class="muted">${t("no_pr")}</span></div>${byHandBox(item)}${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}<div class="actions">${sendBack(task, item)}</div>${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}<div id="taskflight" class="actions"></div>`;
     renderFlights();
     return;
   }
   openModal(`${numberOf(task)} ${bdi(item?.title || r.pr.title)}`);
-  $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? badge(item.column) : ""}${yoursChip(task)}</div>
-    ${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}
+  $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? stateBadge(item) : ""}${yoursChip(task, item)}</div>
+    ${byHandBox(item)}${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}
     <div class="actions">${sendBack(task, item)}</div>
     ${heldLines({waited: r.waited}, r.blockers).map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
     <div class="actions">${approval(task, r.pr, r.holds)}${link(r.pr.url, t("open_github"))}</div>

@@ -99,6 +99,23 @@ class ReadTest(Base):
                                  f"{REPO}#4": False, f"{REPO}#5": False})
         self.assertEqual(self.get("/api/v1/state")[1]["waits_for_you"], 2)
 
+    def test_a_by_hand_task_carries_its_goal_and_criteria_from_the_copy(self):
+        body = ("## Goal\nPaint the fence.\n\n## Acceptance criteria\n- [ ] It is white.\n- [ ] It is dry.\n\n"
+                "## Out of scope\nThe gate.\n")
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "Backlog", [], body),
+                                                BoardItem(REPO, 2, "t", "u", "Ready", ["agent"], body)]
+        projects = self.get("/api/v1/queue")[1]["projects"]["website"]
+        by_hand = projects["Backlog"][0]
+        self.assertEqual((by_hand["goal"], by_hand["criteria"]), ("Paint the fence.", "- [ ] It is white.\n- [ ] It is dry."))
+        self.assertNotIn("goal", projects["Ready"][0])  # The queen's tasks show their issue elsewhere.
+        called = {name.split(".")[0] for name, *_ in self.github.mock_calls}
+        self.assertLessEqual(called, {"board_items", "board_version"})  # The copy only, never GitHub.
+
+    def test_a_by_hand_task_without_the_sections_says_nothing_of_them(self):
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "Backlog", [], "Just do it.")]
+        entry = self.get("/api/v1/queue")[1]["projects"]["website"]["Backlog"][0]
+        self.assertEqual((entry["goal"], entry["criteria"]), ("", ""))
+
     def test_the_count_of_what_waits_for_the_user_adds_by_hand_tasks_to_the_marked_ones(self):
         self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "Backlog", [], ""),
                                                 BoardItem(REPO, 2, "t", "u", "Ready", ["agent"], "")]
@@ -914,6 +931,60 @@ class HiveTest(unittest.TestCase):
 
     def test_motion_stops_for_those_who_ask(self):
         self.assertIn("prefers-reduced-motion: reduce", self.page)
+
+
+class ByHandPageTest(unittest.TestCase):
+    """An open by-hand task reads as the user's own work on the page (issue #58)."""
+    def setUp(self):
+        self.page = dashboard.PAGE.read_text(encoding="utf-8")
+        text = re.search(r'<script type="application/json" id="text">(.*?)</script>', self.page, re.DOTALL)
+        self.text = json.loads(text.group(1))
+
+    def test_an_open_by_hand_flower_draws_a_hand_and_the_legend_shows_it(self):
+        self.assertIn("const HAND = ", self.page)
+        self.assertIn("bloom(item.column, index, item.yours ? HAND : undefined)", self.page)
+        legend = self.page.split("function renderLegend()")[1].split("\n}\n")[0]
+        self.assertIn('entry(bloom("Backlog", 0, HAND), t("by_hand_yours")', legend)
+
+    def test_no_by_hand_flower_is_called_unsized(self):
+        self.assertIn('size || item.column === "Technical debt" || item.by_hand ? null : [MARKS.unsized]', self.page)
+
+    def test_its_state_reads_by_hand_waits_for_you_in_both_languages(self):
+        self.assertEqual(self.text["en"]["by_hand_yours"], "By hand, waits for you")
+        self.assertEqual(self.text["fa"]["by_hand_yours"], "دستی، منتظر توست")
+        self.assertNotIn("ملکه", self.text["fa"]["by_hand_yours"])
+        self.assertIn('item.yours ? t("by_hand_yours")', self.page)  # In place of the column's name.
+        rows = self.page.split("function projectCard(")[1].split("\n}\n")[0]
+        self.assertIn("stateBadge(item)", rows)
+        dialog = self.page.split("async function showReviews(")[1].split("\n}\n")[0]
+        self.assertEqual(dialog.count("stateBadge(item)"), 2)  # With a PR and without one.
+        self.assertNotIn("badge(item.column)", dialog)
+
+    def test_its_dialog_shows_the_chip_that_it_waits_for_you(self):
+        self.assertIn("const yoursChip = (task, item) => item?.yours || lastState?.flowers?.[task]?.yours", self.page)
+        dialog = self.page.split("async function showReviews(")[1].split("\n}\n")[0]
+        self.assertEqual(dialog.count("yoursChip(task, item)"), 2)
+
+    def test_its_dialog_explains_it_and_shows_its_goal_and_criteria_in_both_languages(self):
+        for language in ("en", "fa"):
+            text = self.text[language]
+            for key in ("by_hand_what", "by_hand_how", "by_hand_done", "issue_goal", "issue_criteria"):
+                self.assertTrue(text[key], (language, key))
+        en = self.text["en"]
+        self.assertIn("no agent works it", en["by_hand_what"])
+        self.assertIn("queen never picks it", en["by_hand_what"])
+        self.assertIn("free flight", en["by_hand_how"])
+        self.assertIn("Done", en["by_hand_done"])
+        self.assertIn("Done", self.text["fa"]["by_hand_done"])
+        self.assertIn("پرواز آزاد", self.text["fa"]["by_hand_how"])
+        box = self.page.split("function byHandBox(")[1].split("\n}\n")[0]
+        for key in ("by_hand_what", "by_hand_how", "by_hand_done", "issue_goal", "issue_criteria"):
+            self.assertIn(f't("{key}")', box)
+        self.assertIn('part(t("issue_goal"), item.goal)', box)
+        self.assertIn('part(t("issue_criteria"), item.criteria)', box)
+        self.assertNotIn("<textarea", box)  # Read-only.
+        dialog = self.page.split("async function showReviews(")[1].split("\n}\n")[0]
+        self.assertEqual(dialog.count("byHandBox(item)"), 2)
 
 
 class HeldByBlockerTest(Base):

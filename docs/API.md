@@ -70,7 +70,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
   "by_hand": false, "yours": false, "blockers": [{"task": "acme-org/website#13", "column": "Ready", "slices": []}]}],
   "Needs info": [], "Blocked": [], "Technical debt": []}}, "stale": false}
 ```
-`by_hand` is true for a task without the `agent` label. `yours` is true for a by-hand task in an open column: not `Done` and not closed, so it waits for the user. A task in `Ready`, `In progress` or `In review` has `blockers`: each open task in its `## Blocked by`, with its `column` on the board, or null. A split one also lists its `slices`, each with its column, and stays open until its last slice closes, as at the merge gate. All of it comes from the copy and the local log.
+`by_hand` is true for a task without the `agent` label. `yours` is true for a by-hand task in an open column: not `Done` and not closed, so it waits for the user. A by-hand task also has `goal` and `criteria`: the text of its issue's `## Goal` and `## Acceptance criteria`, from the copy, or `""` when the issue has no such section. A task in `Ready`, `In progress` or `In review` has `blockers`: each open task in its `## Blocked by`, with its `column` on the board, or null. A split one also lists its `slices`, each with its column, and stays open until its last slice closes, as at the merge gate. All of it comes from the copy and the local log.
 `?fresh=1` reads the board now, at most once a minute, and a task that finished or moved does the same. If GitHub fails, the answer is the last good one with `"stale": true`, and the next read waits 5 minutes; with no good one it is a `502`.
 
 `GET /api/v1/boards`
