@@ -286,7 +286,7 @@ class SupervisorMainTest(Base):
 class EventLogTest(Base):
     def test_a_new_kind_of_event_does_not_wake_the_queen(self):
         self.finished("merged")
-        self.store.record("queen_finished", run_id="r", brief="b", backlog=[], by_hand=[])
+        self.store.record("queen_finished", run_id="r", brief="b", backlog=[], by_hand=[], splits=[])
         self.store.record("notification_sent", kind="failure", key=None)
         before, news = queen.since_last_look(self.store)
         self.assertFalse(queen.worth_a_look(before, news, [], self.store.today()))

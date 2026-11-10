@@ -31,6 +31,7 @@ READY_FOR_USER = ("approved", "approved_with_notes")
 STUCK, YOUR_TURN, DONE, FOR_YOUR_INFO = "stuck", "your_turn", "done", "for_your_info"
 MARKS = {STUCK: "🔴", YOUR_TURN: "🟡", DONE: "🟢", FOR_YOUR_INFO: "⚪"}
 LEVELS = {"pr_ready": YOUR_TURN, "split": YOUR_TURN, "task_done": DONE, "split_made": FOR_YOUR_INFO,
+          "queen_split": FOR_YOUR_INFO,
           "blocker_rewritten": FOR_YOUR_INFO,
           "usage_limit": FOR_YOUR_INFO, "project_limit": FOR_YOUR_INFO}  # Everything else stops work: STUCK.
 
@@ -57,6 +58,7 @@ MESSAGES = {
         "pr_ready": "The PR of {task} is ready for your approval.",
         "task_done": "{task} is merged and done.",
         "split_made": "Kandu split {task} into smaller tasks by itself. Every slice can be undone.",
+        "queen_split": "The queen accepted the proposal to split {task} into {slices}.",
         "blocker_rewritten": "The new task {task} named {old} as a blocker. {old} was split, so it waits for its "
                              "last slice {new} instead.",
         "backup_failed": "Kandu's daily backup failed. The previous copies are untouched. The details are on the dashboard.",
@@ -87,6 +89,7 @@ MESSAGES = {
         "pr_ready": "PR مربوط به {task} آماده‌ی تأیید تو است.",
         "task_done": "{task} ادغام شد و تمام شد.",
         "split_made": "کندو {task} را خودش به تسک‌های کوچک‌تر شکست. همه‌ی تکه‌ها برگشت‌پذیرند.",
+        "queen_split": "ملکه پیشنهاد تقسیم {task} به {slices} را پذیرفت.",
         "blocker_rewritten": "تسک تازه‌ی {task} منتظر {old} بود. {old} شکسته شده، پس به جایش منتظر آخرین تکه‌اش، "
                              "{new}، می‌ماند.",
         "backup_failed": "پشتیبان روزانه‌ی کندو شکست خورد. نسخه‌های قبلی دست نخورده‌اند. جزئیات در داشبورد است.",
@@ -149,6 +152,8 @@ def message_for(event, queen=False):
         return _task_message("needs_decision", "split", event)
     if kind == "decision" and event["decision"] == "split_approved":
         return _task_message("task_done", "split_made", event)
+    if kind == "queen_accepted_split":
+        return Message("task_done", "queen_split", values={"task": event["task"], "slices": ", ".join(event["children"])})
     if kind == "blocker_rewritten" and event["when"] == "defined":  # one waiting before the split is no news
         return Message("task_done", "blocker_rewritten",
                        values={"task": event["task"], "old": event["old"], "new": event["new"]})

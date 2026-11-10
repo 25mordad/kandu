@@ -903,10 +903,11 @@ class Supervisor:
                                   "project. It waits for the owner before any work starts.")
 
     def _wait_for_split(self, task):
-        """Every proposal waits for the user's yes, also when every slice is two-way: while the project's split
-        approval is the user's, and while it is the queen's, since she cannot accept one yet."""
+        """Every proposal waits in `Needs split`, also when every slice is two-way: for the user's yes, and on a
+        project whose split approval is the queen's, also for hers."""
         approval = self.store.project_setting(task.project, "split_approval")
-        why = "the user accepts this project's splits" if approval == "user" else "the queen cannot accept a split yet"
+        why = "the user accepts this project's splits" if approval == "user" \
+            else "the queen may accept it, or leave it for the user"
         self._decide(task, "split_waits", why)
         self.github.comment_issue(task.repo, task.number, f"Kandu sized this {sizing.LARGE}. "
                                   "A proposal to split it waits for the owner.")
@@ -1092,10 +1093,18 @@ class Supervisor:
                                 "stopped_for_a_loop": queen.waits_after_loop(events, key)})
         return waiting
 
-    def _project_view(self, items, backlog, events=(), by_hand=()):
+    def _splits(self, items):
+        """The split proposals she may accept: each one in `Needs split` of a project whose split approval is hers."""
+        pending = {s["task"]: s for s in split.pending(self.store)}
+        return [(project, pending[key]) for project, item in items
+                if item.status == NEEDS_SPLIT and (key := f"{item.repo}#{item.number}") in pending
+                and self.store.project_setting(project, "split_approval") == "queen"]
+
+    def _project_view(self, items, backlog, events=(), by_hand=(), splits=()):
         """What she sees of every project: fields, not task bodies, so a long Backlog stays cheap.
 
-        `by_hand` holds the open by-hand tasks: hers to name, never to act on.
+        `by_hand` holds the open by-hand tasks: hers to name, never to act on. `splits` holds the split proposals
+        she may accept, each named by the version she reads.
         """
         today = self.store.today()
         board = {f"{item.repo}#{item.number}": (project, item) for project, item in items}
@@ -1117,6 +1126,11 @@ class Supervisor:
                             for owner, item in backlog if owner is project],
                 "by_hand": [{"task": f"{item.repo}#{item.number}", "title": item.title, "status": item.status}
                             for owner, item in by_hand if owner is project],
+                "splits": [{"task": proposal["task"], "title": proposal["title"], "reason": proposal["reason"],
+                            "proposal": split.fingerprint(proposal),
+                            "slices": [{"title": part["title"], "size": part["size"], "door": part["door"]}
+                                       for part in proposal["slices"]]}
+                           for owner, proposal in splits if owner is project],
             })
         return view
 
@@ -1130,16 +1144,18 @@ class Supervisor:
         keys = [f"{item.repo}#{item.number}" for _, item in backlog]
         by_hand = self._by_hand()
         hand_keys = sorted(f"{item.repo}#{item.number}" for _, item in by_hand)
+        splits = self._splits(items)
+        split_keys = sorted(f"{p['task']}@{split.fingerprint(p)}" for _, p in splits)
         before, news = queen.since_last_look(self.store)
         paused = [p for p in self.config.projects if self._is_paused(p)]
         news = [e for e in news if e.get("project") not in {p.name for p in paused}]
         hidden = {repo for p in paused for repo in p.repos}
-        if not queen.worth_a_look(before, news, keys, self.store.today(), hidden, hand_keys):
+        if not queen.worth_a_look(before, news, keys, self.store.today(), hidden, hand_keys, split_keys):
             return False
         if self._gate() is not None or self._queen_limit() is not None:
             return False
         events = before + news
-        view = self._project_view(items, backlog, events, by_hand)
+        view = self._project_view(items, backlog, events, by_hand, splits)
         tasks = sorted({e["task"] for e in news if e.get("task")} | {w["task"] for p in view for w in p["waiting"]})
         steps = {task: done for task, done in queen.steps_on(events, tasks).items() if done}
         prompt = agents.queen_prompt(queen.prompt_events(news), view, steps,
@@ -1168,12 +1184,12 @@ class Supervisor:
         except agents.ReplyError as e:
             # Everything stays as it is. Nothing here is worth paying for again each cycle.
             self.store.record("queen_finished", run_id=run_id, brief=f"{queen.COULD_NOT_FINISH}: {e}.",
-                              backlog=keys, by_hand=hand_keys)
+                              backlog=keys, by_hand=hand_keys, splits=split_keys)
             return True
         refused, released = self._carry_out(report["decisions"], events)
         brief = "\n".join([report["brief"], *[f"Refused: {reason}" for reason in refused]])
         self.store.record("queen_finished", run_id=run_id, brief=brief, backlog=[k for k in keys if k not in released],
-                          by_hand=hand_keys)
+                          by_hand=hand_keys, splits=split_keys)
         return True
 
     def _carry_out(self, decisions, events):
@@ -1230,6 +1246,11 @@ class Supervisor:
                 why = self._ask_to_drop(project, item, task, decision, events)
                 if why is not None:
                     refused.append(f"drop_blocker of {task}: {why}")
+                    continue
+            if action == "accept_split":
+                why = self._accept_split(project, task, decision)
+                if why is not None:
+                    refused.append(f"accept_split of {task}: {why}")
                     continue
             if action == "approve":
                 why = self._queen_approve(project, item, task, decision)
@@ -1321,6 +1342,22 @@ class Supervisor:
         if why is not None:
             return why
         self.store.record("queen_approved", task=task, project=project.name, head_sha=head, note=decision["note"])
+        return None
+
+    def _accept_split(self, project, task, decision):
+        """Her yes to the proposal she read is the user's yes, with all of its checks: `split.approve` refuses a task
+        not in `Needs split` and a proposal that changed since. She can neither decline nor change one.
+        Returns why not, or None.
+        """
+        if self.store.project_setting(project, "split_approval") != "queen":
+            return "the user accepts this project's splits"
+        try:
+            children = split.approve(self.config, self.github, self.store, task, self.local_dir,
+                                     seen=decision["proposal"])
+        except (TaskError, split.ReportError, GitHubError) as e:
+            return str(e)
+        self.store.record("queen_accepted_split", task=task, project=project.name, children=children,
+                          note=decision["note"])
         return None
 
     def _park(self, project, item, task, decision, events):

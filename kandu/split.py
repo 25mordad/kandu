@@ -1,6 +1,7 @@
 """The splitter's report, and what happens when the user approves its proposal (DESIGN §2).
 
-The splitter proposes; only the user's approval creates issues. They form a group:
+The splitter proposes; only the user's approval creates issues, or the queen's on a project that lets her,
+through the same `approve`. They form a group:
 each slice is blocked by the one before it, and the parent closes with the last.
 """
 import argparse

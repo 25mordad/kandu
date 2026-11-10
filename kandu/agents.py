@@ -18,7 +18,7 @@ SHOW_RULE = f"Bash({SHOW} *)"
 WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
 LIVE_RESULTS = ("pass", "fail")
 QUEEN_ACTIONS = ("release", "retry", "rework", "verify", "new_task", "block_on", "approve", "ask_user", "park",
-                 "drop_blocker")
+                 "drop_blocker", "accept_split")
 CHECK_RESULTS = ("pass", "fail", "unclear")
 NEW_TASK_FIELDS = ("title", "body", "priority", "kind", "size")
 # Given to `claude`, so her reply is always one JSON object. parse_queen_report still checks the rest.
@@ -30,7 +30,7 @@ QUEEN_SCHEMA = {
             "type": "object", "required": ["task", "action", "note"], "additionalProperties": False, "properties": {
                 "task": {"type": "string"}, "action": {"enum": list(QUEEN_ACTIONS)}, "note": {"type": "string"},
                 "finding": {"type": "integer"}, "head_sha": {"type": "string"}, "on": {"type": "string"},
-                "blocks": {"type": "boolean"}, "title": {"type": "string"}, "body": {"type": "string"},
+                "blocks": {"type": "boolean"}, "proposal": {"type": "string"}, "title": {"type": "string"}, "body": {"type": "string"},
                 **{name.lower(): {"enum": list(values)} for name, values in BOARD_FIELDS.items()}}}},
     },
     "required": ["brief", "decisions"],
@@ -347,6 +347,8 @@ def parse_queen_report(text):
             raise ReplyError("a block_on decision has no task it waits on")
         if decision["action"] == "drop_blocker" and not isinstance(decision.get("on"), str):
             raise ReplyError("a drop_blocker decision names no blocker")
+        if decision["action"] == "accept_split" and not isinstance(decision.get("proposal"), str):
+            raise ReplyError("an accept_split decision names no proposal")
         if decision["action"] == "new_task" and not all(isinstance(decision.get(name), str) and decision[name].strip()
                                                          for name in NEW_TASK_FIELDS):
             raise ReplyError(f"a new_task decision needs {', '.join(NEW_TASK_FIELDS)}")

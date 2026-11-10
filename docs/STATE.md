@@ -40,7 +40,7 @@ state/
 | `notes_sized` | `task`, `project`, `run_id`, `head_sha`, `notes` |
 | `debt_reported` | `task`, `project`, `finding`, `title`, `body`, `size`, `reason` |
 | `debt_parked` | `task`, `project`, `finding`, `url`, `note` |
-| `queen_finished` | `run_id`, `brief`, `backlog`, `by_hand` |
+| `queen_finished` | `run_id`, `brief`, `backlog`, `by_hand`, `splits`: each split proposal she was shown, as `task@version` |
 | `queen_step_done` | `task`, `project`, `action`, `decided`, `result`, `summary`, `head_sha`, `run_id` |
 | `queen_opened` | `task`, `project`, `url` |
 | `loop_stopped` | `task`, `project`, `action`, `reason` |
@@ -53,6 +53,7 @@ state/
 | `user_approved` | `task`, `project`, `head_sha` |
 | `user_resumed` | `task`, `project`, `to` |
 | `queen_approved` | `task`, `project`, `head_sha`, `note` |
+| `queen_accepted_split` | `task`, `project`, `children`, `note`: her reason |
 | `copy_not_read` | `detail` |
 | `priority_raised` | `task`, `project` |
 | `task_sized` | `task`, `project`, `run_id`, `size`, `files`, `door`, `criteria`, `slices` |

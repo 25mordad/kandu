@@ -415,9 +415,9 @@ class FlowerMarksTest(Base):
 class QueenReportTest(Base):
     def test_state_holds_her_newest_brief_and_questions(self):
         self.assertIsNone(self.api.state({})["queen"])
-        self.store.record("queen_finished", run_id="r-1", brief="old", backlog=[], by_hand=[])
+        self.store.record("queen_finished", run_id="r-1", brief="old", backlog=[], by_hand=[], splits=[])
         self.store.record("queen_decided", task=f"{REPO}#1", project="website", action="ask_user", note="Which?")
-        self.store.record("queen_finished", run_id="r-2", brief="new", backlog=[], by_hand=[])
+        self.store.record("queen_finished", run_id="r-2", brief="new", backlog=[], by_hand=[], splits=[])
         queen = self.api.state({})["queen"]
         self.assertEqual(queen["brief"], "new")
         self.assertEqual(queen["questions"], [{"task": f"{REPO}#1", "question": "Which?"}])
@@ -425,7 +425,7 @@ class QueenReportTest(Base):
 
     def asked(self):
         self.store.record("queen_decided", task=f"{REPO}#1", project="website", action="ask_user", note="Which?")
-        self.store.record("queen_finished", run_id="r-1", brief="b", backlog=[], by_hand=[])
+        self.store.record("queen_finished", run_id="r-1", brief="b", backlog=[], by_hand=[], splits=[])
 
     def test_the_users_yes_ends_her_question(self):
         self.asked()
@@ -1167,7 +1167,7 @@ class DropAskTest(Base):
     def ask(self, blocker=f"{REPO}#2", task=f"{REPO}#1"):
         self.store.record("queen_decided", task=task, project="website", action="drop_blocker", note="Not needed.")
         self.store.record("blocker_drop_asked", task=task, project="website", blocker=blocker, reason="Not needed.")
-        self.store.record("queen_finished", run_id="r-1", brief="b", backlog=[], by_hand=[])
+        self.store.record("queen_finished", run_id="r-1", brief="b", backlog=[], by_hand=[], splits=[])
 
     def drops(self):
         return [(d["task"], d["blocker"], d["reason"]) for d in self.get("/api/v1/state")[1]["queen"]["drops"]]

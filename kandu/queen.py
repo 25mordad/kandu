@@ -5,7 +5,8 @@ Code decides when she wakes, so a quiet cycle costs no tokens, and code checks
 each decision before it happens. She can release a task from Backlog, send a
 stopped task back, send a worker back to a PR with her own order, have a
 checker find something out, open a new task, make a merge wait for another,
-answer a merge's questions for one head, park a note, or ask the user, also to drop a blocker
+answer a merge's questions for one head, park a note, accept a split proposal where the
+project lets her, or ask the user, also to drop a blocker
 the task does not need: only the user's yes takes it out of the issue. She
 cannot merge, deploy or pass a lock: the merge gate still decides.
 
@@ -64,18 +65,21 @@ def unparked(events):
     return [e for e in events if e["type"] == "debt_reported" and (e["task"], e["finding"]) not in parked]
 
 
-def worth_a_look(before, news, backlog, today, paused_repos=(), by_hand=()):
+def worth_a_look(before, news, backlog, today, paused_repos=(), by_hand=(), splits=()):
     """`backlog` holds the Backlog tasks nothing blocks. She sees the same list only once a day.
 
     Pausing a project takes its tasks off the list, which is no reason to wake her.
     A note she left unparked also gets one look a day.
     `by_hand` holds the open by-hand tasks: one she has not seen wakes her once, so her brief can name it.
+    `splits` names each split proposal she may accept, by task and version: one she has not seen wakes her once, and
+    one she left wakes her again only once it changes.
     """
     if any(_is_news(event, before) for event in news):
         return True
     looks = [e for e in before if e["type"] == "queen_finished"]
-    if set(by_hand) - set(looks[-1].get("by_hand", ()) if looks else ()):
-        return True
+    for name, now in (("by_hand", by_hand), ("splits", splits)):
+        if set(now) - set(looks[-1].get(name, ()) if looks else ()):
+            return True
     debts = [e for e in unparked(before + news) if e["task"].partition("#")[0] not in paused_repos]
     if debts and (any(e["type"] == "debt_reported" for e in news) or not looks
                   or not looks[-1]["ts"].startswith(today)):

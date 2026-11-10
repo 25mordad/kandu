@@ -3,11 +3,12 @@ import dataclasses
 import io
 import json
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
-from kandu import agents, boards, didban, priority, queen, sizing, split, supervisor
+from kandu import agents, boards, didban, notify, priority, queen, sizing, split, supervisor
+from kandu.state import StateStore
 from kandu.config import BOARD_COLUMNS, Board
 from kandu.github import GitHub, GitHubError, blockers_in
 from kandu.tasks import TaskError, check_size
@@ -137,9 +138,9 @@ class SizingTest(Base):
         self.assertEqual(self.config.projects[0].split_approval, "user")
         self.assertEqual(self.large_two_way(), [("split_waits", "the user accepts this project's splits")])
 
-    def test_a_two_way_proposal_waits_for_the_user_while_the_queen_cannot_accept_one(self):
+    def test_a_two_way_proposal_waits_in_needs_split_while_the_queen_accepts_splits(self):
         self.config.projects[0].split_approval = "queen"
-        self.assertEqual(self.large_two_way(), [("split_waits", "the queen cannot accept a split yet")])
+        self.assertEqual(self.large_two_way(), [("split_waits", "the queen may accept it, or leave it for the user")])
 
     def test_the_dashboards_choice_wins_over_the_registry(self):
         self.config.projects[0].split_approval = "queen"
@@ -757,3 +758,173 @@ class UserTextTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QueenAcceptsSplitTest(Base):
+    """On a project whose split approval is the queen's, she accepts a proposal as the user's yes would, or leaves it."""
+
+    def setUp(self):
+        super().setUp()
+        self.config.settings.supervisor.queen = True
+        self.project = self.config.projects[0]
+        self.project.split_approval = "queen"
+        self.github.on_add = lambda key, size: None
+        self.github.add(10, "Needs split", body=body(), size="Large")
+        self.key = f"{REPO}#10"
+        self.store.write_split(self.key, {"title": "Big", "reason": "Too much.",
+                                          "slices": [part("First"), part("Second", size="Medium", door="one-way")]})
+        self.created = []
+        patcher = mock.patch.object(split, "create_task", side_effect=self.create)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        placer = mock.patch.object(split, "place_task")
+        placer.start()
+        self.addCleanup(placer.stop)
+
+    def create(self, config, github, project, repo, title, text, local_dir, priority, kind, size, deadline, created=None,
+               store=None):
+        number = 11 + len(self.created)
+        self.created.append(title)
+        url = f"https://github.com/{repo}/issues/{number}"
+        created(url)
+        github.add(number, "Backlog", body=text, size=size)
+        return url
+
+    def reply(self, *decisions):
+        return json.dumps({"brief": "What happened.", "decisions": list(decisions)})
+
+    def view(self, run=0):
+        projects = self.runner.runs[run].prompt.split("## Projects\n```json\n", 1)[1].split("\n```", 1)[0]
+        return {p["project"]: p for p in json.loads(projects)}
+
+    def fingerprint(self):
+        return split.fingerprint(self.store.read_split(self.key))
+
+    def accept(self, proposal=None, note="Each slice stands alone."):
+        return {"task": self.key, "action": "accept_split", "proposal": proposal or self.fingerprint(), "note": note}
+
+    def carry_out(self, *decisions):
+        return self.new_supervisor()._carry_out(list(decisions), [])
+
+    def test_her_look_shows_each_proposal_with_its_reason_slices_sizes_and_doors(self):
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.assertEqual(self.view()["website"]["splits"], [{
+            "task": self.key, "title": "Big", "reason": "Too much.", "proposal": self.fingerprint(),
+            "slices": [{"title": "First", "size": "Small", "door": "two-way"},
+                       {"title": "Second", "size": "Medium", "door": "one-way"}]}])
+
+    def test_a_project_set_to_the_user_shows_her_no_proposal_and_does_not_wake_her(self):
+        self.project.split_approval = "user"
+        self.cycle()
+        self.assertEqual(self.runner.runs, [])
+        self.github.add(2, "Backlog")
+        self.sized(f"{REPO}#2")
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.assertEqual(self.view()["website"]["splits"], [])
+
+    def test_a_new_proposal_wakes_her_once(self):
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+
+    def test_a_left_proposal_waits_for_the_user_and_wakes_her_again_only_when_it_changes(self):
+        self.runner.steps = [self.reply(), self.reply()]
+        self.cycle()
+        tomorrow = (datetime.now().astimezone() + timedelta(days=1)).date().isoformat()
+        with mock.patch.object(StateStore, "today", return_value=tomorrow):
+            self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+        self.assertEqual(self.github.status(10), "Needs split")
+        self.assertEqual([s["task"] for s in split.pending(self.store)], [self.key])
+        self.assertEqual(self.created, [])
+        changed = self.store.read_split(self.key) | {"reason": "Still too much."}
+        self.store.write_split(self.key, changed)
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
+
+    def test_her_accept_makes_the_slices_as_the_users_yes_and_tells_the_user(self):
+        refused, _ = self.carry_out(self.accept())
+        self.assertEqual(refused, [])
+        self.assertEqual(self.created, ["First", "Second"])
+        children = [f"{REPO}#11", f"{REPO}#12"]
+        self.assertEqual(self.store.last_event("task_split", task=self.key)["children"], children)
+        accepted = self.store.last_event("queen_accepted_split", task=self.key)
+        self.assertEqual((accepted["children"], accepted["note"]), (children, "Each slice stands alone."))
+        self.assertIsNotNone(self.store.last_event("queen_decided", task=self.key, action="accept_split"))
+        message = notify.message_for(accepted, queen=True)
+        self.assertEqual(notify.LEVELS[message.text], notify.FOR_YOUR_INFO)
+        text = notify._render(message, "en")
+        for name in (self.key, *children):
+            self.assertIn(name, text)
+        self.assertEqual(split.pending(self.store), [])
+
+    def test_it_goes_through_the_users_yes(self):
+        with mock.patch.object(split, "approve", wraps=split.approve) as approve:
+            self.carry_out(self.accept())
+        approve.assert_called_once()
+        self.assertEqual(approve.call_args.kwargs["seen"], self.fingerprint())
+
+    def assert_refused(self, decision, why):
+        refused, _ = self.carry_out(decision)
+        self.assertEqual(len(refused), 1)
+        self.assertIn(why, refused[0])
+        self.assertEqual(self.created, [])
+        self.assertIsNone(self.store.last_event("task_split", task=self.key))
+        self.assertIsNone(self.store.last_event("queen_accepted_split"))
+        self.assertIsNone(self.store.last_event("queen_decided"))
+
+    def test_it_is_refused_on_a_project_set_to_the_user(self):
+        self.project.split_approval = "user"
+        self.assert_refused(self.accept(), "the user accepts this project's splits")
+
+    def test_the_dashboards_choice_of_the_user_refuses_it(self):
+        self.store.set_project_setting(self.project.name, "split_approval", "user")
+        self.assert_refused(self.accept(), "the user accepts this project's splits")
+
+    def test_it_is_refused_on_a_proposal_that_changed_since_she_read_it(self):
+        seen = self.fingerprint()
+        self.store.write_split(self.key, self.store.read_split(self.key) | {"reason": "Another reason."})
+        self.assert_refused(self.accept(seen), "changed since")
+
+    def test_it_is_refused_on_a_task_not_in_needs_split(self):
+        self.github.statuses[f"https://github.com/{REPO}/issues/10"] = "Backlog"
+        self.assert_refused(self.accept(), "not waiting for a split")
+
+    def test_a_github_failure_partway_is_refused_and_leaves_the_proposal_for_the_users_yes(self):
+        def fail_on_second(*args, **kwargs):
+            if self.created:
+                raise GitHubError("gh issue create: down")
+            return self.create(*args, **kwargs)
+
+        with mock.patch.object(split, "create_task", side_effect=fail_on_second):
+            refused, _ = self.carry_out(self.accept())
+        self.assertEqual(len(refused), 1)
+        self.assertIn("gh issue create: down", refused[0])
+        self.assertEqual(self.created, ["First"])
+        self.assertIsNone(self.store.last_event("task_split", task=self.key))
+        self.assertIsNone(self.store.last_event("queen_accepted_split"))
+        self.assertIsNone(self.store.last_event("queen_decided"))
+        self.assertEqual([s["task"] for s in split.pending(self.store)], [self.key])
+        # The user's yes afterwards carries on after the slice that exists.
+        children = split.approve(self.config, self.github, self.store, self.key, self.local,
+                                 seen=self.fingerprint())
+        self.assertEqual(self.created, ["First", "Second"])
+        self.assertEqual(children, [f"{REPO}#11", f"{REPO}#12"])
+
+    def test_she_has_no_way_to_decline_or_change_a_proposal(self):
+        for action in ("decline_split", "change_split"):
+            with self.assertRaises(agents.ReplyError):
+                agents.parse_queen_report(self.reply({"task": self.key, "action": action, "note": "n"}))
+        with self.assertRaisesRegex(agents.ReplyError, "proposal"):
+            agents.parse_queen_report(self.reply({"task": self.key, "action": "accept_split", "note": "n"}))
+        self.assertNotIn("slices", agents.QUEEN_SCHEMA["properties"]["decisions"]["items"]["properties"])
+
+    def test_her_prompt_names_the_decision_and_its_limits(self):
+        self.runner.steps = [self.reply()]
+        self.cycle()
+        prompt = self.runner.runs[0].prompt
+        self.assertIn("`accept_split`", prompt)
+        self.assertIn("never decline or change", prompt)
