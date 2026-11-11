@@ -194,7 +194,7 @@ class Api:
 
     def state(self, query):
         limits = self.config.settings.claude.limits
-        marks = flower_marks(self.store)
+        marks = self._open_marks(flower_marks(self.store))
         return self.store.read_current() | {
             "timer_on": self.timer_on(),
             "stop_requested": self.store.stop_file.exists(),
@@ -215,8 +215,23 @@ class Api:
             "show_requests": self.config.settings.dashboard.show_requests,
         }
 
+    def _open_marks(self, marks):
+        """The log's marks, with «waits for you» kept only on a task that is still open: its card on a board, not
+        in `Done`, its issue not closed. Read from the copy, so it costs GitHub nothing; a reopened task gets its
+        mark back from the log alone. An unreadable copy leaves the log's marks as they are.
+        """
+        if not any(mark["yours"] for mark in marks.values()):
+            return marks
+        try:
+            open_tasks = {f"{i.repo}#{i.number}" for b in self._boards() for i in self.github.board_items(b)
+                          if i.status != DONE and not i.closed_at}
+        except GitHubError:
+            return marks
+        return {task: mark | {"yours": False} if mark["yours"] and task not in open_tasks else mark
+                for task, mark in marks.items()}
+
     def _waits_for_you(self, marks):
-        """How many tasks wait for the user: those the log marks as theirs, and each open by-hand task, once.
+        """How many open tasks wait for the user: those the log marks as theirs, and each open by-hand task, once.
 
         The by-hand ones come from the last queue read, so this costs GitHub nothing.
         """

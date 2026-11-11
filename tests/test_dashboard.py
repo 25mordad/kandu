@@ -124,6 +124,51 @@ class ReadTest(Base):
         self.get("/api/v1/queue")
         self.assertEqual(self.get("/api/v1/state")[1]["waits_for_you"], 2)  # #1 is counted once
 
+    def _loop_stopped(self, *numbers):
+        for number in numbers:
+            self.store.record("loop_stopped", task=f"{REPO}#{number}", project="website", action="retry", reason="used up")
+
+    def _yours(self):
+        body = self.get("/api/v1/state")[1]
+        return body["waits_for_you"], {t for t, mark in body["flowers"].items() if mark["yours"]}
+
+    def test_a_marked_task_whose_card_is_in_done_neither_counts_nor_carries_the_mark(self):
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "Done", ["agent"], ""),
+                                                BoardItem(REPO, 2, "t", "u", "Blocked", ["agent"], "")]
+        self._loop_stopped(1, 2)
+        self.assertEqual(self._yours(), (1, {f"{REPO}#2"}))
+
+    def test_a_marked_task_whose_issue_is_closed_in_another_column_neither_counts_nor_carries_the_mark(self):
+        just_now = datetime.now(timezone.utc).isoformat()
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "Blocked", ["agent"], "", closed_at=just_now)]
+        self._loop_stopped(1)
+        self.assertEqual(self._yours(), (0, set()))
+
+    def test_a_marked_task_with_no_card_is_not_counted(self):
+        self.github.board_items.return_value = []
+        self._loop_stopped(1)
+        self.assertEqual(self._yours(), (0, set()))
+
+    def test_a_reopened_task_counts_again_from_the_log_alone(self):
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "Done", ["agent"], "", closed_at="x")]
+        self._loop_stopped(1)
+        self.assertEqual(self._yours(), (0, set()))
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "Blocked", ["agent"], "")]
+        self.assertEqual(self._yours(), (1, {f"{REPO}#1"}))
+
+    def test_open_tasks_the_log_gives_the_user_and_an_open_by_hand_task_each_count_once(self):
+        self.github.board_items.return_value = [
+            BoardItem(REPO, 1, "t", "u", "Blocked", ["agent"], ""), BoardItem(REPO, 2, "t", "u", "Blocked", ["agent"], ""),
+            BoardItem(REPO, 3, "t", "u", "Backlog", [], ""), BoardItem(REPO, 4, "t", "u", "Backlog", [], "")]
+        self._loop_stopped(1)
+        self.store.record("decision", task=f"{REPO}#2", project="website", decision="block",
+                          reason=dashboard.USER_DECIDES)
+        self._loop_stopped(4)  # by hand and marked by the log: still once
+        self.get("/api/v1/queue")
+        self.assertEqual(self._yours(), (4, {f"{REPO}#1", f"{REPO}#2", f"{REPO}#4"}))
+        called = {name.split(".")[0] for name, *_ in self.github.mock_calls}
+        self.assertLessEqual(called, {"board_items", "board_version"})  # The copy only, never GitHub.
+
     def test_boards_answer_columns_fields_and_cards_from_the_copy(self):
         self.github.board_layout.return_value = {"columns": ["Backlog", "Ready"], "fields": {"Status": ["Backlog", "To do"]}}
         self.github.board_items.return_value = [BoardItem(REPO, 1, "Add search", "u", "Ready", ["agent"], "long body",
@@ -350,6 +395,10 @@ class ReadTest(Base):
 
 
 class FlowerMarksTest(Base):
+    def setUp(self):
+        super().setUp()  # The tasks are open on the board: a task without an open card never waits for the user.
+        self.github.board_items.return_value = [BoardItem(REPO, n, "t", "u", "Blocked", ["agent"], "") for n in (1, 2)]
+
     def task_event(self, kind, **fields):
         self.store.record(kind, task=f"{REPO}#1", project="website", **fields)
 
@@ -430,6 +479,10 @@ class FlowerMarksTest(Base):
 
 
 class QueenReportTest(Base):
+    def setUp(self):
+        super().setUp()  # The tasks are open on the board: a task without an open card never waits for the user.
+        self.github.board_items.return_value = [BoardItem(REPO, n, "t", "u", "Blocked", ["agent"], "") for n in (1, 2)]
+
     def test_state_holds_her_newest_brief_and_questions(self):
         self.assertIsNone(self.api.state({})["queen"])
         self.store.record("queen_finished", run_id="r-1", brief="old", backlog=[], by_hand=[], splits=[])
