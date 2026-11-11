@@ -167,6 +167,29 @@ def open_blockers(github, repo, issue, last_of=lambda key: None):
     return [f"{r}#{n}" for r, _, n in pairs if github.issue_is_open(r, int(n))]
 
 
+# What ends a hold in her view: a new head, a dropped blocker, a new merge decision or a worker's step.
+# Anything else on the task, such as her own decision or a drop ask, leaves the merge held as before.
+_ENDS_HOLD = {"review_finished", "blocker_dropped", "decision", "task_picked", "phase_changed", "run_finished",
+              "task_finished"}
+
+
+def _held_by_blockers(events, key):
+    """True when the task's last merge check held it only on open blockers, with no new head, review or step since."""
+    for event in reversed(events):
+        if event.get("task") != key:
+            continue
+        if event["type"] == "merge_held":
+            return True
+        if event["type"] in _ENDS_HOLD:
+            return False
+    return False
+
+
+def _at_work(item, events):
+    """A worker builds it or is about to. A review takes no worker's place, nor does a merge held only by blockers."""
+    return item.status in (READY, IN_PROGRESS) and not _held_by_blockers(events, f"{item.repo}#{item.number}")
+
+
 class Supervisor:
     def __init__(self, config, store, github, runner, usage_reader, local_dir=DEFAULT_LOCAL_DIR, now=None):
         self.config = config
@@ -1095,7 +1118,7 @@ class Supervisor:
         waiting = []
         for item in items:
             key = f"{item.repo}#{item.number}"
-            if item.status in (BLOCKED, NEEDS_INFO, IN_REVIEW) and key in why:
+            if (item.status in (BLOCKED, NEEDS_INFO, IN_REVIEW) or _held_by_blockers(events, key)) and key in why:
                 waiting.append({"task": key, "status": item.status, "why": why[key],
                                 "stopped_for_a_loop": queen.waits_after_loop(events, key)})
         return waiting
@@ -1126,7 +1149,7 @@ class Supervisor:
                 "tokens_today": self.store.tokens_counted(today, project=project.name),
                 "daily_token_limit": project.daily_token_limit,
                 "max_parallel_workers": project.max_parallel_workers,
-                "at_work": sum(1 for item in ours if item.status in (READY, *RESUMED)),
+                "at_work": sum(1 for item in ours if _at_work(item, events)),
                 "first_in_line": self._first_in_line(project, board, backlog),
                 "waiting": self._waiting(ours, events),
                 "backlog": [{"task": f"{item.repo}#{item.number}", "title": item.title, "priority": item.priority,

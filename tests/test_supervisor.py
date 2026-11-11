@@ -971,6 +971,104 @@ class QueenByHandTest(Base):
         self.assertEqual(brief.count(f"{task}: not a task of a running project"), 4)
 
 
+class QueenAtWorkTest(Base):
+    """Her `at_work` counts only the tasks a worker is building, so a held task never blocks what it waits for."""
+
+    def setUp(self):
+        super().setUp()
+        self.config.settings.supervisor.queen = True
+
+    def view(self):
+        sup = self.new_supervisor()
+        items = list(sup._board_items())
+        events = queen.all_events(self.store)
+        return next(p for p in sup._project_view(items, sup._startable(items), events) if p["project"] == "website")
+
+    def hold(self, number, blocker, head=SHA1):
+        key, reason = f"{REPO}#{number}", f"blocker {REPO}#{blocker} is not merged yet"
+        self.store.record("decision", task=key, project="website", decision="merge_waits", reason=reason)
+        self.store.record("merge_held", task=key, project="website", head_sha=head, blockers=[f"{REPO}#{blocker}"])
+
+    def test_a_task_held_only_by_its_blockers_is_not_at_work(self):
+        self.github.add(2, "Backlog")
+        self.github.add(1, "In progress", body="## Blocked by\n#2\n")
+        self.hold(1, 2)
+        self.assertEqual(self.view()["at_work"], 0)
+
+    def test_a_held_task_counts_again_once_its_head_moves_on(self):
+        self.github.add(2, "Backlog")
+        self.github.add(1, "In progress", body="## Blocked by\n#2\n")
+        self.hold(1, 2)
+        self.store.record("review_finished", task=KEY, project="website", run_id="r", round=2, head_sha=SHA2,
+                          findings=1, blockers=1, door="two-way", criteria_met=True, wait_for_user=[],
+                          user_brief=None)
+        self.assertEqual(self.view()["at_work"], 1)
+
+    def test_a_held_task_stays_held_after_events_that_change_nothing(self):
+        later = {
+            "queen_decided": {"action": "ask_user", "note": "n"},
+            "blocker_drop_asked": {"blocker": f"{REPO}#2", "reason": "r"},
+            "queen_approved": {"head_sha": SHA1, "note": "n"},
+            "priority_raised": {},
+        }
+        for kind, fields in later.items():
+            with self.subTest(event=kind):
+                self.store = StateStore(self.root / f"state-{kind}")
+                self.github.items.clear()
+                self.github.add(2, "Backlog")
+                self.github.add(1, "In progress", body="## Blocked by\n#2\n")
+                self.hold(1, 2)
+                self.store.record(kind, task=KEY, project="website", **fields)
+                view = self.view()
+                self.assertEqual(view["at_work"], 0)
+                self.assertIn(KEY, [w["task"] for w in view["waiting"]])
+
+    def test_a_held_task_counts_again_once_a_blocker_is_dropped(self):
+        self.github.add(2, "Backlog")
+        self.github.add(1, "In progress", body="## Blocked by\n#2\n")
+        self.hold(1, 2)
+        self.store.record("blocker_dropped", task=KEY, project="website", blocker=f"{REPO}#2")
+        self.assertEqual(self.view()["at_work"], 1)
+
+    def test_a_held_task_counts_again_once_a_worker_steps_in(self):
+        self.github.add(2, "Backlog")
+        self.github.add(1, "In progress", body="## Blocked by\n#2\n")
+        self.hold(1, 2)
+        self.store.record("phase_changed", task=KEY, project="website", phase="fix")
+        self.assertEqual(self.view()["at_work"], 1)
+
+    def test_a_task_in_review_is_not_at_work(self):
+        self.github.add(1, "In review")
+        self.assertEqual(self.view()["at_work"], 0)
+
+    def test_ready_and_in_progress_tasks_are_at_work(self):
+        self.github.add(1, "Ready")
+        self.github.add(2, "In progress")
+        self.assertEqual(self.view()["at_work"], 2)
+
+    def test_a_held_task_is_listed_as_waiting_for_its_blocker(self):
+        for status in ("In progress", "In review"):
+            with self.subTest(status=status):
+                self.github.items.clear()
+                self.github.add(2, "Backlog")
+                self.github.add(1, status, body="## Blocked by\n#2\n")
+                self.hold(1, 2)
+                waiting = [w for w in self.view()["waiting"] if w["task"] == KEY]
+                self.assertEqual(len(waiting), 1)
+                self.assertIn(f"{REPO}#2", waiting[0]["why"])
+
+    def test_on_a_one_worker_project_a_held_task_leaves_its_backlog_blocker_first_in_line(self):
+        self.config.projects[0].max_parallel_workers = 1
+        self.github.add(2, "Backlog", priority="High")
+        self.github.add(1, "In review", body="## Blocked by\n#2\n")
+        self.hold(1, 2)
+        website = self.view()
+        self.assertEqual((website["at_work"], website["max_parallel_workers"]), (0, 1))
+        self.assertEqual(website["first_in_line"], [f"{REPO}#2"])
+        self.assertEqual([w["task"] for w in website["waiting"]], [KEY])
+        self.assertIn(f"{REPO}#2", [t["task"] for t in website["backlog"]])
+
+
 class QueenPacesTest(Base):
     def setUp(self):
         super().setUp()

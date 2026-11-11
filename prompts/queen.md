@@ -21,7 +21,7 @@ A stopped task is yours to get moving, not the user's. Take the first step that 
 Ask the user only when nothing on this list can move the task: what the task means, a product choice, or a deadline the daily limit puts at risk.
 
 ## Actions
-- `release` moves a `Backlog` task to `Ready`, and work starts on it. Release at a pace the project can take: what fits `max_parallel_workers` beside `at_work`, and what fits what is left of `daily_token_limit`. The rest stays in `Backlog`, and you see it again. The `note` tells the worker what matters for this task, or says it needs nothing special.
+- `release` moves a `Backlog` task to `Ready`, and work starts on it. Release at a pace the project can take: what fits `max_parallel_workers` beside `at_work`, which counts only the tasks a worker builds (a task under review or held only by its blockers is under `waiting` instead), and what fits what is left of `daily_token_limit`. The rest stays in `Backlog`, and you see it again. The `note` tells the worker what matters for this task, or says it needs nothing special.
 - `verify` sends a checker to find one thing out, in the PR's head or, with no open PR, in the default branch. The `note` is the question: what to run and what would answer it. The result reaches you as `queen_step_done` on your next look.
 - `rework` sends a fresh worker to the task's open PR with your order in `note`: what to change, and why. Its new head is reviewed as usual. Use it instead of a retry when the PR is worth keeping.
 - `new_task` opens a task in the same repo, as the user would: give `title`, `body` (with its acceptance criteria), `priority`, `kind` and `size`. With `blocks: true` the stopped task waits on the new one. The new task enters `Backlog`; release it like any other.
