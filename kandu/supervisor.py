@@ -12,6 +12,7 @@ import secrets
 import shlex
 import sys
 import threading
+import time
 import traceback
 from collections import Counter, defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -41,6 +42,11 @@ BROKEN_REPLY = (agents.ReplyError, review.ReportError, split.ReportError)
 INTERNAL_TRIES = 3
 BASE_MOVED = "Base branch was modified"  # another merge landed first; GitHub asks to try once more
 MERGE_TRIES = 3  # Kandu's own trouble is tried this often in a row before the task stops for a look.
+MERGE_RETRY_WAITS = (10, 30, 60)  # seconds before each quick new try of a merge GitHub refused for a moment
+MERGE_RETRY_EVERY = 60  # then one try about this often, until the cycle ends
+RETRY_POLL_SECONDS = 5  # how often a wait for the next try looks for a stop or a yes
+ALREADY_MERGED = "already merged"
+RETRYING = "GitHub refused the merge for a moment; Kandu tries it again by itself"
 WAITS_FOR_BLOCKER = "blocker {} is not merged yet"
 PROGRESS = ("review_finished", "task_finished", "task_sized")
 ROOT = Path(__file__).resolve().parent.parent
@@ -185,13 +191,30 @@ def _held_by_blockers(events, key):
     return False
 
 
+# What ends Kandu's own retry of a merge in her view: a new head, an end, or any decision but its own internal error.
+_ENDS_RETRY = ("review_finished", "task_finished", "merge_held")
+
+
+def merge_retry(events, key):
+    """The task's last `merge_retry` while Kandu still tries its merge again by itself, or None."""
+    for event in reversed(events):
+        if event.get("task") != key:
+            continue
+        if event["type"] == "merge_retry":
+            return event
+        if event["type"] in _ENDS_RETRY or (event["type"] == "decision" and event["decision"] != "internal_error"):
+            return None
+    return None
+
+
 def _at_work(item, events):
     """A worker builds it or is about to. A review takes no worker's place, nor does a merge held only by blockers."""
     return item.status in (READY, IN_PROGRESS) and not _held_by_blockers(events, f"{item.repo}#{item.number}")
 
 
 class Supervisor:
-    def __init__(self, config, store, github, runner, usage_reader, local_dir=DEFAULT_LOCAL_DIR, now=None):
+    def __init__(self, config, store, github, runner, usage_reader, local_dir=DEFAULT_LOCAL_DIR, now=None,
+                 sleep=time.sleep):
         self.config = config
         self.store = store
         self.github = github
@@ -208,6 +231,9 @@ class Supervisor:
         self.waiting = []
         self.merged = Counter()
         self.held = {}  # task key -> the head whose merge waited this cycle
+        self.retrying = {}  # task key -> the merge GitHub refused for a moment, tried again in this cycle
+        self.sleep = sleep
+        self.next_wake = None
         self._lock = threading.Lock()
         self._deploy_locks = defaultdict(threading.Lock)
 
@@ -721,12 +747,18 @@ class Supervisor:
             return False
         self._pick(task)
         self._phase(task, "merge")
+        with self._lock:
+            retry = self.retrying.get(task.key)
+        retry = retry if retry is not None and retry["head"] == pr["headRefOid"] else None
         self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))  # checks and threads, as they are now
         fresh = self.github.pr(task.repo, pr["number"])
         if fresh["headRefOid"] != pr["headRefOid"]:
+            if retry is not None:
+                self._end_retry(task, "merge_retry_ended", "a new commit came in; it is reviewed first")
             return False  # a new commit came in; it is reviewed first
         pr = fresh
-        reasons = self._merge_waits(task, pr)
+        # A merge tried again passed every check on this head in this cycle: only GitHub's answer is missing.
+        reasons = [] if retry is not None else self._merge_waits(task, pr)
         if reasons:
             self._decide(task, "merge_waits", "; ".join(reasons))
             blockers = self._open_blockers(task)
@@ -739,14 +771,154 @@ class Supervisor:
         if self._is_paused(task.project):  # The tests take minutes, and a pause may have come in meanwhile.
             return False
         try:
-            self.github.merge_pr(task.repo, pr["number"], pr["headRefOid"])
+            tries = self._merge_now(task, pr, quick=retry is None)
         except GitHubError as e:
-            if BASE_MOVED not in str(e):
+            if BASE_MOVED in str(e):
+                with self._lock:
+                    self.retrying.pop(task.key, None)
+                self._decide(task, "base_moved", "another merge landed first; the PR is read again")
+                self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
+                return None
+            if not transient(e):
+                with self._lock:
+                    self.retrying.pop(task.key, None)
                 raise
-            self._decide(task, "base_moved", "another merge landed first; the PR is read again")
-            self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
-            return None
+            self._retry_later(task, pr, e)
+        if retry is not None or tries > 1:
+            self._end_retry(task, "merge_retried", "GitHub took the merge on a new try")
         return True
+
+    def _merge_now(self, task, pr, quick):
+        """Merges, trying again at once on a refusal that passes by itself. Returns how many tries it took.
+
+        A try that finds the PR merged counts as merged: GitHub may land a merge it answered with an error.
+        """
+        waits = list(MERGE_RETRY_WAITS) if quick else []
+        tries = 0
+        while True:
+            tries += 1
+            try:
+                self.github.merge_pr(task.repo, pr["number"], pr["headRefOid"])
+                return tries
+            except GitHubError as e:
+                if ALREADY_MERGED in str(e).lower():
+                    self._merged_meanwhile(task, pr)  # reads it into the copy
+                    return tries
+                if not transient(e):
+                    raise
+                if self._merged_meanwhile(task, pr):
+                    return tries
+                if not waits or not self._time_for(waits[0]):
+                    raise
+                next_try = self.now() + timedelta(seconds=waits[0])
+                self._record_retry(task, pr["headRefOid"], next_try.isoformat(timespec="seconds"), e)
+                self.sleep(waits.pop(0))
+
+    def _time_for(self, seconds):
+        """True when the cycle still runs `seconds` from now."""
+        return (self.deadline is not None and self.now() + timedelta(seconds=seconds) < self.deadline
+                and not self.stop_file.exists())
+
+    def _merged_meanwhile(self, task, pr):
+        try:
+            self.github.refresh_pr(task.repo, pr["number"])
+            return self.github.pr(task.repo, pr["number"])["state"] == "MERGED"
+        except GitHubError:
+            return False
+
+    def _record_retry(self, task, head, next_try, error):
+        self.store.record("merge_retry", task=task.key, project=task.project.name, head_sha=head, next_try=next_try,
+                          reason=str(error)[:300])
+
+    def _retry_later(self, task, pr, error):
+        """Keeps a merge GitHub refused for a moment in this cycle, tried again about every minute.
+
+        Past the cycle's end the refusal is the cycle's one internal error, and the next cycle tries again.
+        """
+        next_try = self.now() + timedelta(seconds=MERGE_RETRY_EVERY)
+        if not self._time_for(MERGE_RETRY_EVERY):
+            with self._lock:
+                self.retrying.pop(task.key, None)
+            self._record_retry(task, pr["headRefOid"], self.next_wake, error)
+            raise error
+        self._record_retry(task, pr["headRefOid"], next_try.isoformat(timespec="seconds"), error)
+        with self._lock:
+            self.retrying[task.key] = {"task": task, "head": pr["headRefOid"], "error": error, "next_try": next_try,
+                                       "queued": False}
+        raise CycleStop(f"GitHub refused the merge for a moment: {error}")
+
+    def _retry_read_later(self, task, retry, error):
+        """A merge tried again whose PR GitHub could not read for a moment: it waits for its next try, like a refusal.
+
+        Past the cycle's end it is the cycle's one internal error, as a refused merge is.
+        """
+        with self._lock:
+            if self.retrying.get(task.key) is not retry:
+                return False
+            retry["error"] = error
+            retry["next_try"] = self.now() + timedelta(seconds=MERGE_RETRY_EVERY)
+            retry["queued"] = False
+        self._record_retry(task, retry["head"], retry["next_try"].isoformat(timespec="seconds"), error)
+        return True
+
+    def _end_retry(self, task, decision, reason):
+        with self._lock:
+            self.retrying.pop(task.key, None)
+        self._decide(task, decision, reason)
+
+    def _yes_after_retry(self, key, head):
+        """True when the user's or the queen's yes for this head came after the task's last refused merge."""
+        for day in reversed(self.store.days()):
+            for event in reversed(self.store.events(day)):
+                if event.get("task") != key:
+                    continue
+                if event["type"] == "merge_retry":
+                    return False
+                if event["type"] in queen.APPROVALS and event["head_sha"] == head:
+                    return True
+        return False
+
+    def _due_retries(self):
+        """The merges tried again now: their time came, or a yes for their head came after the refusal."""
+        now = self.now()
+        with self._lock:
+            waiting = [r for r in self.retrying.values() if not r["queued"]]
+        due = [r for r in waiting if r["next_try"] <= now or self._yes_after_retry(r["task"].key, r["head"])]
+        with self._lock:
+            for retry in due:
+                retry["queued"] = True
+        return [retry["task"] for retry in due]
+
+    def _waits_for_retry(self):
+        with self._lock:
+            return any(not r["queued"] for r in self.retrying.values())
+
+    def _next_retry_in(self):
+        """Seconds until the next look at the merges tried again, or None when none waits."""
+        if not self._waits_for_retry():
+            return None
+        with self._lock:
+            first = min(r["next_try"] for r in self.retrying.values() if not r["queued"])
+        return max(0, min(RETRY_POLL_SECONDS, (first - self.now()).total_seconds()))
+
+    def _wait_for_retries(self):
+        """Waits until a merge is due again. Returns its tasks, or [] when the cycle must end first."""
+        while self.halt_reason is None and not self._hard_stop():
+            due = self._due_retries()
+            if due:
+                return due
+            self.sleep(self._next_retry_in())
+        return []
+
+    def _give_up_retries(self):
+        """The merges still waiting when the cycle ends: each is the cycle's one internal error on its task."""
+        with self._lock:
+            left = [r for r in self.retrying.values() if not r["queued"]]
+            self.retrying.clear()
+        for retry in left:
+            task = retry["task"]
+            self._record_retry(task, retry["head"], self.next_wake, retry["error"])
+            self._fail(task, retry["error"])
 
     def _deploy(self, task):
         """Returns False if the deploy failed."""
@@ -1049,15 +1221,21 @@ class Supervisor:
             pr = self.github.pr(task.repo, pr["number"])
 
     def _run_task(self, task, drive=None):
+        with self._lock:
+            retry = self.retrying.get(task.key)
         try:
             (drive or (lambda: self._drive(task)))()
-        except CycleStop:
-            pass
+        except CycleStop as e:
+            if retry is not None and isinstance(e.__cause__, GitHubError) and self._retry_read_later(task, retry,
+                                                                                                    e.__cause__):
+                retry = None  # it waits for its next try in this cycle
         except Exception as e:
             self._fail(task, e)
         finally:
             with self._lock:
                 self.workers.pop(task.key, None)
+                if retry is not None and self.retrying.get(task.key) is retry:
+                    del self.retrying[task.key]  # the drive ended some other way: the next cycle takes it up
             self._snapshot("awake")
 
     def _internal_tries(self, task):
@@ -1118,7 +1296,11 @@ class Supervisor:
         waiting = []
         for item in items:
             key = f"{item.repo}#{item.number}"
-            if (item.status in (BLOCKED, NEEDS_INFO, IN_REVIEW) or _held_by_blockers(events, key)) and key in why:
+            retry = merge_retry(events, key)
+            if retry is not None:
+                waiting.append({"task": key, "status": item.status, "why": RETRYING, "next_try": retry["next_try"],
+                                "stopped_for_a_loop": queen.waits_after_loop(events, key)})
+            elif (item.status in (BLOCKED, NEEDS_INFO, IN_REVIEW) or _held_by_blockers(events, key)) and key in why:
                 waiting.append({"task": key, "status": item.status, "why": why[key],
                                 "stopped_for_a_loop": queen.waits_after_loop(events, key)})
         return waiting
@@ -1239,6 +1421,10 @@ class Supervisor:
                 refused.append(f"{task}: not a task of a running project")
                 continue
             project, item = items[task]
+            why = self._why_not_while_retrying(events, task, decision)
+            if why is not None:
+                refused.append(f"{action} of {task}: {why}")
+                continue
             why = queen.why_no_step(events, task, action, limit) if action in queen.LIMITED else None
             if why is not None:
                 refused.append(f"{action} of {task}: {why}")
@@ -1291,6 +1477,20 @@ class Supervisor:
             self.store.record("queen_decided", task=task, project=project.name, action=action, note=note)
             events.append({"type": "queen_decided", "task": task, "action": action, "note": note})
         return refused, released
+
+    def _why_not_while_retrying(self, events, task, decision):
+        """While Kandu tries a merge again by itself, nothing reaches the user: no question, and no second yes."""
+        retry = merge_retry(events, task)
+        if retry is None:
+            return None
+        if decision["action"] == "ask_user":
+            return f"Kandu tries the merge again by itself, next at {retry['next_try']}"
+        if decision["action"] == "approve" and any(
+                e["type"] == "queen_approved" and e["task"] == task and e["head_sha"] == decision["head_sha"]
+                for e in events):
+            return f"she already approved this head, and Kandu tries the merge again by itself, next at " \
+                   f"{retry['next_try']}"
+        return None
 
     def _loop_stop(self, project, item, task, action, why, events):
         """Past a step's limit she is going round: the task stops, and the user hears of it once."""
@@ -1461,7 +1661,7 @@ class Supervisor:
         running = {}
         building = lambda t: t.status != IN_REVIEW  # A review only reads, so it takes no worker's place.
         with ThreadPoolExecutor(max_workers=limit + sum(1 for t in tasks if not building(t))) as pool:
-            while pending or running:
+            while pending or running or self._waits_for_retry():
                 self.halt_reason = self.halt_reason or (self._queen_limit() if pending else None)
                 for task in list(pending):
                     if self.halt_reason is not None:
@@ -1477,23 +1677,35 @@ class Supervisor:
                         continue
                     running[pool.submit(self._run_task, task)] = task
                 if not running:
-                    return
-                done, _ = wait(running, return_when=FIRST_COMPLETED)
+                    if not self._waits_for_retry():
+                        break
+                    due = self._wait_for_retries()
+                    if not due:
+                        break
+                    pending = sorted(pending + due, key=lambda t: t.order)
+                    continue
+                done, _ = wait(running, timeout=self._next_retry_in(), return_when=FIRST_COMPLETED)
                 for future in done:
                     del running[future]
-                busy = {t.key for t in pending} | {t.key for t in running.values()}
-                pending = sorted(pending + self._what_she_released(seen, busy), key=lambda t: t.order)
+                pending += self._due_retries()
+                if done:
+                    busy = {t.key for t in pending} | {t.key for t in running.values()}
+                    pending += self._what_she_released(seen, busy)
+                pending.sort(key=lambda t: t.order)
+        self._give_up_retries()
 
     def cycle(self):
         """Runs one cycle and returns why it ended."""
         woke = self.now()
         self.merged.clear()
         self.held.clear()
+        self.retrying.clear()
         self.store.carry_settings(self.config.projects)  # before the first snapshot: it tells an install that ran before
         self.store.record("supervisor_woke")
         self._snapshot("awake")
         settings = self.config.settings.supervisor
         self.deadline = woke + timedelta(minutes=settings.max_cycle_minutes)
+        self.next_wake = (woke + timedelta(minutes=settings.wake_every_minutes)).isoformat(timespec="seconds")
         self.halt_reason = None
         self.queen_trouble = None
         failed = self.github.refresh(self.config)  # the copy as GitHub holds it now, before anything is decided
@@ -1511,9 +1723,8 @@ class Supervisor:
             reason = self._work_through_board()
         if self.queen_trouble is not None:
             reason = f"{reason}; the queen could not look: {self.queen_trouble}"
-        next_wake = (woke + timedelta(minutes=settings.wake_every_minutes)).isoformat(timespec="seconds")
-        self.store.record("supervisor_slept", reason=reason, next_wake=next_wake)
-        self._snapshot("stopped" if self.stop_file.exists() else "asleep", reason, next_wake)
+        self.store.record("supervisor_slept", reason=reason, next_wake=self.next_wake)
+        self._snapshot("stopped" if self.stop_file.exists() else "asleep", reason, self.next_wake)
         return reason
 
     def _work_through_board(self):

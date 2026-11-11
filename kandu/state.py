@@ -25,6 +25,7 @@ EVENT_FIELDS = {
     "phase_changed": TASK_FIELDS + ("phase",),
     "decision": TASK_FIELDS + ("decision", "reason"),
     "merge_held": TASK_FIELDS + ("head_sha", "blockers"),
+    "merge_retry": TASK_FIELDS + ("head_sha", "next_try", "reason"),
     "run_finished": TASK_FIELDS + ("run_id", "role", "models", "duration_ms", "is_error"),
     "review_finished": TASK_FIELDS + ("run_id", "round", "head_sha", "findings", "blockers", "door", "criteria_met",
                                       "wait_for_user", "user_brief"),

@@ -2307,6 +2307,212 @@ class MergeTest(Base):
         self.assertEqual(self.events("project_checked"), [])
 
 
+class MergeRetryTest(Base):
+    """A merge GitHub refuses for a moment is tried again by Kandu, with no question to the user. GitHub is mocked."""
+    PASS = '{"result": "pass", "summary": "seen"}'
+    BUSY = "gh pr merge: HTTP 502: Bad Gateway"
+
+    def setUp(self):
+        super().setUp()
+        self.config.projects[0].auto_merge = True
+        self.github.add(1, "In review")
+        self.github.open_pr(REPO, 1, SHA1)
+        self.slept = []
+        self.on_sleep = lambda: None
+
+    def new_supervisor(self):
+        sup = super().new_supervisor()
+        sup.sleep = self.sleep
+        return sup
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.clock[0] += timedelta(seconds=seconds)
+        self.on_sleep()
+
+    def refuses(self, times, error=BUSY, lands_on=None):
+        """`gh pr merge` answers `error` `times` times, then merges. On try `lands_on` the merge lands anyway."""
+        real = lambda repo, number, head: FakeGitHub.merge_pr(self.github, repo, number, head)
+        self.tries = []
+
+        def merge(repo, number, head):
+            self.tries.append(self.clock[0])
+            if len(self.tries) == lands_on:
+                real(repo, number, head)
+            if len(self.tries) <= times:
+                raise GitHubError(error)
+            real(repo, number, head)
+        self.github.merge_pr = merge
+
+    def gaps(self):
+        return [(b - a).total_seconds() for a, b in zip(self.tries, self.tries[1:])]
+
+    def told(self):
+        day = datetime.now().astimezone().date().isoformat()
+        return [m.text for e in self.store.events(day) if (m := notify.message_for(e)) is not None]
+
+    def view(self):
+        sup = self.new_supervisor()
+        items = list(sup._board_items())
+        events = queen.all_events(self.store)
+        return next(p for p in sup._project_view(items, sup._startable(items), events) if p["project"] == "website")
+
+    def decisions(self, kind):
+        return [e for e in self.events("decision") if e["decision"] == kind]
+
+    def test_a_merge_refused_twice_for_a_moment_lands_and_deploys_in_the_same_cycle(self):
+        self.refuses(2)
+        self.runner.steps = [report(SHA1), self.PASS]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+        self.assertEqual(self.gaps(), [10, 30])
+        self.assertIn((self.config.projects[0].deploy.command, True), self.runner.commands)
+        self.assertEqual(self.github.status(1), "Done")
+        self.assertEqual(self.told(), ["task_done"])
+        self.assertEqual((self.decisions("internal_error"), self.events("queen_decided")), ([], []))
+
+    def test_a_try_that_finds_the_pr_already_merged_counts_as_merged(self):
+        for name, error, times, lands_on in (("landed under a 502", self.BUSY, 1, 1),
+                                             ("already merged", "gh pr merge: Pull request #7 was already merged",
+                                              1, 1)):
+            with self.subTest(name):
+                self.store = StateStore(self.root / f"state-{len(name)}")
+                self.github.open_pr(REPO, 1, SHA1)
+                self.github.merges.clear()
+                self.github.set_status(None, "https://github.com/acme-org/website/issues/1", "In review")
+                self.refuses(times, error, lands_on)
+                self.runner.steps = [report(SHA1), self.PASS]
+                self.cycle()
+                self.assertEqual(len(self.tries), lands_on)
+                self.assertEqual(self.github.merges, [SHA1])
+                self.assertEqual(self.github.status(1), "Done")
+                self.assertEqual(self.decisions("internal_error"), [])
+
+    def test_a_merge_refused_the_whole_cycle_is_tried_every_minute_and_left_for_the_next(self):
+        self.refuses(10_000)
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        gaps = self.gaps()
+        self.assertEqual(gaps[:3], [10, 30, 60])
+        self.assertTrue(gaps[3:] and all(55 <= gap <= 65 for gap in gaps[3:]))
+        deadline = NOW + timedelta(minutes=self.config.settings.supervisor.max_cycle_minutes)
+        self.assertTrue(all(t < deadline for t in self.tries))
+        self.assertGreater(self.tries[-1], deadline - timedelta(minutes=2))
+        self.assertEqual(self.github.status(1), "In review")
+        self.assertEqual(len(self.decisions("internal_error")), 1)
+        self.assertEqual(self.told(), [])
+        next_wake = (NOW + timedelta(minutes=self.config.settings.supervisor.wake_every_minutes)).isoformat(
+            timespec="seconds")
+        waiting = [w for w in self.view()["waiting"] if w["task"] == KEY]
+        self.assertEqual([w["next_try"] for w in waiting], [next_wake])
+
+    def read_refused_during_the_minute_retry(self, times):
+        """GitHub refuses `times` reads of the PR once the minute retries begin."""
+        real = self.github.refresh_pr
+        self.read_refusals = 0
+
+        def refresh(repo, number):
+            if len(self.tries) >= 4 and self.clock[0] > self.tries[-1] and self.read_refusals < times:
+                self.read_refusals += 1
+                raise GitHubError("gh api graphql: HTTP 502: Bad Gateway")
+            return real(repo, number)
+        self.github.refresh_pr = refresh
+
+    def test_a_read_refused_for_a_moment_during_the_minute_retry_keeps_the_retry(self):
+        self.refuses(4)
+        self.read_refused_during_the_minute_retry(1)
+        self.runner.steps = [report(SHA1), self.PASS]
+        self.cycle()
+        self.assertEqual(self.read_refusals, 1)
+        self.assertEqual(len(self.tries), 5)
+        self.assertEqual(self.github.merges, [SHA1])
+        self.assertEqual(self.github.status(1), "Done")
+        self.assertEqual(self.decisions("internal_error"), [])
+
+    def test_reads_refused_until_the_cycle_ends_are_its_one_internal_error(self):
+        self.refuses(4)
+        self.read_refused_during_the_minute_retry(10_000)
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertGreater(self.read_refusals, 1)
+        self.assertEqual(self.github.merges, [])
+        self.assertEqual(self.github.status(1), "In review")
+        self.assertEqual(len(self.decisions("internal_error")), 1)
+        self.assertEqual(self.events("merge_retry")[-1]["next_try"],
+                         (NOW + timedelta(minutes=self.config.settings.supervisor.wake_every_minutes)).isoformat(
+                             timespec="seconds"))
+
+    def test_the_queen_sees_the_next_try_while_kandu_retries(self):
+        self.store.record("merge_retry", task=KEY, project="website", head_sha=SHA1,
+                          next_try="2026-10-30T12:01:00+00:00", reason="HTTP 502")
+        self.store.record("decision", task=KEY, project="website", decision="internal_error", reason="HTTP 502")
+        waiting = [w for w in self.view()["waiting"] if w["task"] == KEY]
+        self.assertEqual([w["next_try"] for w in waiting], ["2026-10-30T12:01:00+00:00"])
+        self.store.record("decision", task=KEY, project="website", decision="merge_waits", reason="CI is running")
+        self.assertNotIn("next_try", next(w for w in self.view()["waiting"] if w["task"] == KEY))
+
+    def test_a_refusal_that_does_not_pass_by_itself_is_handled_as_before(self):
+        for error in ("gh pr merge: Pull request is not mergeable: the merge commit cannot be cleanly created",
+                      "gh pr merge: Head branch was modified. Review and try the merge again."):
+            with self.subTest(error):
+                self.store = StateStore(self.root / f"state-{len(error)}")
+                self.github.open_pr(REPO, 1, SHA1)
+                self.github.set_status(None, "https://github.com/acme-org/website/issues/1", "In review")
+                self.slept.clear()
+                self.refuses(10_000, error)
+                self.runner.steps = [report(SHA1)]
+                self.cycle()
+                self.assertEqual((len(self.tries), self.slept), (1, []))
+                self.assertEqual(self.github.status(1), "Blocked")
+                self.assertEqual(self.events("merge_retry"), [])
+
+    def test_a_yes_given_after_the_refusal_drives_the_merge_again_at_once(self):
+        for kind in ("user_approved", "queen_approved"):
+            with self.subTest(kind):
+                self.store = StateStore(self.root / f"state-{kind}")
+                self.github.open_pr(REPO, 1, SHA1)
+                self.github.set_status(None, "https://github.com/acme-org/website/issues/1", "In review")
+                self.refuses(4)  # the first try and its three quick ones fail; a minute's wait begins
+                extra = {"note": "Fine."} if kind == "queen_approved" else {}
+
+                def yes():
+                    if len(self.tries) == 4 and self.store.last_event(kind) is None:
+                        self.store.record(kind, task=KEY, project="website", head_sha=SHA1, **extra)
+                self.on_sleep = yes
+                self.runner.steps = [report(SHA1), self.PASS]
+                self.cycle()
+                self.assertEqual(self.github.status(1), "Done")
+                self.assertLess(self.gaps()[-1], 60)
+
+    def test_while_kandu_retries_code_refuses_her_question_and_a_repeated_yes(self):
+        self.config.settings.supervisor.queen = True
+        self.store.record("review_finished", task=KEY, project="website", run_id="r", round=1, head_sha=SHA1,
+                          findings=0, blockers=0, door="two-way", criteria_met=True, wait_for_user=[], user_brief=None)
+        self.store.record("queen_approved", task=KEY, project="website", head_sha=SHA1, note="Fine.")
+        self.store.record("merge_retry", task=KEY, project="website", head_sha=SHA1,
+                          next_try="2026-10-30T12:01:00+00:00", reason="HTTP 502")
+        decisions = [{"task": KEY, "action": "ask_user", "note": "Merge it by hand?"},
+                     {"task": KEY, "action": "approve", "head_sha": SHA1, "note": "Still fine."}]
+        refused, _ = self.sup._carry_out(decisions, queen.all_events(self.store))
+        self.assertEqual(len(refused), 2)
+        self.assertTrue(all("tries the merge again by itself" in why for why in refused))
+        self.assertEqual(self.events("queen_decided"), [])
+        self.assertEqual(len(self.events("queen_approved")), 1)
+        self.assertEqual(self.told(), [])
+
+    def test_the_user_is_told_only_after_three_cycles_in_a_row(self):
+        self.config.settings.supervisor.max_cycle_minutes = 5
+        self.refuses(10_000)
+        self.runner.steps = [report(SHA1)]
+        for cycle in range(1, 4):
+            self.cycle()
+            self.clock[0] += timedelta(minutes=60)
+            if cycle < 3:
+                self.assertEqual((self.told(), self.github.status(1)), ([], "In review"))
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(self.told(), ["task_failed"])
+
+
 class MergedWhileBlockedTest(Base):
     def setUp(self):
         super().setUp()

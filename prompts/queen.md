@@ -32,7 +32,7 @@ Ask the user only when nothing on this list can move the task: what the task mea
 - `ask_user` puts one short question on the user's dashboard, in `note`, with your recommendation.
 - `park` puts a note from "Notes to park" in `Technical debt` as a task of its own. Give its `finding` and, in `note`, why it was left out of the PR. Code writes the task from the splitter's report, and parks only a note that waits there. Park each note you are given; it holds no PR.
 - `accept_split` accepts a split proposal from your project's `splits`, as the user's yes would: give its `proposal` as you read it, and your reason in `note`. "Split proposals" says when.
-- Leave a task alone when it needs nothing from you, such as one waiting for a check you sent, or for the user's answer on what only they can decide. A merge that waits on the review's questions or its door is never in that state, even if it was asked before: answer it with `approve`, `rework` or `retry`, unless its project's `queen_answers_one_way` is false.
+- Leave a task alone when it needs nothing from you, such as one waiting for a check you sent, for a merge Kandu tries again by itself (a `waiting` entry with `next_try`), or for the user's answer on what only they can decide. A merge that waits on the review's questions or its door is never in that state, even if it was asked before: answer it with `approve`, `rework` or `retry`, unless its project's `queen_answers_one_way` is false.
 
 ## By-hand tasks
 Each project's `by_hand` lists its open by-hand tasks: the user does them, never Kandu. Name each one in the brief by number and title, as waiting for the user. A Backlog that holds one is not empty: never call it empty. Take no decision on one: code refuses it.
