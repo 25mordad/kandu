@@ -1,4 +1,5 @@
 import json
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -94,6 +95,21 @@ class FlightsTest(unittest.TestCase):
         text = self.prompt(DIDBAN)
         self.assertIn("speak English with them", text)
         self.assertIn("without SSH", text)
+
+    def named(self, flag):
+        words = shlex.split(self.host.started_line())
+        return words[words.index(flag) + 1]
+
+    def test_didban_from_the_dashboard_is_named_kandu_didban(self):
+        with mock.patch("kandu.didban.check_brain", return_value=("ok", "config ok")), \
+             mock.patch("kandu.didban.waiting", return_value={}):
+            self.flights.open_didban("en")
+        self.assertEqual((self.named("--name"), self.named("--remote-control")), ("Kandu Didban", "Kandu Didban"))
+
+    def test_zanbourdar_keeps_its_name(self):
+        self.flights.open_zanbourdar("en")
+        self.assertEqual((self.named("--name"), self.named("--remote-control")),
+                         ("Kandu Zanbourdar", "Kandu Zanbourdar"))
 
     def test_zanbourdar_has_full_access_starts_in_kandu_and_lands_with_the_flights(self):
         self.flights.open_zanbourdar("fa")

@@ -100,7 +100,7 @@ Edit `local/didban.yaml`: `reach` is the SSH alias of the brain and `install_dir
 
 You can skip this step if you sit at the brain, or open Didban from the dashboard's button instead, which runs it on the brain with a Remote Control link.
 
-Check: `didban` opens a session named `Kandu`, and it tells you what is waiting.
+Check: `didban` opens a session named `Kandu Didban`, and it tells you what is waiting.
 
 ## 6. Add your first project
 

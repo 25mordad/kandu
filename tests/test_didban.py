@@ -175,8 +175,8 @@ class ClaudeArgsTest(unittest.TestCase):
 
     def test_session_is_named_and_remote(self):
         args = claude_args(DIDBAN, "brain reachable", [])
-        self.assertEqual(args[args.index("--name") + 1], "Kandu")
-        self.assertEqual(args[args.index("--remote-control") + 1], "Kandu")
+        self.assertEqual(args[args.index("--name") + 1], "Kandu Didban")
+        self.assertEqual(args[args.index("--remote-control") + 1], "Kandu Didban")
 
 
 if __name__ == "__main__":

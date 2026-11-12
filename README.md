@@ -106,7 +106,7 @@ cp config.example/didban.example.yaml local/didban.yaml   # then edit it
 ln -s "$PWD/bin/didban" ~/.local/bin/didban
 ```
 
-The session opens with the name `Kandu` and Remote Control on, so you can continue it from the Claude mobile app or claude.ai/code while the machine stays on.
+The session opens with the name `Kandu Didban` and Remote Control on, so you can continue it from the Claude mobile app or claude.ai/code while the machine stays on.
 
 You can also bind it to a keyboard shortcut in your desktop's settings. On GNOME: Settings → Keyboard → Custom Shortcuts, with the command `gnome-terminal -- /home/you/.local/bin/didban`.
 
