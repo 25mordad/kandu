@@ -287,6 +287,18 @@ class Mirror:
     def review_threads(self, repo, number):
         return self.pr(repo, number)["reviewThreads"]
 
+    def merged_prs(self, repo):
+        """Every merged PR the copy holds for a repo, as it last read them."""
+        return [pr for pr in self._repo(repo)["prs"].values() if pr["state"] == "MERGED"]
+
+    # A branch is read and removed on GitHub at once: the cleanup after a merge needs GitHub's answer now.
+
+    def branch_tip(self, repo, branch):
+        return self.remote.branch_tip(repo, branch)
+
+    def delete_branch(self, repo, branch):
+        self.remote.delete_branch(repo, branch)
+
     def item(self, repo, number):
         """An issue with its comments, or a PR with its comments, review threads and checks, for `kandu.show`.
 

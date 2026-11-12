@@ -110,6 +110,8 @@ class Supervisor:
     queen_max_retries: int = 3
     queen_daily_token_limit: int = 2000000
     queen_drop_blockers: bool = False   # she may ask the user to drop a blocker; off until the user turns it on
+    # A merged task's folders and branches go: on by default, as the user chose, and off from the dashboard.
+    clean_merged: bool = True
 
 
 @dataclass
@@ -620,6 +622,16 @@ def set_drop_blockers(enabled, local_dir=DEFAULT_LOCAL_DIR):
                           {"queen_drop_blockers": "true" if enabled else "false"})
     if ((yaml.safe_load(text) or {}).get("supervisor") or {}).get("queen_drop_blockers") is not enabled:
         raise ConfigError(["supervisor.queen_drop_blockers: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
+def set_clean_merged(enabled, local_dir=DEFAULT_LOCAL_DIR):
+    """Turns the cleanup after a merge on or off in `kandu.yaml`'s `supervisor` block, line by line."""
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_top_block(path.read_text(encoding="utf-8"), "supervisor",
+                          {"clean_merged": "true" if enabled else "false"})
+    if ((yaml.safe_load(text) or {}).get("supervisor") or {}).get("clean_merged") is not enabled:
+        raise ConfigError(["supervisor.clean_merged: could not be written; change it in kandu.yaml by hand"])
     _replace_file(path, text)
 
 

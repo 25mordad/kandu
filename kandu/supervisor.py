@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, debt, merge, queen, questions, review, show, sizing, split, tasks
+from . import agents, clean, debt, merge, queen, questions, review, show, sizing, split, tasks
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .github import TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
 from .mirror import open_github
@@ -1702,6 +1702,7 @@ class Supervisor:
         self.retrying.clear()
         self.store.carry_settings(self.config.projects)  # before the first snapshot: it tells an install that ran before
         self.store.record("supervisor_woke")
+        clean_since = self.store.clean_since(woke)  # set once, on the first cycle that has the cleanup
         self._snapshot("awake")
         settings = self.config.settings.supervisor
         self.deadline = woke + timedelta(minutes=settings.max_cycle_minutes)
@@ -1721,11 +1722,18 @@ class Supervisor:
             except (GitHubError, RunnerError) as e:
                 self.queen_trouble = type(e).__name__
             reason = self._work_through_board()
+        self._clean(clean_since)
         if self.queen_trouble is not None:
             reason = f"{reason}; the queen could not look: {self.queen_trouble}"
         self.store.record("supervisor_slept", reason=reason, next_wake=self.next_wake)
         self._snapshot("stopped" if self.stop_file.exists() else "asleep", reason, self.next_wake)
         return reason
+
+    def _clean(self, since):
+        """After the work: a merged task's folders and branches go. It costs no tokens, so no limit holds it back."""
+        if not self.config.settings.supervisor.clean_merged or self.stop_file.exists():
+            return
+        clean.Cleaner(self.config, self.store, self.github, self.runner).run(since)
 
     def _work_through_board(self):
         try:

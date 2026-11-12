@@ -2,7 +2,7 @@ import json
 import unittest
 
 from kandu.config import Board
-from kandu.github import GitHub, GitHubError, blockers_in, task_blockers, branch_for, is_companion, slugify, transient
+from kandu.github import PR_FIELDS, PR_NODE, GitHub, GitHubError, blockers_in, task_blockers, branch_for, is_companion, slugify, transient
 
 BOARD = Board(owner="acme", number=1)
 ISSUE = {"number": 3, "title": "t", "url": "u", "body": "b", "repository": {"nameWithOwner": "o/r"},
@@ -122,6 +122,29 @@ class GitHubTest(unittest.TestCase):
 
     def test_no_pr(self):
         self.assertIsNone(GitHub(FakeGh([])).find_pr("o/r", 12))
+
+    def test_a_branch_tip_on_github_or_none(self):
+        gh = FakeGh({"ref": "refs/heads/kandu/1-a", "object": {"sha": "abc"}})
+        self.assertEqual(GitHub(gh).branch_tip("o/r", "kandu/1-a"), "abc")
+        self.assertEqual(gh.calls, [["api", "repos/o/r/git/ref/heads/kandu/1-a"]])
+
+        def missing(args):
+            raise GitHubError("gh api repos/o/r/git/ref/heads/kandu/1-a: gh: Not Found (HTTP 404)")
+        self.assertIsNone(GitHub(missing).branch_tip("o/r", "kandu/1-a"))
+
+        def busy(args):
+            raise GitHubError("gh api: HTTP 502")
+        with self.assertRaises(GitHubError):
+            GitHub(busy).branch_tip("o/r", "kandu/1-a")
+
+    def test_delete_branch(self):
+        gh = FakeGh()
+        GitHub(gh).delete_branch("o/r", "kandu/1-a")
+        self.assertEqual(gh.calls, [["api", "-X", "DELETE", "repos/o/r/git/refs/heads/kandu/1-a"]])
+
+    def test_a_pr_says_when_it_merged(self):
+        self.assertIn("mergedAt", PR_NODE)
+        self.assertIn("mergedAt", PR_FIELDS.split(","))
 
     def test_mark_pr_once(self):
         gh = FakeGh()

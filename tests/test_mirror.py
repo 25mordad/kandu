@@ -129,6 +129,11 @@ class MirrorTest(unittest.TestCase):
     def names(self):
         return [call[0] for call in self.remote.calls]
 
+    def test_merged_prs_come_from_the_copy(self):
+        self.remote.prs = {7: pr(7, state="MERGED"), 8: pr(8, issue=4, state="CLOSED"), 9: pr(9, issue=5)}
+        self.assertEqual([p["number"] for p in self.mirror.merged_prs(REPO)], [7])
+        self.assertEqual(self.names(), ["read_repo"])
+
     def status(self, mirror=None):
         return (mirror or self.mirror).board_items(BOARD)[0].status
 

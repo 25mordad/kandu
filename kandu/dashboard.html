@@ -259,7 +259,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   </section>
   <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
-  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div id="projectsettings" class="card"></div></section>
+  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div id="cleanmerged" class="card pad"></div><div id="projectsettings" class="card"></div></section>
   <section data-panel="days" class="list" hidden>
     <div class="toolbar"><select id="day" data-t-attr="aria-label" data-t="day"></select><div id="daytotals" class="chips"></div></div>
     <div id="byday" class="card"></div>
@@ -468,6 +468,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "queen_answers_one_way": "The queen answers one-way merges",
   "queen_answers_one_way_hint": "Off: a merge with a one-way door or a question for you waits for your yes. On: the queen's yes answers them too.",
   "paused_in_config_hint": "Paused in its config; only a change of config resumes it.",
+  "clean_merged": "Clean up after a merge",
+  "clean_merged_hint": "On: once a task's PR is merged, its folders beside the repo and its kandu/ branches, here and on GitHub, are removed. A folder with work that is not in the PR stays, and its task says why.",
+  "kept_after_merge": "Stayed after the merge",
   "bazras_all_well": "All was well",
   "bazras_findings": "{count} finding(s)",
   "bazras_not_checked": "Could not check everything",
@@ -669,6 +672,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "queen_answers_one_way": "ملکه به ادغام‌های یک‌طرفه جواب می‌دهد",
   "queen_answers_one_way_hint": "خاموش: ادغامی که در یک‌طرفه یا پرسشی برای تو دارد منتظر بلهٔ تو می‌ماند. روشن: بلهٔ ملکه هم به آن‌ها جواب می‌دهد.",
   "paused_in_config_hint": "در تنظیماتش متوقف است؛ فقط تغییر تنظیمات از توقف درش می‌آورد.",
+  "clean_merged": "پاک‌سازی بعد از ادغام",
+  "clean_merged_hint": "روشن: وقتی PR یک تسک ادغام شد، پوشه‌هایش کنار ریپو و شاخه‌های kandu/ آن، این‌جا و در گیت‌هاب، پاک می‌شوند. پوشه‌ای که کاری بیرون از PR دارد می‌ماند و تسکش می‌گوید چرا.",
+  "kept_after_merge": "بعد از ادغام ماند",
   "bazras_all_well": "همه درست بود",
   "bazras_findings": "{count} یافته",
   "bazras_not_checked": "همه‌چیز بررسی نشد",
@@ -863,6 +869,19 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "backup_changed": "تنظیم پشتیبان تغییر کرد",
   "bazras": "بازرس",
   "group_closed": "گروه بسته شد",
+  "cleaned": "بعد از ادغام پاک شد",
+  "clean_kept": "بعد از ادغام نگه داشته شد",
+  "clean_finished": "پاک‌سازی بعد از ادغام تمام شد",
+  "clean_merged_changed": "پاک‌سازی بعد از ادغام روشن یا خاموش شد",
+  "clean_failed": "پاک‌سازی نشد، چرخه‌ی بعد دوباره امتحان می‌شود",
+  "folder": "پوشه",
+  "branch": "شاخه",
+  "remote_branch": "شاخه در گیت‌هاب",
+  "it has changes that are not committed": "تغییرهایی دارد که کامیت نشده‌اند",
+  "it has commits that are neither in the merged PR nor on GitHub": "کامیت‌هایی دارد که نه در PR ادغام‌شده هست نه در گیت‌هاب",
+  "it is not a worktree of this copy": "worktree این نسخه نیست",
+  "it is checked out in a folder that stays": "در پوشه‌ای که می‌ماند باز است",
+  "it has commits pushed after the merge": "کامیت‌هایی دارد که بعد از ادغام پوش شده‌اند",
   "group_not_closed": "گروه بسته نشد",
   "spec_created": "سند درخواست ساخته شد",
   "spec_named": "تسک به سند درخواستش وصل شد",
@@ -1584,14 +1603,20 @@ async function saveInspect(button) {
 // switch that cannot move, since only the config resumes it. A change goes to the API at once and the next state redraws.
 function renderSettings(s) {
   const rows = s.project_settings || [];
-  const key = JSON.stringify([lang, rows]);
+  const key = JSON.stringify([lang, rows, s.clean_merged]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
   const body = rows.map(p => `<tr><td>${bdi(p.name)}</td>
     <td class="fit"><label title="${esc(p.paused_in_config ? t("paused_in_config_hint") : "")}"><input type="checkbox" data-setting-pause="${esc(p.name)}"${p.paused ? " checked" : ""}${p.paused_in_config ? " disabled" : ""}> ${t("setting_pause")}</label></td>
     <td class="fit"><label title="${esc(t("queen_accepts_splits_hint"))}"><input type="checkbox" data-setting-splits="${esc(p.name)}"${p.split_approval === "queen" ? " checked" : ""}> ${t("queen_accepts_splits")}</label></td>
     <td class="fit"><label title="${esc(t("queen_answers_one_way_hint"))}"><input type="checkbox" data-setting-one-way="${esc(p.name)}"${p.queen_answers_one_way ? " checked" : ""}> ${t("queen_answers_one_way")}</label></td></tr>`).join("");
+  $("cleanmerged").innerHTML = `<label title="${esc(t("clean_merged_hint"))}"><input type="checkbox" data-clean-merged${s.clean_merged ? " checked" : ""}> ${t("clean_merged")}</label><div class="muted">${t("clean_merged_hint")}</div>`;
   $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th><th class="fit">${t("setting_pause")}</th><th class="fit">${t("queen_accepts_splits")}</th><th class="fit">${t("queen_answers_one_way")}</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+async function changeCleanMerged(box) {
+  renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
+  if (!await act(box, `/clean-merged?enabled=${box.checked}`)) refreshState().catch(() => {});
 }
 
 async function changeSetting(box) {
@@ -1775,6 +1800,11 @@ function heldLines(mark, blockers) {
   return lines;
 }
 
+// What stayed after the task's merge, and why: a folder or branch with work that is not in the PR.
+function keptLines(kept) {
+  return (kept || []).map(k => `${t("kept_after_merge")}: ${tr(k.what)} ${k.target} · ${tr(k.reason)}`);
+}
+
 // After a yes, the merge is promised only when nothing else still holds it.
 function approval(task, pr, holds = []) {
   if (pr.approved) return `<p class="muted">${holds.length ? `${t("approved_held")} ${esc(holds.map(tr).join(" · "))}` : t("approved_waits")}</p>`;
@@ -1844,6 +1874,7 @@ async function showReviews(task) {
     ${byHandBox(item)}${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}
     <div class="actions">${sendBack(task, item)}</div>
     ${heldLines({waited: r.waited}, r.blockers).map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
+    ${keptLines(r.kept).map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
     <div class="actions">${approval(task, r.pr, r.holds)}${link(r.pr.url, t("open_github"))}</div>
     <div id="taskflight" class="actions"></div>
     ${r.rounds.slice().reverse().map((round, i) => roundBox(round, i === 0)).join("")}`;
@@ -1883,6 +1914,7 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("change", e => {
   if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way]")) changeSetting(e.target);
+  if (e.target.matches?.("[data-clean-merged]")) changeCleanMerged(e.target);
 });
 document.addEventListener("toggle", e => {
   const asked = e.target.dataset?.request;

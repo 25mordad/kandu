@@ -18,7 +18,7 @@ TIMEOUT_SECONDS = 60
 LOOK_AGAIN_SECONDS = 5  # after a lost answer to a create, before looking whether the issue was made
 BOARD_ITEM_LIMIT = 500
 PR_SEARCH_LIMIT = 200
-PR_FIELDS = "number,title,state,url,body,changedFiles,files,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,statusCheckRollup"
+PR_FIELDS = "number,title,state,url,body,changedFiles,files,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,mergedAt,statusCheckRollup"
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 ISSUE_REFERENCE = re.compile(r"(?:(?<![\w.-])([\w.-]+/[\w.-]+))?#(\d+)")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -53,7 +53,8 @@ BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
 COMMENTS = "comments(last: 100) { nodes { author { login } body createdAt } }"
 # A new comment changes an issue's `updatedAt`, so reading what changed reads its comments too, in the same request.
 ISSUE_NODE = f"number title body url state updatedAt labels(first: 30) {{ nodes {{ name }} }} {COMMENTS} {BLOCKED_BY_NODE}"
-PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable updatedAt "
+PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable mergedAt "
+           "updatedAt "
            f"labels(first: 30) {{ nodes {{ name }} }} {COMMENTS}")
 # Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
 PR_DEEP = """files(first: 100) { nodes { path additions deletions } }
@@ -131,7 +132,8 @@ def transient(error):
 def _pr(node, deep):
     """A PR as `gh pr view --json` shows it, so every reader keeps working on the same fields."""
     pr = {key: node.get(key) for key in ("number", "title", "state", "url", "body", "changedFiles", "headRefName",
-                                          "headRefOid", "isDraft", "isCrossRepository", "mergeable", "updatedAt")}
+                                          "headRefOid", "isDraft", "isCrossRepository", "mergeable", "mergedAt",
+                                          "updatedAt")}
     pr["labels"] = [label for label in node["labels"]["nodes"]]
     pr["comments"] = _comments(node)
     pr["files"], pr["statusCheckRollup"], pr["reviewThreads"] = [], [], []
@@ -510,6 +512,18 @@ class GitHub:
 
     def comment_pr(self, repo, number, body):
         self.comment_issue(repo, number, body)
+
+    def branch_tip(self, repo, branch):
+        """The commit a branch on GitHub points at, or None when GitHub has no such branch."""
+        try:
+            return self._json(["api", f"repos/{repo}/git/ref/heads/{branch}"])["object"]["sha"]
+        except GitHubError as e:
+            if "Not Found" in str(e) or "HTTP 404" in str(e):
+                return None
+            raise
+
+    def delete_branch(self, repo, branch):
+        self._run(["api", "-X", "DELETE", f"repos/{repo}/git/refs/heads/{branch}"])
 
     def mark_pr(self, repo, pr):
         """Adds the `kandu` label, creating it in the repo if needed."""

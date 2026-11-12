@@ -77,6 +77,10 @@ EVENT_FIELDS = {
     "notification_sent": ("kind", "key"),
     "notification_failed": ("kind", "key", "reason"),
     "copy_not_read": ("detail",),
+    "cleaned": TASK_FIELDS + ("what", "target"),
+    "clean_kept": TASK_FIELDS + ("what", "target", "reason"),
+    "clean_finished": TASK_FIELDS + ("pr",),
+    "clean_merged_changed": ("enabled",),
 }
 # Each setting a project may have in the dashboard's settings section, with its values. One there wins over the registry.
 PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS, "queen_answers_one_way": (True, False)}
@@ -141,6 +145,7 @@ class StateStore:
         self.flown_dir = self.root / "flown"
         self.bazras_file = self.root / "bazras.json"
         self.by_hand_labelled_file = self.root / "by-hand-labelled"  # The one-time `by-hand` backfill ran.
+        self.clean_since_file = self.root / "clean-since"  # Only a task merged after this is cleaned up.
         self.listeners = []  # Called with each event once it is in the log.
 
     def _make_dirs(self):
@@ -325,6 +330,15 @@ class StateStore:
                         self.record("project_setting_carried", project=project.name, setting=setting, value=value)
         self._make_dirs()
         self.settings_carried_file.touch(mode=0o600)
+
+    def clean_since(self, now):
+        """When cleaning up after merges began: `now` on the first call, kept from then on.
+
+        A task merged before it keeps its leftovers, as the user left them.
+        """
+        if not self.clean_since_file.exists():
+            self._write_private(self.root, self.clean_since_file.name, now.isoformat(timespec="seconds"))
+        return datetime.fromisoformat(self.clean_since_file.read_text(encoding="utf-8").strip())
 
     def project_setting(self, project, setting):
         """The project's setting: the dashboard's choice, else the registry's."""

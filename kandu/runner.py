@@ -26,6 +26,12 @@ POLL_SECONDS = 2
 STOP_GRACE_SECONDS = 10
 COMMAND_TIMEOUT_SECONDS = 30 * 60
 SECRET_PREFIX = "KANDU_"
+# What `Runner.clean_task` says of each folder and branch it finds: removed, or why it stays.
+REMOVED = "removed"
+KEPT_UNCOMMITTED = "it has changes that are not committed"
+KEPT_UNPUSHED = "it has commits that are neither in the merged PR nor on GitHub"
+KEPT_NOT_WORKTREE = "it is not a worktree of this copy"
+KEPT_CHECKED_OUT = "it is checked out in a folder that stays"
 
 
 class RunnerError(Exception):
@@ -174,6 +180,75 @@ class Runner:
                 host.check(["git", "worktree", "prune"], cwd=path)
                 host.check(["git", "worktree", "add", "--detach", directory, head_sha], cwd=path)
         return directory
+
+    def clean_task(self, project, repo, branch, folders, merged_sha):
+        """Removes a merged task's folders beside the copy and its local branch. Returns (what, target, outcome)
+        for each that was there: `what` is "folder" or "branch", `outcome` REMOVED or why it stays.
+
+        Only `<copy>.kandu-worktrees/<name>` for each name in `folders`, and only the `kandu/` branch `branch`:
+        the copy itself and every other folder and branch stay. A folder or branch stays while it holds work found
+        neither in the merged PR (`merged_sha`) nor on GitHub; files git ignores do not count.
+        """
+        if not branch.startswith("kandu/") or any("/" in n or n.startswith(".") or not n for n in folders):
+            raise RunnerError(f"not a task's folder or branch: {branch} {folders}")
+        host = self.hosts[project.machine]
+        found = []
+        with self._repo_locks[(host.name, repo)]:
+            path = host.absolute(repo_path(project, repo))
+            if not host.succeeds(["test", "-e", ".git"], cwd=path):
+                return found
+            host.check(["git", "fetch", "origin"], cwd=path)
+            for name in folders:
+                directory = _worktree_dir(path, name)
+                if host.succeeds(["test", "-d", directory]):
+                    found.append(("folder", name, self._remove_folder(host, path, directory, merged_sha)))
+            ref = f"refs/heads/{branch}"
+            if host.succeeds(["git", "show-ref", "--verify", "--quiet", ref], cwd=path):
+                found.append(("branch", branch, self._remove_branch(host, path, branch, merged_sha)))
+        return found
+
+    @staticmethod
+    def _worktrees(host, path):
+        """The copy's worktrees: (folder, branch ref or None) for each."""
+        found, folder = [], None
+        for line in host.check(["git", "worktree", "list", "--porcelain"], cwd=path).splitlines():
+            if line.startswith("worktree "):
+                folder = line.removeprefix("worktree ")
+                found.append((folder, None))
+            elif line.startswith("branch ") and folder is not None:
+                found[-1] = (folder, line.removeprefix("branch "))
+        return found
+
+    @staticmethod
+    def _merged_or_pushed(host, cwd, rev, merged_sha):
+        """True when every commit of `rev` is in the merged PR or on one of GitHub's branches."""
+        if host.succeeds(["git", "merge-base", "--is-ancestor", rev, merged_sha], cwd=cwd):
+            return True
+        # A tracking branch counts only while GitHub still has it: fetch leaves one whose branch is gone.
+        live = {line.split("\t")[-1].removeprefix("refs/heads/")
+                for line in host.check(["git", "ls-remote", "--heads", "origin"], cwd=cwd).splitlines() if line}
+        holding = host.check(["git", "for-each-ref", "--format=%(refname:lstrip=3)", "--contains", rev,
+                              "refs/remotes/origin"], cwd=cwd).split()
+        return any(name in live for name in holding)
+
+    def _remove_folder(self, host, path, directory, merged_sha):
+        if directory not in {folder for folder, _ in self._worktrees(host, path)}:
+            return KEPT_NOT_WORKTREE
+        if host.check(["git", "status", "--porcelain"], cwd=directory).strip():
+            return KEPT_UNCOMMITTED  # untracked files count; ignored ones do not show here
+        if not self._merged_or_pushed(host, directory, "HEAD", merged_sha):
+            return KEPT_UNPUSHED
+        # Forced only so that ignored files go with it: everything that counts was checked above.
+        host.check(["git", "worktree", "remove", "--force", directory], cwd=path)
+        return REMOVED
+
+    def _remove_branch(self, host, path, branch, merged_sha):
+        if any(ref == f"refs/heads/{branch}" for _, ref in self._worktrees(host, path)):
+            return KEPT_CHECKED_OUT
+        if not self._merged_or_pushed(host, path, f"refs/heads/{branch}", merged_sha):
+            return KEPT_UNPUSHED
+        host.check(["git", "branch", "-D", branch], cwd=path)
+        return REMOVED
 
     def run_command(self, project, cwd, command, log_name, secrets=False):
         """Runs a project's command in `cwd` and returns its exit code. Its output stays in a local log."""

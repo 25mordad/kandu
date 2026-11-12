@@ -55,6 +55,9 @@ state/
 | `queen_approved` | `task`, `project`, `head_sha`, `note` |
 | `queen_accepted_split` | `task`, `project`, `children`, `note`: her reason |
 | `copy_not_read` | `detail` |
+| `cleaned` | `task`, `project`, `what`, `target`: after the task's merge, one removal: `what` is `folder` (`target` is its name under `<copy>.kandu-worktrees`), `branch` (the local `kandu/` branch) or `remote_branch` (that branch on GitHub) |
+| `clean_kept` | `task`, `project`, `what`, `target`, `reason`: after the task's merge, a folder or branch stayed, because it holds work found neither in the merged PR nor on GitHub; the task's page shows it |
+| `clean_finished` | `task`, `project`, `pr`: the cleanup after this PR's merge is done; it is not looked at again |
 | `priority_raised` | `task`, `project` |
 | `task_sized` | `task`, `project`, `run_id`, `size`, `files`, `door`, `criteria`, `slices` |
 | `slice_created` | `task`, `project`, `parent` |
@@ -75,6 +78,7 @@ state/
 | `limits_changed` | `session`, `week` |
 | `drop_blockers_changed` | `enabled`: the user let the queen ask to drop a blocker, or stopped her, from the dashboard |
 | `requests_shown_changed` | `enabled`: the user showed the open requests on the dashboard, or hid them |
+| `clean_merged_changed` | `enabled`: the user turned the cleanup after a merge on or off from the dashboard |
 | `parallel_changed` | `total` (or null), `projects`: name → number, for those changed |
 | `kandu_restarted` | none |
 | `wake_requested` | none |
@@ -135,4 +139,4 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 No other argument is kept. The dashboard adds a `limit` line every five minutes with `graphql_used`, `graphql_reset`, `rest_used` and `rest_reset` as GitHub reports them, so points that no counted call explains came from outside Kandu. `.venv/bin/python -m kandu.ghmeter` shows a day by hour, caller and command.
 
 ## Other files
-`state/stopped` exists while the user has stopped the supervisor. `state/paused/<project>` exists while the user has paused that project. `state/project-settings.json` maps a project's name to the settings the user chose in the dashboard, such as `{"website": {"split_approval": "user", "queen_answers_one_way": true}}`; one named there wins over the registry, and one not named there comes from it. `state/settings-carried` exists once the first cycle after `queen_answers_one_way` came has carried it (`project_setting_carried`), so it runs only once. `state/bazras.json` names the project Bazras is looking at, only while it looks, and `state/bazras.lock` is held during its run. `state/supervisor.lock` is held during a cycle, `state/split.lock` while a split is accepted. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.
+`state/stopped` exists while the user has stopped the supervisor. `state/paused/<project>` exists while the user has paused that project. `state/project-settings.json` maps a project's name to the settings the user chose in the dashboard, such as `{"website": {"split_approval": "user", "queen_answers_one_way": true}}`; one named there wins over the registry, and one not named there comes from it. `state/settings-carried` exists once the first cycle after `queen_answers_one_way` came has carried it (`project_setting_carried`), so it runs only once. `state/bazras.json` names the project Bazras is looking at, only while it looks, and `state/bazras.lock` is held during its run. `state/clean-since` holds the time of the first cycle that had the cleanup after a merge; only a PR merged after it is cleaned up. `state/supervisor.lock` is held during a cycle, `state/split.lock` while a split is accepted. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.

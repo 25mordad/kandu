@@ -64,6 +64,13 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.projects[0].board.number, 1)
         self.assertEqual(config.settings.didban.knowledge[0].name, "notes")
 
+    def test_the_cleanup_after_a_merge_is_on_unless_turned_off(self):
+        self.assertTrue(load_config(self.local).settings.supervisor.clean_merged)
+        self.edit("kandu.yaml", lambda d: d["supervisor"].pop("clean_merged"))
+        self.assertTrue(load_config(self.local).settings.supervisor.clean_merged)
+        self.edit("kandu.yaml", lambda d: d["supervisor"].update(clean_merged=False))
+        self.assertFalse(load_config(self.local).settings.supervisor.clean_merged)
+
     def test_empty_registry_is_valid(self):
         self.edit("projects.yaml", lambda d: d.update(projects=[]))
         self.assertEqual(load_config(self.local).projects, [])

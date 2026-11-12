@@ -73,6 +73,7 @@ supervisor:                    # optional; these are the defaults
   queen_max_retries: 3         # how often the queen may take each kind of step on one task (retry, rework, check, new task, merge order); past it the task stops and you hear of it
   queen_daily_token_limit: 2000000   # her own limit; past it, running work ends and nothing new starts
   queen_drop_blockers: false   # true = the queen may ask you to drop a blocker a task does not need; off until you turn it on, here or in the dashboard
+  clean_merged: true           # true = once a task's PR is merged, its folders beside the repo and its kandu/ branches go; a folder with work not in the PR stays. Off here or in the dashboard
 
 # permissions:                 # optional; what each role may do. Without it every role may do everything:
 #                              # Bash, the network, SSH, secrets files. A role named here may do only what its

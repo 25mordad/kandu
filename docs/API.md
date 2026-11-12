@@ -10,7 +10,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `project_settings`, `timer_on`, `language`, `limits`, `queen`, `flowers`, `waits_for_you`, `bazras`, `backup`, `drop_blockers` and `show_requests` |
+| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `project_settings`, `timer_on`, `language`, `limits`, `queen`, `flowers`, `waits_for_you`, `bazras`, `backup`, `drop_blockers`, `show_requests` and `clean_merged` |
 | GET | `/api/v1/queue` | each project's board columns, with `Done` holding only what closed in the last `done_days` days, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes or moves |
 | GET | `/api/v1/boards` | every board in the config, with its projects, columns, fields and cards, read from Kandu's copy of GitHub, so it costs GitHub nothing; `?fresh=1` reads each board into the copy first, at most once a minute |
 | GET | `/api/v1/days` | dates that have events |
@@ -35,6 +35,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | POST | `/api/v1/splits/{owner}/{repo}/{number}/approve` | the user's yes to that proposal; its slices become issues |
 | POST | `/api/v1/drop-blockers/{owner}/{repo}/{number}` | the user's yes to the queen's ask to drop a blocker from a task, given as `?blocker=OWNER/REPO%23N`; the blocker leaves the issue's `## Blocked by` and a cycle starts |
 | POST | `/api/v1/drop-blockers` | `enabled=true` or `false`: let the queen ask to drop a blocker, or stop her, in `kandu.yaml`; off is the default |
+| POST | `/api/v1/clean-merged` | `enabled=true` or `false`: turn the cleanup after a merge on or off, in `kandu.yaml`; on is the default; answers `{"clean_merged": false}` |
 | POST | `/api/v1/stop` | stop the supervisor; running agents are killed |
 | POST | `/api/v1/resume` | allow the next cycle to run |
 | POST | `/api/v1/limits` | set the 5-hour and weekly usage limits, as `?session=85&week=60`; the next cycle uses them |
@@ -115,7 +116,7 @@ data: {"v": 1, "ts": "2026-10-30T12:00:00+01:00", "type": "supervisor_woke"}
  "rounds": [{"round": 1, "head_sha": "abc123", "door": "two-way", "summary": "...", "brief": "...", "user_brief": "...", "blast_radius": "...",
              "criteria": [{"criterion": "...", "result": "met"}], "open": [], "recommendation": "ready to merge"}]}
 ```
-The `pr` object also has `approved`, true once the user said yes to this head, `can_approve`, true when the page may offer that, and `why_not`, which says in English why not, otherwise null. While a task it is blocked by is open, `why_not` is `it waits for OWNER/REPO#N to merge first`. Beside `pr`, `blockers` is the task's open blockers as in `GET /queue`, `waited` the latest reasons its merge waited, as in `flowers`, and `holds` what still holds the merge after a yes: each open blocker as the merge gate words it, then `waited`. The page promises a merge in the next cycle only when `holds` is empty.
+The `pr` object also has `approved`, true once the user said yes to this head, `can_approve`, true when the page may offer that, and `why_not`, which says in English why not, otherwise null. While a task it is blocked by is open, `why_not` is `it waits for OWNER/REPO#N to merge first`. Beside `pr`, `blockers` is the task's open blockers as in `GET /queue`, `waited` the latest reasons its merge waited, as in `flowers`, and `holds` what still holds the merge after a yes: each open blocker as the merge gate words it, then `waited`. The page promises a merge in the next cycle only when `holds` is empty. `kept` lists what stayed after the task's merge: `[{"what": "folder", "target": "12-add-search", "reason": "it has changes that are not committed"}]`, empty when nothing did.
 
 `POST /api/v1/reviews/acme-org/website/12/approve?head=abc123` answers `{"approved": "abc123", "cycle_started": true}`. `cycle_started` is `null` if a cycle is already running, and `false` if `systemd` refused. Either way the yes is saved, and the next cycle uses it. The answer is `409` if `head` is no longer the PR's head, if the local log shows no review of it, an open blocker or an unmet criterion, if a task it is blocked by is still open, or if no cycle would pick the task up: its project is paused, or its column is not `Ready`, `In progress` or `In review`. The yes answers the review's questions and a one-way door. Every other merge condition still applies, including the tests.
 

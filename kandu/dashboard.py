@@ -17,9 +17,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import backup, bazras, flights, ghmeter, queen, questions, review, sessions, split, tasks, timer
+from . import backup, bazras, clean, flights, ghmeter, queen, questions, review, sessions, split, tasks, timer
 from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup,
-                     set_drop_blockers, set_inspect, set_limits, set_parallel, set_show_requests)
+                     set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_parallel, set_show_requests)
 from .github import AGENT_LABEL, GitHubError, task_blockers
 from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
@@ -213,6 +213,7 @@ class Api:
             "backup": self._backup(),
             "drop_blockers": self.config.settings.supervisor.queen_drop_blockers,
             "show_requests": self.config.settings.dashboard.show_requests,
+            "clean_merged": self.config.settings.supervisor.clean_merged,
         }
 
     def _open_marks(self, marks):
@@ -540,7 +541,7 @@ class Api:
             raise ApiError(404, "no such task")
         pr = self.github.find_pr(full, int(number))
         if pr is None:
-            return {"task": f"{full}#{number}", "pr": None, "rounds": []}
+            return {"task": f"{full}#{number}", "pr": None, "rounds": [], "kept": clean.kept(self.store, f"{full}#{number}")}
         task, head = f"{full}#{number}", pr["headRefOid"]
         why_not = self._why_no_approval(task, pr)
         item, columns = self._card(full, int(number))
@@ -554,7 +555,7 @@ class Api:
                                      "approved": self.store.last_event("user_approved", task=task,
                                                                        head_sha=head) is not None,
                                      "can_approve": why_not is None, "why_not": why_not},
-                "blockers": blockers, "waited": waited, "holds": holds,
+                "blockers": blockers, "waited": waited, "holds": holds, "kept": clean.kept(self.store, task),
                 "rounds": [r | {"recommendation": recommendation(r), "user_brief": self._user_brief(full, number, r)}
                            for r in rounds]}
 
@@ -714,6 +715,19 @@ class Api:
         self.store.record("drop_blockers_changed", enabled=enabled == "true")
         return {"drop_blockers": enabled == "true"}
 
+    def change_clean_merged(self, query):
+        """Turns the cleanup after a merge on or off, through the config. The next cycle uses it."""
+        enabled = query.get("enabled", [""])[0]
+        if enabled not in ("true", "false"):
+            raise ApiError(400, "give enabled=true or enabled=false")
+        try:
+            set_clean_merged(enabled == "true", self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        self.config.settings.supervisor.clean_merged = enabled == "true"
+        self.store.record("clean_merged_changed", enabled=enabled == "true")
+        return {"clean_merged": enabled == "true"}
+
     def stop(self, query):
         self.store.request_stop()
         return {"stop_requested": True}
@@ -871,6 +885,7 @@ ROUTES = [
     ("GET", "/splits/{owner}/{repo}/{number}", Api.split),
     ("POST", "/splits/{owner}/{repo}/{number}/approve", Api.approve_split),
     ("POST", "/drop-blockers", Api.change_drop_blockers),
+    ("POST", "/clean-merged", Api.change_clean_merged),
     ("POST", "/drop-blockers/{owner}/{repo}/{number}", Api.drop_blocker),
     ("POST", "/stop", Api.stop),
     ("POST", "/resume", Api.resume),

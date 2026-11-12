@@ -538,6 +538,15 @@ class ReviewPageTest(Base):
         self.assertEqual(body["rounds"][0]["user_brief"], "کوتاه")
         self.assertEqual(body["rounds"][0]["recommendation"], "ready to merge")
 
+    def test_a_folder_that_stayed_after_the_merge_says_why(self):
+        self.store.record("cleaned", task=f"{REPO}#1", project="site", what="folder", target="1-t-review")
+        self.store.record("clean_kept", task=f"{REPO}#1", project="site", what="folder", target="1-t",
+                          reason="it has changes that are not committed")
+        self.github.board_items.return_value = []
+        self.github.find_pr.return_value = self.pr() | {"state": "MERGED"}
+        self.assertEqual(self.get(f"/api/v1/reviews/{REPO}/1")[1]["kept"],
+                         [{"what": "folder", "target": "1-t", "reason": "it has changes that are not committed"}])
+
     def test_no_pr_yet(self):
         self.github.find_pr.return_value = None
         self.assertEqual(self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"], None)
@@ -1226,6 +1235,9 @@ class LanguageTest(unittest.TestCase):
         values += [r for r in re.findall(r'return "([a-z][^"]*)"', reasons) if r != "this PR is not open"]
         values.append("its task is in Blocked, so no cycle would pick it up")
         values.append(f"it waits for {REPO}#2, {REPO}#3 to merge first")
+        from kandu import clean, runner
+        values += [runner.KEPT_UNCOMMITTED, runner.KEPT_UNPUSHED, runner.KEPT_NOT_WORKTREE, runner.KEPT_CHECKED_OUT,
+                   clean.KEPT_PUSHED_AFTER, "clean_failed", "folder", "branch", "remote_branch"]
         missing = [v for v in values if not self.translate(v)]
         self.assertEqual(missing, [])
 
@@ -1423,6 +1435,24 @@ class DropAskTest(Base):
         self.assertIn("# her own limit", (self.root / "local" / "kandu.yaml").read_text(encoding="utf-8"))
         self.assertEqual(dispatch(self.api, "POST", "/api/v1/drop-blockers?enabled=maybe", TOKEN)[0], 400)
         self.assertEqual(self.store.last_event("drop_blockers_changed")["enabled"], True)
+
+
+class CleanMergedTest(Base):
+    def test_it_is_on_by_default_and_one_switch_turns_it_off(self):
+        self.assertTrue(self.get("/api/v1/state")[1]["clean_merged"])
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/clean-merged?enabled=false")[0], 403)
+        status, body = dispatch(self.api, "POST", "/api/v1/clean-merged?enabled=false", TOKEN)
+        self.assertEqual((status, body), (200, {"clean_merged": False}))
+        self.assertFalse(load_config(self.root / "local").settings.supervisor.clean_merged)
+        self.assertFalse(self.get("/api/v1/state")[1]["clean_merged"])
+        self.assertIn("# her own limit", (self.root / "local" / "kandu.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/clean-merged?enabled=maybe", TOKEN)[0], 400)
+        self.assertEqual(self.store.last_event("clean_merged_changed")["enabled"], False)
+
+    def test_the_settings_section_has_its_switch(self):
+        page = (ROOT / "kandu" / "dashboard.html").read_text(encoding="utf-8")
+        self.assertIn("data-clean-merged", page)
+        self.assertIn("/clean-merged?enabled=", page)
 
 
 class RequestsTest(Base):

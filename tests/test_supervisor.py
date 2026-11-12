@@ -146,6 +146,13 @@ class FakeGitHub:
     def merge_pr(self, repo, number, head_sha):
         self.merges.append(head_sha)
         self.pr(repo, number)["state"] = "MERGED"
+        self.pr(repo, number)["mergedAt"] = "2026-10-30T12:00:00+00:00"
+
+    def merged_prs(self, repo):
+        return [pr for (r, _), pr in self.prs.items() if r == repo and pr["state"] == "MERGED"]
+
+    def branch_tip(self, repo, branch):
+        return None  # GitHub removed it on merge
 
     def mark_pr(self, repo, pr):
         pr["labels"] = [{"name": "kandu"}]
@@ -186,6 +193,10 @@ class FakeRunner:
 
     def prepare_review(self, project, repo, branch, head):
         return f"/review/{head}"
+
+    def clean_task(self, project, repo, branch, folders, merged_sha):
+        self.cleaned = getattr(self, "cleaned", []) + [(repo, branch, tuple(folders))]
+        return [("folder", name, "removed") for name in folders[:1]]
 
     def run_command(self, project, cwd, command, log_name, secrets=False):
         self.commands.append((command, secrets))
@@ -1868,6 +1879,27 @@ class MergeTest(Base):
         self.runner.steps = [report(SHA1), self.PASS]
         self.cycle()
         self.assertEqual([c for c, secrets in self.runner.commands if secrets], [self.deploy])
+
+    def test_a_merged_task_is_cleaned_up_in_the_same_cycle(self):
+        self.runner.steps = [report(SHA1), self.PASS]
+        self.cycle()
+        self.assertEqual(self.runner.cleaned, [(REPO, "kandu/1-task", ("1-task", "1-task-review", "check-1-review"))])
+        self.assertEqual([(e["task"], e["target"]) for e in self.events("cleaned")], [(KEY, "1-task")])
+
+    def test_a_pr_merged_by_hand_is_cleaned_up_by_the_next_cycle(self):
+        self.github.add(2, "Done")
+        by_hand = self.github.open_pr(REPO, 2, SHA2, state="MERGED")
+        by_hand.update(number=8, mergedAt="2026-10-30T13:00:00Z")
+        self.runner.steps = [report(SHA1), self.PASS]
+        self.cycle()
+        self.assertIn((REPO, "kandu/2-task", ("2-task", "2-task-review", "check-2-review")), self.runner.cleaned)
+
+    def test_the_cleanup_can_be_turned_off(self):
+        self.config.settings.supervisor.clean_merged = False
+        self.runner.steps = [report(SHA1), self.PASS]
+        self.cycle()
+        self.assertEqual(self.github.merges, [SHA1])
+        self.assertFalse(hasattr(self.runner, "cleaned"))
 
     def test_off_by_default(self):
         self.config.projects[0].auto_merge = False

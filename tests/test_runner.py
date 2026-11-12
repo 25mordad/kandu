@@ -11,7 +11,8 @@ from unittest import mock
 
 from kandu import ghmeter
 from kandu.config import Config, Machine, Project
-from kandu.runner import Host, Runner, RunnerError, child_env, repo_path
+from kandu.runner import (KEPT_CHECKED_OUT, KEPT_NOT_WORKTREE, KEPT_UNCOMMITTED, KEPT_UNPUSHED, REMOVED, Host, Runner,
+                          RunnerError, child_env, repo_path)
 
 import tempfile as _tempfile
 from kandu import ghmeter as _ghmeter
@@ -77,7 +78,7 @@ class RepoPathTest(unittest.TestCase):
         self.assertEqual(repo_path(self.project(["o/a", "o/b"]), "o/b"), "~/w/site/b")
 
 
-class RunnerTest(unittest.TestCase):
+class GitCase(unittest.TestCase):
     """Real git and a real shell; `claude` and `gh` are stubs, found first through `$HOME/.local/bin`."""
 
     def setUp(self):
@@ -114,6 +115,9 @@ class RunnerTest(unittest.TestCase):
         return Project(name="site", family="f", repos=["o/site"], run=run, machine="box", path="~/work/site",
                        test="true", priority=1, max_parallel_workers=1, paused=False, daily_token_limit=1000)
 
+
+
+class RunnerTest(GitCase):
     def test_reachable(self):
         self.assertTrue(self.runner.reachable("box"))
 
@@ -312,3 +316,107 @@ class RunnerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CleanTaskTest(GitCase):
+    """Only inside a temporary folder: the copy, its worktrees and its origin are all made here."""
+
+    def setUp(self):
+        super().setUp()
+        self.worktree = Path(self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main"))
+        (self.worktree / "work.txt").write_text("done")
+        git("add", ".", cwd=self.worktree)
+        git("commit", "-m", "work", cwd=self.worktree)
+        git("push", "origin", "kandu/1-a", cwd=self.worktree)
+        self.head = git("rev-parse", "HEAD", cwd=self.worktree)
+        self.review = Path(self.runner.prepare_review(self.project(), "o/site", "kandu/1-a", self.head))
+
+    def clean(self, folders=("1-a", "1-a-review", "check-1-review")):
+        return self.runner.clean_task(self.project(), "o/site", "kandu/1-a", list(folders), self.head)
+
+    def branches(self):
+        return git("branch", "--format=%(refname:short)", cwd=self.copy).split()
+
+    def test_a_merged_task_loses_its_folders_and_its_branch(self):
+        self.assertEqual(self.clean(), [("folder", "1-a", REMOVED), ("folder", "1-a-review", REMOVED),
+                                        ("branch", "kandu/1-a", REMOVED)])
+        self.assertFalse(self.worktree.exists())
+        self.assertFalse(self.review.exists())
+        self.assertNotIn("kandu/1-a", self.branches())
+        self.assertEqual(self.clean(), [])
+
+    def test_ignored_files_do_not_count(self):
+        (self.worktree / ".gitignore").write_text("build/\n")
+        git("add", ".", cwd=self.worktree)
+        git("commit", "-m", "ignore", cwd=self.worktree)
+        git("push", "origin", "kandu/1-a", cwd=self.worktree)
+        self.head = git("rev-parse", "HEAD", cwd=self.worktree)
+        (self.worktree / "build").mkdir()
+        (self.worktree / "build" / "out.bin").write_text("x")
+        self.assertIn(("folder", "1-a", REMOVED), self.clean())
+
+    def test_uncommitted_changes_keep_the_folder_and_its_branch(self):
+        (self.worktree / "new.txt").write_text("not committed")
+        found = self.clean()
+        self.assertEqual(found, [("folder", "1-a", KEPT_UNCOMMITTED), ("folder", "1-a-review", REMOVED),
+                                 ("branch", "kandu/1-a", KEPT_CHECKED_OUT)])
+        self.assertTrue((self.worktree / "new.txt").exists())
+        self.assertFalse(self.review.exists())
+
+    def test_a_commit_not_in_the_pr_and_not_pushed_keeps_the_folder(self):
+        (self.worktree / "later.txt").write_text("later")
+        git("add", ".", cwd=self.worktree)
+        git("commit", "-m", "later", cwd=self.worktree)
+        self.assertEqual(self.clean(["1-a"])[0], ("folder", "1-a", KEPT_UNPUSHED))
+        self.assertTrue(self.worktree.exists())
+
+    def test_a_commit_on_a_branch_github_no_longer_has_keeps_the_folder(self):
+        (self.worktree / "later.txt").write_text("later")
+        git("add", ".", cwd=self.worktree)
+        git("commit", "-m", "later", cwd=self.worktree)
+        git("push", "origin", "kandu/1-a", cwd=self.worktree)
+        git("branch", "-D", "kandu/1-a", cwd=self.origin)  # gone on GitHub; the copy still tracks it
+        self.assertEqual(self.clean(["1-a"])[0], ("folder", "1-a", KEPT_UNPUSHED))
+
+    def test_a_commit_pushed_after_the_merge_is_safe_on_github(self):
+        (self.worktree / "later.txt").write_text("later")
+        git("add", ".", cwd=self.worktree)
+        git("commit", "-m", "later", cwd=self.worktree)
+        git("push", "origin", "kandu/1-a", cwd=self.worktree)
+        self.assertEqual(self.clean(["1-a"])[0], ("folder", "1-a", REMOVED))
+
+    def test_a_branch_with_commits_of_its_own_stays(self):
+        git("worktree", "remove", "--force", str(self.worktree), cwd=self.copy)
+        scratch = self.root / "scratch"
+        git("worktree", "add", str(scratch), "kandu/1-a", cwd=self.copy)
+        (scratch / "mine.txt").write_text("x")
+        git("add", ".", cwd=scratch)
+        git("commit", "-m", "mine", cwd=scratch)
+        git("worktree", "remove", "--force", str(scratch), cwd=self.copy)
+        self.assertEqual(self.clean([]), [("branch", "kandu/1-a", KEPT_UNPUSHED)])
+        self.assertIn("kandu/1-a", self.branches())
+
+    def test_a_folder_that_is_no_worktree_of_the_copy_stays(self):
+        stray = Path(f"{self.copy}.kandu-worktrees") / "check-1-review"
+        stray.mkdir()
+        self.assertIn(("folder", "check-1-review", KEPT_NOT_WORKTREE), self.clean())
+        self.assertTrue(stray.exists())
+
+    def test_the_users_copy_and_other_branches_stay(self):
+        git("branch", "kandu/2-b", cwd=self.copy)
+        (self.copy / "mine.txt").write_text("mine")
+        self.clean()
+        self.assertTrue((self.copy / "mine.txt").exists())
+        self.assertIn("kandu/2-b", self.branches())
+        self.assertIn("main", self.branches())
+
+    def test_only_a_kandu_branch_and_plain_folder_names(self):
+        for branch, folders in (("main", ["1-a"]), ("kandu/1-a", ["../site"]), ("kandu/1-a", [".git"])):
+            with self.assertRaises(RunnerError):
+                self.runner.clean_task(self.project(), "o/site", branch, folders, self.head)
+        self.assertTrue(self.worktree.exists())
+
+    def test_no_copy_on_the_machine_is_nothing_to_do(self):
+        project = self.project()
+        project.path = "~/work/elsewhere"
+        self.assertEqual(self.runner.clean_task(project, "o/site", "kandu/1-a", ["1-a"], self.head), [])
