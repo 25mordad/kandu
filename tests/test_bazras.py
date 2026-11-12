@@ -299,7 +299,7 @@ class FakeRunner:
     def prepare_review(self, project, repo, branch, head):
         return "/checkout"
 
-    def run_command(self, project, cwd, command, log_name, secrets=False):
+    def run_command(self, project, cwd, command, log_name, secrets=False, scoped=True):
         Path(self.logs, f"{log_name}.log").write_text("FAILED test_x\n")
         return self.test_code if command == project.test else self.check_code
 

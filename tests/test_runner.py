@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -12,7 +13,7 @@ from unittest import mock
 from kandu import ghmeter
 from kandu.config import Config, Machine, Project
 from kandu.runner import (KEPT_CHECKED_OUT, KEPT_NOT_WORKTREE, KEPT_UNCOMMITTED, KEPT_UNPUSHED, REMOVED, Host, Runner,
-                          RunnerError, child_env, repo_path)
+                          RunnerError, SCOPE_PROBE, child_env, repo_path)
 
 import tempfile as _tempfile
 from kandu import ghmeter as _ghmeter
@@ -262,6 +263,40 @@ class RunnerTest(GitCase):
             self.assertEqual(self.runner.run_command(project, cwd, project.test, "run-env"), 0)
         self.assertIn("OTHER=shown", seen.read_text())
         self.assertNotIn("hidden", seen.read_text())
+
+    def left_behind(self, marker):
+        """The pids of processes still running whose command line holds `marker`."""
+        found = subprocess.run(["pgrep", "-f", marker], capture_output=True, text=True).stdout.split()
+        return [pid for pid in found if int(pid) != os.getpid()]
+
+    @unittest.skipUnless(subprocess.run(["sh", "-c", SCOPE_PROBE]).returncode == 0, "needs a user systemd")
+    def test_what_an_agent_leaves_running_ends_with_it(self):
+        marker = f"sleep 300.{os.getpid()}1"
+        install(self.home / ".local" / "bin" / "claude",
+                f"#!/bin/sh\nsetsid {marker} </dev/null >/dev/null 2>&1 &\n" + FAKE_CLAUDE.split("\n", 1)[1])
+        self.assertFalse(self.agent().is_error)
+        self.assertEqual(self.left_behind(marker), [])
+
+    @unittest.skipUnless(subprocess.run(["sh", "-c", SCOPE_PROBE]).returncode == 0, "needs a user systemd")
+    def test_what_a_test_leaves_running_ends_with_it_but_a_deploy_keeps_it(self):
+        project = self.project()
+        marker = f"sleep 300.{os.getpid()}2"
+        command = f"setsid {marker} </dev/null >/dev/null 2>&1 &"
+        self.assertEqual(self.runner.run_command(project, str(self.home), command, "run-left"), 0)
+        self.assertEqual(self.left_behind(marker), [])
+        self.assertEqual(self.runner.run_command(project, str(self.home), command, "run-kept", scoped=False), 0)
+        kept = self.left_behind(marker)
+        self.assertTrue(kept)
+        subprocess.run(["kill", *kept])
+
+    def test_with_no_user_systemd_a_command_runs_as_it_is(self):
+        bare = self.home / "bare-bin"  # sh and echo, and no systemd-run
+        bare.mkdir()
+        for tool in ("sh", "echo"):
+            (bare / tool).symlink_to(shutil.which(tool))
+        result = subprocess.run(Host.scoped(["echo", "ran"], "kandu-t"), capture_output=True, text=True,
+                                env={"PATH": str(bare), "HOME": str(self.home)})
+        self.assertEqual(result.stdout.strip(), "ran")
 
     def test_kandu_secrets_stay_out_of_every_child(self):
         with mock.patch.dict(os.environ, {"KANDU_DASHBOARD_TOKEN": "hidden", "OTHER": "shown"}):

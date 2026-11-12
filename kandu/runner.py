@@ -7,10 +7,12 @@ SSH, so both paths are the same code. To add isolation, replace this module's
 import json
 import os
 import posixpath
+import re
 import shlex
 import subprocess
 import threading
 import time
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +26,9 @@ GIT_TIMEOUT_SECONDS = 300
 PROBE_TIMEOUT_SECONDS = 20
 POLL_SECONDS = 2
 STOP_GRACE_SECONDS = 10
+# A run in a scope: if the machine has a user systemd, the command runs in its own scope, and when it ends
+# Kandu stops that scope, which ends every process the run left behind (a dev server, a test browser).
+SCOPE_PROBE = "command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1"
 COMMAND_TIMEOUT_SECONDS = 30 * 60
 SECRET_PREFIX = "KANDU_"
 # What `Runner.clean_task` says of each folder and branch it finds: removed, or why it stays.
@@ -72,6 +77,21 @@ class Host:
             return ["sh", "-c", script]
         return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", self.ssh_target, script]
 
+    @staticmethod
+    def scoped(command, unit):
+        """`command` in its own systemd scope named `unit`; as it is where the machine has no user systemd."""
+        script = (f'if {SCOPE_PROBE}; then exec systemd-run --user --scope --quiet --collect '
+                  f'--property=TimeoutStopSec={STOP_GRACE_SECONDS} --unit={shlex.quote(unit)} -- "$@"; fi; exec "$@"')
+        return ["sh", "-c", script, "sh", *command]
+
+    def stop_scope(self, unit):
+        """Ends whatever is left in the scope `unit`. A scope that is already gone, or no systemd, is fine."""
+        try:
+            self.run(["sh", "-c", f"if {SCOPE_PROBE}; then systemctl --user stop {shlex.quote(unit + '.scope')}; fi"],
+                     timeout=PROBE_TIMEOUT_SECONDS)
+        except RunnerError:
+            pass
+
     def run(self, command, cwd=None, timeout=GIT_TIMEOUT_SECONDS):
         try:
             return subprocess.run(self.argv(command, cwd), capture_output=True, text=True, timeout=timeout, env=child_env())
@@ -94,6 +114,11 @@ class Host:
         if self._home is None:
             self._home = self.check(["sh", "-c", 'printf %s "$HOME"'])
         return posixpath.join(self._home, path[2:])
+
+
+def scope_name(name):
+    """A unit name for one run: unique, and only characters systemd takes."""
+    return f"kandu-{re.sub(r'[^A-Za-z0-9_.-]', '-', name)[:80]}-{uuid.uuid4().hex[:8]}"
 
 
 def repo_path(project, repo):
@@ -250,27 +275,37 @@ class Runner:
         host.check(["git", "branch", "-D", branch], cwd=path)
         return REMOVED
 
-    def run_command(self, project, cwd, command, log_name, secrets=False):
-        """Runs a project's command in `cwd` and returns its exit code. Its output stays in a local log."""
+    def run_command(self, project, cwd, command, log_name, secrets=False, scoped=True):
+        """Runs a project's command in `cwd` and returns its exit code. Its output stays in a local log.
+
+        With `scoped`, what the command leaves running is ended with it. A deploy passes False: it may start
+        what must keep running.
+        """
         host = self.hosts[project.machine]
         script = command
         if secrets and project.secrets_from:
             script = f"set -a; . {shlex.quote(host.absolute(project.secrets_from))}; set +a; {command}"
+        unit = scope_name(log_name) if scoped else None
+        argv = Host.scoped(["sh", "-c", script], unit) if unit else ["sh", "-c", script]
         self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd = os.open(self.logs_dir / f"{log_name}.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as log:
             try:
-                return subprocess.run(host.argv(["sh", "-c", script], cwd), stdout=log, stderr=subprocess.STDOUT,
+                return subprocess.run(host.argv(argv, cwd), stdout=log, stderr=subprocess.STDOUT,
                                       timeout=COMMAND_TIMEOUT_SECONDS, env=child_env()).returncode
             except subprocess.TimeoutExpired as e:
                 raise RunnerError(f"a project command timed out on {host.name}") from e
+            finally:
+                if unit:
+                    host.stop_scope(unit)
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
                   schema=None, resume=None):
         """Runs one `claude` process to its end; `should_stop` is polled while it runs.
 
-        Over SSH, stopping ends the local `ssh`; the remote process then dies at
-        its next write to the closed connection, not at once. With no `model`,
+        The run is in its own scope (`Host.scoped`): when it ends, or is
+        stopped, every process it started on the machine ends with it, over
+        SSH too. With no `model`,
         `claude` picks its own default. `tokens` is (file, names): those
         values alone reach this process, in its environment. If one is
         missing the run ends with an error. With a `schema`, `claude` holds the
@@ -293,18 +328,24 @@ class Runner:
             command = ["sh", "-c", f'{script}; exec "$@"', "sh", *command]
         self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd = os.open(self.logs_dir / f"{run_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        process = subprocess.Popen(self.hosts[machine].argv(command, cwd), stdin=subprocess.PIPE,
+        host = self.hosts[machine]
+        unit = scope_name(run_id)
+        process = subprocess.Popen(host.argv(Host.scoped(command, unit), cwd), stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=child_env(run_id))
         stopped = threading.Event()
         threading.Thread(target=self._feed, args=(process, prompt), daemon=True).start()
         threading.Thread(target=self._watch, args=(process, should_stop, stopped), daemon=True).start()
         result = None
-        with os.fdopen(fd, "w", encoding="utf-8") as log:
-            for line in process.stdout:
-                log.write(line)
-                log.flush()
-                result = _last_result(line, result)
-        process.wait()
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as log:
+                for line in process.stdout:
+                    log.write(line)
+                    log.flush()
+                    result = _last_result(line, result)
+            process.wait()
+        finally:
+            # Ends what the run left behind, and over SSH a stopped run's `claude` at once.
+            host.stop_scope(unit)
         if result is None:
             return AgentResult(stopped=stopped.is_set())
         usage = usage_from_result(result)

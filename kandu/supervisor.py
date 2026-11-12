@@ -928,7 +928,7 @@ class Supervisor:
         with self._deploy_locks[project.name]:
             base = self.github.default_branch(task.repo)
             cwd = self.runner.prepare_review(project, task.repo, "kandu/deploy", f"origin/{base}")
-            code = self.runner.run_command(project, cwd, project.deploy.command, run_id, secrets=True)
+            code = self.runner.run_command(project, cwd, project.deploy.command, run_id, secrets=True, scoped=False)
         if code != 0:
             self.github.comment_issue(task.repo, task.number, "Kandu merged this, but the deploy failed. "
                                       "Nothing was reverted. The details are in its local log.")
