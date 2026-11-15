@@ -43,6 +43,17 @@ class RunnerError(Exception):
     pass
 
 
+class LocalWork(RunnerError):
+    """A task's folder holds commits that are not on GitHub, so Kandu will not clean it."""
+
+
+# What a git operation left unfinished leaves in the worktree's git folder, and the command that cancels it.
+UNFINISHED = (("MERGE_HEAD", "merge"), ("rebase-merge", "rebase"), ("rebase-apply", "rebase"),
+              ("CHERRY_PICK_HEAD", "cherry-pick"))
+# A conflict marker git writes at the start of a line, which must never reach a review.
+CONFLICT_MARKER = "^(<<<<<<<|>>>>>>>)( |$)"
+
+
 def child_env(run_id=None):
     """What an agent or a project's command may see: a worker's code runs here, so none of Kandu's own secrets.
 
@@ -175,8 +186,13 @@ class Runner:
         host.check(["gh", "repo", "clone", repo, path])
         return path
 
-    def prepare_worktree(self, project, repo, branch, base):
-        """Returns the worker's worktree on `branch`, reusing it if an earlier run left one."""
+    def prepare_worktree(self, project, repo, branch, base, cleaned=None):
+        """Returns the worker's worktree on `branch`, reusing it if an earlier run left one.
+
+        A merge, rebase or cherry-pick an earlier run left unfinished there is cancelled first, and `cleaned` is
+        called with what was cancelled. If the folder holds commits that are not on GitHub, it is left as it is
+        and `LocalWork` is raised.
+        """
         host = self.hosts[project.machine]
         with self._repo_locks[(host.name, repo)]:
             path = self._ensure_copy(host, project, repo)
@@ -184,6 +200,7 @@ class Runner:
             host.check(["git", "fetch", "origin"], cwd=path)
             pushed = host.succeeds(["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"], cwd=path)
             if host.succeeds(["test", "-d", directory]):
+                self._cancel_unfinished(host, directory, branch, cleaned)
                 if pushed:
                     host.check(["git", "merge", "--ff-only", f"origin/{branch}"], cwd=directory)
                 return directory
@@ -191,6 +208,74 @@ class Runner:
             start = f"origin/{branch}" if pushed else f"origin/{base}"
             host.check(["git", "worktree", "add", "-B", branch, directory, start], cwd=path)
         return directory
+
+    @staticmethod
+    def _cancel_unfinished(host, directory, branch, cleaned):
+        operation = next((name for marker, name in UNFINISHED if host.succeeds(
+            ["test", "-e", host.check(["git", "rev-parse", "--git-path", marker], cwd=directory).strip()],
+            cwd=directory)), None)
+        if operation is None:
+            return
+        local = host.check(["git", "rev-list", "--count", "HEAD", f"refs/heads/{branch}", "--not", "--remotes=origin"],
+                           cwd=directory).strip()
+        if local != "0":
+            raise LocalWork(f"The task's folder on {host.name} has a {operation} left unfinished and {local} commit(s) "
+                            f"that are not on GitHub. Kandu left the folder as it is, so nothing is lost: finish or "
+                            f"cancel the {operation} there, push the commits, then send the task back.")
+        host.check(["git", operation, "--abort"], cwd=directory)
+        if cleaned is not None:
+            cleaned(f"cancelled a {operation} an earlier run left unfinished in the task's folder")
+
+    def merge_base(self, project, repo, directory, branch, base, message):
+        """Merges `origin/<base>` into the pushed `branch`, in Kandu's code, so no worker runs `git merge`.
+
+        Work an earlier run left uncommitted or unpushed is dropped first: it was never reviewed, and it would
+        stop the merge. Returns the commit of `base` merged and the files in conflict. With none the merge is
+        committed with `message`; with some it is left open, for a worker to resolve and commit."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            host.check(["git", "fetch", "origin"], cwd=directory)
+            host.check(["git", "reset", "--hard", f"origin/{branch}"], cwd=directory)
+            host.check(["git", "clean", "-fd"], cwd=directory)
+            sha = host.check(["git", "rev-parse", f"origin/{base}"], cwd=directory).strip()
+            if host.succeeds(["git", "merge", "--no-ff", "-m", message, sha], cwd=directory):
+                return sha, []
+            conflicts = host.check(["git", "diff", "--name-only", "--diff-filter=U"], cwd=directory).splitlines()
+            if not conflicts:
+                host.run(["git", "merge", "--abort"], cwd=directory)
+                raise RunnerError(f"merging origin/{base} failed on {host.name}, with no conflict to resolve")
+            return sha, conflicts
+
+    def push_branch(self, project, directory, branch):
+        """Pushes a merge Kandu made itself. Never forced: a branch that moved meanwhile refuses it."""
+        self.hosts[project.machine].check(["git", "push", "origin", f"HEAD:refs/heads/{branch}"], cwd=directory)
+
+    def branch_pushed(self, project, repo, branch):
+        """Whether `branch` is on GitHub, such as a worker's that pushed but whose last message was lost."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            path = self._ensure_copy(host, project, repo)
+            host.check(["git", "fetch", "origin"], cwd=path)
+            return host.succeeds(["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
+                                 cwd=path)
+
+    def has_commit(self, project, repo, directory, branch, sha):
+        """Whether the pushed `branch` contains `sha`, such as the base commit an update round merges."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            host.check(["git", "fetch", "origin"], cwd=directory)
+        return host.succeeds(["git", "merge-base", "--is-ancestor", sha, f"origin/{branch}"], cwd=directory)
+
+    def conflict_markers(self, project, repo, directory, branch, paths):
+        """Returns which of `paths` still hold a conflict marker on the pushed branch."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            host.check(["git", "fetch", "origin"], cwd=directory)
+        ref = f"origin/{branch}"
+        found = host.run(["git", "grep", "-l", "-E", CONFLICT_MARKER, ref, "--", *paths], cwd=directory)
+        if found.returncode not in (0, 1):
+            raise RunnerError(f"git grep failed on {host.name}: {found.stderr.strip()}")
+        return [line.removeprefix(f"{ref}:") for line in found.stdout.splitlines() if line]
 
     def prepare_review(self, project, repo, branch, head_sha):
         """Returns a detached checkout of exactly `head_sha`, apart from the worker's worktree."""

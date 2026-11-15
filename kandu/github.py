@@ -452,6 +452,15 @@ class GitHub:
     def edit_issue(self, repo, number, title, body):
         self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", f"title={title}", "-f", f"body={body}"])
 
+    def create_pr(self, repo, head, base, title, body):
+        """Opens a PR from `head` into `base` and returns its number. Each field is one argument, never shell text."""
+        args = ["api", f"repos/{repo}/pulls", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}",
+                "-f", f"head={head}", "-f", f"base={base}"]
+        return self._json(args)["number"]
+
+    def edit_pr_body(self, repo, number, body):
+        self._run(["api", f"repos/{repo}/pulls/{number}", "-X", "PATCH", "-f", f"body={body}"])
+
     def remove_blocked_by(self, repo, number, blocker_repo, blocker_number):
         """Takes away GitHub's "blocked by" relationship of `repo#number` on `blocker_repo#blocker_number`.
         GitHub names the blocker by its issue id, so that is read first."""

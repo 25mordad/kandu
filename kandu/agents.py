@@ -5,6 +5,7 @@ per run; with none, a role may do everything. An agent gets only the context
 it needs: the facts of one task, never the history of others.
 """
 import json
+import re
 from pathlib import Path
 
 from . import sizing
@@ -15,7 +16,12 @@ PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 # The one command an agent runs to read an issue or a PR: it prints it from Kandu's copy (DESIGN §3), from any folder.
 SHOW = PROMPTS_DIR.parent / "bin" / "kandu-show"
 SHOW_RULE = f"Bash({SHOW} *)"
-WORKER_STATUSES = ("pr_opened", "needs_info", "blocked")
+WORKER_STATUSES = ("pushed", "needs_info", "blocked")
+# A PR description that names its issue this way closes it on merge.
+CLOSES = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?) #(\d+)\b", re.IGNORECASE)
+# Kandu merges the base, opens a PR and edits its description in code; no worker does, whatever the config says.
+KANDU_ONLY = ["Bash(git merge *)", "Bash(git pull *)", "Bash(git rebase *)", "Bash(gh pr create *)",
+              "Bash(gh pr edit *)", "Bash(gh pr merge *)"]
 LIVE_RESULTS = ("pass", "fail")
 QUEEN_ACTIONS = ("release", "retry", "rework", "verify", "new_task", "block_on", "approve", "ask_user", "park",
                  "drop_blocker", "accept_split")
@@ -42,8 +48,8 @@ QUEEN_SCHEMA = {
 _TEXT = {"type": "string"}
 WORKER_SCHEMA = {
     "type": "object", "required": ["status"],
-    "properties": {"status": {"enum": list(WORKER_STATUSES)}, "pr": {"type": "integer"}, "question": _TEXT,
-                   "reason": _TEXT},
+    "properties": {"status": {"enum": list(WORKER_STATUSES)}, "pr_title": _TEXT, "pr_body": _TEXT,
+                   "question": _TEXT, "reason": _TEXT},
 }
 CHECK_SCHEMA = {
     "type": "object", "required": ["result", "summary"], "additionalProperties": False,
@@ -103,13 +109,13 @@ def _forbidden(project):
 def worker_tools(project, branch, rules=None, remote=False):
     """Returns (allowed, denied) for a worker on `branch`."""
     if rules is None:
-        return _limits(None, extra_denied=_forbidden(project))
+        return _limits(None, extra_denied=_forbidden(project) + KANDU_ONLY)
     allowed = [f"Bash({project.test})", f"Bash({project.test} *)"] + project.allowed_tools
     denied = []
     if project.secrets_from:
         path = project.secrets_from
         denied.append(f"Read({'/' + path if path.startswith('/') else path})")
-    return _limits(rules, allowed, denied + _forbidden(project), branch, remote)
+    return _limits(rules, allowed, denied + _forbidden(project) + KANDU_ONLY, branch, remote)
 
 
 def reviewer_tools(project, rules=None, remote=False):
@@ -203,8 +209,9 @@ def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None,
     if open_blockers:
         parts += ["## Blockers not merged yet",
                   f"This task is blocked by {', '.join(open_blockers)}, whose work may still be in an open PR. "
-                  "Build it now anyway: your PR merges only after theirs. If you need their code, merge their PR's "
-                  "branch into yours first and say so in your PR."]
+                  "Build it now anyway, on the default branch: your PR merges only after theirs. Do not merge their "
+                  "branches; Kandu does not bring their code into yours unless the two conflict. If the task cannot "
+                  "be done without their code, report `blocked`."]
     read = [(repo, number)] + ([(repo, pr)] if pr else [])
     if order is not None:
         return "\n".join(parts + [f"## Work the queen sends you on PR #{pr}",
@@ -381,4 +388,22 @@ def parse_worker_reply(text):
         raise ReplyError("needs_info has no question")
     if reply["status"] == "blocked" and not isinstance(reply.get("reason"), str):
         raise ReplyError("blocked has no reason")
+    for name in ("pr_title", "pr_body"):
+        if reply["status"] == "pushed" and name in reply and not (isinstance(reply[name], str) and reply[name].strip()):
+            raise ReplyError(f"{name} is empty")
     return reply
+
+
+def parse_first_reply(text):
+    """A first run's reply: Kandu opens the PR from it, so `pushed` must bring its title and description."""
+    reply = parse_worker_reply(text)
+    if reply["status"] == "pushed" and not ("pr_title" in reply and "pr_body" in reply):
+        raise ReplyError("pushed has no pr_title and pr_body")
+    return reply
+
+
+def closing_body(body, number):
+    """The PR description as Kandu sends it: it always closes its own issue."""
+    if str(number) in {m.group(1) for m in CLOSES.finditer(body)}:
+        return body
+    return f"{body.rstrip()}\n\nCloses #{number}\n"

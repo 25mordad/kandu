@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from kandu.config import Board
 from kandu.github import BoardItem, GitHubError
-from kandu.mirror import FRESH_SECONDS, MISSING_CARD_TRIES, Mirror
+from kandu.mirror import PUSH_SETTLE_TRIES, FRESH_SECONDS, MISSING_CARD_TRIES, Mirror
 from kandu.state import StateStore
 from kandu.sync import sync
 from kandu.tasks import label_by_hand
@@ -37,6 +37,7 @@ class FakeRemote:
                            "labels": ["agent"], "comments": [{"author": {"login": "user"}, "body": "a note",
                                                               "createdAt": "2026-11-01T10:00:00Z"}]}}
         self.prs = {}
+        self.branches = {}
         self.calls = []
         self.fail = None  # a function of the call's name that may raise
 
@@ -113,6 +114,19 @@ class FakeRemote:
         self._call("merge", number, head_sha)
         self.prs[number]["state"] = "MERGED"
 
+    def branch_tip(self, repo, branch):
+        self._call("branch_tip", branch)
+        return self.branches.get(branch)
+
+    def create_pr(self, repo, head, base, title, body):
+        self._call("create_pr", head, base, title, body)
+        self.prs[7] = pr(7)
+        return 7
+
+    def edit_pr_body(self, repo, number, body):
+        self._call("edit_pr_body", number, body)
+        self.prs[number]["body"] = body
+
 
 class MirrorTest(unittest.TestCase):
     def setUp(self):
@@ -128,6 +142,40 @@ class MirrorTest(unittest.TestCase):
 
     def names(self):
         return [call[0] for call in self.remote.calls]
+
+    def test_a_pr_is_read_again_until_it_shows_the_push(self):
+        self.remote.prs = {7: pr(head="old")}
+        self.mirror.pr(REPO, 7)
+        self.remote.branches = {"kandu/3-task": "new"}
+        reads = iter([pr(head="old"), pr(head="old"), pr(head="new")])
+        self.remote.read_pr = lambda repo, number: next(reads)
+        self.assertEqual(self.mirror.refresh_pushed_pr(REPO, 7), "new")
+        self.assertEqual(self.mirror.pr(REPO, 7)["headRefOid"], "new")
+
+    def test_a_pr_that_never_shows_the_push_stops_reading(self):
+        self.remote.prs = {7: pr(head="old")}
+        self.remote.branches = {"kandu/3-task": "new"}
+        self.assertEqual(self.mirror.refresh_pushed_pr(REPO, 7), "new")
+        self.assertEqual(self.mirror.pr(REPO, 7)["headRefOid"], "old")
+        self.assertEqual(self.names().count("read_pr"), PUSH_SETTLE_TRIES)
+
+    def test_no_push_is_read_once(self):
+        self.remote.prs = {7: pr(head="same")}
+        self.remote.branches = {"kandu/3-task": "same"}
+        self.assertEqual(self.mirror.refresh_pushed_pr(REPO, 7), "same")
+        self.assertEqual(self.names().count("read_pr"), 1)
+
+    def test_a_branch_gone_from_github_reads_the_pr_once(self):
+        self.remote.prs = {7: pr(head="same")}
+        self.assertEqual(self.mirror.refresh_pushed_pr(REPO, 7), "same")
+        self.assertEqual(self.names().count("read_pr"), 1)
+
+    def test_a_pr_is_opened_and_edited_at_once_and_read_back(self):
+        self.assertEqual(self.mirror.create_pr(REPO, "kandu/3-a", "main", "T", "B"), 7)
+        self.mirror.edit_pr_body(REPO, 7, "C")
+        self.assertEqual(self.remote.calls[0], ("create_pr", "kandu/3-a", "main", "T", "B"))
+        self.assertIn(("edit_pr_body", 7, "C"), self.remote.calls)
+        self.assertEqual(self.mirror.pr(REPO, 7)["body"], "C")
 
     def test_merged_prs_come_from_the_copy(self):
         self.remote.prs = {7: pr(7, state="MERGED"), 8: pr(8, issue=4, state="CLOSED"), 9: pr(9, issue=5)}

@@ -91,9 +91,11 @@ supervisor:                    # optional; these are the defaults
 #                              # than the brain cannot reach bin/kandu-show: Kandu puts the issue and the PR
 #                              # from its copy into those agents' prompts instead.
 #   worker:                    # the project's test command and allowed_tools are added; forbidden areas are always denied
+#                              # Kandu merges the base, opens the PR and edits its text itself: every worker is
+#                              # denied git merge, pull and rebase and gh pr create, edit and merge, named here or not
 #     allow: ["Read", "Glob", "Grep", "Edit", "Write", "Bash(git add *)", "Bash(git rm *)", "Bash(rm *)",
 #             "Bash(git status *)", "Bash(git diff *)", "Bash(git log *)", "Bash(git commit *)", "Bash(git fetch *)",
-#             "Bash(gh pr create *)", "Bash(gh pr list *)", "Bash(gh pr comment *)",
+#             "Bash(gh pr list *)", "Bash(gh pr comment *)",
 #             "Bash(git push origin {branch})", "Bash(git push -u origin {branch})"]
 #     deny: ["Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)", "Read(**/.env)", "Read(**/.dev.vars)",
 #            "Read(//proc/**)", "Bash(git push --force*)", "Bash(git push -f*)"]
