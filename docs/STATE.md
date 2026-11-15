@@ -93,6 +93,9 @@ state/
 | `backup_made` | `copy`, `files`, `removed` |
 | `backup_failed` | `reason` |
 | `backup_changed` | `enabled`, `at`, `destination`, `keep` |
+| `upstream_checked` | `remote`, `branch`, `behind`, `ahead`: the install's `main` counted against the upstream branch |
+| `upstream_check_failed` | `remote`, `branch`, `reason`: git could not fetch or count; the reason holds no password |
+| `upstream_task_created` | `task`, `project`, `url`, `behind`: the one task "Bring in updates" made |
 | `task_finished` | `task`, `project`, `outcome` |
 
 `role` is `supervisor`, `queen`, `bazras`, `splitter`, `worker`, `reviewer` or `live_check`; a `bazras` run has no task, and its `project` is the one it looked at. `models` maps each model a run used to its tokens:

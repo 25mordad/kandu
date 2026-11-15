@@ -446,6 +446,19 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "backup_copies": "{count} copies",
   "backup_saved_on": "Kandu will back up every day at {at}",
   "backup_saved_off": "Kandu will not back up",
+  "upstream": "Upstream",
+  "upstream_up_to_date": "Up to date",
+  "upstream_behind": "{n} behind",
+  "upstream_ahead": "{n} ahead",
+  "upstream_failed": "Could not check",
+  "upstream_last_good": "last good check {at}",
+  "upstream_never_good": "no good check yet",
+  "upstream_not_checked": "Not checked yet",
+  "upstream_check_now": "Check now",
+  "upstream_bring_in": "Bring in updates",
+  "upstream_task_open": "Open task",
+  "upstream_task_made": "A task brings the updates in: it waits on the board",
+  "upstream_task_there": "A task for the updates is already open",
   "limits_title": "Usage limits",
   "parallel_title": "Workers at once",
   "parallel_why": "How many workers build at the same time. A review or a sizing takes no worker's place. The next cycle uses these.",
@@ -650,6 +663,19 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "backup_copies": "{count} کپی",
   "backup_saved_on": "کندو هر روز ساعت {at} پشتیبان می‌گیرد",
   "backup_saved_off": "کندو دیگر پشتیبان نمی‌گیرد",
+  "upstream": "مخزن اصلی",
+  "upstream_up_to_date": "به‌روز",
+  "upstream_behind": "{n} عقب",
+  "upstream_ahead": "{n} جلو",
+  "upstream_failed": "بررسی نشد",
+  "upstream_last_good": "آخرین بررسی موفق {at}",
+  "upstream_never_good": "هنوز بررسی موفقی نبوده",
+  "upstream_not_checked": "هنوز بررسی نشده",
+  "upstream_check_now": "الان بررسی کن",
+  "upstream_bring_in": "آوردن به‌روزرسانی‌ها",
+  "upstream_task_open": "تسک باز",
+  "upstream_task_made": "یک تسک به‌روزرسانی‌ها را می‌آورد: روی برد منتظر است",
+  "upstream_task_there": "تسکی برای به‌روزرسانی‌ها از قبل باز است",
   "limits_title": "سقف مصرف",
   "parallel_title": "کارگرهای هم‌زمان",
   "parallel_why": "چند کارگر هم‌زمان کار بسازند. بازبینی و اندازه‌گیری جای کارگر را نمی‌گیرند. چرخهٔ بعدی از این عددها استفاده می‌کند.",
@@ -867,6 +893,11 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "backup_made": "پشتیبان گرفته شد",
   "backup_failed": "پشتیبان شکست خورد",
   "backup_changed": "تنظیم پشتیبان تغییر کرد",
+  "upstream_checked": "فاصله با مخزن اصلی بررسی شد",
+  "upstream_check_failed": "فاصله با مخزن اصلی بررسی نشد",
+  "upstream_task_created": "تسک آوردن به‌روزرسانی‌ها ساخته شد",
+  "the upstream check is off: turn it on in kandu.yaml": "بررسی مخزن اصلی خاموش است: در kandu.yaml روشنش کن",
+  "main lacks no upstream commit at the last good check: check again first": "در آخرین بررسی موفق، main کامیتی از مخزن اصلی کم نداشت: اول دوباره بررسی کن",
   "bazras": "بازرس",
   "group_closed": "گروه بسته شد",
   "cleaned": "بعد از ادغام پاک شد",
@@ -1049,7 +1080,7 @@ async function post(path) {
   if (r.status === 403) token = "";
   if (!r.ok) toast(r.status === 403 ? t("token_required") : tr((await r.json().catch(() => ({}))).error) || t("request_failed"));
   refresh();
-  return r.ok;
+  return r.ok && await r.json().catch(() => ({}));  // The server's answer, always truthy, or false.
 }
 
 // A click always answers while the server works, in any button.
@@ -1419,7 +1450,7 @@ function renderStats(s) {
   const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${!s.timer_on ? t("timer_off") : s.next_wake ? esc(when(s.next_wake)) : "—"}</div></div>`;
   const parked = lastQueue && Object.values(lastQueue.projects).reduce((sum, columns) => sum + columns["Technical debt"].length, 0);
   const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
-  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + yours + debt + wake + backupCard(s.backup) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
+  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + yours + debt + wake + backupCard(s.backup) + upstreamCard(s.upstream) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
 }
 
 // Whether open requests show with their decision maps: off until the user turns it on here.
@@ -1470,6 +1501,19 @@ function backupCard(b) {
   const note = failed ? esc(t("backup_last_failed")) : b.copies.length ? esc(t("backup_copies").replace("{count}", num(b.copies.length))) : "";
   return `<div class="card stat"><div class="stat-label">${t("backup")}</div><div class="stat-value stat-small${failed ? " over" : ""}">${esc(said)}</div>
     <small>${note}<button class="textlink limit-edit" data-backup>${t("change")}</button></small></div>`;
+}
+
+// The install's main against the public Kandu: shown only while `upstream` is on. The check only counts; the
+// button makes one task, and while it is open the card links to it instead.
+function upstreamCard(u) {
+  if (!u) return "";
+  const counts = [u.behind ? t("upstream_behind").replace("{n}", num(u.behind)) : "", u.ahead ? t("upstream_ahead").replace("{n}", num(u.ahead)) : ""].filter(Boolean);
+  const said = u.failed ? t("upstream_failed") : u.behind === null ? t("upstream_not_checked") : counts.join(" · ") || t("upstream_up_to_date");
+  const note = u.failed ? (u.last_good_at ? t("upstream_last_good").replace("{at}", when(u.last_good_at)) : t("upstream_never_good")) : u.checked_at ? when(u.checked_at) : "";
+  const task = u.task ? `<a class="textlink limit-edit" href="${esc(u.task.url)}" target="_blank" rel="noopener">${t("upstream_task_open")} ${numberOf(u.task.task)} ↗</a>`
+    : !u.failed && u.behind ? `<button class="textlink limit-edit" data-upstream-bring>${t("upstream_bring_in")}</button>` : "";
+  return `<div class="card stat"><div class="stat-label">${t("upstream")} · <bdi dir="ltr">${esc(u.remote)}/${esc(u.branch)}</bdi></div><div class="stat-value stat-small${u.failed ? " over" : ""}">${esc(said)}</div>
+    <small>${esc(note)}<button class="textlink limit-edit" data-upstream-check>${t("upstream_check_now")}</button>${task}</small></div>`;
 }
 
 function changeBackup(button) {
@@ -1891,6 +1935,8 @@ document.addEventListener("click", e => {
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }
   if (hit("backup")) { changeBackup(hit("backup")); return; }
+  if (hit("upstream-check")) { act(hit("upstream-check"), "/upstream/check").then(() => refreshState()).catch(() => {}); return; }
+  if (hit("upstream-bring")) { act(hit("upstream-bring"), "/upstream/bring-in").then(answer => { if (answer) toast(t(answer.created ? "upstream_task_made" : "upstream_task_there")); return refreshState(); }).catch(() => {}); return; }
   if (hit("requests")) { act(hit("requests"), `/requests?enabled=${hit("requests").dataset.requests}`).then(() => refreshState()).catch(() => {}); return; }
   if (hit("drops")) { act(hit("drops"), `/drop-blockers?enabled=${hit("drops").dataset.drops}`).then(() => refreshState()).catch(() => {}); return; }
   if (hit("drop")) { dropBlocker(hit("drop")); return; }

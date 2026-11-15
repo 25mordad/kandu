@@ -10,7 +10,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `project_settings`, `timer_on`, `language`, `limits`, `queen`, `flowers`, `waits_for_you`, `bazras`, `backup`, `drop_blockers`, `show_requests` and `clean_merged` |
+| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `project_settings`, `timer_on`, `language`, `limits`, `queen`, `flowers`, `waits_for_you`, `bazras`, `backup`, `drop_blockers`, `show_requests`, `clean_merged` and `upstream` |
 | GET | `/api/v1/queue` | each project's board columns, with `Done` holding only what closed in the last `done_days` days, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes or moves |
 | GET | `/api/v1/boards` | every board in the config, with its projects, columns, fields and cards, read from Kandu's copy of GitHub, so it costs GitHub nothing; `?fresh=1` reads each board into the copy first, at most once a minute |
 | GET | `/api/v1/days` | dates that have events |
@@ -46,6 +46,8 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | POST | `/api/v1/projects/{name}/pause` | pause one project: no new work on it, across cycles, until it is resumed |
 | POST | `/api/v1/projects/{name}/resume` | resume a paused project |
 | POST | `/api/v1/backup` | `enabled=true` or `false`, and optionally `at=HH:MM`, `destination=PATH` and `keep=N`: turn the daily backup on or off and set its hour, folder and copies kept, in `kandu.yaml`; off is the default |
+| POST | `/api/v1/upstream/check` | fetch the upstream branch and count, now; answers the same object as `upstream` in `/state`. It never merges, pushes or changes a branch or file of the install. `409` while `upstream` is off |
+| POST | `/api/v1/upstream/bring-in` | create one task on the board of `upstream.project`, Kandu's own project, to bring the upstream commits into `main` through a PR; answers `task`, `url` and `created`. While that task is open, it creates nothing and answers the open one with `created: false`. `409` while `upstream` is off, or when the last good check found `main` behind by nothing |
 | POST | `/api/v1/projects/{name}/settings` | `queen_answers_one_way=true` or `false`: whether the queen's yes to a merge answers its one-way door and the review's questions; `split_approval=user` or `queen`: who accepts this project's split proposals, kept in Kandu's state, where it wins over the registry; logged as `project_setting_changed` |
 | POST | `/api/v1/projects/{name}/inspect` | `enabled=true` or `false`, and optionally `at=HH:MM`: turn Bazras on or off for a project, and set its hour, in `projects.yaml`; off is the default |
 
@@ -140,3 +142,5 @@ The `pr` object also has `approved`, true once the user said yes to this head, `
 
 `POST /api/v1/projects/website/settings?split_approval=queen` answers `{"split_approval": "queen"}`. The answer is `400` for no setting, an unknown one or a value it may not take, and nothing changes. A change reaches only proposals made after it: one already accepted and a split already made stay as they are. While it is `user`, every proposal waits in `Needs split` for the user's yes, also when every slice is two-way; while it is `queen`, a proposal still waits for the user's yes until the queen can accept one.
 `POST /api/v1/projects/website/settings?queen_answers_one_way=false` answers `{"queen_answers_one_way": false}`; only `true` and `false` are values. While it is false, a merge with a one-way door or a question for the user waits for the user's yes, and the queen's `approve` of such a head is refused.
+
+`upstream` is null while `upstream.enabled` is off in `kandu.yaml`. On, it holds `remote`, `branch` and `every_hours`; `behind` and `ahead`, the commits `main` lacks of `remote/branch` and its own, from the last good check, or null before one and while the last check failed; `failed`, true when the last check could not fetch or count; `checked_at`, when the last check ran; `last_good_at`, when the last good one ran, or null; and `task`, the open task `bring-in` made, as `task` and `url`, or null. The dashboard checks by itself every `every_hours`. It is read from the local log and Kandu's copy, so `/state` costs neither git nor GitHub.

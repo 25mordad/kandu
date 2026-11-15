@@ -21,6 +21,7 @@ ROLES = ("worker", "reviewer", "splitter", "live_check", "queen")
 MODEL_ROLES = ROLES + ("bazras",)  # Bazras's tools are fixed in code, so it has no `permissions` entry.
 CLOCK = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 MODEL = re.compile(r"[a-z][\w.\[\]-]*")  # It reaches `claude --model`, so it cannot be a flag.
+GIT_NAME = re.compile(r"\w[\w./-]*")  # a remote or branch that reaches git as an argument, so never a flag
 TECHNICAL_DEBT = "Technical debt"
 SPLIT_APPROVALS = ("user", "queen")   # who accepts a split proposal; the dashboard's switch wins over the registry
 BOARD_COLUMNS = ("Backlog", TECHNICAL_DEBT, "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", "Done")
@@ -132,6 +133,20 @@ class Backup:
 
 
 @dataclass
+class Upstream:
+    """How far the install's `main` is from the public Kandu it came from, shown on the dashboard (DESIGN §12).
+
+    Off until the user turns it on: a new install must not reach the network by itself. The check only fetches
+    and counts; updates come in as a task on the board of `project`, Kandu's own repo, and never by themselves.
+    """
+    enabled: bool = False
+    remote: str = "upstream"       # the git remote of the public repo, in the install
+    branch: str = "main"           # its branch the install's `main` is counted against
+    every_hours: int = 4           # how often the dashboard checks by itself; "Check now" checks at once
+    project: str = ""              # the project in projects.yaml whose repo is this install's own copy
+
+
+@dataclass
 class Rules:
     allow: list[str] = field(default_factory=list)
     deny: list[str] = field(default_factory=list)
@@ -229,6 +244,7 @@ class Settings:
     didban: Didban = field(default_factory=Didban)
     bazras: BazrasSettings = field(default_factory=BazrasSettings)
     backup: Backup = field(default_factory=Backup)
+    upstream: Upstream = field(default_factory=Upstream)
 
 
 @dataclass
@@ -462,6 +478,18 @@ def _check_projects(projects, s, problems):
         _check_positive(p.daily_token_limit, f"{where}.daily_token_limit", problems)
 
 
+def _check_upstream(s, projects, problems):
+    u = s.upstream
+    _check_positive(u.every_hours, "upstream.every_hours", problems)
+    for name in ("remote", "branch"):
+        if not GIT_NAME.fullmatch(getattr(u, name)):
+            problems.append(f"upstream.{name}: must be a git name, not starting with '-', got {getattr(u, name)!r}")
+    if u.enabled:
+        project = next((p for p in projects if p.name == u.project), None)
+        if project is None or project.board is None:
+            problems.append(f"upstream.project: must name a project with a board, Kandu's own repo, got {u.project!r}")
+
+
 def set_limits(session, week, local_dir=DEFAULT_LOCAL_DIR):
     """Changes the two usage limits in `kandu.yaml`, line by line, so its comments stay."""
     problems = []
@@ -686,6 +714,7 @@ def load_config(local_dir=DEFAULT_LOCAL_DIR):
 
     _check_settings(settings, problems)
     _check_projects(registry.projects, settings, problems)
+    _check_upstream(settings, registry.projects, problems)
     if problems:
         raise ConfigError(problems)
     return Config(settings=settings, projects=registry.projects)

@@ -62,6 +62,14 @@ backup:                        # optional; a daily copy of local/ and state/, wh
   destination: ~/kandu-backups # a folder on the brain's machine, outside local/ and state/; logs/ is left out
   keep: 7                      # how many copies stay; the oldest go only after a new copy is good
 
+upstream:                      # optional; how far this install's main is from the public Kandu it came from (DESIGN §12)
+  enabled: false               # off until you turn it on; the check only fetches and counts, it never merges or pushes
+  remote: upstream             # the git remote of the public repo in this install
+  branch: main                 # the remote's branch that main is counted against
+  every_hours: 4               # how often the dashboard checks by itself; "Check now" checks at once
+  project: kandu               # the project in projects.yaml whose repo is this install's own copy:
+                               # "Bring in updates" puts one task on its board, worked and merged like any other
+
 supervisor:                    # optional; these are the defaults
   wake_every_minutes: 60
   max_cycle_minutes: 50

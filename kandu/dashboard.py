@@ -17,7 +17,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import backup, bazras, clean, flights, ghmeter, queen, questions, review, sessions, split, tasks, timer
+from . import (backup, bazras, clean, flights, ghmeter, queen, questions, review, sessions, split, tasks, timer,
+               upstream)
 from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup,
                      set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_parallel, set_show_requests)
 from .github import AGENT_LABEL, GitHubError, task_blockers
@@ -152,7 +153,7 @@ class ApiError(Exception):
 class Api:
     def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic, start_cycle=timer.start_cycle,
                  local_dir=DEFAULT_LOCAL_DIR, timer_on=timer.timer_on, flights_=None, restart=timer.restart,
-                 backup_timer=timer.enable_backup):
+                 backup_timer=timer.enable_backup, install_dir=upstream.INSTALL_DIR):
         self.config = config
         self.store = store
         self.github = github
@@ -165,6 +166,7 @@ class Api:
         self.flights = flights_ or flights.Flights(config, store, logs_dir)
         self.restart_kandu = restart
         self.backup_timer = backup_timer
+        self.upstream = upstream.Upstream(install_dir)
         self._config_stamp = config_stamp(local_dir)
         self._config_lock = threading.Lock()
         self._queue = None
@@ -214,7 +216,52 @@ class Api:
             "drop_blockers": self.config.settings.supervisor.queen_drop_blockers,
             "show_requests": self.config.settings.dashboard.show_requests,
             "clean_merged": self.config.settings.supervisor.clean_merged,
+            "upstream": self._upstream(),
         }
+
+    def _upstream(self):
+        """The install's `main` against its upstream, and the open task that brings the updates in; None while off.
+
+        From the local log and Kandu's copy, so a page costs neither git nor GitHub.
+        """
+        settings = self.config.settings.upstream
+        if not settings.enabled:
+            return None
+        try:
+            made = upstream.open_task(self.store, self.github)
+        except Exception:  # Whatever the copy does, the rest of the state still answers.
+            made = None
+        return upstream.status(self.store, settings) | {"task": made}
+
+    def _upstream_on(self):
+        if not self.config.settings.upstream.enabled:
+            raise ApiError(409, "the upstream check is off: turn it on in kandu.yaml")
+        return self.config.settings.upstream
+
+    def check_upstream(self, query):
+        """Fetches the upstream branch and counts, now. A failure is shown, not raised: the page keeps working."""
+        self.upstream.check(self.store, self._upstream_on())
+        return self._upstream()
+
+    def upstream_tick(self, now=None):
+        """The dashboard's own clock: checks when `upstream.every_hours` passed since the last try."""
+        self.refresh_config()
+        return self.upstream.tick(self.store, self.config.settings.upstream, now)
+
+    def bring_in_updates(self, query):
+        """Creates one task on the board of Kandu's own project to bring the commits in through a PR.
+
+        While that task is open, a press answers it again and creates nothing. Nothing here merges or pushes.
+        """
+        self._upstream_on()
+        try:
+            task, url, created = self.upstream.bring_in(self.config, self.github, self.store, self.local_dir)
+        except ValueError as e:
+            raise ApiError(409, str(e)) from None
+        except TaskError as e:
+            raise ApiError(409, str(e)) from None
+        self._queue_time = None
+        return {"task": task, "url": url, "created": created}
 
     def _open_marks(self, marks):
         """The log's marks, with «waits for you» kept only on a task that is still open: its card on a board, not
@@ -899,6 +946,8 @@ ROUTES = [
     ("POST", "/projects/{name}/inspect", Api.change_inspect),
     ("POST", "/projects/{name}/settings", Api.change_project_settings),
     ("POST", "/backup", Api.change_backup),
+    ("POST", "/upstream/check", Api.check_upstream),
+    ("POST", "/upstream/bring-in", Api.bring_in_updates),
 ]
 
 
@@ -1032,6 +1081,7 @@ def main():
     api = Api(config, StateStore(), open_github(config), DEFAULT_LOGS_DIR, os.environ.get(TOKEN_ENV), local_dir=args.local)
     bind, port = config.settings.dashboard.bind, config.settings.dashboard.port
     ghmeter.sample_forever()  # the limit as GitHub sees it, beside the calls the meter counts
+    upstream.tick_forever(api.upstream_tick)  # does nothing while `upstream.enabled` is off
     server = ThreadingHTTPServer((bind, port), make_handler(api))
     print(f"dashboard: http://{bind}:{port}")
     server.serve_forever()

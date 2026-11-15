@@ -81,6 +81,9 @@ EVENT_FIELDS = {
     "clean_kept": TASK_FIELDS + ("what", "target", "reason"),
     "clean_finished": TASK_FIELDS + ("pr",),
     "clean_merged_changed": ("enabled",),
+    "upstream_checked": ("remote", "branch", "behind", "ahead"),
+    "upstream_check_failed": ("remote", "branch", "reason"),
+    "upstream_task_created": TASK_FIELDS + ("url", "behind"),
 }
 # Each setting a project may have in the dashboard's settings section, with its values. One there wins over the registry.
 PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS, "queen_answers_one_way": (True, False)}
