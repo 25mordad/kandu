@@ -1462,6 +1462,7 @@ class HoneycombHiveTest(unittest.TestCase):
         "Backlog": ("grey-green", "outline", "crown", ""),
         "by hand": ("green", "outline", "hand", "still"),
         "Blocked": ("grey", "cracked", "cross", ""),
+        "Stuck": ("red", "cracked", "bang", ""),
         "Technical debt": ("grey", "striped", "grass", ""),
     }
 

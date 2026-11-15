@@ -1763,6 +1763,13 @@ class ReviewRoundsTest(Base):
         self.assertEqual([e["head_sha"] for e in self.events("review_finished")], [SHA1, SHA2])
         self.assertEqual(self.github.status(1), "In review")
 
+    def test_a_round_that_pushes_nothing_is_recorded_with_the_workers_reason(self):
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]),
+                             lambda: '{"status": "blocked", "reason": "the API key is missing"}']
+        self.cycle()
+        found = [e["reason"] for e in self.events("decision") if e["decision"] == "round_no_commit"]
+        self.assertEqual(found[:1], ["fix round 1: the API key is missing"])
+
     def test_a_fix_round_may_replace_the_description(self):
         def fixes_the_text():
             self.github.prs[(REPO, 1)]["headRefOid"] = SHA2

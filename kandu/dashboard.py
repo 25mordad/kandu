@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, review, sessions, split, tasks,
-               timer, upstream)
+               timer, tries, upstream)
 from .config import (DEFAULT_LOCAL_DIR, PACE_SETTINGS, REGISTRY_SETTINGS, TECHNICAL_DEBT, ConfigError, Inspect,
                      load_config, set_backup, set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_pace,
                      set_parallel, set_project_values, set_show_requests)
@@ -71,6 +71,103 @@ def recommendation(record):
     return "ready to merge"
 
 
+# Why a merge waits, as `merge.merge_waits` and the supervisor word it. A reason that passes by itself, or one only the
+# user's choice holds, is not a problem; one here needs a fix. Anything else is the review's question for the user.
+MERGE_PROBLEMS = ("this head has no review in the local log", "a blocker is open", "an acceptance criterion is not met",
+                  "the PR is a draft", "the PR has conflicts", "CI is failing", "a review thread is open",
+                  "a thread was resolved by someone other than its author", "the tests fail on this head")
+MERGE_PENDING = re.compile(r"(CI is running|the project is frozen|companion .+ is open and unreviewed|"
+                           r"blocker \S+#\d+ is not merged yet)")
+MERGE_WAITS_TOO_OFTEN = 2  # a merge held this often in a row will not pass by itself
+SETTLED = ("approved", "approved_with_notes")  # Kandu takes the PR as it is; a round that pushed nothing is over
+STOPPED = ("blocked", "needs_info", "sizing_failed", "failed", "deploy_failed", "live_check_failed")
+
+
+def _status(state, why=None, detail=None, tries_=None):
+    """`state` is fine, problem, error or stuck; `why` names the reason the page puts in a sentence, `detail` is the
+    log's own words. `tries`: in Kandu's own error, which try failed and how many Kandu makes before it stops."""
+    return {"state": state, "why": why, "detail": detail, "tries": tries_}
+
+
+def task_statuses(events):
+    """Whether each task is fine, has a problem, hit an error, or is stuck, and why. The local log alone.
+
+    Stuck means Kandu will not move the task on by itself: only the user, the queen or a new head does. `cleaned`
+    says what Kandu cleaned up in the task's folder before its last run, until the task moves on.
+    """
+    found = {}
+    for event in events:
+        task, kind = event.get("task"), event["type"]
+        if task is None:
+            continue
+        seen = found.setdefault(task, {"status": _status("fine"), "stuck": False, "ended": False, "approved": False,
+                                       "waits": 0, "no_commit": None, "failed": None, "tries": 0, "cleaned": None})
+
+        def say(state, why=None, detail=None, stuck=False, tries_=None):
+            seen.update(status=_status(state, why, detail, tries_), stuck=stuck)
+        if kind in tries.PROGRESS:
+            seen.update(tries=0, cleaned=None)
+        if kind == "review_finished":
+            seen.update(ended=False, approved=False, waits=0, no_commit=None)
+            if event["blockers"] or not event["criteria_met"]:
+                say("problem", "review_blockers", str(event["blockers"]))
+            else:
+                say("fine", "review_passed")
+        elif kind in ("user_approved", "queen_approved"):
+            seen.update(ended=False, approved=True, waits=0)
+            say("fine", "approved")
+        elif kind == "user_resumed" or (kind == "queen_decided" and event["action"] in queen.LIMITED):
+            seen.update(ended=False, approved=False, waits=0, no_commit=None)
+            say("fine")
+        elif kind == "task_picked" and seen["ended"]:
+            seen.update(ended=False, waits=0, no_commit=None)
+            say("fine")
+        elif kind == "loop_stopped":
+            seen["ended"] = True
+            say("stuck", "loop_stopped", event["reason"], stuck=True)
+        elif kind == "task_finished" and event["outcome"] in STOPPED:
+            outcome = event["outcome"]
+            detail = seen["no_commit"] if outcome == "blocked" else seen["failed"] if outcome == "failed" else None
+            seen["ended"] = True
+            say("stuck", outcome, detail, stuck=True)
+        elif kind == "decision":
+            decision, reason = event["decision"], event["reason"]
+            if decision == "worktree_cleaned":
+                seen["cleaned"] = reason
+            elif decision == "internal_error":
+                seen["tries"] += 1
+                if not seen["stuck"]:
+                    say("error", "internal_error", reason, tries_={"this": seen["tries"], "of": tries.INTERNAL_TRIES})
+            elif decision == "round_no_commit":
+                seen["no_commit"] = reason
+                say("stuck", "round_no_commit", reason, stuck=True)
+            elif decision in ("failed", "sizing_failed"):
+                seen["failed"] = reason
+                if not seen["stuck"]:
+                    say("error", "failed", reason)
+            elif seen["stuck"] and not (decision in SETTLED and seen["status"]["why"] == "round_no_commit"):
+                continue  # nothing but the user, the queen, a new head or Kandu settling the PR moves it on
+            elif decision in SETTLED and seen["stuck"]:
+                seen["no_commit"] = None  # Kandu took the PR as it is, so the round that pushed nothing is behind it
+                say("fine", "waits_for_you" if reason == USER_DECIDES else None)
+            elif decision == "merge_waits":
+                reasons = reason.split(REASONS_APART)
+                problems = [r for r in reasons if r in MERGE_PROBLEMS]
+                if problems:
+                    seen["waits"] += 1
+                    if seen["approved"] or seen["waits"] >= MERGE_WAITS_TOO_OFTEN:
+                        say("stuck", "merge_held", REASONS_APART.join(problems), stuck=True)
+                    else:
+                        say("problem", "merge_waits", REASONS_APART.join(problems))
+                elif all(MERGE_PENDING.fullmatch(r) for r in reasons):
+                    say("fine", "merge_pending", reason)
+                else:
+                    say("fine", "waits_for_you")
+            elif reason == USER_DECIDES and decision in SETTLED:
+                say("fine", "waits_for_you")
+    return {task: seen["status"] | {"cleaned": seen["cleaned"]} for task, seen in found.items()}
+
+
 def flower_marks(store):
     """What each task's flower shows beyond its column. The local log alone, so it costs GitHub nothing."""
     events = queen.all_events(store)
@@ -106,6 +203,9 @@ def flower_marks(store):
                 del marks[task]
             else:
                 mark |= {"pr": None, "waited": []}
+    statuses = task_statuses(events)
+    for task, mark in marks.items():
+        mark["status"] = statuses.get(task)
     for question in questions.open_questions(store, events):
         if question["task"] in marks:
             marks[question["task"]]["questions"] += 1
@@ -757,6 +857,25 @@ class Api:
         self._queue_time = None
         return {"task": key, "to": to, "cycle_started": self.start_cycle()}
 
+    def to_queen(self, query, owner, repo, number):
+        """The user stops Kandu's tries on a task in its own error, as if the last one had failed, and a cycle starts
+        so the queen looks at it now and can ask the user. Refused for a task in any other state, or while a try runs.
+        """
+        key = self._split_task(owner, repo, number)
+        events = queen.all_events(self.store)
+        if (task_statuses(events).get(key) or {}).get("why") != "internal_error":
+            raise ApiError(409, "it is not in Kandu's own error")
+        if any(w.get("task") == key for w in self.store.read_current().get("workers") or []):
+            raise ApiError(409, "Kandu is trying it again right now")
+        try:
+            project, item = split.find_item(self.config, self.github, key)
+        except TaskError as e:
+            raise ApiError(404, str(e))
+        to = tries.stop(self.github, self.store, project, item, key, events)
+        self._queue_time = None
+        started = None if self.store.stop_file.exists() else self.start_cycle()
+        return {"task": key, "to": to, "cycle_started": started}
+
     def task(self, query, owner, repo, number):
         """What a task was and what it cost. An unreadable issue costs only its text, not the numbers."""
         key = self._split_task(owner, repo, number)
@@ -1115,6 +1234,7 @@ ROUTES = [
     ("GET", "/runs/{run_id}", Api.run),
     ("GET", "/tasks/{owner}/{repo}/{number}", Api.task),
     ("POST", "/tasks/{owner}/{repo}/{number}/send-back", Api.send_back),
+    ("POST", "/tasks/{owner}/{repo}/{number}/to-queen", Api.to_queen),
     ("GET", "/reviews/{owner}/{repo}/{number}", Api.reviews),
     ("POST", "/reviews/{owner}/{repo}/{number}/approve", Api.approve),
     ("GET", "/splits/{owner}/{repo}/{number}", Api.split),

@@ -137,6 +137,11 @@ tr:last-child td { border-bottom:0; }
 #usage tr.sub td:first-child { padding-inline-start:1.6em; }
 .limit-note { display:block; font-weight:400; font-size:12px; color:var(--muted); }
 .limit-note.over { color:#d9604f; font-weight:600; }
+.status-line { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; margin:6px 0; }
+.status-line .badge { flex:none; }
+.status-line.fine { --c:#2f8a4e; } .status-line.problem { --c:#e8590c; }
+.status-line.error { --c:#d9604f; } .status-line.stuck { --c:#c43d2f; font-weight:500; }
+.status-line > span:not(.badge) { color:var(--ink); }
 .tokenbar { display:block; height:4px; min-width:2px; margin-top:4px; border-radius:2px; background:var(--honey); }
 
 .bee-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 0; border-bottom:1px solid var(--line); }
@@ -534,6 +539,36 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "empty": "Empty",
   "github_unreadable": "GitHub could not be read",
   "no_activity": "No activity yet",
+  "state_fine": "All fine",
+  "state_problem": "Problem found",
+  "state_error": "Error",
+  "state_stuck": "Stuck",
+  "status_fine": "Nothing is wrong so far.",
+  "status_problem": "A problem was found.",
+  "status_error": "Kandu hit an error.",
+  "status_stuck": "Kandu will not move this on by itself.",
+  "status_review_passed": "The review passed.",
+  "status_review_blockers": "The review found {detail} blocker(s) or an unmet criterion; a fix round comes next.",
+  "status_waits_for_you": "The review passed; the merge waits for your approval.",
+  "status_approved": "It is approved; Kandu merges it in its next cycle.",
+  "status_merge_pending": "The merge waits for this to pass by itself: {detail}.",
+  "status_merge_waits": "The merge is held: {detail}. Kandu tries again next cycle.",
+  "status_merge_held": "It cannot merge: {detail}. Fix that on the PR, then approve again.",
+  "status_round_no_commit": "A round pushed nothing ({detail}). Fix the branch yourself or in a free flight.",
+  "status_internal_error": "Kandu hit its own error and tries again next cycle: {detail}.",
+  "status_tries": "Try {this} of {of} failed.",
+  "status_failed": "It failed and stopped: {detail}. Read its log, then send it back.",
+  "status_blocked": "It stopped with a problem still open. Read the PR, then send it back.",
+  "status_needs_info": "It needs an answer from you: reply on the issue, then send it back.",
+  "status_sizing_failed": "It could not be sized: make the issue clearer, then send it back.",
+  "status_deploy_failed": "It merged, but its deploy failed. Read the deploy's log, then send it back.",
+  "status_live_check_failed": "It merged, but the live check failed. Read its report, then send it back.",
+  "status_loop_stopped": "Kandu stopped it for going round ({detail}). The next step is yours.",
+  "status_no_detail": "no reason was recorded",
+  "to_queen": "Stop the tries, ask the queen",
+  "to_queen_hint": "Stops Kandu's tries as if the last one had failed, and starts a cycle so the queen looks at it now",
+  "to_queen_done": "The tries stopped. The queen looks at it in the cycle that starts now.",
+  "cleaned_folder": "Before its last run, Kandu",
   "usage_title": "Tokens by project",
   "range_today": "Today",
   "range_week": "This week",
@@ -845,6 +880,36 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "empty": "خالی",
   "github_unreadable": "GitHub خوانده نشد",
   "no_activity": "هنوز فعالیتی نیست",
+  "state_fine": "همه‌چیز درست",
+  "state_problem": "مشکل پیدا شد",
+  "state_error": "خطا",
+  "state_stuck": "گیر کرده",
+  "status_fine": "تا اینجا مشکلی نیست.",
+  "status_problem": "مشکلی پیدا شد.",
+  "status_error": "کندو به خطا خورد.",
+  "status_stuck": "کندو خودش این را جلو نمی‌برد.",
+  "status_review_passed": "بازبینی قبول شد.",
+  "status_review_blockers": "بازبینی {detail} مانع یا معیار برآورده‌نشده پیدا کرد؛ دور بعدی آن‌ها را درست می‌کند.",
+  "status_waits_for_you": "بازبینی قبول شد؛ ادغام منتظر تأیید توست.",
+  "status_approved": "تأیید شده؛ کندو در چرخهٔ بعدی ادغامش می‌کند.",
+  "status_merge_pending": "ادغام منتظر است تا این خودش رد شود: {detail}.",
+  "status_merge_waits": "ادغام نگه داشته شد: {detail}. کندو چرخهٔ بعد دوباره امتحان می‌کند.",
+  "status_merge_held": "ادغام نمی‌شود: {detail}. آن را روی PR درست کن، بعد دوباره تأیید کن.",
+  "status_round_no_commit": "یک دور هیچ چیزی push نکرد ({detail}). شاخه را خودت یا در یک پرواز آزاد درست کن.",
+  "status_internal_error": "کندو به خطای خودش خورد و چرخهٔ بعد دوباره امتحان می‌کند: {detail}.",
+  "status_tries": "تلاش {this} از {of} ناموفق بود.",
+  "status_failed": "شکست خورد و متوقف شد: {detail}. لاگش را بخوان، بعد برش گردان.",
+  "status_blocked": "با مشکلی باز متوقف شد. PR را بخوان، بعد برش گردان.",
+  "status_needs_info": "به جوابی از تو نیاز دارد: روی issue جواب بده، بعد برش گردان.",
+  "status_sizing_failed": "اندازه‌گیری نشد: issue را روشن‌تر کن، بعد برش گردان.",
+  "status_deploy_failed": "ادغام شد، اما deploy آن شکست خورد. لاگ deploy را بخوان، بعد برش گردان.",
+  "status_live_check_failed": "ادغام شد، اما بررسی زنده شکست خورد. گزارشش را بخوان، بعد برش گردان.",
+  "status_loop_stopped": "کندو آن را به خاطر دور زدن متوقف کرد ({detail}). قدم بعدی با توست.",
+  "status_no_detail": "دلیلی ثبت نشده",
+  "to_queen": "توقف تلاش‌ها، پرسیدن از ملکه",
+  "to_queen_hint": "تلاش‌های کندو را طوری متوقف می‌کند که انگار آخری شکست خورده، و چرخه‌ای شروع می‌کند تا ملکه همین حالا نگاهش کند",
+  "to_queen_done": "تلاش‌ها متوقف شد. ملکه در چرخه‌ای که الان شروع می‌شود نگاهش می‌کند.",
+  "cleaned_folder": "پیش از آخرین اجرایش، کندو",
   "usage_title": "توکن به تفکیک پروژه",
   "range_today": "امروز",
   "range_week": "این هفته",
@@ -1067,6 +1132,13 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "In review": "در بازبینی",
   "Needs info": "نیازمند اطلاعات",
   "Blocked": "مسدود",
+  "Stuck": "گیر کرده",
+  "round_no_commit": "دوری که چیزی push نکرد",
+  "cancelled a merge an earlier run left unfinished in the task's folder": "ادغامی را که اجرای قبلی در پوشهٔ تسک نیمه‌کاره گذاشته بود لغو کرد",
+  "cancelled a rebase an earlier run left unfinished in the task's folder": "rebaseی را که اجرای قبلی در پوشهٔ تسک نیمه‌کاره گذاشته بود لغو کرد",
+  "cancelled a cherry-pick an earlier run left unfinished in the task's folder": "cherry-pickی را که اجرای قبلی در پوشهٔ تسک نیمه‌کاره گذاشته بود لغو کرد",
+  "it is not in Kandu's own error": "در خطای خود کندو نیست",
+  "Kandu is trying it again right now": "کندو همین حالا دوباره امتحانش می‌کند",
   "Done": "انجام‌شده",
   "OPEN": "باز",
   "MERGED": "ادغام‌شده",
@@ -1325,7 +1397,7 @@ const TEXT = JSON.parse($("text").textContent);
 const LIVE_LINES = 200;
 const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // What needs the user comes first.
-const COLUMN_ORDER = ["Your approval", "Needs info", "Needs split", "Approved", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog", "Technical debt", "Done"];
+const COLUMN_ORDER = ["Stuck", "Your approval", "Needs info", "Needs split", "Approved", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog", "Technical debt", "Done"];
 let flights = {open: [], flown: []};
 const flightsWarned = new Set();
 let lang = "en", tab = "meadow", shownRun = null, shownTask = null, confirming = false, sendingBack = false, live = [], token = "";
@@ -1506,6 +1578,7 @@ const FLOWERS = {
   "Needs info": {swatch: "#f2a65a", petal: "#f2a65a"},
   "Needs split": {swatch: "#e0689a", petal: "#e0689a"},
   "Blocked": {swatch: "#d9604f"},
+  "Stuck": {swatch: "#c43d2f"},
   "Technical debt": {swatch: "#7a8a45"},
   "Done": {swatch: "#c98f00"},
   "waiting": {swatch: "#a8a297"},
@@ -1532,6 +1605,7 @@ const SIGNS = {
   "Technical debt": '<path class="sign" style="stroke:#c9ae5a;stroke-width:1.8" d="M-21 -7 L-25 -13 M-7 -16 L-9 -24 M6 -19 L9 -27 M20 -9 L25 -14"/>',
   "Your approval": CHECK,
   "Approved": CHECK,
+  "Stuck": '<text class="sign-text" x="-15" y="13.5" style="fill:#c43d2f;font-size:12px">!</text>',
 };
 // Each one sits in a small round mark under the flower.
 const MARKS = {
@@ -1544,9 +1618,10 @@ const MARKS = {
 
 function bloom(column, index, sign = SIGNS[column]) {
   const sway = `sway${index % 2 ? " alt" : ""}`;
-  if (column === "Blocked") {
+  if (column === "Blocked" || column === "Stuck") {  // Stuck droops as Blocked does: neither moves on by itself.
+    const mark = column === "Stuck" ? sign : '<path class="sign" style="stroke:#c43d2f;stroke-width:2.2" d="M-18 6 l6 6 M-12 6 l-6 6"/>';
     return `<g><path d="M0 34 Q2 10 -13 6" fill="none" stroke="#8a7f66" stroke-width="3"/>
-      <circle cx="-15" cy="9" r="6" fill="#9a8f80"/><path class="sign" style="stroke:#c43d2f;stroke-width:2.2" d="M-18 6 l6 6 M-12 6 l-6 6"/><circle cx="-5" cy="33" r="3" fill="#9a8f80"/><circle cx="7" cy="34" r="3" fill="#9a8f80"/></g>`;
+      <circle cx="-15" cy="9" r="6" fill="#9a8f80"/>${mark}<circle cx="-5" cy="33" r="3" fill="#9a8f80"/><circle cx="7" cy="34" r="3" fill="#9a8f80"/></g>`;
   }
   if (column === "Technical debt") {  // Wild grass with dry tips: no flower, and nobody planted it.
     const blade = (x, tip, top, fill) => `<path d="M${x - 4} 34 Q${x + (tip - x) * .3} 12 ${tip} ${top} Q${x + (tip - x) * .75} 14 ${x + 4} 34z" fill="${fill}"/>`;
@@ -1679,6 +1754,7 @@ function fields(state, queue) {
     const found = projects.flatMap(p => p.tasks).find(item => item.task === task);
     if (found) found.column = "waiting";
   }
+  const working = new Set((state.workers || []).map(w => w.task));
   for (const patch of projects) {
     patch.paused = (state.paused_projects || []).includes(patch.name);
     patch.merge = mergeMode(state, patch.name);
@@ -1689,6 +1765,8 @@ function fields(state, queue) {
       // A merge held by an open blocker is nobody's to approve yet: it keeps its column and says what it waits for.
       const held = item.mark.pr === "held" || (item.blockers || []).length > 0;
       if (item.mark.pr && ON_THE_WAY.includes(item.column) && !held) item.column = item.mark.pr === "waits" ? "Your approval" : "Approved";
+      // Kandu will not move it on by itself, and no agent runs on it: it is neither waiting nor working.
+      if (item.mark.status?.state === "stuck" && !working.has(item.task) && [...ON_THE_WAY, "Approved"].includes(item.column)) item.column = "Stuck";
     }
   }
   return projects;
@@ -1810,7 +1888,7 @@ function renderLegend() {
   if (look === "honeycomb") { renderHoneyLegend(); return; }
   const entry = (drawing, label, box, height) => `<span><svg viewBox="${box}" style="height:${height}px" aria-hidden="true">${drawing}</svg>${esc(label)}</span>`;
   const group = (title, entries) => `<div class="legend-group"><b>${t(title)}</b>${entries.join("")}</div>`;
-  const kinds = ["Your approval", "Approved", "Needs info", "Needs split", "In review", "In progress", "Ready", "waiting", "Blocked", "Backlog", "Technical debt"];
+  const kinds = ["Stuck", "Your approval", "Approved", "Needs info", "Needs split", "In review", "In progress", "Ready", "waiting", "Blocked", "Backlog", "Technical debt"];
   const flowers = [...kinds.map(kind => entry(bloom(kind, 0), tr(kind === "waiting" ? "waiting for machine" : kind), "-28 -28 56 66", 46)),
                    entry(bloom("Backlog", 0, HAND), t("by_hand_yours"), "-28 -28 56 66", 46)];
   const sizes = Object.keys(SCALES).map(size => entry(flower({column: "In progress", mark: {size}}, 0), tr(size), "-34 -46 68 84", 58));
@@ -1842,6 +1920,7 @@ const HONEY_STATES = {
   "Backlog": {colour: "#93a07c", form: "outline", sign: "crown", ring: ""},
   "by hand": {colour: "#5fa83f", form: "outline", sign: "hand", ring: "still"},
   "Blocked": {colour: "#9a8f80", form: "cracked", sign: "cross", ring: ""},
+  "Stuck": {colour: "#c43d2f", form: "cracked", sign: "bang", ring: ""},
   "Technical debt": {colour: "#8a8578", form: "striped", sign: "grass", ring: ""},
 };
 // Centre signs, drawn for a cell of radius 16 and scaled with it.
@@ -1856,6 +1935,7 @@ const HONEY_SIGNS = {
   crown: `<path class="sign" style="fill:#f5b301" transform="translate(0 .5) scale(.75)" d="${CROWN}"/>`,
   hand: `<g transform="translate(-.5 6)">${HAND}</g>`,
   cross: '<path class="sign" style="stroke:#c43d2f;stroke-width:2.2" d="M-4 -4 L4 4 M4 -4 L-4 4"/>',
+  bang: '<path class="sign" style="stroke-width:2.4" d="M0 -6.5 V2"/><circle class="sign solid" cy="5.8" r="1.4"/>',
   grass: '<path class="sign" style="stroke:#3f4a1f;stroke-width:1.8" d="M-4 5 Q-4 0 -6.5 -5 M0 5 V-6 M4 5 Q4 0 6.5 -4"/>',
 };
 // A task's size is its cell's radius; an unsized task takes the small one, and its edge says it is not sized.
@@ -2627,6 +2707,27 @@ function sendBack(task, item) {
   return `<div class="confirm"><div>${t("send_back_sure")}</div><div class="actions"><button class="btn primary" data-back="${esc(task)}">${t("send_back")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`;
 }
 
+// Whether the task is fine, has a problem, hit an error or is stuck, in one plain sentence with its reason. In
+// Kandu's own error it says which try failed, and offers to stop the tries so the queen looks now.
+function statusLine(task) {
+  const status = lastState?.flowers?.[task]?.status;
+  if (!status) return "";
+  const detail = !status.detail ? null : status.why === "review_blockers" ? num(Number(status.detail))
+    : status.detail.split("; ").map(tr).join(lang === "fa" ? "؛ " : "; ");
+  const sentence = t(`status_${status.why || status.state}`);
+  let text = sentence.includes("{detail}") ? sentence.replace("{detail}", detail || t("status_no_detail")) : detail ? `${sentence} (${detail})` : sentence;
+  if (status.tries) text += " " + fillIn("status_tries", {this: num(status.tries.this), of: num(status.tries.of)});
+  const toQueen = status.why === "internal_error" ? `<button class="btn small" data-to-queen="${esc(task)}" title="${esc(t("to_queen_hint"))}">${t("to_queen")}</button>` : "";
+  const cleaned = status.cleaned ? `<p class="muted" dir="auto">${esc(t("cleaned_folder"))}: ${esc(tr(status.cleaned))}</p>` : "";
+  return `<div class="status-line ${esc(status.state)}"><span class="badge">${esc(t(`state_${status.state}`))}</span><span dir="auto">${esc(text)}</span>${toQueen}</div>${cleaned}`;
+}
+
+async function toQueen(button) {
+  const [repo, number] = button.dataset.toQueen.split("#");
+  if (await act(button, `/tasks/${repo}/${number}/to-queen`)) { toast(t("to_queen_done")); await refreshQueue(lastState, true).catch(() => {}); }
+  showReviews(button.dataset.toQueen);
+}
+
 const yoursChip = (task, item) => item?.yours || lastState?.flowers?.[task]?.yours ? `<span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : "";
 
 // What a by-hand task is and how the user does it, with its goal and criteria from the copy, read-only.
@@ -2672,13 +2773,13 @@ async function showReviews(task) {
   const link = (url, label) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${label} ↗</a>`;
   if (!r.pr) {
     openModal(`${numberOf(task)} ${bdi(item?.title || repoOf(task))}`);
-    $("modalbody").innerHTML = `<div class="actions">${item ? stateBadge(item) : ""}${yoursChip(task, item)}<span class="muted">${t("no_pr")}</span></div>${byHandBox(item)}${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}<div class="actions">${sendBack(task, item)}</div>${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}<div id="taskflight" class="actions"></div>`;
+    $("modalbody").innerHTML = `<div class="actions">${item ? stateBadge(item) : ""}${yoursChip(task, item)}<span class="muted">${t("no_pr")}</span></div>${statusLine(task)}${byHandBox(item)}${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}<div class="actions">${sendBack(task, item)}</div>${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}<div id="taskflight" class="actions"></div>`;
     renderFlights();
     return;
   }
   openModal(`${numberOf(task)} ${bdi(item?.title || r.pr.title)}`);
   $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? stateBadge(item) : ""}${yoursChip(task, item)}</div>
-    ${byHandBox(item)}${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}
+    ${statusLine(task)}${byHandBox(item)}${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}
     <div class="actions">${sendBack(task, item)}</div>
     ${heldLines({waited: r.waited}, r.blockers).map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
     ${keptLines(r.kept).map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
@@ -2708,6 +2809,7 @@ document.addEventListener("click", e => {
   if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); sendingBack = false; showReviews(shownTask); return; }
   if (hit("back-sure")) { sendingBack = true; confirming = false; showReviews(shownTask); return; }
   if (hit("back")) { doSendBack(hit("back")); return; }
+  if (hit("to-queen")) { toQueen(hit("to-queen")); return; }
   if (hit("shelf")) { shelf = hit("shelf").dataset.shelf; sceneKey = null; if (lastState) renderScene(lastState, lastQueue); return; }
   if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
   if (pause) {  // It sits in the project's summary, which would fold.

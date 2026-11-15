@@ -30,6 +30,7 @@ from .notify import notifier_for
 from .runner import DEFAULT_LOGS_DIR, LocalWork, Runner, RunnerError
 from .state import StateStore
 from .tasks import TaskError
+from .tries import FAILURE_COMMENT, INTERNAL_TRIES, SIZING_FAILURE_COMMENT, count as count_tries
 from .usage import UsageError, over_limit, read_usage
 
 BACKLOG, READY, IN_PROGRESS, IN_REVIEW = "Backlog", "Ready", "In progress", "In review"
@@ -40,7 +41,6 @@ MERGEABLE = ("approved", "approved_with_notes")
 END_CHECK_MERGES = 2  # This many merges in a project in one cycle earn a check of the whole project.
 LANDING_FAILED = ("deploy_failed", "live_check_failed")
 BROKEN_REPLY = (agents.ReplyError, review.ReportError, split.ReportError)
-INTERNAL_TRIES = 3
 BASE_MOVED = "Base branch was modified"  # another merge landed first; GitHub asks to try once more
 MERGE_TRIES = 3  # Kandu's own trouble is tried this often in a row before the task stops for a look.
 MERGE_RETRY_WAITS = (10, 30, 60)  # seconds before each quick new try of a merge GitHub refused for a moment
@@ -49,9 +49,7 @@ RETRY_POLL_SECONDS = 5  # how often a wait for the next try looks for a stop or 
 ALREADY_MERGED = "already merged"
 RETRYING = "GitHub refused the merge for a moment; Kandu tries it again by itself"
 WAITS_FOR_BLOCKER = "blocker {} is not merged yet"
-PROGRESS = ("review_finished", "task_finished", "task_sized")
 ROOT = Path(__file__).resolve().parent.parent
-FAILURE_COMMENT = "Kandu could not finish this step and stopped here. The details are in its local log."
 UNREAD_PR_BODY = ("The worker pushed this branch, but Kandu could not read its last message, so this description "
                   "is Kandu's. The review reads the code.")
 
@@ -702,6 +700,9 @@ class Supervisor:
         self._edit_pr_body(task, pr, reply)
         if self._head_after_push(task, pr) == head:
             self.github.comment_pr(task.repo, pr["number"], review.fix_comment(head))
+            # For the user's eyes: the card says the task will not move on by itself, and why.
+            why = (reply or {}).get("reason") or (reply or {}).get("question") or "it pushed no new commit"
+            self._decide(task, "round_no_commit", f"{phase}: {why}"[:300])
         return reply
 
     def _conflicts(self, pr, outcome):
@@ -1206,8 +1207,7 @@ class Supervisor:
                 self._decide(task, "internal_error", str(e))  # still unsized, so the next cycle sizes it again
                 return
             self._decide(task, "sizing_failed", str(e))
-            self.github.comment_issue(task.repo, task.number, "Kandu could not size this task. "
-                                      "Move it back to Backlog to try again. The details are in its local log.")
+            self.github.comment_issue(task.repo, task.number, SIZING_FAILURE_COMMENT)
             self._finish(task, NEEDS_INFO, "sizing_failed")
             return
         areas = split.check_forbidden(report, task.project.forbidden)
@@ -1406,15 +1406,7 @@ class Supervisor:
 
     def _internal_tries(self, task):
         """Kandu's own errors on this task since it last moved on."""
-        count = 0
-        for event in queen.all_events(self.store):
-            if event.get("task") != task.key:
-                continue
-            if event["type"] in PROGRESS:
-                count = 0
-            elif event["type"] == "decision" and event["decision"] == "internal_error":
-                count += 1
-        return count
+        return count_tries(queen.all_events(self.store), task.key)
 
     def _fail(self, task, error):
         """Details stay in the local log: the comment may be on a public repo.
