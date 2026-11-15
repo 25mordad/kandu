@@ -67,6 +67,34 @@ main { max-width:1240px; margin:auto; padding:16px; display:grid; gap:14px; }
 .meter b { position:absolute; inset-block:-3px; width:2px; background:var(--ink); opacity:.65; }
 .stat small { display:block; margin-top:5px; font-size:12px; color:var(--muted); }
 
+/* The honeycomb look's cells: regular hexagons, pointy side up, in one row on a wide screen. Only a button or a
+   link inside a cell takes a tap, so the rest of it, the corners nested into a neighbour's included, does nothing. */
+.hexes { display:flex; flex-wrap:nowrap; justify-content:center; }
+.hex { position:relative; flex:0 1 120px; min-width:0; aspect-ratio:100 / 115.47; container-type:inline-size; pointer-events:none; }
+.hex button, .hex a { pointer-events:auto; }
+.hex-edge { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.hex-edge polygon { fill:var(--surface); stroke:var(--line); stroke-width:3; pointer-events:auto; }  /* for the title on hover; a tap on it does nothing */
+.hex.wait polygon { stroke:#e8590c; stroke-width:5; }
+.hex.bad polygon { stroke:var(--bad); stroke-width:5; }
+.hex-gauge { fill:none; stroke:var(--honey); stroke-width:5; stroke-linejoin:round; stroke-linecap:round; }
+.hex-gauge.over { stroke:var(--bad); }
+.hex-tick { stroke:var(--ink); stroke-width:3; opacity:.7; }
+.hex-limit { font:600 10px var(--sans); fill:var(--muted); text-anchor:middle; dominant-baseline:central; }
+.hex-body { position:absolute; inset:18% 8%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; text-align:center; line-height:1.12; overflow-wrap:anywhere; }
+.hex.narrow .hex-body { inset:18% 18%; }  /* room at the sides for the limit's number */
+.hex.narrow .hex-value { white-space:nowrap; overflow-wrap:normal; }
+.hex-value { font-size:clamp(14px, 17cqi, 21px); font-weight:600; }
+.hex-value.small { font-size:clamp(9.5px, 10.5cqi, 13px); font-weight:500; }
+.hex-value.over { color:var(--bad); }
+.hex-value.muted { color:var(--muted); }
+.hex-name, .hex-note { font-size:clamp(8.5px, 9.5cqi, 12px); color:var(--muted); }
+.hex-note { font-size:clamp(8px, 8.5cqi, 11px); }
+.hex-note .textlink { color:var(--accent); text-decoration:underline; }
+.hex-mid { display:inline-flex; align-items:center; justify-content:center; gap:3px; max-width:100%; }
+button.hex-mid { font:inherit; color:inherit; background:none; border:0; border-radius:8px; padding:2px 5px; min-height:28px; cursor:pointer; }
+button.hex-mid:hover { background:var(--sunken); }
+.hex-mid svg { width:.7em; height:.7em; flex:none; color:var(--muted); }
+
 .ask { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; padding:12px 16px; background:color-mix(in srgb, #f2a65a 14%, var(--surface)); border:1px solid color-mix(in srgb, #f2a65a 45%, var(--line)); border-radius:14px; }
 .ask-text { flex:1 1 320px; min-width:0; overflow-wrap:anywhere; }
 .ask-who { font-size:13px; font-weight:600; color:var(--muted); }
@@ -211,7 +239,17 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 @media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz, .halo, .wait-ring, .btn.busy::before { animation:none; } .btn, .meter i { transition:none; } }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+/* Narrower, the cells sit in rows of 4 nested like a honeycomb: each cell spans two of nine half-columns, every
+   second row starts half a cell in, and a row rises a quarter of a cell into the one above. */
+@media (max-width: 980px) {
+  .hexes { display:grid; grid-template-columns:repeat(9, minmax(0, 60px)); justify-content:center; padding-bottom:min(6.4%, 35px); }
+  .hexes > .hex { grid-column-end:span 2; margin-bottom:-28.87%; }
+  .hexes > .hex:nth-child(8n+1) { grid-column-start:1; }
+  .hexes > .hex:nth-child(8n+5) { grid-column-start:2; }
+}
+#projectsettings { overflow-x:auto; }
 @media (max-width: 640px) {
+  #projectsettings th, #projectsettings .fit { white-space:normal; }
   th, td { padding-inline:12px; }
   .hide-narrow { display:none; }
   .counts { margin-inline-start:0; width:100%; }
@@ -232,6 +270,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
     <button id="restart" class="btn plain" data-t="restart_kandu"></button>
     <span id="didbanbox" class="flightbox"></span>
     <span id="zanbourdarbox" class="flightbox"></span>
+    <button id="look" class="btn plain" data-t="look_honeycomb"></button>
     <button id="lang" class="btn plain" lang="" data-t="other_language"></button>
   </div>
   <nav class="tabs" role="tablist">
@@ -305,6 +344,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bee_reviewer": "Reviewer bee",
   "bee_scout": "Scout bee",
   "other_language": "فارسی",
+  "look_honeycomb": "Honeycomb",
+  "look_cards": "Cards",
+  "look_switch": "Switch the dashboard's look",
   "loading": "loading",
   "control_token": "control token",
   "read_board": "Read the board",
@@ -522,6 +564,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bee_reviewer": "زنبور بازبین",
   "bee_scout": "زنبور پیشاهنگ",
   "other_language": "English",
+  "look_honeycomb": "لانه‌زنبوری",
+  "look_cards": "کارتی",
+  "look_switch": "عوض کردن نمای داشبورد",
   "loading": "در حال بارگذاری",
   "control_token": "توکن کنترل",
   "read_board": "خواندن تخته",
@@ -974,7 +1019,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 const $ = id => document.getElementById(id);
 const esc = text => String(text ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const get = path => fetch("/api/v1" + path).then(r => r.ok ? r.json() : Promise.reject(r.status));
-const LANGUAGE_KEY = "kandu-language", TAB_KEY = "kandu-tab", CLOSED_KEY = "kandu-closed-projects";
+const LANGUAGE_KEY = "kandu-language", TAB_KEY = "kandu-tab", CLOSED_KEY = "kandu-closed-projects", LOOK_KEY = "kandu-look";
 const TEXT = JSON.parse($("text").textContent);
 const LIVE_LINES = 200;
 const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -987,6 +1032,9 @@ let lastState = null, lastQueue = null, sceneKey = null, listKey = null, briefOp
 const saved = key => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
 if (saved(LANGUAGE_KEY) === "fa") lang = "fa";
+// The look: the cards, the default, or the honeycomb. Each browser keeps its own; nothing goes to the config.
+let look = "cards";
+if (saved(LOOK_KEY) === "honeycomb") look = "honeycomb";
 if (saved(TAB_KEY)) tab = saved(TAB_KEY);
 try { closed = new Set(JSON.parse(saved(CLOSED_KEY)) || []); } catch {}
 
@@ -995,6 +1043,7 @@ const t = key => TEXT[lang][key];
 const num = value => value.toLocaleString(lang === "fa" ? "fa-IR" : "en-US");
 const pct = value => lang === "fa" ? num(value) + "٪" : value + "%";
 const faDigits = text => text.replace(/\d/g, d => num(Number(d)));
+const digits = text => lang === "fa" ? faDigits(String(text)) : String(text);
 const short = value => new Intl.NumberFormat(locale(), {notation: "compact", maximumFractionDigits: 1}).format(value);
 const when = iso => new Date(iso).toLocaleString(locale(), {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"});
 const clock = iso => new Date(iso).toLocaleTimeString(locale(), {hour: "2-digit", minute: "2-digit"});
@@ -1030,7 +1079,24 @@ function applyLanguage() {
     if (attrs) attrs.split(" ").forEach(attr => el.setAttribute(attr, t(el.dataset.t)));
     else el.textContent = t(el.dataset.t);
   }
+  applyLook();
   renderLegend();
+}
+
+// The button names the look it switches to, as the language button names the other language.
+function applyLook() {
+  document.documentElement.dataset.look = look;
+  const other = look === "honeycomb" ? "look_cards" : "look_honeycomb";
+  $("look").dataset.t = other;
+  $("look").textContent = t(other);
+  $("look").title = t("look_switch");
+}
+
+function setLook(chosen) {
+  look = chosen === "honeycomb" ? "honeycomb" : "cards";
+  save(LOOK_KEY, look);
+  applyLook();
+  if (lastState) renderStats(lastState);
 }
 
 function setLanguage(chosen) {
@@ -1442,15 +1508,122 @@ function changeParallel(button) {
   box.showModal();
 }
 
+// What the wake and debt tiles say, in either look.
+const wakeText = s => !s.timer_on ? t("timer_off") : s.next_wake ? esc(when(s.next_wake)) : "—";
+const debtCount = () => lastQueue && Object.values(lastQueue.projects).reduce((sum, columns) => sum + columns["Technical debt"].length, 0);
+
 function renderStats(s) {
+  if (look === "honeycomb") {
+    $("stats").className = "hexes";
+    $("stats").innerHTML = statCells(s);
+    return;
+  }
+  $("stats").className = "stats";
   const workers = s.workers || [];
   const most = s.parallel ? `<small>${t("limit")} ${num(s.parallel.total)}<button class="textlink limit-edit" data-parallel>${t("change")}</button></small>` : "";
   const bees = `<div class="card stat"><div class="stat-label">${t("active_workers")}</div><div class="stat-value">${num(workers.length)}</div>${most}</div>`;
   const yours = `<div class="card stat"><div class="stat-label">${t("waits_for_you_count")}</div><div class="stat-value" style="color:${s.waits_for_you ? "#e8590c" : "inherit"}">${num(s.waits_for_you || 0)}</div></div>`;
-  const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${!s.timer_on ? t("timer_off") : s.next_wake ? esc(when(s.next_wake)) : "—"}</div></div>`;
-  const parked = lastQueue && Object.values(lastQueue.projects).reduce((sum, columns) => sum + columns["Technical debt"].length, 0);
+  const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${wakeText(s)}</div></div>`;
+  const parked = debtCount();
   const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
   $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + yours + debt + wake + backupCard(s.backup) + upstreamCard(s.upstream) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
+}
+
+// The honeycomb look's stat tiles: one cell each, with the same information as its card.
+function statCells(s) {
+  const workers = s.workers || [];
+  return [
+    usageCell(t("session"), s.usage?.session, s.limits.session),
+    usageCell(t("week"), s.usage?.week, s.limits.week),
+    hexCell({name: t("active_workers"), value: num(workers.length), note: s.parallel ? `${t("limit")} ${num(s.parallel.total)}` : "",
+             action: s.parallel ? "data-parallel" : ""}),
+    hexCell({name: t("waits_for_you_count"), value: num(s.waits_for_you || 0), tone: s.waits_for_you ? "wait" : ""}),
+    hexCell({name: t("debt"), value: lastQueue ? num(debtCount()) : "—", muted: !lastQueue}),
+    hexCell({name: t("next_wake"), value: wakeText(s), small: true}),
+    backupCell(s.backup), upstreamCell(s.upstream), dropCell(s.drop_blockers), requestsCell(s.show_requests),
+  ].join("");
+}
+
+// A regular hexagon, pointy side up, in a box 100 wide: its corners clockwise from the top, a little inside the
+// box so that neighbours keep a gap.
+const HEX_HEIGHT = 115.47, HEX_MIDDLE = [50, HEX_HEIGHT / 2], HEX_RADIUS = 54.27;
+const HEX_CORNERS = [[0, -1], [0.866, -0.5], [0.866, 0.5], [0, 1], [-0.866, 0.5], [-0.866, -0.5]].map(([x, y]) => [HEX_MIDDLE[0] + x * HEX_RADIUS, HEX_MIDDLE[1] + y * HEX_RADIUS]);
+const PENCIL = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11 2.5l2.5 2.5-8 8H3v-2.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+const AGAIN = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2v3h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+// The corners from the top in reading order: clockwise left to right, the other way round in Persian.
+const hexCorners = () => HEX_CORNERS.map(([x, y]) => [lang === "fa" ? 100 - x : x, y]);
+const hexPath = () => "M" + hexCorners().map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z";
+// The point a fraction of the way round the edge from the top corner: its side, how far along that side it is,
+// a way to walk the side, and the side's normal towards the middle.
+function hexAt(fraction) {
+  const corners = hexCorners(), round = Math.max(0, Math.min(fraction, 1)) * 6, side = Math.min(Math.floor(round), 5), part = round - side;
+  const [from, to] = [corners[side], corners[(side + 1) % 6]];
+  const along = k => [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k];
+  const [ex, ey] = along(0.5), [mx, my] = HEX_MIDDLE, length = Math.hypot(mx - ex, my - ey);
+  return {point: along(part), part, along, inward: [(mx - ex) / length, (my - ey) / length]};
+}
+
+// One honeycomb cell: its value in the middle and its name under it. Only the middle of a cell that changes
+// something acts, marked with a small pencil, so a tap elsewhere on the cell does nothing. `ring` draws over the
+// edge, `tone` colours the edge when something needs the user, and `title` shows on hover.
+function hexCell({name, value, note = "", tone = "", action = "", mark = PENCIL, hint = t("change"), over = false, small = false, muted = false, narrow = false, ring = "", title = ""}) {
+  const middle = action ? `<button class="hex-mid" ${action} title="${esc(hint)}">${value}${mark}</button>` : `<span class="hex-mid">${value}</span>`;
+  const kind = [over && "over", small && "small", muted && "muted"].filter(Boolean).map(c => " " + c).join("");
+  return `<div class="hex${tone ? " " + tone : ""}${narrow ? " narrow" : ""}"${title ? ` title="${esc(title)}"` : ""}><svg class="hex-edge" viewBox="0 0 100 ${HEX_HEIGHT}" aria-hidden="true"><polygon points="${hexCorners().map(p => p.map(v => v.toFixed(2)).join(",")).join(" ")}"/>${ring}</svg>
+    <div class="hex-body"><span class="hex-value${kind}">${middle}</span><span class="hex-name">${name}</span>${note ? `<span class="hex-note">${note}</span>` : ""}</div></div>`;
+}
+
+// A usage cell: its edge fills yellow from the top as far as the usage goes, with a tick at the limit and the
+// limit's number beside it, inside the cell; at or over the limit the edge is red.
+function usageCell(name, value, limit) {
+  const known = value !== undefined && value !== null, over = known && value >= limit;
+  const fill = known ? Math.max(0, Math.min(value, 100)) : 0;
+  const edge = hexAt(limit / 100), [x, y] = edge.point, [nx, ny] = edge.inward;
+  const [[ox, oy], [ix, iy]] = [[x - nx * 3, y - ny * 3], [x + nx * 7, y + ny * 7]];
+  // The number sits just inside the tick, kept off the corners so it never crosses the next side.
+  const [bx, by] = edge.along(Math.min(Math.max(edge.part, 0.25), 0.75)), [lx, ly] = [bx + nx * 13, by + ny * 13];
+  const gauge = fill ? `<path class="hex-gauge${over ? " over" : ""}" pathLength="100" stroke-dasharray="${fill} 100" d="${hexPath()}"/>` : "";
+  const ring = `${gauge}
+    <line class="hex-tick" x1="${ox.toFixed(2)}" y1="${oy.toFixed(2)}" x2="${ix.toFixed(2)}" y2="${iy.toFixed(2)}"/><text class="hex-limit" x="${lx.toFixed(2)}" y="${ly.toFixed(2)}">${pct(limit)}</text>`;
+  return hexCell({name, value: known ? pct(value) : "—", over, muted: !known, narrow: true, action: "data-limits", ring,
+                  title: `${name} · ${t("limit")} ${pct(limit)}`});
+}
+
+// The backup's cell: its edge turns red when the last try failed, as its card's value does.
+function backupCell(b) {
+  if (!b) return "";
+  const said = b.enabled ? t("backup_daily_at").replace("{at}", b.at) : t("backup_off");
+  const failed = b.last?.type === "backup_failed";
+  const note = failed ? t("backup_last_failed") : b.copies.length ? t("backup_copies").replace("{count}", num(b.copies.length)) : "";
+  return hexCell({name: t("backup"), value: esc(digits(said)), note: esc(note), over: failed, small: true, tone: failed ? "bad" : "",
+                  action: "data-backup"});
+}
+
+// The upstream's cell: its middle checks again, as the card's button does. Under its name, as on the card, are when
+// it was checked (or last reached) and the task it made, or the button that makes one.
+function upstreamCell(u) {
+  if (!u) return "";
+  const counts = [u.behind ? t("upstream_behind").replace("{n}", num(u.behind)) : "", u.ahead ? t("upstream_ahead").replace("{n}", num(u.ahead)) : ""].filter(Boolean);
+  const said = u.failed ? t("upstream_failed") : u.behind === null ? t("upstream_not_checked") : counts.join(" · ") || t("upstream_up_to_date");
+  const checked = u.failed ? (u.last_good_at ? t("upstream_last_good").replace("{at}", when(u.last_good_at)) : t("upstream_never_good")) : u.checked_at ? when(u.checked_at) : "";
+  const task = u.task ? `<a class="textlink" href="${esc(u.task.url)}" target="_blank" rel="noopener">${t("upstream_task_open")} ${numberOf(u.task.task)} ↗</a>`
+    : !u.failed && u.behind ? `<button class="textlink" data-upstream-bring>${t("upstream_bring_in")}</button>` : "";
+  return hexCell({name: `${t("upstream")} <bdi dir="ltr">${esc(u.remote)}/${esc(u.branch)}</bdi>`, value: esc(said), note: [checked && esc(checked), task].filter(Boolean).join("<br>"), over: u.failed, small: true,
+                  action: "data-upstream-check", mark: AGAIN, hint: t("upstream_check_now"), title: [said, checked].filter(Boolean).join(" · ")});
+}
+
+// The two switches the cards turn on and off: the middle turns them, as the card's button does.
+function dropCell(on) {
+  if (on === undefined) return "";
+  return hexCell({name: t("drop_blockers"), value: t(on ? "drop_on" : "drop_off"), small: true,
+                  action: `data-drops="${on ? "false" : "true"}"`, hint: t(on ? "drop_turn_off" : "drop_turn_on")});
+}
+
+function requestsCell(on) {
+  if (on === undefined) return "";
+  return hexCell({name: t("open_requests"), value: t(on ? "requests_shown" : "drop_off"), small: true,
+                  action: `data-requests="${on ? "false" : "true"}"`, hint: t(on ? "drop_turn_off" : "drop_turn_on")});
 }
 
 // Whether open requests show with their decision maps: off until the user turns it on here.
@@ -1979,6 +2152,7 @@ $("reload").onclick = e => busy(e.currentTarget, () => refreshQueue(lastState, t
 $("day").onchange = refreshDays;
 $("search").oninput = renderProjects;
 $("lang").onclick = () => setLanguage(lang === "fa" ? "en" : "fa");
+$("look").onclick = () => setLook(look === "honeycomb" ? "cards" : "honeycomb");
 addEventListener("resize", () => { if (lastState) renderScene(lastState, lastQueue); });
 
 async function refresh() {

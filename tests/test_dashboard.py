@@ -1251,6 +1251,142 @@ class LanguageTest(unittest.TestCase):
         self.assertEqual([v for v in values if not self.translate(v)], [])
 
 
+class HoneycombLookTest(unittest.TestCase):
+    """The dashboard's second look: the stat tiles as honeycomb cells, chosen per browser (issue #6)."""
+    def setUp(self):
+        self.page = dashboard.PAGE.read_text(encoding="utf-8")
+        text = re.search(r'<script type="application/json" id="text">(.*?)</script>', self.page, re.DOTALL)
+        self.text = json.loads(text.group(1))
+        self.style = self.page.split("<style>")[1].split("</style>")[0]
+
+    def function(self, name):
+        return self.page.split(f"function {name}(")[1].split("\n}\n")[0]
+
+    def test_a_button_beside_the_language_button_switches_the_look(self):
+        bar = self.page.split('<div class="bar">')[1].split("</div>")[0].strip().splitlines()
+        self.assertIn('id="look"', bar[-2])
+        self.assertIn('id="lang"', bar[-1])
+        self.assertIn('$("look").onclick = () => setLook(look === "honeycomb" ? "cards" : "honeycomb");', self.page)
+        self.assertIn("applyLook()", self.function("applyLanguage"))
+
+    def test_both_languages_name_each_look(self):
+        for key in ("look_honeycomb", "look_cards", "look_switch"):
+            self.assertTrue(self.text["en"][key], key)
+            self.assertTrue(self.text["fa"][key], key)
+        self.assertEqual(self.text["en"]["look_honeycomb"], "Honeycomb")
+        self.assertEqual(self.text["fa"]["look_honeycomb"], "لانه‌زنبوری")
+        apply = self.function("applyLook")
+        self.assertIn('look === "honeycomb" ? "look_cards" : "look_honeycomb"', apply)
+        self.assertIn('t("look_switch")', apply)
+
+    def test_the_browser_keeps_the_look_and_a_first_visit_shows_the_cards(self):
+        self.assertIn('LOOK_KEY = "kandu-look"', self.page)
+        self.assertIn('let look = "cards";', self.page)
+        self.assertIn('if (saved(LOOK_KEY) === "honeycomb") look = "honeycomb";', self.page)
+        chosen = self.function("setLook")
+        self.assertIn("save(LOOK_KEY, look)", chosen)
+        for call in ("act(", "get(", "fetch(", "post("):  # Nothing goes to the API, so nothing reaches the config.
+            self.assertNotIn(call, chosen)
+        self.assertIn("renderStats(lastState)", chosen)
+
+    def test_in_the_honeycomb_look_every_stat_tile_is_a_cell_with_its_information(self):
+        stats = self.function("renderStats")
+        self.assertIn('if (look === "honeycomb")', stats)
+        self.assertIn("statCells(s)", stats)
+        cells = self.function("statCells")
+        for key in ("session", "week", "active_workers", "waits_for_you_count", "debt", "next_wake"):
+            self.assertIn(f't("{key}")', cells)
+        for card in ("backupCell(s.backup)", "upstreamCell(s.upstream)", "dropCell(s.drop_blockers)", "requestsCell(s.show_requests)"):
+            self.assertIn(card, cells)
+        self.assertIn('t("limit")} ${num(s.parallel.total)}', cells)  # The workers' limit, as on the card.
+        backup = self.function("backupCell")
+        for key in ("backup", "backup_last_failed", "backup_copies", "backup_off"):
+            self.assertIn(f't("{key}")', backup)
+        upstream = self.function("upstreamCell")
+        for key in ("upstream", "upstream_failed", "upstream_up_to_date", "upstream_task_open", "upstream_bring_in", "upstream_check_now"):
+            self.assertIn(f't("{key}")', upstream)
+        self.assertIn("u.remote", upstream)
+        for name, key in (("dropCell", "drop_blockers"), ("requestsCell", "open_requests")):
+            self.assertIn(f't("{key}")', self.function(name))
+
+    def test_the_upstream_cell_shows_when_it_was_checked_without_a_hover(self):
+        # A phone or tablet has no hover, so the check time, or when the upstream was last reached, is in the note.
+        upstream = self.function("upstreamCell")
+        for key in ("upstream_last_good", "upstream_never_good"):
+            self.assertIn(f't("{key}")', upstream)
+        note = re.search(r"note: (.*?), over:", upstream).group(1)
+        self.assertIn("esc(checked)", note)
+        self.assertIn("task", note)
+
+    def test_a_cell_is_a_regular_hexagon(self):
+        self.assertIn("const HEX_CORNERS = ", self.page)
+        corners = self.page.split("const HEX_CORNERS = ")[1].split("\n")[0]
+        self.assertIn("[0, -1], [0.866, -0.5], [0.866, 0.5], [0, 1], [-0.866, 0.5], [-0.866, -0.5]", corners)
+        self.assertIn("aspect-ratio:100 / 115.47", self.style)
+
+    def test_a_usage_cell_fills_its_edge_up_to_the_usage_with_a_tick_and_the_limit(self):
+        usage = self.function("usageCell")
+        self.assertIn('stroke-dasharray="${fill} 100"', usage)
+        self.assertIn('class="hex-tick"', usage)
+        self.assertIn('class="hex-limit"', usage)
+        self.assertIn("${pct(limit)}</text>", usage)
+        self.assertIn("value >= limit", usage)
+        self.assertIn('"data-limits"', usage)
+        self.assertRegex(self.style, r"\.hex-gauge \{[^}]*stroke:var\(--honey\)")
+        self.assertRegex(self.style, r"\.hex-gauge\.over \{[^}]*stroke:var\(--bad\)")
+        self.assertIn('t("session"), s.usage?.session, s.limits.session', self.function("statCells"))
+
+    def test_a_border_is_coloured_only_when_something_needs_the_user(self):
+        cells = self.function("statCells")
+        self.assertIn('tone: s.waits_for_you ? "wait" : ""', cells)
+        self.assertIn('tone: failed ? "bad" : ""', self.function("backupCell"))
+        self.assertEqual(len(re.findall(r'\btone: ', self.page)), 2)  # Those two, and no other cell.
+        self.assertRegex(self.style, r"\.hex\.wait polygon \{[^}]*stroke:#e8590c")
+        self.assertRegex(self.style, r"\.hex\.bad polygon \{[^}]*stroke:var\(--bad\)")
+        self.assertRegex(self.style, r"\.hex-edge polygon \{[^}]*stroke:var\(--line\)")
+
+    def test_only_the_middle_of_a_changeable_cell_acts_and_it_shows_a_pencil(self):
+        cell = self.function("hexCell")
+        self.assertIn('<button class="hex-mid" ${action}', cell)
+        self.assertIn("${mark}</button>", cell)
+        self.assertIn("mark = PENCIL", cell)
+        outer = cell.split("return `")[1].split(">")[0]
+        self.assertNotIn("data-", outer)
+        self.assertRegex(self.style, r"\.hex \{[^}]*pointer-events:none")
+        self.assertRegex(self.style, r"\.hex button, \.hex a \{[^}]*pointer-events:auto")
+        cells = self.function("statCells")
+        self.assertIn('action: s.parallel ? "data-parallel" : ""', cells)
+        self.assertIn('action: "data-backup"', self.function("backupCell"))
+        self.assertIn('action: `data-drops="${on ? "false" : "true"}"`', self.function("dropCell"))
+        self.assertIn('action: `data-requests="${on ? "false" : "true"}"`', self.function("requestsCell"))
+
+    def test_the_cells_sit_in_one_row_when_wide_and_in_nested_rows_of_four_on_a_phone(self):
+        self.assertRegex(self.style, r"\.hexes \{[^}]*display:flex;[^}]*flex-wrap:nowrap")
+        narrow = re.search(r"@media \(max-width: 980px\) \{\n(.*?)\n\}", self.style, re.DOTALL).group(1)
+        self.assertIn("grid-template-columns:repeat(9, minmax(0, 60px))", narrow)
+        self.assertIn(".hexes > .hex:nth-child(8n+1) { grid-column-start:1; }", narrow)
+        self.assertIn(".hexes > .hex:nth-child(8n+5) { grid-column-start:2; }", narrow)
+        self.assertIn("margin-bottom:-28.87%", narrow)
+
+    def test_the_settings_table_does_not_push_the_page_sideways_on_a_phone(self):
+        phone = self.style.split("@media (max-width: 640px) {")[1].split("\n}\n")[0]
+        self.assertIn("#projectsettings th, #projectsettings .fit { white-space:normal; }", phone)
+        self.assertRegex(self.style, r"#projectsettings \{[^}]*overflow-x:auto")
+
+    def test_persian_cells_write_persian_digits(self):
+        self.assertIn('const digits = text => lang === "fa" ? faDigits(String(text)) : String(text);', self.page)
+        self.assertIn("digits(said)", self.function("backupCell"))
+        self.assertIn("pct(", self.function("usageCell"))
+
+    def test_design_says_the_dashboard_has_two_looks(self):
+        design = (ROOT / "DESIGN.md").read_text(encoding="utf-8")
+        section = design.split("## 7. Dashboard")[1].split("\n## 8.")[0]
+        looks = next(line for line in section.splitlines() if line.startswith("- **Looks:**"))
+        self.assertIn("two looks", looks)
+        self.assertIn("each browser", looks.lower())
+        self.assertIn("default", looks)
+
+
 class StreamTest(Base):
     def test_new_events_follow_days(self):
         first = datetime(2026, 10, 29, 12, 0).astimezone()
