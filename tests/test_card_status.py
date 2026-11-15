@@ -154,7 +154,7 @@ class PageTest(unittest.TestCase):
         self.assertEqual(self.page.count("${statusLine(task)}"), 2)  # with a PR and without one
         self.assertIn('if (hit("to-queen")) { toQueen(hit("to-queen")); return; }', self.page)
         self.assertIn('item.mark.status?.state === "stuck" && !working.has(item.task)', self.page)
-        for table in ("const COLUMN_ORDER = [\"Stuck\"", '  "Stuck": {swatch:', '  "Stuck": {colour:'):
+        for table in ("const COLUMN_ORDER = [\"Stuck\"", '  "Stuck": {swatch:'):
             self.assertIn(table, self.page)
 
 

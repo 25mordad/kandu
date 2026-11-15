@@ -219,7 +219,7 @@ class Film:
         self.scene(8)
         self.page.click('[data-tab="days"]', force=True)
         self.at(5.5)
-        self.page.click('[data-tab="meadow"]', force=True)
+        self.page.click('[data-tab="today"]', force=True)
         self.at(7)
         self.page.click('#scene .switch[data-pause="tea-shop"]', force=True)
         self.at(10)

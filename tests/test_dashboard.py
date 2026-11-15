@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import socket
+import subprocess
 import tempfile
 import threading
 import time
@@ -28,6 +29,7 @@ TOKEN = "secret-token"
 SESSION_A = "11111111-2222-3333-4444-555555555555"
 SESSION_B = "99999999-2222-3333-4444-555555555555"
 USAGE = {"session": 5, "week": 6}
+NODE = shutil.which("node")
 
 
 def assistant_line(*tools):
@@ -997,11 +999,6 @@ class HiveTest(unittest.TestCase):
         self.assertIn('class="cell full" data-review=', self.page)
         self.assertIn('get(`/tasks/${repo}/${number}`)', self.page)
 
-    def test_the_meadow_is_the_first_tab(self):
-        tabs = re.findall(r'data-tab="(\w+)"', self.page)
-        self.assertEqual(tabs[0], "meadow")
-        self.assertIn('tab = "meadow"', self.page)
-
     def test_every_flower_has_a_sign_and_a_place_in_the_legend(self):
         signs = re.search(r"const SIGNS = \{(.*?)\n\};", self.page, re.DOTALL).group(1)
         kinds = re.search(r"const kinds = \[(.*?)\];", self.page).group(1)
@@ -1311,301 +1308,287 @@ class LanguageTest(unittest.TestCase):
         self.assertEqual([v for v in values if not self.translate(v)], [])
 
 
-class HoneycombLookTest(unittest.TestCase):
-    """The dashboard's second look: the stat tiles as honeycomb cells, chosen per browser (issue #6)."""
+class FrameTest(unittest.TestCase):
+    """The dashboard's one look: the Kandu Clean frame, its header, tabs, phone bar, More menu and Stop dialog (#43)."""
+    # The design's colour tokens, light and dark (docs/design/kandu-clean.dc.html).
+    TOKENS = {
+        "bg": ("#F7F6F3", "#141413"), "surface": ("#FFFFFF", "#1C1C1A"), "surface2": ("#F0EFEB", "#262624"),
+        "line": ("#E6E4DE", "#32312E"), "ink": ("#1A1A18", "#EDECE8"), "ink2": ("#66655F", "#A6A59F"),
+        "ink3": ("#9A9993", "#76756F"), "dot": ("#CFCDC6", "#4E4D49"), "honey": ("#F5B301", None),
+        "honey-ink": ("#1A1A18", None), "honey-soft": ("#FDF1CC", "#3A2F12"), "amber": ("#B4500A", "#F2A05C"),
+        "amber-soft": ("#FBEBDD", "#3A2516"), "red": ("#BC392C", "#F0796C"), "red-soft": ("#F9E1DE", "#3D1E1B"),
+        "green": ("#2E7B4D", "#6CC38F"), "green-soft": ("#E0F0E6", "#1B3124"), "blue": ("#2F62B0", "#86A9EE"),
+        "blue-soft": ("#E2EAF7", "#1C2638"),
+    }
+    WAKE = "2026-11-15T21:22:00+00:00"
+
     def setUp(self):
         self.page = dashboard.PAGE.read_text(encoding="utf-8")
         text = re.search(r'<script type="application/json" id="text">(.*?)</script>', self.page, re.DOTALL)
         self.text = json.loads(text.group(1))
         self.style = self.page.split("<style>")[1].split("</style>")[0]
+        self.header = self.page.split('<header class="top">')[1].split("</header>")[0]
 
     def function(self, name):
-        return self.page.split(f"function {name}(")[1].split("\n}\n")[0]
+        begin = self.page.index(f"function {name}(")
+        if self.page[begin - 6:begin] == "async ":
+            begin -= 6
+        return self.page[begin:self.page.index("\n}\n", begin) + 2]
 
-    def test_a_button_beside_the_language_button_switches_the_look(self):
-        bar = self.page.split('<div class="bar">')[1].split("</div>")[0].strip().splitlines()
-        self.assertIn('id="look"', bar[-2])
-        self.assertIn('id="lang"', bar[-1])
-        self.assertIn('$("look").onclick = () => setLook(look === "honeycomb" ? "cards" : "honeycomb");', self.page)
-        self.assertIn("applyLook()", self.function("applyLanguage"))
+    def line(self, start):
+        return next(line for line in self.page.splitlines() if line.startswith(start)) + "\n"
 
-    def test_both_languages_name_each_look(self):
-        for key in ("look_honeycomb", "look_cards", "look_switch"):
-            self.assertTrue(self.text["en"][key], key)
-            self.assertTrue(self.text["fa"][key], key)
-        self.assertEqual(self.text["en"]["look_honeycomb"], "Honeycomb")
-        self.assertEqual(self.text["fa"]["look_honeycomb"], "لانه‌زنبوری")
-        apply = self.function("applyLook")
-        self.assertIn('look === "honeycomb" ? "look_cards" : "look_honeycomb"', apply)
-        self.assertIn('t("look_switch")', apply)
+    def run_js(self, lang, script):
+        """Runs the page's own functions in node, with its texts, in `lang`."""
+        prelude = (f"const TEXT = {json.dumps(self.text)};\nlet lang = {json.dumps(lang)};\nlet flights = {{open: [], flown: []}};\n"
+                   + "".join(self.line(start) for start in (
+                       "const esc = ", "const locale = ", "const t = ", "const num = ", "const when = ", "const clock = ",
+                       "const githubRefused = ", "const bdi = ", "const pct = "))
+                   + "".join(self.function(name) for name in ("tr", "stateChip", "stopText", "moreItems", "gauge", "chooseMore")))
+        done = subprocess.run([NODE, "-e", prelude + script], capture_output=True, text=True, timeout=30,
+                              env={**os.environ, "TZ": "UTC"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
 
-    def test_the_browser_keeps_the_look_and_a_first_visit_shows_the_cards(self):
-        self.assertIn('LOOK_KEY = "kandu-look"', self.page)
-        self.assertIn('let look = "cards";', self.page)
-        self.assertIn('if (saved(LOOK_KEY) === "honeycomb") look = "honeycomb";', self.page)
-        chosen = self.function("setLook")
-        self.assertIn("save(LOOK_KEY, look)", chosen)
-        for call in ("act(", "get(", "fetch(", "post("):  # Nothing goes to the API, so nothing reaches the config.
-            self.assertNotIn(call, chosen)
-        self.assertIn("renderStats(lastState)", chosen)
+    def state(self, **fields):
+        return {"supervisor": "asleep", "next_wake": self.WAKE, "usage": {"session": 10, "week": 20},
+                "limits": {"session": 80, "week": 90}, "timer_on": True, "stop_requested": False, "workers": []} | fields
 
-    def test_in_the_honeycomb_look_every_stat_tile_is_a_cell_with_its_information(self):
-        stats = self.function("renderStats")
-        self.assertIn('if (look === "honeycomb")', stats)
-        self.assertIn("statCells(s)", stats)
-        cells = self.function("statCells")
-        for key in ("session", "week", "active_workers", "waits_for_you_count", "debt", "next_wake"):
-            self.assertIn(f't("{key}")', cells)
-        for card in ("backupCell(s.backup)", "upstreamCell(s.upstream)", "dropCell(s.drop_blockers)", "requestsCell(s.show_requests)"):
-            self.assertIn(card, cells)
-        self.assertIn('t("limit")} ${num(s.parallel.total)}', cells)  # The workers' limit, as on the card.
-        backup = self.function("backupCell")
-        for key in ("backup", "backup_last_failed", "backup_copies", "backup_off"):
-            self.assertIn(f't("{key}")', backup)
-        upstream = self.function("upstreamCell")
-        for key in ("upstream", "upstream_failed", "upstream_up_to_date", "upstream_task_open", "upstream_bring_in", "upstream_check_now"):
-            self.assertIn(f't("{key}")', upstream)
-        self.assertIn("u.remote", upstream)
-        for name, key in (("dropCell", "drop_blockers"), ("requestsCell", "open_requests")):
-            self.assertIn(f't("{key}")', self.function(name))
+    # One look.
 
-    def test_the_upstream_cell_shows_when_it_was_checked_without_a_hover(self):
-        # A phone or tablet has no hover, so the check time, or when the upstream was last reached, is in the note.
-        upstream = self.function("upstreamCell")
-        for key in ("upstream_last_good", "upstream_never_good"):
-            self.assertIn(f't("{key}")', upstream)
-        note = re.search(r"note: (.*?), over:", upstream).group(1)
-        self.assertIn("esc(checked)", note)
-        self.assertIn("task", note)
+    def test_the_dashboard_has_one_look_and_no_switch_between_looks(self):
+        self.assertNotIn('id="look"', self.page)
+        self.assertNotIn("dataset.look", self.page)
+        for gone in ("LOOK_KEY", "setLook", "applyLook", "hexCell", "HONEY_", "pcell", "shelf", 'id="honey"', "honey-stripes"):
+            self.assertNotIn(gone, self.page, gone)
+        for key in ("look_cards", "look_switch", "hive_with_tasks", "hive_no_tasks", "legend_cell_sizes"):
+            self.assertNotIn(key, self.text["en"], key)
+        self.assertEqual([key for key in self.text["en"] if key.startswith("look_")], [])
 
-    def test_a_cell_is_a_regular_hexagon(self):
-        self.assertIn("const HEX_CORNERS = ", self.page)
-        corners = self.page.split("const HEX_CORNERS = ")[1].split("\n")[0]
-        self.assertIn("[0, -1], [0.866, -0.5], [0.866, 0.5], [0, 1], [-0.866, 0.5], [-0.866, -0.5]", corners)
-        self.assertIn("aspect-ratio:100 / 115.47", self.style)
+    def test_a_browser_that_chose_the_old_look_forgets_it_and_opens_the_new_one(self):
+        self.assertNotIn('saved("kandu-look")', self.page)
+        self.assertIn('forget("kandu-look");', self.page)
+        self.assertRegex(self.page, r"const forget = key => \{ try \{ localStorage\.removeItem\(key\); \} catch \{\} \};")
 
-    def test_a_usage_cell_fills_its_edge_up_to_the_usage_with_a_tick_and_the_limit(self):
-        usage = self.function("usageCell")
-        self.assertIn('stroke-dasharray="${fill} 100"', usage)
-        self.assertIn('class="hex-tick"', usage)
-        self.assertIn('class="hex-limit"', usage)
-        self.assertIn("${pct(limit)}</text>", usage)
-        self.assertIn("value >= limit", usage)
-        self.assertIn('"data-limits"', usage)
-        self.assertRegex(self.style, r"\.hex-gauge \{[^}]*stroke:var\(--honey\)")
-        self.assertRegex(self.style, r"\.hex-gauge\.over \{[^}]*stroke:var\(--bad\)")
-        self.assertIn('t("session"), s.usage?.session, s.limits.session', self.function("statCells"))
+    def test_design_says_the_dashboard_has_one_look(self):
+        design = (ROOT / "DESIGN.md").read_text(encoding="utf-8")
+        self.assertNotIn("two looks", design)
+        section = design.split("## 7. Dashboard")[1].split("\n## 8.")[0]
+        frame = next(line for line in section.splitlines() if line.startswith("- **Frame:**"))
+        self.assertIn("one look", frame)
+        self.assertIn("More", frame)
 
-    def test_a_border_is_coloured_only_when_something_needs_the_user(self):
-        cells = self.function("statCells")
-        self.assertIn('tone: s.waits_for_you ? "wait" : ""', cells)
-        self.assertIn('tone: failed ? "bad" : ""', self.function("backupCell"))
-        self.assertEqual(len(re.findall(r'\btone: ', self.page)), 2)  # Those two, and no other cell.
-        self.assertRegex(self.style, r"\.hex\.wait polygon \{[^}]*stroke:#e8590c")
-        self.assertRegex(self.style, r"\.hex\.bad polygon \{[^}]*stroke:var\(--bad\)")
-        self.assertRegex(self.style, r"\.hex-edge polygon \{[^}]*stroke:var\(--line\)")
+    # The header and the tabs on a wide screen.
 
-    def test_only_the_middle_of_a_changeable_cell_acts_and_it_shows_a_pencil(self):
-        cell = self.function("hexCell")
-        self.assertIn('<button class="hex-mid" ${action}', cell)
-        self.assertIn("${mark}</button>", cell)
-        self.assertIn("mark = PENCIL", cell)
-        outer = cell.split("return `")[1].split(">")[0]
-        self.assertNotIn("data-", outer)
-        self.assertRegex(self.style, r"\.hex \{[^}]*pointer-events:none")
-        self.assertRegex(self.style, r"\.hex button, \.hex a \{[^}]*pointer-events:auto")
-        cells = self.function("statCells")
-        self.assertIn('action: s.parallel ? "data-parallel" : ""', cells)
-        self.assertIn('action: "data-backup"', self.function("backupCell"))
-        self.assertIn('action: `data-drops="${on ? "false" : "true"}"`', self.function("dropCell"))
-        self.assertIn('action: `data-requests="${on ? "false" : "true"}"`', self.function("requestsCell"))
+    def test_the_wide_header_holds_the_designs_parts_in_its_order(self):
+        order = ['class="mark"', 'id="pulse"', 'id="gauges"', 'id="stop"', 'id="wake"', 'id="didbanbox"', 'id="more"', 'id="lang"']
+        places = [self.header.index(part) for part in order]
+        self.assertEqual(places, sorted(places))
+        for gone in ('id="reload"', 'id="restart"', 'id="zanbourdarbox"'):  # They moved to More.
+            self.assertNotIn(gone, self.header)
 
-    def test_the_cells_sit_in_one_row_when_wide_and_in_nested_rows_of_four_on_a_phone(self):
-        self.assertRegex(self.style, r"\.hexes \{[^}]*display:flex;[^}]*flex-wrap:nowrap")
-        narrow = re.search(r"@media \(max-width: 980px\) \{\n(.*?)\n\}", self.style, re.DOTALL).group(1)
-        self.assertIn("grid-template-columns:repeat(9, minmax(0, 60px))", narrow)
-        self.assertIn(".hexes > .hex:nth-child(8n+1) { grid-column-start:1; }", narrow)
-        self.assertIn(".hexes > .hex:nth-child(8n+5) { grid-column-start:2; }", narrow)
-        self.assertIn("margin-bottom:-28.87%", narrow)
+    def test_the_usage_bars_show_each_usage_against_its_limit(self):
+        gauges = self.function("gauges")
+        self.assertIn('gauge(t("session"), s.usage?.session, s.limits.session)', gauges)
+        self.assertIn('gauge(t("week"), s.usage?.week, s.limits.week)', gauges)
+        self.assertIn('$("gauges").innerHTML = gauges(s);', self.page)
 
-    def test_the_settings_table_does_not_push_the_page_sideways_on_a_phone(self):
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_a_usage_bar_shows_its_usage_amber_at_or_over_its_limit(self):
+        cases = {"below": 79, "at": 80, "above": 95, "unknown": None, "past_full": 130}
+        bars = self.run_js("en", f"console.log(JSON.stringify(Object.fromEntries(Object.entries({json.dumps(cases)}).map(([k, v]) => [k, gauge(\"Week\", v, 80)]))));")
+        def look(bar):
+            return {"over": 'class="gauge over"' in bar, "shown": re.search(r"<b>(.*?)</b>", bar).group(1),
+                    "width": re.search(r'<i style="width:([^"]*)%"', bar).group(1),
+                    "limit": re.search(r'<b style="inset-inline-start:([^"]*)%"', bar).group(1)}
+        self.assertEqual(look(bars["below"]), {"over": False, "shown": "79%", "width": "79", "limit": "80"})
+        self.assertEqual(look(bars["at"]), {"over": True, "shown": "80%", "width": "80", "limit": "80"})
+        self.assertEqual(look(bars["above"]), {"over": True, "shown": "95%", "width": "95", "limit": "80"})
+        self.assertEqual(look(bars["unknown"]), {"over": False, "shown": "—", "width": "0", "limit": "80"})
+        self.assertEqual(look(bars["past_full"]), {"over": True, "shown": "130%", "width": "100", "limit": "80"})
+        self.assertIn("Week · limit 80%", bars["below"])
+        persian = self.run_js("fa", 'console.log(JSON.stringify(gauge("هفته", 45, 80)));')
+        self.assertIn("<b>۴۵٪</b>", persian)
+
+    def test_didban_is_marked_while_a_session_is_open(self):
+        head = self.function("didbanHead")
+        self.assertIn('class="btn didban open"', head)
+        self.assertIn('<i class="dot"', head)
+        self.assertIn('$("didbanbox").innerHTML = didbanHead(', self.page)
+
+    def test_the_tabs_are_today_tasks_bazras_settings_daily_usage_and_live_stream(self):
+        tabs = self.page.split('<nav class="tabs" role="tablist">')[1].split("</nav>")[0]
+        found = re.findall(r'data-tab="(\w+)" data-t="(\w+)"', tabs)
+        self.assertEqual([self.text["en"][key] for _, key in found],
+                         ["Today", "Tasks", "Bazras", "Settings", "Daily usage", "Live stream"])
+        for name, _ in found:  # A page not yet rebuilt keeps its content, in a panel of its own.
+            self.assertIn(f'<section data-panel="{name}"', self.page)
+        self.assertEqual(found[0][0], "today")
+        self.assertIn('tab = "today"', self.page)
+        for panel, content in (("today", 'id="scene"'), ("tasks", 'id="projects"'), ("bazras", 'id="bazrasreports"'),
+                               ("settings", 'id="projectsettings"'), ("days", 'id="usage"'), ("activity", 'id="live"')):
+            section = self.page.split(f'<section data-panel="{panel}"')[1].split("</section>")[0]
+            self.assertIn(content, section, panel)
+
+    def test_a_tab_saved_under_its_old_name_opens_the_same_page(self):
+        self.assertIn('const OLD_TABS = {meadow: "today", work: "tasks"};', self.page)
+        self.assertIn("OLD_TABS[chosen] || chosen", self.function("showTab"))
+
+    # A phone.
+
+    def test_a_phone_has_a_compact_header_and_a_bottom_bar(self):
+        phone = self.style.split("@media (max-width: 760px) {")[1].split("\n}\n")[0]
+        self.assertRegex(phone, r"\.head-wide, \.tabs \{ display:none !important; \}")
+        self.assertRegex(phone, r"\.bottombar \{ display:grid; \}")
+        self.assertRegex(self.style, r"\.bottombar \{[^}]*display:none;[^}]*grid-template-columns:repeat\(4, minmax\(0, 1fr\)\)")
+        for part in ('class="mark"', 'id="pulse"', 'id="stop"', 'id="more"'):  # what stays on a phone
+            tag = self.header.split(part)[0].rsplit("<", 1)[1] + part + self.header.split(part)[1].split(">")[0]
+            self.assertNotIn("head-wide", tag, part)
+        for part in ('id="gauges"', 'id="wake"', 'id="didbanbox"', 'id="lang"'):
+            tag = self.header.split(part)[0].rsplit("<", 1)[1] + part + self.header.split(part)[1].split(">")[0]
+            self.assertIn("head-wide", tag, part)
+        bar = self.page.split('<nav class="bottombar"')[1].split("</nav>")[0]
+        self.assertEqual(re.findall(r'data-tab="(\w+)"', bar), ["today", "tasks", "settings"])
+        self.assertIn('id="morenav"', bar)
+        self.assertIn('id="waitcount"', bar.split('data-tab="today"')[1].split("</button>")[0])
+
+    def test_today_counts_what_waits_for_the_user_in_the_bottom_bar(self):
+        count = self.function("renderWaitCount")
+        self.assertIn('$("waitcount").textContent = num(waiting);', count)
+        self.assertIn('$("waitcount").hidden = !waiting;', count)
+        self.assertIn("renderWaitCount(s.waits_for_you || 0);", self.page)
+
+    def test_nothing_pushes_a_phone_page_sideways(self):
+        self.assertRegex(self.style, r"\.bar \{[^}]*flex-wrap:wrap")
+        self.assertRegex(self.style, r"\.gauges \{[^}]*min-width:0;[^}]*overflow:hidden")
+        self.assertRegex(self.style, r"\.tabs \{[^}]*overflow-x:auto")
         phone = self.style.split("@media (max-width: 640px) {")[1].split("\n}\n")[0]
         self.assertIn("#projectsettings th, #projectsettings .fit { white-space:normal; }", phone)
         self.assertRegex(self.style, r"#projectsettings \{[^}]*overflow-x:auto")
 
-    def test_persian_cells_write_persian_digits(self):
-        self.assertIn('const digits = text => lang === "fa" ? faDigits(String(text)) : String(text);', self.page)
-        self.assertIn("digits(said)", self.function("backupCell"))
-        self.assertIn("pct(", self.function("usageCell"))
+    # The state chip.
 
-    def test_design_says_the_dashboard_has_two_looks(self):
-        design = (ROOT / "DESIGN.md").read_text(encoding="utf-8")
-        section = design.split("## 7. Dashboard")[1].split("\n## 8.")[0]
-        looks = next(line for line in section.splitlines() if line.startswith("- **Looks:**"))
-        self.assertIn("two looks", looks)
-        self.assertIn("each browser", looks.lower())
-        self.assertIn("default", looks)
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_the_chip_says_awake_asleep_holding_or_stopped_with_the_next_wake(self):
+        cases = {
+            "awake": self.state(supervisor="awake"),
+            "asleep": self.state(),
+            "holding": self.state(usage={"session": 85, "week": 20}),
+            "holding_week": self.state(usage={"session": 1, "week": 90}),
+            "stopped": self.state(stop_requested=True),
+            "timer_off": self.state(timer_on=False, next_wake=None),
+        }
+        chips = self.run_js("en", f"console.log(JSON.stringify(Object.fromEntries(Object.entries({json.dumps(cases)}).map(([k, s]) => [k, stateChip(s)]))));")
+        self.assertEqual(chips["awake"], {"kind": "awake", "short": "Awake", "long": "Awake · wakes 21:22"})
+        self.assertEqual(chips["asleep"], {"kind": "asleep", "short": "Asleep", "long": "Asleep · wakes 21:22"})
+        self.assertEqual(chips["holding"], {"kind": "holding", "short": "Asleep", "long": "Holding at a usage limit · wakes 21:22"})
+        self.assertEqual(chips["holding_week"]["kind"], "holding")
+        self.assertEqual(chips["stopped"], {"kind": "stopped", "short": "Stopped", "long": "Stopped"})
+        self.assertEqual(chips["timer_off"]["long"], "Asleep · timer off")
 
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_the_chip_reads_in_persian(self):
+        chip = self.run_js("fa", f"console.log(JSON.stringify(stateChip({json.dumps(self.state())})));")
+        self.assertEqual(chip["short"], "خواب")
+        self.assertIn("۲۱:۲۲", chip["long"])
 
-class HoneycombHiveTest(unittest.TestCase):
-    """The honeycomb look's hive tab: each project a large cell, each open task a small one inside it (issue #7)."""
-    # The state table of spec #5: each state's colour, its form, its centre sign and its ring.
-    STATES = {
-        "Your approval": ("gold", "filled", "check", "pulse"),
-        "Approved": ("mint", "filled", "check", ""),
-        "Needs info": ("orange", "filled", "question", ""),
-        "Needs split": ("pink", "filled", "scissors", ""),
-        "In review": ("purple", "filled", "lens", ""),
-        "In progress": ("blue", "filled", "dots", ""),
-        "Ready": ("green", "outline", "play", ""),
-        "waiting": ("green", "outline", "hourglass", ""),
-        "Backlog": ("grey-green", "outline", "crown", ""),
-        "by hand": ("green", "outline", "hand", "still"),
-        "Blocked": ("grey", "cracked", "cross", ""),
-        "Stuck": ("red", "cracked", "bang", ""),
-        "Technical debt": ("grey", "striped", "grass", ""),
-    }
+    # More.
 
-    def setUp(self):
-        self.page = dashboard.PAGE.read_text(encoding="utf-8")
-        text = re.search(r'<script type="application/json" id="text">(.*?)</script>', self.page, re.DOTALL)
-        self.text = json.loads(text.group(1))
-        self.style = self.page.split("<style>")[1].split("</style>")[0]
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_more_lists_what_the_frame_does_not_show(self):
+        open_ = [{"kind": "didban", "status": "open", "key": "didban-1", "url": "https://claude.ai/code/x"},
+                 {"kind": "zanbourdar", "status": "open", "key": "zan-1", "url": "https://claude.ai/code/y"}]
+        menus = self.run_js("en", f"""
+const pick = items => items.map(i => i.label);
+console.log(JSON.stringify({{phone: pick(moreItems([], false)), wide: pick(moreItems([], true)),
+  phoneOpen: moreItems({json.dumps(open_)}, false), wideOpen: pick(moreItems({json.dumps(open_)}, true))}}));""")
+        self.assertEqual(menus["phone"], ["Wake the queen", "Read the board", "Restart Kandu", "Open Didban", "Open Zanbourdar",
+                                          "Bazras", "Daily usage", "Live stream", "فارسی"])
+        self.assertEqual(menus["wide"], ["Read the board", "Restart Kandu", "Open Zanbourdar", "Bazras", "Daily usage",
+                                         "Live stream", "فارسی"])
+        self.assertEqual(menus["wideOpen"], ["Read the board", "Restart Kandu", "Close Didban", "Go to Zanbourdar",
+                                             "Close Zanbourdar", "Bazras", "Daily usage", "Live stream", "فارسی"])
+        items = {i["label"]: i for i in menus["phoneOpen"]}
+        self.assertEqual(items["Go to Didban"]["href"], "https://claude.ai/code/x")
+        self.assertEqual(items["Close Didban"]["attrs"], 'data-land="didban-1"')
+        self.assertEqual(items["Restart Kandu"]["attrs"], 'data-menu="restart"')
+        self.assertEqual(items["Restart Kandu"]["hint"], "asks first")
+        self.assertEqual(items["Bazras"]["attrs"], 'data-tab="bazras"')
+        self.assertEqual(items["Daily usage"]["attrs"], 'data-tab="days"')
+        self.assertEqual(items["Live stream"]["attrs"], 'data-tab="activity"')
 
-    def function(self, name):
-        return self.page.split(f"function {name}(")[1].split("\n}\n")[0]
+    def test_more_opens_from_the_header_and_the_bottom_bar(self):
+        self.assertIn('$("more").onclick = $("morenav").onclick = openMore;', self.page)
+        self.assertIn('$("moremenu").showModal();', self.function("openMore"))
+        self.assertIn('<dialog id="moremenu"', self.page)
 
-    def table(self, name):
-        return self.page.split(f"const {name} = {{")[1].split("\n};")[0]
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_each_more_action_does_its_work_then_closes_the_menu(self):
+        done = self.run_js("en", """
+const calls = [];
+const dialogs = {};
+const $ = id => dialogs[id] ||= {close: () => calls.push(`close ${id}`), showModal: () => calls.push(`open ${id}`)};
+let lastState = {supervisor: "asleep"};
+const act = async (button, path) => calls.push(`act ${button.dataset.menu} ${path}`);
+const busy = async (button, work) => { calls.push(`busy ${button.dataset.menu}`); await work(); };
+const refreshQueue = async (state, force) => calls.push(`refreshQueue ${state === lastState} ${force}`);
+const setLanguage = chosen => calls.push(`setLanguage ${chosen}`);
+(async () => {
+  const runs = {};
+  for (const what of ["wake", "reload", "restart", "lang"]) {
+    calls.length = 0;
+    await chooseMore({dataset: {menu: what}});
+    runs[what] = [...calls];
+  }
+  console.log(JSON.stringify(runs));
+})();""")
+        self.assertEqual(done["wake"], ["act wake /wake", "close moremenu"])
+        self.assertEqual(done["reload"], ["busy reload", "refreshQueue true true", "close moremenu"])
+        self.assertEqual(done["restart"], ["close moremenu", "open restartbox"])
+        self.assertEqual(done["lang"], ["close moremenu", "setLanguage fa"])
 
-    def honey_states(self):
-        rows = re.findall(r'^  "([\w ]+)": \{colour: "(#[0-9a-f]{6})", form: "(\w+)", sign: "(\w+)", ring: "(\w*)"\},$',
-                          self.table("HONEY_STATES"), re.MULTILINE)
-        return {state: (colour, form, sign, ring) for state, colour, form, sign, ring in rows}
+    def test_restart_asks_first(self):
+        self.assertIn('$("restartnow").onclick = e => confirmed(e.currentTarget, "/restart", "restartbox");', self.page)
+        box = self.page.split('<dialog id="restartbox"')[1].split("</dialog>")[0]
+        self.assertIn('value="no" data-t="cancel"', box)
 
-    def test_the_hive_tab_draws_the_honeycomb_in_the_honeycomb_look(self):
-        scene = self.function("renderScene")
-        self.assertIn('if (look === "honeycomb")', scene)
-        self.assertIn("renderHoneycomb(state, queue)", scene)
-        chosen = self.function("setLook")
-        self.assertIn("renderScene(lastState, lastQueue)", chosen)
-        self.assertIn("renderLegend()", chosen)
-        for call in ("act(", "get(", "fetch(", "post("):  # How the page draws, never what it asks.
-            self.assertNotIn(call, self.function("renderHoneycomb"))
+    # Stop.
 
-    def test_two_sub_tabs_with_tasks_first_and_no_tasks_with_its_count(self):
-        self.assertIn('let shelf = "busy";', self.page)
-        comb = self.function("renderHoneycomb")
-        self.assertIn('t("hive_with_tasks")', comb)
-        self.assertIn('t("hive_no_tasks")', comb)
-        self.assertIn("num(idle.length)", comb)
-        # Only open tasks count, Backlog included: done ones leave before the projects are split.
-        self.assertLess(comb.index('item.column !== "Done"'), comb.index("patch.tasks.length"))
-        self.assertIn('if (hit("shelf"))', self.page)
-        self.assertEqual(self.text["en"]["hive_with_tasks"], "With tasks")
-        self.assertEqual(self.text["en"]["hive_no_tasks"], "No tasks")
-        for key in ("hive_with_tasks", "hive_no_tasks", "hive_no_open_tasks", "hive_all_busy"):
-            self.assertTrue(self.text["fa"][key], key)
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_stop_says_how_many_bees_stop_and_that_work_stays_on_its_branch(self):
+        texts = self.run_js("en", """console.log(JSON.stringify([0, 1, 3].map(n => stopText({workers: Array(n).fill({})}))));""")
+        kept = "Work in progress stays on its branch, and nothing new starts until you resume Kandu."
+        self.assertEqual(texts, [f"No bee is at work. {kept}", f"1 bee stops now. {kept}", f"3 bees stop now. {kept}"])
+        persian = self.run_js("fa", """console.log(JSON.stringify(stopText({workers: Array(3).fill({})})));""")
+        self.assertIn("۳", persian)
 
-    def test_each_project_is_one_cell_with_its_name_fading_when_paused_with_its_switch(self):
-        cell = self.function("projectCell")
-        self.assertIn("esc(patch.name)", cell)
-        self.assertIn('patch.paused ? " off" : ""', cell)
-        self.assertIn('t("project_on_pause")', cell)
-        self.assertIn("patchSwitch(patch)", cell)  # The meadow's switch: same request, and none when the config paused it.
-        self.assertIn('if (lastState.paused_in_config.includes(patch.name)) return "";', self.function("patchSwitch"))
-        self.assertRegex(self.style, r"\.pcell\.off \.pcell-art[^{]*\{[^}]*opacity:")
+    def test_stop_asks_first_and_stop_now_stops_as_stop_did(self):
+        self.assertIn('$("stop").onclick = askStop;', self.page)
+        self.assertIn('$("stoptext").textContent = stopText(lastState || {});', self.function("askStop"))
+        self.assertIn('$("stopnow").onclick = e => confirmed(e.currentTarget, "/stop", "stopbox");', self.page)
+        box = self.page.split('<dialog id="stopbox"')[1].split("</dialog>")[0]
+        self.assertIn('value="no" data-t="keep_running"', box)  # closes it and changes nothing
+        self.assertIn('id="stopnow"', box)
+        self.assertEqual((self.text["en"]["keep_running"], self.text["en"]["stop_now"]), ("Keep running", "Stop now"))
+        self.assertIn("await act(button, path);\n  $(box).close();", self.function("confirmed"))
 
-    def test_each_state_has_the_form_of_the_spec_and_no_two_look_alike(self):
-        states = self.honey_states()
-        self.assertEqual({s: f[1:] for s, f in states.items()}, {s: f[1:] for s, f in self.STATES.items()})
-        forms = list(states.values())
-        self.assertEqual(len(set(forms)), len(forms))
-        signs = self.table("HONEY_SIGNS")
-        for _, _, sign, _ in forms:
-            self.assertIn(f"  {sign}: ", signs)
-        # The filled colours are the flowers' own, so a cell keeps its flower's colour.
-        flowers = self.table("FLOWERS")
-        for state in ("Needs info", "Needs split", "In review", "In progress"):
-            self.assertIn(f'"{state}": {{swatch: "{states[state][0]}"', flowers)
-        self.assertIn(f'petal: "{states["Your approval"][0]}"', flowers)
-        self.assertIn(f'petal: "{states["Approved"][0]}"', flowers)
-        for form in ("filled", "outline", "cracked", "striped"):
-            self.assertIn(f".tface.{form}", self.style)
-        self.assertIn('id="honey-stripes"', self.page)
+    # Colours.
 
-    def test_a_task_cell_takes_its_size_and_an_unsized_one_the_small_size_with_its_sign(self):
-        sizes = dict(re.findall(r"(\w+): ([\d.]+)", self.page.split("const HONEY_SIZES = {")[1].split("}")[0]))
-        self.assertEqual(list(sizes), ["Small", "Medium", "Large"])
-        self.assertLess(float(sizes["Small"]), float(sizes["Medium"]))
-        self.assertLess(float(sizes["Medium"]), float(sizes["Large"]))
-        self.assertIn("HONEY_SIZES[item.mark?.size] || HONEY_SIZES.Small", self.function("taskCell"))
-        self.assertIn('size || item.column === "Technical debt" || item.by_hand ? null : {key: "unsized"', self.function("marksOf"))
+    def test_the_colours_are_the_designs_tokens_in_light_and_dark(self):
+        root = self.style.split(":root {")[1].split("}")[0]
+        dark = self.style.split("@media (prefers-color-scheme: dark) { :root {")[1].split("}")[0]
+        for name, (light, night) in self.TOKENS.items():
+            self.assertRegex(root, rf"--{name}:{light};", name)
+            if night:
+                self.assertRegex(dark, rf"--{name}:{night};", name)
+        self.assertIn("color-scheme:light dark;", root)
 
-    def test_the_six_marks_sit_on_the_edge_from_the_same_data_as_the_flower(self):
-        self.assertIn("marksOf(item)", self.function("flower"))
-        self.assertIn("marksOf(item)", self.function("taskCell"))
-        corners = dict(re.findall(r"(\w+): \{corner: (\d)", self.table("HONEY_MARKS")))
-        self.assertEqual(set(corners), {"door", "back", "slice", "unsized", "questions", "yours"})
-        self.assertEqual(len(set(corners.values())), 6)  # Each its own corner, so a sign is known by its place too.
-        self.assertIn("HONEY_MARKS[key].corner", self.function("honeyFace"))
-
-    def test_hovering_a_task_cell_names_it_and_a_tap_opens_its_dialog(self):
-        cell = self.function("taskCell")
-        self.assertIn('data-review="${esc(item.task)}"', cell)  # The click handler opens the same dialog.
-        self.assertIn("<title>${esc(taskTitle(item))}</title>", cell)
-        title = self.function("taskTitle")
-        self.assertIn("item.task", title)
-        self.assertIn("item.title", title)
-        self.assertIn("taskTitle(item)", self.function("renderScene"))
-
-    def test_a_task_the_queue_does_not_know_gets_a_project_cell_of_its_own(self):
-        self.assertIn("fields(state, queue)", self.function("renderHoneycomb"))
-        strays = self.function("fields")
-        self.assertIn("if (!patch) projects.push(patch = {name, tasks: []});", strays)
-
-    def test_the_legend_draws_every_state_size_and_sign_in_both_languages(self):
-        self.assertIn('if (look === "honeycomb") { renderHoneyLegend(); return; }', self.function("renderLegend"))
-        legend = self.function("renderHoneyLegend")
-        for table in ("HONEY_STATES", "HONEY_SIZES", "HONEY_MARKS"):
-            self.assertIn(f"Object.keys({table})", legend)
-        self.assertIn('t("mark_unsized")', legend)
-        self.assertIn('t("by_hand_yours")', legend)
-        self.assertIn('t("project_on_pause")', legend)
-        names = dict(re.findall(r'(\w+): \{corner: \d, name: "(\w+)"\}', self.table("HONEY_MARKS")))
-        for key in [*names.values(), "legend_cell_sizes", "legend_edge_signs", "legend_projects", "legend_project"]:
-            self.assertTrue(self.text["en"][key], key)
-            self.assertTrue(self.text["fa"][key], key)
-        for state in self.STATES:
-            if state != "by hand":
-                self.assertTrue(state in self.text["values_fa"] or state == "waiting", state)
-        self.assertIn("waiting for machine", self.text["values_fa"])
-        self.assertIn("HONEY_SIZES.Small, marksOf(", legend)  # An unsized task: the small size with its sign.
-
-    def test_every_state_and_sign_of_the_current_legend_has_its_honeycomb_form(self):
-        current = self.function("renderLegend").split('if (look === "honeycomb")')[1]
-        kinds = re.findall(r'"([\w ]+)"', re.search(r"const kinds = \[(.*?)\];", current).group(1))
-        states = self.honey_states()
-        self.assertTrue(kinds)
-        for kind in kinds:
-            self.assertIn(kind, states)
-        self.assertIn('entry(bloom("Backlog", 0, HAND), t("by_hand_yours")', current)
-        self.assertIn("by hand", states)
-        self.assertIn("Object.keys(SCALES)", current)
-        meadow_sizes = re.findall(r"(\w+): [\d.]+", self.page.split("const SCALES = {")[1].split("}")[0])
-        honey_sizes = re.findall(r"(\w+): [\d.]+", self.page.split("const HONEY_SIZES = {")[1].split("}")[0])
-        self.assertEqual(meadow_sizes, honey_sizes)
-        signs = re.search(r"const signs = \[(.*?)\];", current, re.DOTALL).group(1)
-        names = dict((name, key) for key, name in re.findall(r'(\w+): \{corner: \d, name: "(\w+)"\}', self.table("HONEY_MARKS")))
-        shown = re.findall(r'"(mark_\w+|sent_back|waits_for_you)"', signs)
-        self.assertEqual(len(shown), 6)
-        for name in shown:
-            self.assertIn(name, names)
-
-    def test_no_sideways_scrolling(self):
-        self.assertRegex(self.style, r"\.pcells \{[^}]*flex-wrap:wrap")
-        self.assertRegex(self.style, r"\.pcell \{[^}]*max-width:100%")
-        self.assertRegex(self.style, r"\.shelves \{[^}]*flex-wrap:wrap")
+    def test_the_new_words_read_in_both_languages(self):
+        for key in ("tab_today", "keep_running", "stop_now", "stop_ask", "stop_none", "stop_one", "stop_many", "stop_kept",
+                    "restart_ask", "restart_why", "restart_now", "chip_awake", "chip_asleep", "chip_holding", "chip_stopped",
+                    "chip_wakes", "chip_timer_off", "hint_restart", "hint_land", "hint_zanbourdar", "hint_bazras",
+                    "hint_usage", "hint_live", "hint_language", "hint_didban"):
+            self.assertEqual(self.page.count(f'"{key}": '), 2, key)
 
 
 class StreamTest(Base):

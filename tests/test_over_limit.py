@@ -52,16 +52,14 @@ class PageTest(unittest.TestCase):
     def setUp(self):
         self.page = (ROOT / "kandu" / "dashboard.html").read_text(encoding="utf-8")
 
-    def test_the_patch_the_cell_and_the_card_turn_red(self):
+    def test_the_patch_and_the_card_turn_red(self):
         self.assertIn('${patch.over ? " over" : ""}" cx=', self.page)  # the meadow's soil
-        self.assertIn('class="pcell${patch.paused ? " off" : ""}${patch.over ? " over" : ""}"', self.page)
         self.assertIn("${limitBadge(overLimit(lastState, project.name))}", self.page)
         self.assertRegex(self.page, r"\.soil\.over \{[^}]*stroke:")  # an outline a pause never draws
         self.assertIn("lastState.over_limit]", self.page)  # the list redraws when it changes
 
     def test_the_legend_explains_the_red_while_it_shows_in_both_languages(self):
         self.assertIn("lastState?.over_limit", self.page.split("function renderLegend()", 1)[1].split("\n}\n", 1)[0])
-        self.assertIn("lastState?.over_limit", self.page.split("function renderHoneyLegend()", 1)[1].split("\n}\n", 1)[0])
         for key in ("over_limit", "over_limit_hint", "legend_over_limit"):
             self.assertEqual(self.page.count(f'"{key}": '), 2, key)
 

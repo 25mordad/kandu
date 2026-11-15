@@ -7,14 +7,19 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 28'%3E%3Cpath fill='%23f5b301' d='M8 0h16l8 14-8 14H8L0 14z'/%3E%3C/svg%3E">
 <style>
 @font-face { font-family:Vazirmatn; src:url("/vazirmatn.woff2") format("woff2"); font-weight:100 900; font-display:swap; }
-:root { color-scheme:light dark; --bg:#f6f5f2; --surface:#fff; --sunken:#f1efea; --ink:#1d1b18; --muted:#6c675e; --line:#e6e3dc; --accent:#9a6400; --honey:#f5b301; --on-honey:#2a1d00; --bad:#c43d2f; --good:#2f8a4e; --shadow:0 1px 2px #0000000d, 0 8px 24px #0000000a; --sky-top:#cfe9f5; --sky-low:#fdf2cf; --grass:#a9cf6b; --grass-deep:#7fb24d; --soil:#b98b4e; --hive:#e9a820; --hive-dark:#b87b0f; --sans:Vazirmatn, system-ui, sans-serif; --mono:ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-@media (prefers-color-scheme: dark) { :root { --bg:#131210; --surface:#1b1a17; --sunken:#23211d; --ink:#eeece6; --muted:#a29d92; --line:#2f2c27; --accent:#f5b301; --bad:#f0806f; --good:#6fce8e; --shadow:0 1px 2px #0000004d; --sky-top:#141b33; --sky-low:#3a2a2c; --grass:#3f5a2b; --grass-deep:#2e4620; --soil:#5e4221; --hive:#d39516; --hive-dark:#8d5e0b; } }
+/* The Kandu Clean design's tokens, light and dark, following the system's choice. The names after them are the ones
+   the pages not yet rebuilt use, each one of the tokens; the meadow keeps its own sky, grass and soil. */
+:root { color-scheme:light dark; --bg:#F7F6F3; --surface:#FFFFFF; --surface2:#F0EFEB; --line:#E6E4DE; --ink:#1A1A18; --ink2:#66655F; --ink3:#9A9993; --dot:#CFCDC6; --honey:#F5B301; --honey-ink:#1A1A18; --honey-soft:#FDF1CC; --amber:#B4500A; --amber-soft:#FBEBDD; --red:#BC392C; --red-soft:#F9E1DE; --green:#2E7B4D; --green-soft:#E0F0E6; --blue:#2F62B0; --blue-soft:#E2EAF7;
+  --sunken:var(--surface2); --muted:var(--ink2); --accent:var(--amber); --on-honey:var(--honey-ink); --bad:var(--red); --good:var(--green); --shadow:0 1px 2px #0000000d, 0 8px 24px #0000000a;
+  --sky-top:#cfe9f5; --sky-low:#fdf2cf; --grass:#a9cf6b; --grass-deep:#7fb24d; --soil:#b98b4e; --hive:#e9a820; --hive-dark:#b87b0f; --sans:Vazirmatn, system-ui, sans-serif; --mono:ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+@media (prefers-color-scheme: dark) { :root { --bg:#141413; --surface:#1C1C1A; --surface2:#262624; --line:#32312E; --ink:#EDECE8; --ink2:#A6A59F; --ink3:#76756F; --dot:#4E4D49; --honey-soft:#3A2F12; --amber:#F2A05C; --amber-soft:#3A2516; --red:#F0796C; --red-soft:#3D1E1B; --green:#6CC38F; --green-soft:#1B3124; --blue:#86A9EE; --blue-soft:#1C2638;
+  --shadow:0 1px 2px #0000004d; --sky-top:#141b33; --sky-low:#3a2a2c; --grass:#3f5a2b; --grass-deep:#2e4620; --soil:#5e4221; --hive:#d39516; --hive-dark:#8d5e0b; } }
 * { box-sizing:border-box; }
 [hidden] { display:none !important; }
 html { -webkit-text-size-adjust:100%; }
 body { margin:0; background:var(--bg); color:var(--ink); font:400 15px/1.65 var(--sans); }
 h1, h2, h3, p { margin:0; }
-a { color:var(--accent); text-underline-offset:2px; }
+a { color:var(--ink); text-underline-offset:2px; }
 bdi { unicode-bidi:isolate; }
 [dir="auto"] { unicode-bidi:plaintext; }
 .muted { color:var(--muted); }
@@ -36,19 +41,58 @@ bdi { unicode-bidi:isolate; }
 .btn.busy::before { content:""; width:14px; height:14px; border:2px solid currentColor; border-top-color:transparent; border-radius:50%; animation:spin .8s linear infinite; }
 input, select { font:400 14px/1.4 var(--sans); min-height:36px; padding:6px 12px; border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--ink); max-width:100%; min-width:0; }
 
-.top { position:sticky; top:0; z-index:5; background:color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter:blur(10px); border-bottom:1px solid var(--line); }
-.bar { display:flex; align-items:center; gap:10px; max-width:1240px; margin:auto; padding:10px 16px; flex-wrap:wrap; }
-.brand { display:flex; align-items:center; gap:9px; font-size:18px; font-weight:700; }
-.brand::before { content:""; width:20px; height:18px; background:var(--honey); clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%); }
-.pulse { display:inline-flex; align-items:center; gap:7px; min-width:0; font-size:13px; color:var(--muted); }
-.pulse i { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:none; }
-.pulse.awake i { background:var(--good); box-shadow:0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent); }
-.pulse.stopped i, .pulse.refused i { background:var(--bad); }
+/* The frame: the header with its tabs on a wide screen; on a phone a compact header and a bar at the bottom. */
+.top { position:sticky; top:0; z-index:5; background:var(--surface); border-bottom:1px solid var(--line); }
+.bar { display:flex; align-items:center; gap:10px 14px; max-width:1240px; margin:auto; padding:12px 24px; flex-wrap:wrap; }
+.brand { display:flex; align-items:center; gap:10px; font-size:20px; font-weight:800; }
+.mark { flex:none; width:22px; height:25px; background:var(--honey); clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); }
+.chip { display:inline-flex; align-items:center; gap:7px; min-width:0; max-width:100%; padding:5px 12px; border-radius:99px; background:var(--surface2); color:var(--ink2); font-size:13px; font-weight:600; }
+.chip i { width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
+.chip.awake { background:var(--green-soft); color:var(--green); }
+.chip.holding, .chip.refused { background:var(--amber-soft); color:var(--amber); }
+.chip.stopped { background:var(--red-soft); color:var(--red); }
+.chip-long { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chip-short { display:none; }
+.gauges { flex:0 1 auto; min-width:0; overflow:hidden; display:flex; align-items:center; gap:16px; font-size:14px; color:var(--ink2); }
+.gauge { flex:none; display:flex; align-items:center; gap:8px; white-space:nowrap; }
+.gauge b { color:var(--ink); font-weight:700; }
+.gauge.over b { color:var(--amber); }
+.gbar { position:relative; width:40px; height:5px; border-radius:3px; background:var(--line); }
+.gbar i { position:absolute; inset-block:0; inset-inline-start:0; border-radius:3px; background:var(--honey); }
+.gauge.over .gbar i { background:var(--amber); }
+.gbar b { position:absolute; top:-4px; width:2px; height:13px; background:var(--ink); }
 .spacer { flex:1; }
-.tabs { display:flex; gap:2px; max-width:1240px; margin:auto; padding:0 12px; overflow-x:auto; scrollbar-width:none; }
-.tab { font:500 14px/1.4 var(--sans); padding:8px 12px 10px; border:0; border-bottom:2px solid transparent; background:none; color:var(--muted); cursor:pointer; white-space:nowrap; }
+.btn.stop { border-color:var(--red); color:var(--red); font-weight:700; }
+.btn.stop:hover { background:var(--red-soft); }
+.btn.stop i { width:9px; height:9px; border-radius:2px; background:currentColor; }
+.btn.didban .dot { width:7px; height:7px; border-radius:50%; background:var(--green); }
+.btn.more { font-weight:600; }
+.more-dots { display:none; letter-spacing:1px; }
+.tabs { display:flex; gap:30px; max-width:1240px; margin:auto; padding:0 32px; overflow-x:auto; scrollbar-width:none; }
+.tab { font:500 16px/1.4 var(--sans); padding:12px 0 11px; border:0; border-bottom:3px solid transparent; background:none; color:var(--ink2); cursor:pointer; white-space:nowrap; }
 .tab:hover { color:var(--ink); }
-.tab[aria-selected="true"] { color:var(--ink); border-color:var(--honey); }
+.tab[aria-selected="true"] { color:var(--ink); font-weight:700; border-color:var(--honey); }
+.bottombar { display:none; position:fixed; inset-inline:0; bottom:0; z-index:5; grid-template-columns:repeat(4, minmax(0, 1fr)); padding:4px 8px calc(10px + env(safe-area-inset-bottom)); background:var(--bg); border-top:1px solid var(--line); }
+.navtab { all:unset; box-sizing:border-box; cursor:pointer; min-width:0; min-height:52px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; font-size:12px; font-weight:500; color:var(--ink2); }
+.navtab::before { content:""; width:18px; height:3px; border-radius:2px; background:transparent; }
+.navtab[aria-selected="true"] { color:var(--ink); font-weight:700; }
+.navtab[aria-selected="true"]::before { background:var(--honey); }
+.navtab:focus-visible { outline:2px solid var(--honey); outline-offset:-2px; }
+.navtab > span { display:flex; align-items:center; gap:5px; max-width:100%; overflow:hidden; white-space:nowrap; }
+.count { min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--amber); color:var(--surface); font-size:11px; font-weight:800; display:grid; place-items:center; }
+/* More: a menu under the header on a wide screen, a sheet from the bottom on a phone. */
+dialog.menu { width:min(320px, calc(100vw - 24px)); margin:64px 20px auto auto; padding:8px; border-radius:14px; box-shadow:0 20px 50px #00000033; }
+[dir="rtl"] dialog.menu { margin:64px auto auto 20px; }
+.menu-item { all:unset; box-sizing:border-box; cursor:pointer; width:100%; display:flex; align-items:center; gap:10px; min-height:46px; padding:0 12px; border-radius:10px; font-size:15px; color:var(--ink); }
+.menu-item:hover { background:var(--surface2); }
+.menu-item:focus-visible { outline:2px solid var(--honey); outline-offset:-2px; }
+.menu-item:disabled { opacity:.6; cursor:default; }
+.menu-item > span { flex:1; min-width:0; }
+.menu-item small { font-size:12px; color:var(--ink3); }
+.menu-line { height:1px; margin:4px 0; background:var(--line); }
+.btn.stopnow { background:var(--red); border-color:var(--red); color:var(--surface); font-weight:700; }
+.confirm-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; }
+.confirm-actions .btn { min-height:46px; border-radius:12px; }
 
 main { max-width:1240px; margin:auto; padding:16px; display:grid; gap:14px; }
 .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); min-width:0; }
@@ -67,33 +111,6 @@ main { max-width:1240px; margin:auto; padding:16px; display:grid; gap:14px; }
 .meter b { position:absolute; inset-block:-3px; width:2px; background:var(--ink); opacity:.65; }
 .stat small { display:block; margin-top:5px; font-size:12px; color:var(--muted); }
 
-/* The honeycomb look's cells: regular hexagons, pointy side up, in one row on a wide screen. Only a button or a
-   link inside a cell takes a tap, so the rest of it, the corners nested into a neighbour's included, does nothing. */
-.hexes { display:flex; flex-wrap:nowrap; justify-content:center; }
-.hex { position:relative; flex:0 1 120px; min-width:0; aspect-ratio:100 / 115.47; container-type:inline-size; pointer-events:none; }
-.hex button, .hex a { pointer-events:auto; }
-.hex-edge { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
-.hex-edge polygon { fill:var(--surface); stroke:var(--line); stroke-width:3; pointer-events:auto; }  /* for the title on hover; a tap on it does nothing */
-.hex.wait polygon { stroke:#e8590c; stroke-width:5; }
-.hex.bad polygon { stroke:var(--bad); stroke-width:5; }
-.hex-gauge { fill:none; stroke:var(--honey); stroke-width:5; stroke-linejoin:round; stroke-linecap:round; }
-.hex-gauge.over { stroke:var(--bad); }
-.hex-tick { stroke:var(--ink); stroke-width:3; opacity:.7; }
-.hex-limit { font:600 10px var(--sans); fill:var(--muted); text-anchor:middle; dominant-baseline:central; }
-.hex-body { position:absolute; inset:18% 8%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; text-align:center; line-height:1.12; overflow-wrap:anywhere; }
-.hex.narrow .hex-body { inset:18% 18%; }  /* room at the sides for the limit's number */
-.hex.narrow .hex-value { white-space:nowrap; overflow-wrap:normal; }
-.hex-value { font-size:clamp(14px, 17cqi, 21px); font-weight:600; }
-.hex-value.small { font-size:clamp(9.5px, 10.5cqi, 13px); font-weight:500; }
-.hex-value.over { color:var(--bad); }
-.hex-value.muted { color:var(--muted); }
-.hex-name, .hex-note { font-size:clamp(8.5px, 9.5cqi, 12px); color:var(--muted); }
-.hex-note { font-size:clamp(8px, 8.5cqi, 11px); }
-.hex-note .textlink { color:var(--accent); text-decoration:underline; }
-.hex-mid { display:inline-flex; align-items:center; justify-content:center; gap:3px; max-width:100%; }
-button.hex-mid { font:inherit; color:inherit; background:none; border:0; border-radius:8px; padding:2px 5px; min-height:28px; cursor:pointer; }
-button.hex-mid:hover { background:var(--sunken); }
-.hex-mid svg { width:.7em; height:.7em; flex:none; color:var(--muted); }
 
 .ask { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; padding:12px 16px; background:color-mix(in srgb, #f2a65a 14%, var(--surface)); border:1px solid color-mix(in srgb, #f2a65a 45%, var(--line)); border-radius:14px; }
 .ask-text { flex:1 1 320px; min-width:0; overflow-wrap:anywhere; }
@@ -218,8 +235,6 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .soil.off.over { opacity:.4; }
 .badge.limit { background:#c92a2a; color:#fff; }
 .badge.limit::before { background:#fff; }
-.pcell.over .pface, .pcell-legend.over .pface { fill:color-mix(in srgb, #e03131 30%, var(--surface)); stroke:#a61e1e; }
-.pcell-limit { font-size:clamp(10px, 6cqi, 12px); font-weight:600; color:#c92a2a; }
 .patch-paused { fill:#d9604f; }
 .switch .track { fill:#2f8a4e; stroke:#3a2608; stroke-width:1; transition:fill .15s; }
 .switch .knob { fill:#fffdf5; stroke:#3a2608; stroke-width:1; transition:transform .15s; }
@@ -264,50 +279,33 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .speech.back rect, .speech.back path { fill:#fde2c4; stroke:#b4580f; }
 .paused * { animation-play-state:paused !important; }
 
-/* The honeycomb look's hive: each project a large cell, each open task a small cell inside it. A project cell
-   shrinks with the screen, so the page never scrolls sideways. */
-.defs { position:absolute; width:0; height:0; overflow:hidden; }
-.honey { display:grid; gap:14px; padding:12px 16px 16px; line-height:1.4; }
-.shelves { display:flex; flex-wrap:wrap; justify-content:center; gap:2px; border-bottom:1px solid var(--line); }
-.pcells { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:8px 12px; }
-.pcell { position:relative; flex:0 1 auto; max-width:100%; container-type:inline-size; }
-.pcell-art { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
-.pface { fill:color-mix(in srgb, var(--honey) 9%, var(--surface)); stroke:var(--hive); stroke-width:3; stroke-linejoin:round; }
-.pcell.off .pcell-art, .pcell-legend.off { opacity:.42; filter:grayscale(.6); }
-.pcell.off .wait-ring { animation:none; }
-.pcell-name { position:absolute; top:14.5%; inset-inline:22%; display:grid; text-align:center; font-weight:600; font-size:clamp(11px, 7.2cqi, 14px); }
-.pcell-name bdi { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.pcell-paused { font-size:clamp(10px, 6cqi, 12px); font-weight:500; color:#d9604f; }
-.pcell-merge { font-size:clamp(10px, 6cqi, 12px); font-weight:500; }
 .merge-mark { font-weight:500; font-size:13px; }
 .merge-dot.auto { fill:#2f8a4e; color:#2f8a4e; } .merge-dot.waits { fill:#e8590c; color:#e8590c; } .merge-dot.frozen { fill:#3d8fb8; color:#3d8fb8; }
 .stepper { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
 .stepper b { min-width:2.2em; text-align:center; }
 .pace-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 0; }
 .tokens-field { width:9em; }
-.pcell-foot { position:absolute; bottom:4.5%; inset-inline:0; display:flex; justify-content:center; }
-.pcell-foot svg { width:36px; height:23px; overflow:visible; }
-.tslot { fill:transparent; }
-.tface { stroke-width:2; stroke-linejoin:round; }
-.tface.filled, .tface.cracked { fill:var(--c); stroke:color-mix(in srgb, var(--c) 55%, #3a2608); }
-.tface.outline { fill:#fffdf5; stroke:var(--c); stroke-width:3; }
-.tface.striped { fill:url(#honey-stripes); stroke:var(--c); }
-.crack { fill:none; stroke:#fffdf5; stroke-width:2; stroke-linejoin:bevel; }
-.tcell .wait-ring { stroke-width:3; }
-.hand-ring { fill:none; stroke:#e8590c; stroke-width:2.5; }
-.tcell:hover .tface { filter:brightness(1.06); stroke-width:3; }
 @media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz, .halo, .wait-ring, .btn.busy::before { animation:none; } .btn, .meter i { transition:none; } }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-/* Narrower, the cells sit in rows of 4 nested like a honeycomb: each cell spans two of nine half-columns, every
-   second row starts half a cell in, and a row rises a quarter of a cell into the one above. */
-@media (max-width: 980px) {
-  .hexes { display:grid; grid-template-columns:repeat(9, minmax(0, 60px)); justify-content:center; padding-bottom:min(6.4%, 35px); }
-  .hexes > .hex { grid-column-end:span 2; margin-bottom:-28.87%; }
-  .hexes > .hex:nth-child(8n+1) { grid-column-start:1; }
-  .hexes > .hex:nth-child(8n+5) { grid-column-start:2; }
-}
 #projectsettings { overflow-x:auto; }
+/* A phone: the header keeps the mark, awake or asleep, Stop and More; the tabs move to the bar at the bottom. */
+@media (max-width: 760px) {
+  .head-wide, .tabs { display:none !important; }
+  .bottombar { display:grid; }
+  .bar { flex-wrap:nowrap; gap:10px; padding:12px 16px; }
+  .brand { font-size:18px; min-width:0; }
+  .chip, .chip.awake, .chip.holding, .chip.refused, .chip.stopped { padding:0; background:none; color:var(--ink2); font-weight:500; }
+  .chip i { background:var(--ink3); }
+  .chip.awake i { background:var(--green); } .chip.holding i, .chip.refused i { background:var(--amber); } .chip.stopped i { background:var(--red); }
+  .chip-long { display:none; }
+  .chip-short { display:inline; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .more-word { display:none; }
+  .more-dots { display:inline; }
+  main { padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
+  .toast { bottom:calc(84px + env(safe-area-inset-bottom)); }
+  dialog.menu, [dir="rtl"] dialog.menu { width:100%; max-width:100%; margin:auto 0 0; border-radius:20px 20px 0 0; padding:8px 8px calc(14px + env(safe-area-inset-bottom)); }
+}
 @media (max-width: 640px) {
   #projectsettings th, #projectsettings .fit { white-space:normal; }
   th, td { padding-inline:12px; }
@@ -320,22 +318,20 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 <body>
 <header class="top">
   <div class="bar">
-    <span class="brand" data-t="brand"></span>
-    <span id="pulse" class="pulse"><i></i><span id="state" dir="auto" data-t="loading"></span></span>
+    <span class="brand"><span class="mark" aria-hidden="true"></span><span data-t="brand"></span></span>
+    <span id="pulse" class="chip"><i></i><span id="state" class="chip-long" dir="auto" data-t="loading"></span><span id="stateshort" class="chip-short"></span></span>
+    <span id="gauges" class="gauges head-wide"></span>
     <span class="spacer"></span>
-    <button id="stop" class="btn danger" data-t="stop"></button>
+    <button id="stop" class="btn stop"><i aria-hidden="true"></i><span data-t="stop"></span></button>
     <button id="resume" class="btn primary" data-t="resume" hidden></button>
-    <button id="reload" class="btn plain" data-t="read_board"></button>
-    <button id="wake" class="btn plain" data-t="wake_queen"></button>
-    <button id="restart" class="btn plain" data-t="restart_kandu"></button>
-    <span id="didbanbox" class="flightbox"></span>
-    <span id="zanbourdarbox" class="flightbox"></span>
-    <button id="look" class="btn plain" data-t="look_honeycomb"></button>
-    <button id="lang" class="btn plain" lang="" data-t="other_language"></button>
+    <button id="wake" class="btn head-wide" data-t="wake_queen"></button>
+    <span id="didbanbox" class="flightbox head-wide"></span>
+    <button id="more" class="btn more" aria-haspopup="dialog" data-t-attr="aria-label" data-t="more"><span class="more-word"><span data-t="more"></span> ▾</span><span class="more-dots" aria-hidden="true">•••</span></button>
+    <button id="lang" class="btn plain head-wide" lang="" data-t="other_language"></button>
   </div>
   <nav class="tabs" role="tablist">
-    <button class="tab" role="tab" data-tab="meadow" data-t="queue"></button>
-    <button class="tab" role="tab" data-tab="work" data-t="tab_work"></button>
+    <button class="tab" role="tab" data-tab="today" data-t="tab_today"></button>
+    <button class="tab" role="tab" data-tab="tasks" data-t="tab_work"></button>
     <button class="tab" role="tab" data-tab="bazras" data-t="tab_bazras"></button>
     <button class="tab" role="tab" data-tab="settings" data-t="tab_settings"></button>
     <button class="tab" role="tab" data-tab="days" data-t="by_day"></button>
@@ -346,7 +342,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <div id="machines" class="list" hidden></div>
   <div id="asks" class="list" hidden></div>
   <div id="stats" class="stats"></div>
-  <section data-panel="work" class="layout">
+  <section data-panel="tasks" class="layout">
     <div class="list">
       <div class="tools"><input id="search" type="search" dir="auto" data-t-attr="placeholder aria-label" data-t="search"></div>
       <div id="projects" class="list"></div>
@@ -357,7 +353,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
       <div class="card pad" id="requestsbox" hidden><h2 class="card-title" data-t="open_requests"></h2><div id="requests"></div></div>
     </div>
   </section>
-  <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="honey" class="honey" hidden></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
+  <section data-panel="today" class="card meadow" hidden><div id="scene"></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
   <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div class="card pad add-open"><p class="muted" data-t="add_why"></p><div class="actions"><button id="addopen" class="btn" data-t="add_project"></button></div></div><div id="pacesettings" class="card pad"></div><div id="cleanmerged" class="card pad"></div><div id="projectsettings" class="card"></div></section>
   <section data-panel="days" class="list" hidden>
@@ -372,6 +368,21 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   </section>
   <section data-panel="activity" class="card" hidden><div id="live" class="feed-scroll"></div></section>
 </main>
+<nav class="bottombar" data-t-attr="aria-label" data-t="tabs_label">
+  <button class="navtab" data-tab="today"><span><span data-t="tab_today"></span><b id="waitcount" class="count" hidden></b></span></button>
+  <button class="navtab" data-tab="tasks"><span data-t="tab_work"></span></button>
+  <button class="navtab" data-tab="settings"><span data-t="tab_settings"></span></button>
+  <button class="navtab" id="morenav" aria-haspopup="dialog"><span data-t="more"></span></button>
+</nav>
+<dialog id="moremenu" class="menu"><div id="moreitems"></div></dialog>
+<dialog id="stopbox" class="small"><form method="dialog" class="dialog-body">
+  <h2 data-t="stop_ask"></h2><p id="stoptext" class="muted"></p>
+  <div class="actions confirm-actions"><button class="btn" value="no" data-t="keep_running"></button><button type="button" id="stopnow" class="btn stopnow" data-t="stop_now"></button></div>
+</form></dialog>
+<dialog id="restartbox" class="small"><form method="dialog" class="dialog-body">
+  <h2 data-t="restart_ask"></h2><p class="muted" data-t="restart_why"></p>
+  <div class="actions confirm-actions"><button class="btn" value="no" data-t="cancel"></button><button type="button" id="restartnow" class="btn primary" data-t="restart_now"></button></div>
+</form></dialog>
 <dialog id="modal"><div class="dialog-head"><h2 id="modaltitle"></h2><button class="btn plain small" data-close data-t-attr="aria-label" data-t="close">×</button></div><div id="modalbody" class="dialog-body"></div></dialog>
 <dialog id="tokenbox" class="small"><form method="dialog" class="dialog-body" id="tokenform">
   <h2 data-t="control_token"></h2><p class="muted" data-t="token_why"></p>
@@ -437,20 +448,43 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <div id="addresult"></div>
 </form></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
-<svg class="defs" width="0" height="0" aria-hidden="true"><defs><pattern id="honey-stripes" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="#bdb8ad"/><rect width="2.2" height="5" fill="#8a8578"/></pattern></defs></svg>
 <script type="application/json" id="text">
 {
  "en": {
   "brand": "Kandu",
+  "tab_today": "Today",
+  "tabs_label": "Pages",
+  "keep_running": "Keep running",
+  "stop_now": "Stop now",
+  "stop_ask": "Stop Kandu?",
+  "stop_none": "No bee is at work.",
+  "stop_one": "{n} bee stops now.",
+  "stop_many": "{n} bees stop now.",
+  "stop_kept": "Work in progress stays on its branch, and nothing new starts until you resume Kandu.",
+  "restart_ask": "Restart Kandu?",
+  "restart_why": "Kandu takes its config again, sets its timer again and restarts the dashboard. A cycle that is running finishes.",
+  "restart_now": "Restart now",
+  "chip_awake": "Awake",
+  "chip_asleep": "Asleep",
+  "chip_holding": "Holding at a usage limit",
+  "chip_stopped": "Stopped",
+  "chip_never": "Not run yet",
+  "chip_wakes": "wakes {at}",
+  "chip_timer_off": "timer off",
+  "hint_restart": "asks first",
+  "hint_didban": "define tasks",
+  "hint_land": "ends the session",
+  "hint_zanbourdar": "full access",
+  "hint_bazras": "daily health",
+  "hint_usage": "tokens",
+  "hint_live": "events",
+  "hint_language": "language",
   "hive": "The hive",
   "empty_meadow": "The meadow is empty: no task is on a board yet.",
   "bee_worker": "Worker bee",
   "bee_reviewer": "Reviewer bee",
   "bee_scout": "Scout bee",
   "other_language": "فارسی",
-  "look_honeycomb": "Honeycomb",
-  "look_cards": "Cards",
-  "look_switch": "Switch the dashboard's look",
   "loading": "loading",
   "github_refused": "GitHub refuses calls: Kandu tries again at {at}",
   "control_token": "control token",
@@ -495,7 +529,6 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bee_queen": "Queen",
   "active_workers": "Bees at work",
   "debt": "Technical debt",
-  "queue": "The meadow",
   "by_day": "Daily usage",
   "day": "day",
   "live_stream": "Live stream",
@@ -777,17 +810,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bazras_looking": "Bazras is looking",
   "bazras_judging": "Bazras is judging",
   "bazras_last": "Bazras",
-  "hive_with_tasks": "With tasks",
-  "hive_no_tasks": "No tasks",
-  "hive_no_open_tasks": "No project has an open task.",
-  "hive_all_busy": "Every project has an open task.",
-  "legend_cell_sizes": "Size of the cell",
-  "legend_edge_signs": "Signs on a cell's edge",
   "legend_projects": "Projects",
   "over_limit": "Daily token limit reached",
   "over_limit_hint": "Tokens today / daily token limit. Nothing new starts in this project until tomorrow.",
   "legend_over_limit": "Red: the project reached its daily token limit, so nothing new starts there until tomorrow",
-  "legend_project": "A project, its open tasks inside",
   "legend_flowers": "Tasks",
   "legend_sizes": "Size of the flower",
   "legend_marks": "Signs under a flower",
@@ -804,15 +830,39 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
  },
  "fa": {
   "brand": "کندو",
+  "tab_today": "امروز",
+  "tabs_label": "صفحه‌ها",
+  "keep_running": "بگذار کار کند",
+  "stop_now": "همین حالا متوقف کن",
+  "stop_ask": "کندو متوقف شود؟",
+  "stop_none": "هیچ زنبوری سر کار نیست.",
+  "stop_one": "{n} زنبور همین حالا می‌ایستد.",
+  "stop_many": "{n} زنبور همین حالا می‌ایستند.",
+  "stop_kept": "کار نیمه‌تمام روی شاخه‌ی خودش می‌ماند، و تا کندو را ادامه ندهی هیچ کار تازه‌ای شروع نمی‌شود.",
+  "restart_ask": "کندو ری‌استارت شود؟",
+  "restart_why": "کندو تنظیماتش را دوباره می‌خواند، تایمرش را دوباره تنظیم می‌کند و داشبورد را دوباره راه می‌اندازد. چرخه‌ای که در حال اجراست تمام می‌شود.",
+  "restart_now": "همین حالا ری‌استارت کن",
+  "chip_awake": "بیدار",
+  "chip_asleep": "خواب",
+  "chip_holding": "منتظر، در سقف مصرف",
+  "chip_stopped": "متوقف",
+  "chip_never": "هنوز اجرا نشده",
+  "chip_wakes": "بیداری {at}",
+  "chip_timer_off": "تایمر خاموش",
+  "hint_restart": "اول می‌پرسد",
+  "hint_didban": "تعریف تسک‌ها",
+  "hint_land": "جلسه را می‌بندد",
+  "hint_zanbourdar": "دسترسی کامل",
+  "hint_bazras": "سلامت روزانه",
+  "hint_usage": "توکن‌ها",
+  "hint_live": "رویدادها",
+  "hint_language": "زبان",
   "hive": "کندو",
   "empty_meadow": "مرغزار خالی است: هنوز تسکی روی هیچ بوردی نیست.",
   "bee_worker": "زنبور کارگر",
   "bee_reviewer": "زنبور بازبین",
   "bee_scout": "زنبور پیشاهنگ",
   "other_language": "English",
-  "look_honeycomb": "لانه‌زنبوری",
-  "look_cards": "کارتی",
-  "look_switch": "عوض کردن نمای داشبورد",
   "loading": "در حال بارگذاری",
   "github_refused": "GitHub تماس‌ها را رد می‌کند: کندو ساعت {at} دوباره امتحان می‌کند",
   "control_token": "توکن کنترل",
@@ -857,7 +907,6 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bee_queen": "ملکه",
   "active_workers": "زنبورهای در حال کار",
   "debt": "بدهی فنی",
-  "queue": "مرغزار",
   "by_day": "مصرف روزانه",
   "day": "روز",
   "live_stream": "جریان زنده",
@@ -1139,17 +1188,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bazras_looking": "بازرس در حال نگاه",
   "bazras_judging": "بازرس در حال قضاوت",
   "bazras_last": "بازرس",
-  "hive_with_tasks": "با تسک",
-  "hive_no_tasks": "بدون تسک",
-  "hive_no_open_tasks": "هیچ پروژه‌ای تسک باز ندارد.",
-  "hive_all_busy": "همه‌ی پروژه‌ها تسک باز دارند.",
-  "legend_cell_sizes": "اندازه‌ی خانه",
-  "legend_edge_signs": "نشانه‌های لبه‌ی خانه",
   "legend_projects": "پروژه‌ها",
   "over_limit": "سقف توکن روزانه پر شد",
   "over_limit_hint": "توکن‌های امروز / سقف توکن روزانه. تا فردا کار تازه‌ای در این پروژه شروع نمی‌شود.",
   "legend_over_limit": "قرمز: پروژه به سقف توکن روزانه‌اش رسیده، پس تا فردا کار تازه‌ای در آن شروع نمی‌شود",
-  "legend_project": "یک پروژه، با تسک‌های بازش درونش",
   "legend_flowers": "تسک‌ها",
   "legend_sizes": "اندازه‌ی گل",
   "legend_marks": "نشانه‌های زیر گل",
@@ -1439,7 +1481,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 const $ = id => document.getElementById(id);
 const esc = text => String(text ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const get = path => fetch("/api/v1" + path).then(r => r.ok ? r.json() : Promise.reject(r.status));
-const LANGUAGE_KEY = "kandu-language", TAB_KEY = "kandu-tab", CLOSED_KEY = "kandu-closed-projects", LOOK_KEY = "kandu-look";
+const LANGUAGE_KEY = "kandu-language", TAB_KEY = "kandu-tab", CLOSED_KEY = "kandu-closed-projects";
 const TEXT = JSON.parse($("text").textContent);
 const LIVE_LINES = 200;
 const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1447,16 +1489,16 @@ const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const COLUMN_ORDER = ["Stuck", "Your approval", "Needs info", "Needs split", "Approved", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog", "Technical debt", "Done"];
 let flights = {open: [], flown: []};
 const flightsWarned = new Set();
-let lang = "en", tab = "meadow", shownRun = null, shownTask = null, confirming = false, sendingBack = false, live = [], token = "";
+let lang = "en", tab = "today", shownRun = null, shownTask = null, confirming = false, sendingBack = false, live = [], token = "";
 let lastState = null, lastQueue = null, sceneKey = null, listKey = null, briefOpen = false, closed = new Set();
-// The honeycomb hive's sub-tab: projects with an open task first; "idle" for those with none.
-let shelf = "busy";
 const saved = key => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
+const forget = key => { try { localStorage.removeItem(key); } catch {} };
+// The dashboard has one look now: a browser that chose another one opens this look, and forgets its choice.
+forget("kandu-look");
+// The tabs' names before the frame, so a browser that saved one opens the same page.
+const OLD_TABS = {meadow: "today", work: "tasks"};
 if (saved(LANGUAGE_KEY) === "fa") lang = "fa";
-// The look: the cards, the default, or the honeycomb. Each browser keeps its own; nothing goes to the config.
-let look = "cards";
-if (saved(LOOK_KEY) === "honeycomb") look = "honeycomb";
 if (saved(TAB_KEY)) tab = saved(TAB_KEY);
 try { closed = new Set(JSON.parse(saved(CLOSED_KEY)) || []); } catch {}
 
@@ -1503,26 +1545,7 @@ function applyLanguage() {
     if (attrs) attrs.split(" ").forEach(attr => el.setAttribute(attr, t(el.dataset.t)));
     else el.textContent = t(el.dataset.t);
   }
-  applyLook();
   renderLegend();
-}
-
-// The button names the look it switches to, as the language button names the other language.
-function applyLook() {
-  document.documentElement.dataset.look = look;
-  const other = look === "honeycomb" ? "look_cards" : "look_honeycomb";
-  $("look").dataset.t = other;
-  $("look").textContent = t(other);
-  $("look").title = t("look_switch");
-}
-
-function setLook(chosen) {
-  look = chosen === "honeycomb" ? "honeycomb" : "cards";
-  save(LOOK_KEY, look);
-  applyLook();
-  renderLegend();
-  sceneKey = null;
-  if (lastState) { renderStats(lastState); renderScene(lastState, lastQueue); }
 }
 
 function setLanguage(chosen) {
@@ -1537,7 +1560,8 @@ function setLanguage(chosen) {
 }
 
 function showTab(chosen) {
-  tab = document.querySelector(`[data-panel="${chosen}"]`) ? chosen : "meadow";
+  chosen = OLD_TABS[chosen] || chosen;
+  tab = document.querySelector(`[data-panel="${chosen}"]`) ? chosen : "today";
   save(TAB_KEY, tab);
   for (const el of document.querySelectorAll("[data-tab]")) el.setAttribute("aria-selected", el.dataset.tab === tab);
   for (const el of document.querySelectorAll("[data-panel]")) el.hidden = el.dataset.panel !== tab;
@@ -1695,7 +1719,7 @@ function markAt(x, drawing, kind = "") {
   return `<g transform="translate(${x} 34)"><circle class="mark ${kind}" r="7"/>${drawing}</g>`;
 }
 
-// The marks a task carries, from the local log: the same under a flower and on a honeycomb cell's edge.
+// The marks a task carries, from the local log, under its flower.
 function marksOf(item) {
   const {size, door, sent_back: back, slice, questions, yours} = item.mark || {};
   return [door && door !== "two-way" ? {key: "door", drawing: MARKS.door} : null, back ? {key: "back", drawing: MARKS.back} : null,
@@ -1713,7 +1737,7 @@ function flower(item, index) {
     ${marks.map(({drawing, kind}, i) => markAt(start + i * 15, drawing, kind)).join("")}`;
 }
 
-// What shows on hover over a task, in both looks.
+// What shows on hover over a task.
 function taskTitle(item) {
   return `${item.task} · ${item.title} · ${stateText(item)}${item.by_hand && !item.yours ? ` · ${t("by_hand")}` : ""}${heldLines(item.mark, item.blockers).map(line => ` · ${line}`).join("")}`;
 }
@@ -1819,7 +1843,7 @@ function fields(state, queue) {
   return projects;
 }
 
-// A project at its daily token limit starts nothing new today. Its patch or cell turns red with an outline, which a
+// A project at its daily token limit starts nothing new today. Its patch turns red with an outline, which a
 // pause never draws, and a paused project at its limit keeps both marks. The mark goes when the day or the limit changes.
 const overLimit = (state, name) => state?.over_limit?.[name] || null;
 const limitText = over => `\u2066${num(over.today)} / ${num(over.limit)}\u2069`;
@@ -1873,10 +1897,7 @@ function renderComb(done, days) {
 }
 
 function renderScene(state, queue) {
-  if (tab !== "meadow") return;
-  $("scene").hidden = look === "honeycomb";
-  $("honey").hidden = look !== "honeycomb";
-  if (look === "honeycomb") { renderHoneycomb(state, queue); return; }
+  if (tab !== "today") return;
   const box = $("scene");
   const narrow = box.clientWidth < 760;
   const projects = fields(state, queue).sort((a, b) => rank(a.name) - rank(b.name));
@@ -1932,7 +1953,6 @@ function renderScene(state, queue) {
 }
 
 function renderLegend() {
-  if (look === "honeycomb") { renderHoneyLegend(); return; }
   const entry = (drawing, label, box, height) => `<span><svg viewBox="${box}" style="height:${height}px" aria-hidden="true">${drawing}</svg>${esc(label)}</span>`;
   const group = (title, entries) => `<div class="legend-group"><b>${t(title)}</b>${entries.join("")}</div>`;
   const kinds = ["Stuck", "Your approval", "Approved", "Needs info", "Needs split", "In review", "In progress", "Ready", "waiting", "Blocked", "Backlog", "Technical debt"];
@@ -1948,165 +1968,6 @@ function renderLegend() {
   const over = Object.keys(lastState?.over_limit || {}).length  // The legend explains the red only while it shows.
     ? group("legend_projects", [entry('<ellipse class="soil over" rx="21" ry="9"/>', t("legend_over_limit"), "-24 -12 48 24", 20)]) : "";
   $("legend").innerHTML = group("legend_flowers", flowers) + group("legend_sizes", sizes) + group("legend_marks", signs) + group("legend_bees", bees) + over;
-}
-
-// The honeycomb look's hive: each project a large cell, each open task a small cell inside it. It draws the same
-// tasks, states and marks as the meadow, from the same data.
-
-// Each state's form: the colour of its flower, filled for a bloom, outline for a bud, grey for blocked and
-// technical debt; its centre sign; and an orange ring, pulsing or still, when it waits for the user. No two alike.
-const HONEY_STATES = {
-  "Your approval": {colour: "#f5c518", form: "filled", sign: "check", ring: "pulse"},
-  "Approved": {colour: "#8fd19e", form: "filled", sign: "check", ring: ""},
-  "Needs info": {colour: "#f2a65a", form: "filled", sign: "question", ring: ""},
-  "Needs split": {colour: "#e0689a", form: "filled", sign: "scissors", ring: ""},
-  "In review": {colour: "#b394ea", form: "filled", sign: "lens", ring: ""},
-  "In progress": {colour: "#5b9bf0", form: "filled", sign: "dots", ring: ""},
-  "Ready": {colour: "#5fa83f", form: "outline", sign: "play", ring: ""},
-  "waiting": {colour: "#5fa83f", form: "outline", sign: "hourglass", ring: ""},
-  "Backlog": {colour: "#93a07c", form: "outline", sign: "crown", ring: ""},
-  "by hand": {colour: "#5fa83f", form: "outline", sign: "hand", ring: "still"},
-  "Blocked": {colour: "#9a8f80", form: "cracked", sign: "cross", ring: ""},
-  "Stuck": {colour: "#c43d2f", form: "cracked", sign: "bang", ring: ""},
-  "Technical debt": {colour: "#8a8578", form: "striped", sign: "grass", ring: ""},
-};
-// Centre signs, drawn for a cell of radius 16 and scaled with it.
-const HONEY_SIGNS = {
-  check: '<path class="sign" style="stroke-width:2" d="M-5 0 L-1.5 3.5 L5 -3.5"/>',
-  question: '<text class="sign-text" y="5">?</text>',
-  scissors: '<circle class="sign" cx="-3" cy="3.6" r="2"/><circle class="sign" cx="3" cy="3.6" r="2"/><path class="sign" d="M-1.6 2 L4 -5.5 M1.6 2 L-4 -5.5"/>',
-  lens: SIGNS["In review"],
-  dots: SIGNS["In progress"],
-  play: '<path class="sign solid" d="M-3 -4.5 L4.5 0 L-3 4.5z"/>',
-  hourglass: '<path class="sign" d="M-3.5 -5 h7 l-7 10 h7z"/>',
-  crown: `<path class="sign" style="fill:#f5b301" transform="translate(0 .5) scale(.75)" d="${CROWN}"/>`,
-  hand: `<g transform="translate(-.5 6)">${HAND}</g>`,
-  cross: '<path class="sign" style="stroke:#c43d2f;stroke-width:2.2" d="M-4 -4 L4 4 M4 -4 L-4 4"/>',
-  bang: '<path class="sign" style="stroke-width:2.4" d="M0 -6.5 V2"/><circle class="sign solid" cy="5.8" r="1.4"/>',
-  grass: '<path class="sign" style="stroke:#3f4a1f;stroke-width:1.8" d="M-4 5 Q-4 0 -6.5 -5 M0 5 V-6 M4 5 Q4 0 6.5 -4"/>',
-};
-// A task's size is its cell's radius; an unsized task takes the small one, and its edge says it is not sized.
-const HONEY_SIZES = {Small: 15, Medium: 19.5, Large: 24};
-// The six marks under a flower, each at its own corner of the cell's edge, clockwise from the top.
-const HONEY_MARKS = {
-  door: {corner: 0, name: "mark_door"},
-  back: {corner: 1, name: "sent_back"},
-  slice: {corner: 2, name: "mark_slice"},
-  unsized: {corner: 3, name: "mark_unsized"},
-  questions: {corner: 4, name: "mark_questions"},
-  yours: {corner: 5, name: "waits_for_you"},
-};
-// A task's place: as wide as a large cell with its signs, in nested rows like a honeycomb.
-const SLOT = 58, SLOT_ROW = SLOT * Math.sqrt(3) / 2;
-
-// The corners of a regular hexagon, pointy side up, around the origin: from the top, clockwise.
-const hexCorner = (radius, i) => [radius * Math.cos((i * 60 - 90) * Math.PI / 180), radius * Math.sin((i * 60 - 90) * Math.PI / 180)];
-const hexPoints = radius => [0, 1, 2, 3, 4, 5].map(i => hexCorner(radius, i).map(v => v.toFixed(2)).join(",")).join(" ");
-const honeyState = item => item.yours ? "by hand" : HONEY_STATES[item.column] ? item.column : "Backlog";
-
-// One task cell's drawing, around the origin: its ring, face, crack, centre sign and edge signs.
-function honeyFace(kind, radius, marks = []) {
-  const {colour, form, sign, ring} = HONEY_STATES[kind];
-  const rings = ring ? `<polygon class="${ring === "pulse" ? "wait-ring" : "hand-ring"}" points="${hexPoints(radius + 4)}"/>` : "";
-  const crack = form === "cracked" ? `<path class="crack" d="M${(.43 * radius).toFixed(2)} ${(-.75 * radius).toFixed(2)} l${(-.18 * radius).toFixed(2)} ${(.22 * radius).toFixed(2)} l${(.14 * radius).toFixed(2)} ${(.1 * radius).toFixed(2)} l${(-.2 * radius).toFixed(2)} ${(.24 * radius).toFixed(2)}"/>` : "";
-  const edge = marks.map(({key, drawing, kind: tone}) => {
-    const [x, y] = hexCorner(radius, HONEY_MARKS[key].corner);
-    return `<g transform="translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(.8)"><circle class="mark ${tone || ""}" r="7"/>${drawing}</g>`;
-  }).join("");
-  return `${rings}<polygon class="tface ${form}" style="--c:${colour}" points="${hexPoints(radius)}"/>${crack}
-    <g transform="scale(${(radius / 16).toFixed(3)})">${HONEY_SIGNS[sign]}</g>${edge}`;
-}
-
-// A task cell: its number and title on hover; a tap anywhere on its place opens the same dialog as a flower.
-function taskCell(item, x, y) {
-  const radius = HONEY_SIZES[item.mark?.size] || HONEY_SIZES.Small;
-  return `<g class="tcell clickable" data-review="${esc(item.task)}" transform="translate(${x.toFixed(2)} ${y.toFixed(2)})"><title>${esc(taskTitle(item))}</title>
-    <polygon class="tslot" points="${hexPoints(SLOT / Math.sqrt(3) - 1)}"/>${honeyFace(honeyState(item), radius, marksOf(item))}</g>`;
-}
-
-// How wide a pointy-top hexagon `width` wide is at height `y` from its top.
-function hexWidthAt(width, y) {
-  const height = width * 2 / Math.sqrt(3), from = Math.min(y, height - y);
-  return from >= height / 4 ? width : Math.max(0, width * from / (height / 4));
-}
-
-// The places of `count` task cells inside a project cell: rows between its name and its switch, every place on
-// one honeycomb lattice so no two cells touch. The cell grows until they all fit; reading starts at the top, from
-// the left, or from the right in Persian.
-function cellPlaces(count) {
-  for (let width = count ? 176 : 136; ; width += 8) {
-    const height = width * 2 / Math.sqrt(3), top = height * .25, bottom = height * .84, rows = [];
-    for (let row = 0, y = top + SLOT_ROW / 2; y + SLOT_ROW / 2 <= bottom; row++, y += SLOT_ROW) {
-      const room = Math.min(hexWidthAt(width, y - SLOT_ROW / 2), hexWidthAt(width, y + SLOT_ROW / 2)) - 10;
-      const spots = [];
-      for (let k = -12; k <= 12; k++) {
-        const dx = k * SLOT + (row % 2 ? SLOT / 2 : 0);
-        if (Math.abs(dx) + SLOT / 2 <= room / 2) spots.push(dx);
-      }
-      rows.push({y, spots: spots.sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)});
-    }
-    if (rows.reduce((sum, row) => sum + row.spots.length, 0) < count) continue;
-    const places = [];
-    let used = 0;
-    for (const row of rows) {
-      if (places.length === count) break;
-      const taken = row.spots.slice(0, count - places.length).sort((a, b) => lang === "fa" ? b - a : a - b);
-      places.push(...taken.map(dx => [width / 2 + dx, row.y]));
-      used = row.y + SLOT_ROW / 2;
-    }
-    const shift = count ? (bottom - used) / 2 : 0;  // The rows sit in the middle of the room they have.
-    return {width, height, places: places.map(([x, y]) => [x, y + shift])};
-  }
-}
-
-// A project: one large cell with its name and, but for a pause in the config, its pause switch; faded when paused.
-function projectCell(patch) {
-  const {width, height, places} = cellPlaces(patch.tasks.length);
-  const cells = patch.tasks.map((item, i) => taskCell(item, ...places[i])).join("");
-  const toggle = patchSwitch(patch);
-  return `<div class="pcell${patch.paused ? " off" : ""}${patch.over ? " over" : ""}"${patch.over ? ` title="${esc(`${t("over_limit")} · ${limitText(patch.over)}`)}"` : ""} style="width:${width}px;aspect-ratio:${width} / ${height.toFixed(2)}">
-    <svg class="pcell-art" viewBox="0 0 ${width} ${height.toFixed(2)}"><polygon class="pface" points="${hexPoints(height / 2 - 2)}" transform="translate(${width / 2} ${(height / 2).toFixed(2)})"/>${cells}</svg>
-    <div class="pcell-name" title="${esc(patch.name)}"><bdi>${esc(patch.name)}</bdi>${patch.paused ? `<span class="pcell-paused">${t("project_on_pause")}</span>` : ""}${patch.over ? `<span class="pcell-limit">${t("over_limit")}</span>` : ""}${patch.merge ? `<span class="pcell-merge" title="${esc(t(`mode_${patch.merge}_hint`))}"><span class="merge-dot ${patch.merge}">●</span>\u00a0${esc(t(`mode_${patch.merge}`))}</span>` : ""}</div>
-    ${toggle ? `<div class="pcell-foot"><svg viewBox="-19 -12 38 24">${toggle}</svg></div>` : ""}</div>`;
-}
-
-// The hive in the honeycomb look: projects with an open task, Backlog included, under "With tasks", which opens
-// first; the rest under "No tasks", with their count. A task the queue does not know has a project cell of its own.
-function renderHoneycomb(state, queue) {
-  const projects = fields(state, queue).sort((a, b) => rank(a.name) - rank(b.name));
-  const done = projects.flatMap(patch => patch.tasks.filter(item => item.column === "Done").map(item => ({...item, project: patch.name})));
-  projects.forEach(patch => {
-    patch.tasks = patch.tasks.filter(item => item.column !== "Done")
-      .sort((a, b) => COLUMN_ORDER.indexOf(a.yours ? "Your approval" : a.column) - COLUMN_ORDER.indexOf(b.yours ? "Your approval" : b.column));
-  });
-  const busy = projects.filter(patch => patch.tasks.length), idle = projects.filter(patch => !patch.tasks.length);
-  const stopped = state.stop_requested;
-  const key = JSON.stringify(["honeycomb", shelf, lang, stopped, !queue, projects, state.paused_in_config]);
-  if (key === sceneKey) return;
-  sceneKey = key;
-  const shown = shelf === "idle" ? idle : busy;
-  const empty = shelf === "idle" ? t("hive_all_busy") : t(queue ? "hive_no_open_tasks" : "reading_board");
-  const shelfTab = (name, label) => `<button class="tab" role="tab" data-shelf="${name}" aria-selected="${shelf === name}">${label}</button>`;
-  $("honey").className = `honey${stopped ? " paused" : ""}`;
-  // The count in brackets, not after a dot: a Persian zero is a dot.
-  $("honey").innerHTML = `<div class="shelves" role="tablist">${shelfTab("busy", t("hive_with_tasks"))}${shelfTab("idle", `${t("hive_no_tasks")} (${num(idle.length)})`)}</div>
-    <div class="pcells">${shown.map(projectCell).join("") || `<div class="empty">${empty}</div>`}</div>`;
-  renderComb(done, queue?.done_days);
-}
-
-function renderHoneyLegend() {
-  const entry = (drawing, label, box = "-28 -28 56 56", height = 44) => `<span><svg viewBox="${box}" style="height:${height}px" aria-hidden="true">${drawing}</svg>${esc(label)}</span>`;
-  const group = (title, entries) => `<div class="legend-group"><b>${t(title)}</b>${entries.join("")}</div>`;
-  const named = kind => kind === "by hand" ? t("by_hand_yours") : tr(kind === "waiting" ? "waiting for machine" : kind);
-  const states = Object.keys(HONEY_STATES).map(kind => entry(honeyFace(kind, HONEY_SIZES.Medium), named(kind)));
-  const sizes = [...Object.keys(HONEY_SIZES).map(size => entry(honeyFace("In progress", HONEY_SIZES[size]), tr(size))),
-                 entry(honeyFace("In progress", HONEY_SIZES.Small, marksOf({column: "In progress"})), t("mark_unsized"))];
-  const every = marksOf({column: "Ready", mark: {door: "one-way", sent_back: true, slice: true, questions: 3, yours: true}});
-  const signs = Object.keys(HONEY_MARKS).map(key => entry(honeyFace("Ready", HONEY_SIZES.Medium, every.filter(m => m.key === key)), t(HONEY_MARKS[key].name)));
-  const project = kind => `<g class="pcell-legend ${kind}"><polygon class="pface" points="${hexPoints(26)}"/>${honeyFace("In progress", 8)}</g>`;
-  const projects = [entry(project(""), t("legend_project")), entry(project("off"), t("project_on_pause")),
-                    ...(Object.keys(lastState?.over_limit || {}).length ? [entry(project("over"), t("legend_over_limit"))] : [])];
-  $("legend").innerHTML = group("legend_flowers", states) + group("legend_cell_sizes", sizes) + group("legend_edge_signs", signs) + group("legend_projects", projects);
 }
 
 function meter(label, value, limit) {
@@ -2143,17 +2004,11 @@ function changeParallel(button) {
   box.showModal();
 }
 
-// What the wake and debt tiles say, in either look.
+// What the wake and debt tiles say.
 const wakeText = s => !s.timer_on ? t("timer_off") : s.next_wake ? esc(when(s.next_wake)) : "—";
 const debtCount = () => lastQueue && Object.values(lastQueue.projects).reduce((sum, columns) => sum + columns["Technical debt"].length, 0);
 
 function renderStats(s) {
-  if (look === "honeycomb") {
-    $("stats").className = "hexes";
-    $("stats").innerHTML = statCells(s);
-    return;
-  }
-  $("stats").className = "stats";
   const workers = s.workers || [];
   const most = s.parallel ? `<small>${t("limit")} ${num(s.parallel.total)}<button class="textlink limit-edit" data-parallel>${t("change")}</button></small>` : "";
   const bees = `<div class="card stat"><div class="stat-label">${t("active_workers")}</div><div class="stat-value">${num(workers.length)}</div>${most}</div>`;
@@ -2162,103 +2017,6 @@ function renderStats(s) {
   const parked = debtCount();
   const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
   $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + yours + debt + wake + backupCard(s.backup) + upstreamCard(s.upstream) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
-}
-
-// The honeycomb look's stat tiles: one cell each, with the same information as its card.
-function statCells(s) {
-  const workers = s.workers || [];
-  return [
-    usageCell(t("session"), s.usage?.session, s.limits.session),
-    usageCell(t("week"), s.usage?.week, s.limits.week),
-    hexCell({name: t("active_workers"), value: num(workers.length), note: s.parallel ? `${t("limit")} ${num(s.parallel.total)}` : "",
-             action: s.parallel ? "data-parallel" : ""}),
-    hexCell({name: t("waits_for_you_count"), value: num(s.waits_for_you || 0), tone: s.waits_for_you ? "wait" : ""}),
-    hexCell({name: t("debt"), value: lastQueue ? num(debtCount()) : "—", muted: !lastQueue}),
-    hexCell({name: t("next_wake"), value: wakeText(s), small: true}),
-    backupCell(s.backup), upstreamCell(s.upstream), dropCell(s.drop_blockers), requestsCell(s.show_requests),
-  ].join("");
-}
-
-// A regular hexagon, pointy side up, in a box 100 wide: its corners clockwise from the top, a little inside the
-// box so that neighbours keep a gap.
-const HEX_HEIGHT = 115.47, HEX_MIDDLE = [50, HEX_HEIGHT / 2], HEX_RADIUS = 54.27;
-const HEX_CORNERS = [[0, -1], [0.866, -0.5], [0.866, 0.5], [0, 1], [-0.866, 0.5], [-0.866, -0.5]].map(([x, y]) => [HEX_MIDDLE[0] + x * HEX_RADIUS, HEX_MIDDLE[1] + y * HEX_RADIUS]);
-const PENCIL = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11 2.5l2.5 2.5-8 8H3v-2.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
-const AGAIN = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2v3h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-
-// The corners from the top in reading order: clockwise left to right, the other way round in Persian.
-const hexCorners = () => HEX_CORNERS.map(([x, y]) => [lang === "fa" ? 100 - x : x, y]);
-const hexPath = () => "M" + hexCorners().map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z";
-// The point a fraction of the way round the edge from the top corner: its side, how far along that side it is,
-// a way to walk the side, and the side's normal towards the middle.
-function hexAt(fraction) {
-  const corners = hexCorners(), round = Math.max(0, Math.min(fraction, 1)) * 6, side = Math.min(Math.floor(round), 5), part = round - side;
-  const [from, to] = [corners[side], corners[(side + 1) % 6]];
-  const along = k => [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k];
-  const [ex, ey] = along(0.5), [mx, my] = HEX_MIDDLE, length = Math.hypot(mx - ex, my - ey);
-  return {point: along(part), part, along, inward: [(mx - ex) / length, (my - ey) / length]};
-}
-
-// One honeycomb cell: its value in the middle and its name under it. Only the middle of a cell that changes
-// something acts, marked with a small pencil, so a tap elsewhere on the cell does nothing. `ring` draws over the
-// edge, `tone` colours the edge when something needs the user, and `title` shows on hover.
-function hexCell({name, value, note = "", tone = "", action = "", mark = PENCIL, hint = t("change"), over = false, small = false, muted = false, narrow = false, ring = "", title = ""}) {
-  const middle = action ? `<button class="hex-mid" ${action} title="${esc(hint)}">${value}${mark}</button>` : `<span class="hex-mid">${value}</span>`;
-  const kind = [over && "over", small && "small", muted && "muted"].filter(Boolean).map(c => " " + c).join("");
-  return `<div class="hex${tone ? " " + tone : ""}${narrow ? " narrow" : ""}"${title ? ` title="${esc(title)}"` : ""}><svg class="hex-edge" viewBox="0 0 100 ${HEX_HEIGHT}" aria-hidden="true"><polygon points="${hexCorners().map(p => p.map(v => v.toFixed(2)).join(",")).join(" ")}"/>${ring}</svg>
-    <div class="hex-body"><span class="hex-value${kind}">${middle}</span><span class="hex-name">${name}</span>${note ? `<span class="hex-note">${note}</span>` : ""}</div></div>`;
-}
-
-// A usage cell: its edge fills yellow from the top as far as the usage goes, with a tick at the limit and the
-// limit's number beside it, inside the cell; at or over the limit the edge is red.
-function usageCell(name, value, limit) {
-  const known = value !== undefined && value !== null, over = known && value >= limit;
-  const fill = known ? Math.max(0, Math.min(value, 100)) : 0;
-  const edge = hexAt(limit / 100), [x, y] = edge.point, [nx, ny] = edge.inward;
-  const [[ox, oy], [ix, iy]] = [[x - nx * 3, y - ny * 3], [x + nx * 7, y + ny * 7]];
-  // The number sits just inside the tick, kept off the corners so it never crosses the next side.
-  const [bx, by] = edge.along(Math.min(Math.max(edge.part, 0.25), 0.75)), [lx, ly] = [bx + nx * 13, by + ny * 13];
-  const gauge = fill ? `<path class="hex-gauge${over ? " over" : ""}" pathLength="100" stroke-dasharray="${fill} 100" d="${hexPath()}"/>` : "";
-  const ring = `${gauge}
-    <line class="hex-tick" x1="${ox.toFixed(2)}" y1="${oy.toFixed(2)}" x2="${ix.toFixed(2)}" y2="${iy.toFixed(2)}"/><text class="hex-limit" x="${lx.toFixed(2)}" y="${ly.toFixed(2)}">${pct(limit)}</text>`;
-  return hexCell({name, value: known ? pct(value) : "—", over, muted: !known, narrow: true, action: "data-limits", ring,
-                  title: `${name} · ${t("limit")} ${pct(limit)}`});
-}
-
-// The backup's cell: its edge turns red when the last try failed, as its card's value does.
-function backupCell(b) {
-  if (!b) return "";
-  const said = b.enabled ? t("backup_daily_at").replace("{at}", b.at) : t("backup_off");
-  const failed = b.last?.type === "backup_failed";
-  const note = failed ? t("backup_last_failed") : b.copies.length ? t("backup_copies").replace("{count}", num(b.copies.length)) : "";
-  return hexCell({name: t("backup"), value: esc(digits(said)), note: esc(note), over: failed, small: true, tone: failed ? "bad" : "",
-                  action: "data-backup"});
-}
-
-// The upstream's cell: its middle checks again, as the card's button does. Under its name, as on the card, are when
-// it was checked (or last reached) and the task it made, or the button that makes one.
-function upstreamCell(u) {
-  if (!u) return "";
-  const counts = [u.behind ? t("upstream_behind").replace("{n}", num(u.behind)) : "", u.ahead ? t("upstream_ahead").replace("{n}", num(u.ahead)) : ""].filter(Boolean);
-  const said = u.failed ? t("upstream_failed") : u.behind === null ? t("upstream_not_checked") : counts.join(" · ") || t("upstream_up_to_date");
-  const checked = u.failed ? (u.last_good_at ? t("upstream_last_good").replace("{at}", when(u.last_good_at)) : t("upstream_never_good")) : u.checked_at ? when(u.checked_at) : "";
-  const task = u.task ? `<a class="textlink" href="${esc(u.task.url)}" target="_blank" rel="noopener">${t("upstream_task_open")} ${numberOf(u.task.task)} ↗</a>`
-    : !u.failed && u.behind ? `<button class="textlink" data-upstream-bring>${t("upstream_bring_in")}</button>` : "";
-  return hexCell({name: `${t("upstream")} <bdi dir="ltr">${esc(u.remote)}/${esc(u.branch)}</bdi>`, value: esc(said), note: [checked && esc(checked), task].filter(Boolean).join("<br>"), over: u.failed, small: true,
-                  action: "data-upstream-check", mark: AGAIN, hint: t("upstream_check_now"), title: [said, checked].filter(Boolean).join(" · ")});
-}
-
-// The two switches the cards turn on and off: the middle turns them, as the card's button does.
-function dropCell(on) {
-  if (on === undefined) return "";
-  return hexCell({name: t("drop_blockers"), value: t(on ? "drop_on" : "drop_off"), small: true,
-                  action: `data-drops="${on ? "false" : "true"}"`, hint: t(on ? "drop_turn_off" : "drop_turn_on")});
-}
-
-function requestsCell(on) {
-  if (on === undefined) return "";
-  return hexCell({name: t("open_requests"), value: t(on ? "requests_shown" : "drop_off"), small: true,
-                  action: `data-requests="${on ? "false" : "true"}"`, hint: t(on ? "drop_turn_off" : "drop_turn_on")});
 }
 
 // Whether open requests show with their decision maps: off until the user turns it on here.
@@ -2374,14 +2132,120 @@ function unreachableMachines(s) {
   }).join("");
 }
 
+// The frame: the header's chip and usage bars, Didban beside them, the count on Today, More, and Stop.
+
+// The header's chip: stopped, holding at a usage limit, awake or asleep, with the next wake; on a phone only awake
+// or asleep. While GitHub refuses Kandu for a rate limit, it says so first. Why Kandu last slept shows on hover.
+function stateChip(s) {
+  const refused = githubRefused(s);
+  const usage = s.usage || {}, limits = s.limits || {};
+  const holding = usage.session >= limits.session || usage.week >= limits.week;
+  const kind = s.stop_requested ? "stopped" : refused ? "refused" : holding ? "holding" : s.supervisor === "awake" ? "awake" : "asleep";
+  const short = t(s.stop_requested ? "chip_stopped" : s.supervisor === "awake" ? "chip_awake" : s.supervisor ? "chip_asleep" : "chip_never");
+  const next = s.stop_requested ? "" : !s.timer_on ? t("chip_timer_off") : s.next_wake ? t("chip_wakes").replace("{at}", clock(s.next_wake)) : "";
+  return {kind, short, long: [refused, holding && !s.stop_requested ? t("chip_holding") : short, next].filter(Boolean).join(" · ")};
+}
+
+// The usage bars in the wide header: each usage against its limit, amber at or over it.
+function gauge(name, value, limit) {
+  const known = value !== undefined && value !== null, over = known && value >= limit;
+  return `<span class="gauge${over ? " over" : ""}" title="${esc(`${name} · ${t("limit")} ${pct(limit)}`)}"><span>${esc(name)} <b>${known ? pct(value) : "—"}</b></span>
+    <span class="gbar" aria-hidden="true"><i style="width:${known ? Math.min(value, 100) : 0}%"></i><b style="inset-inline-start:${limit}%"></b></span></span>`;
+}
+
+function gauges(s) {
+  return gauge(t("session"), s.usage?.session, s.limits.session) + gauge(t("week"), s.usage?.week, s.limits.week);
+}
+
+// Didban in the wide header: one button, marked while its session is open, when it goes to the session. More
+// closes it.
+function didbanHead(flight) {
+  if (flight?.status === "opening") return `<button class="btn busy" disabled>${t("flight_opening")}</button>`;
+  if (flight?.status === "open") return `<a class="btn didban open" href="${esc(flight.url)}" target="_blank" rel="noopener">${t("go_didban")} <i class="dot" aria-hidden="true"></i></a>`;
+  return `<button class="btn didban" data-fly="didban">${t("open_didban")}</button>`;
+}
+
+// The count on Today in the phone's bar: what waits for the user.
+function renderWaitCount(waiting) {
+  $("waitcount").textContent = num(waiting);
+  $("waitcount").hidden = !waiting;
+}
+
+// More: the actions Kandu has that the frame does not show. A wide header shows Wake the queen and Didban itself,
+// so there More only closes an open Didban.
+function moreItems(open, wide) {
+  const item = (label, hint, attrs, href = "") => ({label, hint, attrs, href});
+  const session = (kind, opener, go, close, hint) => {
+    const flight = open.find(f => f.kind === kind);
+    if (flight?.status === "opening") return [item(t("flight_opening"), "", "disabled")];
+    if (flight?.status === "open") return [item(t(go), "", "", flight.url), item(t(close), t("hint_land"), `data-land="${esc(flight.key)}"`)];
+    return [item(t(opener), t(hint), `data-fly="${kind}"`)];
+  };
+  const didban = session("didban", "open_didban", "go_didban", "close_didban", "hint_didban").filter(i => !wide || i.attrs.startsWith("data-land"));
+  return [
+    ...(wide ? [] : [item(t("wake_queen"), "", 'data-menu="wake"')]),
+    item(t("read_board"), "", 'data-menu="reload"'),
+    item(t("restart_kandu"), t("hint_restart"), 'data-menu="restart"'),
+    ...didban,
+    ...session("zanbourdar", "open_zanbourdar", "go_zanbourdar", "close_zanbourdar", "hint_zanbourdar"),
+    item(t("tab_bazras"), t("hint_bazras"), 'data-tab="bazras"'),
+    item(t("by_day"), t("hint_usage"), 'data-tab="days"'),
+    item(t("live_stream"), t("hint_live"), 'data-tab="activity"'),
+    item(t("other_language"), t("hint_language"), 'data-menu="lang"'),
+  ];
+}
+
+function renderMore() {
+  const wide = !matchMedia("(max-width: 760px)").matches;
+  $("moreitems").innerHTML = moreItems(flights.open, wide).map(i => (i.attrs === 'data-tab="bazras"' ? '<div class="menu-line"></div>' : "")
+    + (i.href ? `<a class="menu-item" href="${esc(i.href)}" target="_blank" rel="noopener"><span>${esc(i.label)} ↗</span></a>`
+      : `<button class="menu-item" ${i.attrs}${i.attrs === 'data-menu="lang"' ? ` lang="${lang === "fa" ? "en" : "fa"}"` : ""}><span>${esc(i.label)}</span>${i.hint ? `<small>${esc(i.hint)}</small>` : ""}</button>`)).join("");
+}
+
+function openMore() {
+  renderMore();
+  $("moremenu").showModal();
+}
+
+// An action from More: the menu stays open while it works, then closes. Restart asks first.
+async function chooseMore(button) {
+  const what = button.dataset.menu;
+  if (what === "restart") { $("moremenu").close(); $("restartbox").showModal(); return; }
+  if (what === "lang") { $("moremenu").close(); setLanguage(lang === "fa" ? "en" : "fa"); return; }
+  if (what === "wake") await act(button, "/wake");
+  if (what === "reload") await busy(button, () => refreshQueue(lastState, true));
+  $("moremenu").close();
+}
+
+// What Stop does, said before it is done: how many bees stop now, and that their work stays.
+function stopText(s) {
+  const n = (s.workers || []).length;
+  return `${n ? t(n === 1 ? "stop_one" : "stop_many").replace("{n}", num(n)) : t("stop_none")} ${t("stop_kept")}`;
+}
+
+function askStop() {
+  $("stoptext").textContent = stopText(lastState || {});
+  $("stopbox").showModal();
+}
+
+// Stop or restart, once the user said yes in its dialog: the dialog stays open while Kandu works, then closes, so
+// a refusal's message shows.
+async function confirmed(button, path, box) {
+  await act(button, path);
+  $(box).close();
+}
+
 async function refreshState() {
   const s = await get("/state");
   lastState = s;
   if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
-  const name = s.stop_requested ? "stopped" : (s.supervisor || "never ran");
-  const refused = githubRefused(s);
-  $("pulse").className = `pulse ${s.stop_requested ? "stopped" : refused ? "refused" : s.supervisor === "awake" ? "awake" : ""}`;
-  $("state").textContent = (refused ? refused + " · " : "") + tr(name) + (s.last_reason ? " · " + tr(s.last_reason) : "");
+  const chip = stateChip(s);
+  $("pulse").className = `chip ${chip.kind}`;
+  $("pulse").title = s.last_reason ? tr(s.last_reason) : "";
+  $("state").textContent = chip.long;
+  $("stateshort").textContent = chip.short;
+  $("gauges").innerHTML = gauges(s);
+  renderWaitCount(s.waits_for_you || 0);
   $("stop").hidden = s.stop_requested;
   $("resume").hidden = !s.stop_requested;
   $("machines").innerHTML = unreachableMachines(s);
@@ -2594,7 +2458,7 @@ async function refreshDidban() {
     : `<div class="empty">${t("no_didban_sessions")}</div>`);
 }
 
-// Didban and Zanbourdar sit side by side in the header, so their buttons say whose session they are.
+// A task's free flight: open it, or go to it and close it.
 function flightControls(flight, target, label, go = t("flight_go"), close = t("flight_close")) {
   if (flight?.status === "opening") return `<button class="btn busy" disabled>${t("flight_opening")}</button>`;
   if (flight?.status === "open") return `<a class="btn primary" href="${esc(flight.url)}" target="_blank" rel="noopener">${go} ↗</a><button class="btn" data-land="${esc(flight.key)}">${close}</button>`;
@@ -2602,8 +2466,8 @@ function flightControls(flight, target, label, go = t("flight_go"), close = t("f
 }
 
 function renderFlights() {
-  $("didbanbox").innerHTML = flightControls(flights.open.find(f => f.kind === "didban"), "didban", t("open_didban"), t("go_didban"), t("close_didban"));
-  $("zanbourdarbox").innerHTML = flightControls(flights.open.find(f => f.kind === "zanbourdar"), "zanbourdar", t("open_zanbourdar"), t("go_zanbourdar"), t("close_zanbourdar"));
+  $("didbanbox").innerHTML = didbanHead(flights.open.find(f => f.kind === "didban"));
+  if ($("moremenu").open) renderMore();
   if ($("taskflight") && shownTask) $("taskflight").innerHTML = flightControls(flights.open.find(f => f.task === shownTask), shownTask, t("open_flight"));
   const task = s => !s.task ? esc(t("zanbourdar")) : `<button class="textlink" data-review="${esc(s.task)}">${bdi(repoOf(s.task))} ${numberOf(s.task)}</button>`;
   const open = flights.open.filter(f => f.kind !== "didban" && f.status === "open").map(f => `<tr><td class="fit number">${esc(when(f.started))}</td><td>${task(f)}</td>
@@ -2879,6 +2743,8 @@ document.addEventListener("click", e => {
   const hit = name => e.target.closest(`[data-${name}]`);
   const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
   if (hit("close")) { $("modal").close(); return; }
+  if (hit("menu")) { chooseMore(hit("menu")); return; }
+  if (e.target === $("moremenu") || e.target.closest("#moremenu a")) { $("moremenu").close(); return; }
   if (hit("fly")) { openFlight(hit("fly")); return; }
   if (hit("inspect")) { saveInspect(hit("inspect")); return; }
   if (hit("remove")) { removeProject(hit("remove")); return; }
@@ -2896,7 +2762,6 @@ document.addEventListener("click", e => {
   if (hit("back-sure")) { sendingBack = true; confirming = false; showReviews(shownTask); return; }
   if (hit("back")) { doSendBack(hit("back")); return; }
   if (hit("to-queen")) { toQueen(hit("to-queen")); return; }
-  if (hit("shelf")) { shelf = hit("shelf").dataset.shelf; sceneKey = null; if (lastState) renderScene(lastState, lastQueue); return; }
   if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
   if (pause) {  // It sits in the project's summary, which would fold.
     e.preventDefault();
@@ -2905,7 +2770,7 @@ document.addEventListener("click", e => {
   }
   if (yes) { approve(yes); return; }
   if (acceptSplit) { approveSplit(acceptSplit); return; }
-  if (tabButton) { showTab(tabButton.dataset.tab); return; }
+  if (tabButton) { $("moremenu").close(); showTab(tabButton.dataset.tab); return; }
   if (stop) { act(stop, `/workers/${encodeURIComponent(stop.dataset.stop)}/stop`); return; }
   if (run) { showRun(run.dataset.run); return; }
   const review = hit("review");
@@ -2925,9 +2790,11 @@ document.addEventListener("toggle", e => {
   save(CLOSED_KEY, JSON.stringify([...closed]));
 }, true);
 $("modal").addEventListener("close", () => { shownRun = shownTask = null; confirming = false; });
-$("stop").onclick = e => act(e.currentTarget, "/stop");
+$("stop").onclick = askStop;
+$("stopnow").onclick = e => confirmed(e.currentTarget, "/stop", "stopbox");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
-$("restart").onclick = e => act(e.currentTarget, "/restart");
+$("restartnow").onclick = e => confirmed(e.currentTarget, "/restart", "restartbox");
+$("more").onclick = $("morenav").onclick = openMore;
 
 // Adding a project: a few facts from the user, the rest read from the copy and shown before anything is written.
 const fillIn = (key, values) => Object.entries(values).reduce((text, [k, v]) => text.replaceAll(`{${k}}`, v), t(key));
@@ -2995,13 +2862,11 @@ $("addbtn").onclick = e => addProject(e.currentTarget);
 $("addform").onsubmit = e => e.preventDefault();
 document.querySelector("[data-addclose]").onclick = () => $("addbox").close();
 $("wake").onclick = e => act(e.currentTarget, "/wake");
-$("reload").onclick = e => busy(e.currentTarget, () => refreshQueue(lastState, true));
 $("day").onchange = refreshDays;
 $("usagerange").onchange = () => refreshUsage().catch(() => {});
 $("usagefrom").onchange = $("usageto").onchange = () => refreshUsage().catch(() => {});
 $("search").oninput = renderProjects;
 $("lang").onclick = () => setLanguage(lang === "fa" ? "en" : "fa");
-$("look").onclick = () => setLook(look === "honeycomb" ? "cards" : "honeycomb");
 addEventListener("resize", () => { if (lastState) renderScene(lastState, lastQueue); });
 
 async function refresh() {
