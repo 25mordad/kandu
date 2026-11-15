@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, clean, debt, merge, queen, questions, review, show, sizing, split, tasks
+from . import agents, clean, debt, merge, queen, questions, review, show, sizing, split, tasks, waits
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .flights import Flights
 from .github import TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
@@ -838,12 +838,24 @@ class Supervisor:
         asked = [q["question"] for q in questions.open_questions(self.store) if q["task"] == task.key]
         reasons = merge.merge_waits(task.project, pr, reviewed, threads, self._unreviewed_companions(task, pr),
                                     self._answered(task, pr), asked)
+        if waits.CI_FAILING in reasons:  # each failing check by name, with its link, so the user sees where
+            reasons += waits.check_reasons(pr.get("statusCheckRollup"))
         reasons += [WAITS_FOR_BLOCKER.format(key) for key in self._open_blockers(task)]
         if reasons:
             return reasons
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
         code = self.runner.run_command(task.project, cwd, task.project.test, new_run_id(self.now()))
         return [] if code == 0 else ["the tests fail on this head"]
+
+    def _holds(self, task, pr):
+        """What holds a settled PR's merge whatever the user says: a failing check or an open blocker. They are
+        recorded with the yes the user is asked for, so the user hears of them too."""
+        failing = waits.check_reasons(pr.get("statusCheckRollup"))
+        try:
+            blockers = [WAITS_FOR_BLOCKER.format(key) for key in self._open_blockers(task)]
+        except GitHubError:
+            blockers = []  # the yes is still asked for; the merge gate checks the blockers again after it
+        return ([waits.CI_FAILING] if failing else []) + failing + blockers
 
     def _open_blockers(self, task):
         issue = self.github.issue_text(task.repo, task.number)
@@ -874,7 +886,7 @@ class Supervisor:
         """Merges a settled PR if every condition holds. Returns True if it did, None if the base moved under it."""
         if outcome not in MERGEABLE or not (self.config.auto_merge_for(task.project) or self._approved(task, pr)):
             if worked:
-                self._decide(task, outcome, "the user decides next")
+                self._decide(task, outcome, waits.REASONS_APART.join([waits.USER_DECIDES, *self._holds(task, pr)]))
             return False
         self._pick(task)
         self._phase(task, "merge")

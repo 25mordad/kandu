@@ -142,6 +142,7 @@ tr:last-child td { border-bottom:0; }
 .status-line.fine { --c:#2f8a4e; } .status-line.problem { --c:#e8590c; }
 .status-line.error { --c:#d9604f; } .status-line.stuck { --c:#c43d2f; font-weight:500; }
 .status-line > span:not(.badge) { color:var(--ink); }
+.wait-line { margin:2px 0; padding-inline-start:12px; border-inline-start:3px solid var(--line); }
 .tokenbar { display:block; height:4px; min-width:2px; margin-top:4px; border-radius:2px; background:var(--honey); }
 
 .bee-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 0; border-bottom:1px solid var(--line); }
@@ -565,6 +566,24 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "status_live_check_failed": "It merged, but the live check failed. Read its report, then send it back.",
   "status_loop_stopped": "Kandu stopped it for going round ({detail}). The next step is yours.",
   "status_no_detail": "no reason was recorded",
+  "status_held_before_yes": "The review passed, but something holds the merge whatever you say: {detail}.",
+  "wait_on": "Waits on: {what}.",
+  "wait_where": "Where",
+  "wait_step": "Next step: {step}.",
+  "wait_yes": "your yes",
+  "wait_decision": "your decision",
+  "wait_unknown": "a reason Kandu does not know",
+  "wait_check": "the failing check {name}",
+  "wait_checks": "a failing check on the PR",
+  "wait_blocker": "blocker {name}, not merged yet",
+  "wait_decision_on": "your decision, as {detail}",
+  "step_yes": "approve it here",
+  "step_ask": "ask Didban about it",
+  "step_log": "open the {name} log",
+  "step_check": "open the {name} check on the PR",
+  "step_checks": "open the failing checks on the PR",
+  "step_blocker": "approve {name} first",
+  "wait_held": "Your yes counts once that is cleared.",
   "to_queen": "Stop the tries, ask the queen",
   "to_queen_hint": "Stops Kandu's tries as if the last one had failed, and starts a cycle so the queen looks at it now",
   "to_queen_done": "The tries stopped. The queen looks at it in the cycle that starts now.",
@@ -906,6 +925,24 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "status_live_check_failed": "ادغام شد، اما بررسی زنده شکست خورد. گزارشش را بخوان، بعد برش گردان.",
   "status_loop_stopped": "کندو آن را به خاطر دور زدن متوقف کرد ({detail}). قدم بعدی با توست.",
   "status_no_detail": "دلیلی ثبت نشده",
+  "status_held_before_yes": "بازبینی قبول شد، اما چیزی ادغام را نگه داشته، هرچه تو بگویی: {detail}.",
+  "wait_on": "منتظر: {what}.",
+  "wait_where": "کجا",
+  "wait_step": "قدم بعدی: {step}.",
+  "wait_yes": "تأیید تو",
+  "wait_decision": "تصمیم تو",
+  "wait_unknown": "دلیلی که کندو نمی‌داند",
+  "wait_check": "بررسی ناموفق {name}",
+  "wait_checks": "یک بررسی ناموفق روی PR",
+  "wait_blocker": "پیش‌نیاز {name} که هنوز ادغام نشده",
+  "wait_decision_on": "تصمیم تو، چون {detail}",
+  "step_yes": "همین‌جا تأییدش کن",
+  "step_ask": "از دیدبان درباره‌اش بپرس",
+  "step_log": "لاگ {name} را باز کن",
+  "step_check": "بررسی {name} را روی PR باز کن",
+  "step_checks": "بررسی‌های ناموفق روی PR را باز کن",
+  "step_blocker": "اول {name} را تأیید کن",
+  "wait_held": "تأیید تو وقتی حساب می‌شود که این برطرف شود.",
   "to_queen": "توقف تلاش‌ها، پرسیدن از ملکه",
   "to_queen_hint": "تلاش‌های کندو را طوری متوقف می‌کند که انگار آخری شکست خورده، و چرخه‌ای شروع می‌کند تا ملکه همین حالا نگاهش کند",
   "to_queen_done": "تلاش‌ها متوقف شد. ملکه در چرخه‌ای که الان شروع می‌شود نگاهش می‌کند.",
@@ -2719,7 +2756,35 @@ function statusLine(task) {
   if (status.tries) text += " " + fillIn("status_tries", {this: num(status.tries.this), of: num(status.tries.of)});
   const toQueen = status.why === "internal_error" ? `<button class="btn small" data-to-queen="${esc(task)}" title="${esc(t("to_queen_hint"))}">${t("to_queen")}</button>` : "";
   const cleaned = status.cleaned ? `<p class="muted" dir="auto">${esc(t("cleaned_folder"))}: ${esc(tr(status.cleaned))}</p>` : "";
-  return `<div class="status-line ${esc(status.state)}"><span class="badge">${esc(t(`state_${status.state}`))}</span><span dir="auto">${esc(text)}</span>${toQueen}</div>${cleaned}`;
+  const waiting = waitLines(status.wait).map(line => `<div class="wait-line" dir="auto">${line}</div>`).join("");
+  return `<div class="status-line ${esc(status.state)}"><span class="badge">${esc(t(`state_${status.state}`))}</span><span dir="auto">${esc(text)}</span>${toQueen}</div>${waiting}${cleaned}`;
+}
+
+// What a waiting task waits on, where the problem is and the next step, from the wait the server worked out. Links
+// are drawn only for GitHub and the checks' https pages, as the server keeps them.
+function waitLines(wait) {
+  if (!wait) return [];
+  const checks = wait.checks || [], first = checks[0], blockers = wait.blockers || [];
+  const issue = key => { const [repo, number] = key.split("#"); return `https://github.com/${repo}/issues/${number}`; };
+  let what, step, where = [];
+  if (wait.on === "check") {
+    what = first ? fillIn("wait_check", {name: checks.map(c => c.name).join(", ")}) : t("wait_checks");
+    where = checks.filter(c => c.url).map(c => [c.name, c.url]);
+    step = first ? fillIn(first.url ? "step_log" : "step_check", {name: first.name}) : t("step_checks");
+  } else if (wait.on === "blocker") {
+    what = fillIn("wait_blocker", {name: blockers.join(", ")});
+    where = blockers.map(b => [b, issue(b)]);
+    step = fillIn("step_blocker", {name: blockers[0]});
+  } else if (wait.on === "decision" && (wait.detail || []).length) {
+    what = fillIn("wait_decision_on", {detail: wait.detail.map(tr).join(lang === "fa" ? "؛ " : "; ")});
+    step = t("step_ask");
+  } else {
+    what = t(`wait_${wait.on}`);
+    step = t(wait.on === "yes" ? "step_yes" : "step_ask");
+  }
+  return [esc(fillIn("wait_on", {what})),
+          ...where.map(([name, url]) => `${esc(t("wait_where"))}: <a class="textlink" href="${esc(url)}" target="_blank" rel="noopener" dir="ltr">${esc(name)} ↗</a>`),
+          esc(fillIn("wait_step", {step})), ...(wait.held ? [esc(t("wait_held"))] : [])];
 }
 
 async function toQueen(button) {

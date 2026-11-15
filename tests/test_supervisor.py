@@ -1803,6 +1803,16 @@ class ReviewRoundsTest(Base):
         event = self.events("review_finished")[0]
         self.assertEqual((event["round"], event["head_sha"], event["findings"]), (1, SHA1, 0))
 
+    def test_a_pr_left_to_the_user_records_what_holds_it(self):
+        def review_with_failing_ci():
+            self.github.prs[(REPO, 1)]["statusCheckRollup"] = [{"name": "lint", "conclusion": "FAILURE"}]
+            step = report(SHA1)
+            return step() if callable(step) else step
+        self.runner.steps = [self.worker_makes_pr(), review_with_failing_ci]
+        self.cycle()
+        left = [e["reason"] for e in self.events("decision") if e["decision"] in ("approved", "approved_with_notes")]
+        self.assertEqual(left, ["the user decides next; CI is failing; check lint is failing"])
+
     def test_reviewer_is_fresh(self):
         self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
         self.cycle()
@@ -2417,6 +2427,11 @@ class MergeTest(Base):
     def test_failing_ci_waits(self):
         self.github.prs[(REPO, 1)]["statusCheckRollup"] = [{"conclusion": "FAILURE"}]
         self.waits("CI is failing")
+
+    def test_a_failing_check_is_named_with_its_link(self):
+        self.github.prs[(REPO, 1)]["statusCheckRollup"] = [
+            {"name": "lint", "conclusion": "FAILURE", "detailsUrl": "https://ci.example.com/1"}]
+        self.waits("check lint is failing: https://ci.example.com/1")
 
     def test_running_ci_waits(self):
         self.github.prs[(REPO, 1)]["statusCheckRollup"] = [{"status": "IN_PROGRESS", "conclusion": ""}]

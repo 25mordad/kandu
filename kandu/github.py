@@ -74,7 +74,7 @@ PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDr
 # Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
 PR_DEEP = """files(first: 100) { nodes { path additions deletions } }
   commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 50) { nodes {
-    __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }
+    __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } } } }
   reviewThreads(first: 20) { nodes { isResolved resolvedBy { login } path line
     comments(first: 20) { nodes { author { login } body createdAt } } } }"""
 # One request reads what a repo holds for Kandu: what changed in its issues, every open PR, the PRs that closed lately.

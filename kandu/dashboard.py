@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, review, sessions, split, tasks,
-               timer, tries, upstream)
+               timer, tries, upstream, waits)
 from .config import (DEFAULT_LOCAL_DIR, PACE_SETTINGS, REGISTRY_SETTINGS, TECHNICAL_DEBT, ConfigError, Inspect,
                      load_config, set_backup, set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_pace,
                      set_parallel, set_project_values, set_show_requests)
@@ -47,7 +47,7 @@ QUEUE_COLUMNS = (DONE, "Backlog", "Ready", "In progress", "In review", "Needs in
 TOOL_DETAIL_KEYS = ("file_path", "path", "pattern", "command")
 MAX_DETAIL = 200
 CARD_KEYS = ("title", "url", "status", "labels", "priority", "kind", "size", "deadline", "closed_at", "item_id")
-USER_DECIDES = "the user decides next"
+USER_DECIDES = waits.USER_DECIDES
 WAITS_FOR_BLOCKER = re.compile(r"blocker \S+#\d+ is not merged yet")  # as the merge gate words it
 REASONS_APART = "; "  # how the merge gate joins its reasons in one decision
 ONE_WAY_DOOR = "this is a one-way door"  # as `merge.merge_waits` words it: with the review's questions, all a yes answers
@@ -71,22 +71,18 @@ def recommendation(record):
     return "ready to merge"
 
 
-# Why a merge waits, as `merge.merge_waits` and the supervisor word it. A reason that passes by itself, or one only the
-# user's choice holds, is not a problem; one here needs a fix. Anything else is the review's question for the user.
-MERGE_PROBLEMS = ("this head has no review in the local log", "a blocker is open", "an acceptance criterion is not met",
-                  "the PR is a draft", "the PR has conflicts", "CI is failing", "a review thread is open",
-                  "a thread was resolved by someone other than its author", "the tests fail on this head")
-MERGE_PENDING = re.compile(r"(CI is running|the project is frozen|companion .+ is open and unreviewed|"
-                           r"blocker \S+#\d+ is not merged yet)")
+MERGE_PROBLEMS, MERGE_PENDING = waits.MERGE_PROBLEMS, waits.MERGE_PENDING  # why a merge waits: see waits.py
 MERGE_WAITS_TOO_OFTEN = 2  # a merge held this often in a row will not pass by itself
 SETTLED = ("approved", "approved_with_notes")  # Kandu takes the PR as it is; a round that pushed nothing is over
 STOPPED = ("blocked", "needs_info", "sizing_failed", "failed", "deploy_failed", "live_check_failed")
 
 
-def _status(state, why=None, detail=None, tries_=None):
+def _status(state, why=None, detail=None, tries_=None, wait=None):
     """`state` is fine, problem, error or stuck; `why` names the reason the page puts in a sentence, `detail` is the
-    log's own words. `tries`: in Kandu's own error, which try failed and how many Kandu makes before it stops."""
-    return {"state": state, "why": why, "detail": detail, "tries": tries_}
+    log's own words. `tries`: in Kandu's own error, which try failed and how many Kandu makes before it stops.
+    `wait`: what the task waits on from the user, where and the next step (waits.py), or None if it waits on nobody.
+    """
+    return {"state": state, "why": why, "detail": detail, "tries": tries_, "wait": wait}
 
 
 def task_statuses(events):
@@ -103,8 +99,20 @@ def task_statuses(events):
         seen = found.setdefault(task, {"status": _status("fine"), "stuck": False, "ended": False, "approved": False,
                                        "waits": 0, "no_commit": None, "failed": None, "tries": 0, "cleaned": None})
 
-        def say(state, why=None, detail=None, stuck=False, tries_=None):
-            seen.update(status=_status(state, why, detail, tries_), stuck=stuck)
+        def say(state, why=None, detail=None, stuck=False, tries_=None, wait=None):
+            wait = waits.decision() if stuck and wait is None else wait
+            seen.update(status=_status(state, why, detail, tries_, wait), stuck=stuck)
+
+        def settled(reason):
+            """Kandu settled the PR. Left to the user, it waits for their yes, unless a check or a blocker holds it."""
+            if not waits.user_decides(reason):
+                return say("fine")
+            wait = waits.settled(reason)
+            if wait is not None and wait["held"]:  # the check's name and link are in the wait; the detail keeps words
+                holds = reason.split(REASONS_APART)[1:]
+                return say("problem", "held_before_yes",
+                           REASONS_APART.join(r for r in holds if not waits.CHECK_REASON.fullmatch(r)), wait=wait)
+            say("fine", "waits_for_you", wait=wait)
         if kind in tries.PROGRESS:
             seen.update(tries=0, cleaned=None)
         if kind == "review_finished":
@@ -149,22 +157,23 @@ def task_statuses(events):
                 continue  # nothing but the user, the queen, a new head or Kandu settling the PR moves it on
             elif decision in SETTLED and seen["stuck"]:
                 seen["no_commit"] = None  # Kandu took the PR as it is, so the round that pushed nothing is behind it
-                say("fine", "waits_for_you" if reason == USER_DECIDES else None)
+                settled(reason)
             elif decision == "merge_waits":
                 reasons = reason.split(REASONS_APART)
                 problems = [r for r in reasons if r in MERGE_PROBLEMS]
+                wait = waits.from_reasons(reasons)
                 if problems:
                     seen["waits"] += 1
                     if seen["approved"] or seen["waits"] >= MERGE_WAITS_TOO_OFTEN:
-                        say("stuck", "merge_held", REASONS_APART.join(problems), stuck=True)
+                        say("stuck", "merge_held", REASONS_APART.join(problems), stuck=True, wait=wait)
                     else:
-                        say("problem", "merge_waits", REASONS_APART.join(problems))
+                        say("problem", "merge_waits", REASONS_APART.join(problems), wait=wait)
                 elif all(MERGE_PENDING.fullmatch(r) for r in reasons):
-                    say("fine", "merge_pending", reason)
+                    say("fine", "merge_pending", reason, wait=wait)
                 else:
-                    say("fine", "waits_for_you")
-            elif reason == USER_DECIDES and decision in SETTLED:
-                say("fine", "waits_for_you")
+                    say("fine", "waits_for_you", wait=wait)
+            elif decision in SETTLED and waits.user_decides(reason):
+                settled(reason)
     return {task: seen["status"] | {"cleaned": seen["cleaned"]} for task, seen in found.items()}
 
 
@@ -189,8 +198,9 @@ def flower_marks(store):
         elif kind == "decision" and event["decision"] == "merge_waits":
             reasons = event["reason"].split(REASONS_APART)
             mark |= {"pr": "held" if held_by_blockers(reasons) else "waits", "waited": reasons}
-        elif kind == "decision" and event["reason"] == USER_DECIDES:
-            mark |= {"pr": "waits", "yours": True}
+        elif kind == "decision" and waits.user_decides(event["reason"]):
+            holds = event["reason"].split(REASONS_APART)[1:]  # what holds the merge whatever the user says
+            mark |= {"pr": "held" if held_by_blockers(holds) else "waits", "yours": True, "waited": holds}
         elif kind == "loop_stopped":
             mark["yours"] = True
         elif kind in ("user_approved", "queen_approved"):
@@ -212,6 +222,12 @@ def flower_marks(store):
     for asked in (queen.last_report(store) or {}).get("questions", []):
         if asked["task"] in marks:
             marks[asked["task"]]["yours"] = True
+            status = marks[asked["task"]]["status"]
+            if status is not None and status["wait"] is None:  # the queen asks the user: their decision
+                marks[asked["task"]]["status"] = status | {"wait": waits.decision()}
+    for mark in marks.values():
+        if mark["yours"] and mark["status"] is not None and mark["status"]["wait"] is None:
+            mark["status"] = mark["status"] | {"wait": waits.unknown()}  # it waits for the user, and nothing says why
     return marks
 
 

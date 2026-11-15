@@ -12,6 +12,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
+from . import waits
 from .queen import COULD_NOT_FINISH
 
 TIMEOUT_SECONDS = 10
@@ -31,7 +32,7 @@ READY_FOR_USER = ("approved", "approved_with_notes")
 # The first line of every message says how soon the user must act, so a glance sorts them.
 STUCK, YOUR_TURN, DONE, FOR_YOUR_INFO = "stuck", "your_turn", "done", "for_your_info"
 MARKS = {STUCK: "🔴", YOUR_TURN: "🟡", DONE: "🟢", FOR_YOUR_INFO: "⚪"}
-LEVELS = {"pr_ready": YOUR_TURN, "split": YOUR_TURN, "flight_left_open": YOUR_TURN,
+LEVELS = {"pr_ready": YOUR_TURN, "pr_held": YOUR_TURN, "split": YOUR_TURN, "flight_left_open": YOUR_TURN,
           "task_done": DONE, "task_replaced": DONE,
           "split_made": FOR_YOUR_INFO,
           "queen_split": FOR_YOUR_INFO,
@@ -63,6 +64,7 @@ MESSAGES = {
                             "Free flights list when you are done with it.",
         "queen_asks": "The queen has a question about {task}. It is on the dashboard.",
         "loop_stopped": "The queen went round on {task} without getting it done, so Kandu stopped it. It waits for you.",
+        "pr_held": "The PR of {task} passed review, but something holds its merge.",
         "pr_ready": "The PR of {task} is ready for your approval.",
         "task_done": "{task} is merged and done.",
         "split_made": "Kandu split {task} into smaller tasks by itself. Every slice can be undone.",
@@ -99,6 +101,7 @@ MESSAGES = {
                             "از فهرست پروازهای آزاد ببندش.",
         "queen_asks": "ملکه درباره‌ی {task} سؤالی دارد. سؤالش در داشبورد است.",
         "loop_stopped": "ملکه روی {task} دور خودش چرخید و کار جلو نرفت، پس کندو آن را متوقف کرد. منتظر تو است.",
+        "pr_held": "PR مربوط به {task} بازبینی را رد کرد، ولی چیزی ادغامش را نگه داشته است.",
         "pr_ready": "PR مربوط به {task} آماده‌ی تأیید تو است.",
         "task_done": "{task} ادغام شد و تمام شد.",
         "split_made": "کندو {task} را خودش به تسک‌های کوچک‌تر شکست. همه‌ی تکه‌ها برگشت‌پذیرند.",
@@ -125,6 +128,7 @@ class Message:
     key: str | None = None  # the same key is told once; None for something that happens once anyway
     until_clear: bool = False  # told again after the supervisor has left this state
     values: dict = field(default_factory=dict)
+    wait: dict | None = None  # what the task waits on from the user, where and the next step (waits.py)
 
 
 def _sleep_message(reason):
@@ -140,8 +144,14 @@ def _sleep_message(reason):
     return Message("supervisor_stopped", "stopped", "sleep:stopped", True)
 
 
-def _task_message(kind, text, event):
-    return Message(kind, text, values={"task": event["task"]})
+def _task_message(kind, text, event, wait=None):
+    return Message(kind, text, values={"task": event["task"]}, wait=wait)
+
+
+def _ready_message(event):
+    """A PR left to the user. When a failing check or an open blocker holds it, the yes is not the next step."""
+    wait = waits.settled(event["reason"]) or waits.yes()
+    return _task_message("pr_ready", "pr_held" if wait["held"] else "pr_ready", event, wait)
 
 
 def message_for(event, queen=False):
@@ -151,14 +161,14 @@ def message_for(event, queen=False):
         return None
     if kind == "loop_stopped":
         return Message("needs_decision", "loop_stopped", f"loop_stopped:{event['task']}:{event['ts']}",
-                       values={"task": event["task"]})
+                       values={"task": event["task"]}, wait=waits.decision())
     if kind == "supervisor_slept":
         return _sleep_message(event["reason"])
     if kind == "task_finished":
         if event["outcome"] in FAILED_OUTCOMES:
             return _task_message("failure", FAILED_OUTCOMES[event["outcome"]], event)
         if event["outcome"] in STUCK_OUTCOMES:
-            return _task_message("needs_decision", STUCK_OUTCOMES[event["outcome"]], event)
+            return _task_message("needs_decision", STUCK_OUTCOMES[event["outcome"]], event, waits.decision())
         if event["outcome"] == "merged":
             return _task_message("task_done", "task_done", event)
         if event["outcome"] == "replaced":
@@ -169,7 +179,7 @@ def message_for(event, queen=False):
         return Message("needs_decision", "flight_left_open", f"flight_left_open:{event['task']}:{event['session']}",
                        values={"task": event["task"]})
     if kind == "decision" and event["decision"] == "split_waits":
-        return _task_message("needs_decision", "split", event)
+        return _task_message("needs_decision", "split", event, waits.yes())
     if kind == "decision" and event["decision"] == "split_approved":
         return _task_message("task_done", "split_made", event)
     if kind == "queen_accepted_split":
@@ -178,9 +188,9 @@ def message_for(event, queen=False):
         return Message("task_done", "blocker_rewritten",
                        values={"task": event["task"], "old": event["old"], "new": event["new"]})
     if kind == "queen_decided" and event["action"] in ("ask_user", "drop_blocker"):
-        return _task_message("needs_decision", "queen_asks", event)
+        return _task_message("needs_decision", "queen_asks", event, waits.decision())
     if kind == "decision" and event["decision"] in READY_FOR_USER:
-        return _task_message("pr_ready", "pr_ready", event)
+        return _ready_message(event)
     if kind == "decision" and event["decision"] == "over_budget":
         key = f"over_budget:{event['project']}:{event['ts'][:10]}"
         return Message("usage_limit", "project_limit", key, values={"project": event["project"]})
@@ -197,6 +207,8 @@ def _render(message, language):
     words = MESSAGES.get(language, MESSAGES["en"])
     level = LEVELS.get(message.text, STUCK)
     text = f"{MARKS[level]} {words[level]}\n" + words[message.text].format(**message.values)
+    if message.wait:  # what it waits on, where and the next step
+        text += "".join(f"\n{line}" for line in waits.lines(message.wait, language))
     task = message.values.get("task")
     if task is None:
         return text
