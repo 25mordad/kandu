@@ -123,7 +123,8 @@ def open_task(store, github):
 
 
 def task_text(behind, ahead, remote, branch, url):
-    """The task's title and body: bring the commits in through a PR, keep the install's own changes."""
+    """The task's title and body: bring the commits in through a PR, keep the install's own changes
+    except those upstream merged, where upstream's version wins."""
     commits = f"{behind} commit{'s' if behind != 1 else ''}"
     theirs = f"`{remote}/{branch}`"
     own = f", and holds {ahead} commit{'s' if ahead != 1 else ''} of its own" if ahead else ""
@@ -139,6 +140,7 @@ The last upstream check found `main` {commits} behind {theirs}{own}.
 ## Acceptance criteria
 - [ ] The {commits} of {theirs} that `main` lacks are merged into this task's branch, and its PR targets `main`.
 - [ ] Where an upstream change conflicts with the install's own change, the install's own change is kept.
+- [ ] Where the install's own change was sent upstream and merged there, perhaps edited, the upstream version is kept, so `main` holds one version of it. Such a change is an install commit whose subject matches an upstream commit's, which may end in ` (#N)`.
 - [ ] The project's tests pass on the branch.
 
 ## How to test

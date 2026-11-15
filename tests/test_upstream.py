@@ -249,6 +249,7 @@ class BringInTest(Base):
         self.assertIn("2 commit", text)
         self.assertIn("`main`", text)
         self.assertIn("own change", text)
+        self.assertIn("merged there", text)  # a change sent upstream takes upstream's version
         self.assertIn("tests pass", text)
         self.assertIn("through", text.lower())
         board = load_config(self.local).projects[0].board
