@@ -350,34 +350,27 @@ class FlightOnATaskTest(unittest.TestCase):
 
     # Closing by itself.
 
-    def test_a_task_session_closes_by_itself_once_its_issue_is_closed(self):
+    def test_a_task_session_whose_issue_closes_is_left_to_the_cleanup_and_the_cycle(self):
         key = self.open_task()
-        self.transcript(self.started(key), {"output_tokens": 7})
-        self.assertEqual(self.flights.close_finished(), [])
+        session = self.started(key)
+        self.transcript(session, {"output_tokens": 7})
+        self.idle(session, 0)
         self.copy.open_issue = False
-        self.assertEqual(self.flights.close_finished(), [key])
-        self.assertNotIn(key, self.host.running)
-        listed = self.flights.list()
-        self.assertEqual(listed["open"], [])
-        self.assertEqual((listed["flown"][0]["task"], listed["flown"][0]["tokens"]["output"]), ("acme-org/website#6", 7))
+        self.assertEqual(self.flights.close_finished(), [])
+        self.time[0] += 3 * 24 * 3600
+        self.assertEqual(self.flights.close_finished(), [])
+        self.assertIn(key, self.host.running)
+        self.assertEqual([r["key"] for r in self.flights.list()["open"]], [key])
 
-    def test_a_task_session_opened_on_a_closed_issue_stays_open_until_idle(self):
+    def test_a_task_session_opened_on_a_closed_issue_never_closes_by_itself(self):
         self.copy.open_issue = False
         key = self.open_task()
         session = self.started(key)
         self.transcript(session, {"output_tokens": 7})
         self.idle(session, 0)
+        self.time[0] += 3 * 24 * 3600
         self.assertEqual(self.flights.close_finished(), [])
         self.assertIn(key, self.host.running)
-        self.time[0] += flights.IDLE_SECONDS
-        self.assertEqual(self.flights.close_finished(), [key])
-
-    def test_a_task_session_whose_issue_could_not_be_read_at_start_closes_only_when_idle(self):
-        self.copy.open_issue = None
-        key = self.open_task()
-        self.transcript(self.started(key), {"output_tokens": 7})
-        self.copy.open_issue = False
-        self.assertEqual(self.flights.close_finished(), [])
 
     def test_a_task_session_closes_by_itself_after_twelve_idle_hours(self):
         key = self.open_task()

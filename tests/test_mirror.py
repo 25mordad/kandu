@@ -396,6 +396,20 @@ class MirrorTest(unittest.TestCase):
         self.assertIsNone(self.mirror.issue_closure(REPO, 3)["reason"])
         self.assertIn("read_issue", self.names())
 
+    def test_when_an_issue_closed_comes_from_the_copy(self):
+        self.remote.issues[3].update(state="CLOSED", stateReason="NOT_PLANNED", closedAt="2026-11-02T09:00:00Z")
+        self.assertEqual(self.mirror.issue_closed_at(REPO, 3), "2026-11-02T09:00:00Z")
+        self.assertNotIn("read_issue", self.names())
+
+    def test_an_issue_kept_before_the_copy_kept_when_it_closed_is_read_once_more(self):
+        self.remote.issues[3]["state"] = "CLOSED"
+        self.mirror.issue_closure(REPO, 3)
+        self.remote.issues[3]["closedAt"] = "2026-11-02T09:00:00Z"
+        self.assertEqual(self.mirror.issue_closed_at(REPO, 3), "2026-11-02T09:00:00Z")
+
+    def test_an_open_issue_has_no_close_time(self):
+        self.assertIsNone(self.mirror.issue_closed_at(REPO, 3))
+
     def test_an_open_issue_has_no_closure(self):
         self.assertIsNone(self.mirror.issue_closure(REPO, 3))
 

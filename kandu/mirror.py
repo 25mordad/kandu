@@ -293,6 +293,16 @@ class Mirror:
             issue = self._repo(repo)["issues"][str(number)]
         return closure(issue)
 
+    def issue_closed_at(self, repo, number):
+        """When the issue was last closed, as GitHub writes it, or None while it is open."""
+        issue = self._issue(repo, number)
+        if issue is None:
+            raise GitHubError(f"{repo}#{number}: no such issue")
+        if issue["state"] != "OPEN" and "closedAt" not in issue:  # kept before the copy kept when
+            self._put(repo, "issues", number, self.remote.read_issue(repo, number))
+            issue = self._repo(repo)["issues"][str(number)]
+        return None if issue["state"] == "OPEN" else issue.get("closedAt")
+
     def default_branch(self, repo):
         return self._repo(repo)["default_branch"]
 

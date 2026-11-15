@@ -23,6 +23,7 @@ from pathlib import Path
 
 from . import agents, clean, debt, merge, queen, questions, review, show, sizing, split, tasks
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
+from .flights import Flights
 from .github import TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
 from .mirror import open_github
 from .notify import notifier_for
@@ -219,8 +220,9 @@ def _at_work(item, events, github):
 
 class Supervisor:
     def __init__(self, config, store, github, runner, usage_reader, local_dir=DEFAULT_LOCAL_DIR, now=None,
-                 sleep=time.sleep):
+                 sleep=time.sleep, flights=None):
         self.config = config
+        self.flights = flights or Flights(config, store)  # the free flights, which the merge cleanup may end
         self.store = store
         self.github = github
         self.runner = runner
@@ -1889,6 +1891,7 @@ class Supervisor:
             except (GitHubError, RunnerError) as e:
                 self.queen_trouble = type(e).__name__
             reason = self._work_through_board()
+        self._tell_open_flights()
         self._clean(clean_since)
         if self.queen_trouble is not None:
             reason = f"{reason}; the queen could not look: {self.queen_trouble}"
@@ -1900,7 +1903,12 @@ class Supervisor:
         """After the work: a merged task's folders and branches go. It costs no tokens, so no limit holds it back."""
         if not self.config.settings.supervisor.clean_merged or self.stop_file.exists():
             return
-        clean.Cleaner(self.config, self.store, self.github, self.runner).run(since)
+        clean.Cleaner(self.config, self.store, self.github, self.runner, flights=self.flights,
+                      clock=lambda: self.now().timestamp()).run(since)
+
+    def _tell_open_flights(self):
+        """A task closed without a merge while its free flight is still open: the user hears once."""
+        clean.tell_open_flights(self.store, self.github, self.flights)
 
     def _work_through_board(self):
         try:

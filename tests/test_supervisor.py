@@ -2,6 +2,7 @@ import fcntl
 import io
 import contextlib
 import json
+import os
 import re
 from dataclasses import replace
 import shutil
@@ -15,6 +16,8 @@ from unittest import mock
 
 from kandu import agents, notify, queen, questions, review, split, supervisor, tasks
 from kandu.config import Rules, load_config
+from kandu.flights import Flights, task_key
+from kandu.notify import Notifier
 from kandu.github import BoardItem, GitHubError
 from kandu.runner import AgentResult, LocalWork, RunnerError
 from kandu.state import StateStore
@@ -123,6 +126,9 @@ class FakeGitHub:
         self.statuses[url] = status
 
     def issue_is_open(self, repo, number):
+        return (repo, number) in self.open_issues
+
+    def copied_issue_open(self, repo, number):
         return (repo, number) in self.open_issues
 
     def issue_closure(self, repo, number):
@@ -3137,6 +3143,153 @@ class LockTest(Base):
 class ExampleConfigTest(Base):
     def test_family_repos_are_found(self):
         self.assertEqual(self.sup._family_repos(self.config.projects[0]), [REPO, OTHER_REPO])
+
+
+class FreeFlightCycleTest(Base):
+    """A cycle ends a quiet free flight on a merged task under the cleanup's switch, and tells of one left open on a
+    task closed without a merge. The clock, session and tmux are pretend."""
+
+    MERGED = "2026-10-30T13:00:00+00:00"
+
+    def setUp(self):
+        super().setUp()
+        self.github.issue_closed_at = lambda repo, number: self.closed_at
+        self.closed_at = None
+        self.killed = []
+        self.flights = Flights(self.config, self.store, self.root / "logs", run=self.tmux,
+                               clock=lambda: self.clock[0].timestamp(), projects_dir=self.root / "projects",
+                               github=self.github)
+        self.sent = []
+        adapter = SimpleNamespace(send=self.sent.append)
+        self.store.listeners.append(Notifier(self.store, adapter, ["needs_decision"], "en").on_event)
+
+    def tmux(self, command, **kwargs):
+        if command[3] == "kill-server":
+            self.killed.append(Path(command[2]).stem)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def open_flight(self, issue, opened):
+        task = f"{REPO}#{issue}"
+        key = task_key(task)
+        self.store.write_flight({"key": key, "kind": "task", "task": task, "project": "website", "session": "s",
+                                 "started": "t", "epoch": opened.timestamp(), "url": "u", "error": "",
+                                 # as an earlier Kandu kept it: whether the issue was open when the flight opened
+                                 "issue_open": (REPO, issue) in self.github.open_issues})
+        self.store.flight_socket(key).touch()
+        return key
+
+    def write_in_session(self, at):
+        """Something is written in the flight's transcript at this time."""
+        folder = self.root / "projects" / "here"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / "s.jsonl"
+        line = {"type": "assistant", "timestamp": "2026-10-30T13:00:00Z",
+                "message": {"id": "m", "usage": {"output_tokens": 7}, "content": []}}
+        path.write_text(json.dumps(line) + "\n", encoding="utf-8")
+        os.utime(path, (at.timestamp(), at.timestamp()))
+
+    def sync_and_cycle(self):
+        """The sync's timer and the supervisor's cycle both run, as they do live."""
+        closed = self.flights.close_finished()
+        self.cycle()
+        return closed
+
+    def merged_by_hand(self, issue):
+        self.github.add(issue, "Done")
+        self.github.open_pr(REPO, issue, SHA2, state="MERGED").update(number=8, mergedAt=self.MERGED)
+
+    def cycle(self):
+        self.sup = Supervisor(self.config, self.store, self.github, self.runner, lambda: self.usage, self.local,
+                              now=lambda: self.clock[0], flights=self.flights)
+        return self.sup.cycle()
+
+    def test_a_quiet_flight_on_a_merged_task_ends_and_the_next_cycle_cleans_up(self):
+        self.merged_by_hand(2)
+        key = self.open_flight(2, NOW)
+        self.cycle()  # the cleanup begins here, before the merge
+        self.clock[0] = datetime.fromisoformat(self.MERGED) + timedelta(minutes=121)
+        self.cycle()
+        self.assertIsNone(self.store.flight(key))
+        self.assertEqual(self.killed, [key])
+        self.assertEqual([e["task"] for e in self.events("flight_ended")], [f"{REPO}#2"])
+        self.assertFalse(hasattr(self.runner, "cleaned"))
+        self.cycle()
+        self.assertIn((REPO, "kandu/2-task", ("2-task", "2-task-review", "check-2-review")), self.runner.cleaned)
+        self.assertEqual(self.sent, [])
+
+    def test_with_the_cleanup_off_a_flight_does_not_end_by_itself(self):
+        self.config.settings.supervisor.clean_merged = False
+        self.merged_by_hand(2)
+        key = self.open_flight(2, NOW)
+        self.cycle()
+        self.clock[0] = datetime.fromisoformat(self.MERGED) + timedelta(days=3)
+        self.cycle()
+        self.assertIsNotNone(self.store.flight(key))
+        self.assertEqual((self.killed, self.events("flight_ended")), ([], []))
+
+    def test_a_task_closed_without_a_merge_is_told_once_and_its_flight_stays(self):
+        self.github.add(2, "Done")
+        self.github.open_issues.discard((REPO, 2))
+        self.closed_at = "2026-10-30T13:00:00Z"
+        key = self.open_flight(2, NOW)
+        self.clock[0] = NOW + timedelta(days=3)
+        self.cycle()
+        self.cycle()
+        self.assertEqual(len(self.sent), 1)
+        self.assertTrue(self.sent[0].startswith("🟡"))
+        self.assertIn(f"{REPO}#2", self.sent[0])
+        self.assertIsNotNone(self.store.flight(key))
+        self.assertEqual(self.killed, [])
+
+    def test_the_sync_leaves_a_flight_on_a_task_closed_without_a_merge_for_the_cycle_to_tell(self):
+        self.github.add(2, "Done")
+        self.github.open_issues.add((REPO, 2))
+        key = self.open_flight(2, NOW)
+        self.clock[0] = NOW + timedelta(hours=1)
+        self.write_in_session(self.clock[0])
+        self.assertEqual(self.sync_and_cycle(), [])
+        self.github.open_issues.discard((REPO, 2))
+        self.closed_at = (NOW + timedelta(hours=2)).isoformat()
+        self.clock[0] = NOW + timedelta(hours=2, minutes=5)
+        self.write_in_session(self.clock[0])
+        self.assertEqual(self.sync_and_cycle(), [])
+        self.clock[0] = NOW + timedelta(days=3)  # long idle
+        self.assertEqual(self.sync_and_cycle(), [])
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn(f"{REPO}#2", self.sent[0])
+        self.assertIsNotNone(self.store.flight(key))
+        self.assertEqual((self.killed, self.events("flight_ended")), ([], []))
+
+    def test_the_sync_leaves_a_fresh_flight_on_a_task_merged_with_its_issue_closed_to_the_quiet_rule(self):
+        self.merged_by_hand(2)
+        self.github.open_issues.discard((REPO, 2))  # its PR closed it
+        self.closed_at = self.MERGED
+        key = self.open_flight(2, NOW)
+        self.cycle()  # the cleanup begins here, before the merge
+        merged = datetime.fromisoformat(self.MERGED)
+        self.clock[0] = merged + timedelta(minutes=30)
+        self.write_in_session(merged + timedelta(minutes=29))
+        self.assertEqual(self.sync_and_cycle(), [])
+        self.assertIsNotNone(self.store.flight(key))
+        self.clock[0] = merged + timedelta(minutes=29 + 119)
+        self.assertEqual(self.sync_and_cycle(), [])
+        self.assertIsNotNone(self.store.flight(key))
+        self.clock[0] = merged + timedelta(minutes=29 + 120)
+        self.assertEqual(self.sync_and_cycle(), [])
+        self.assertIsNone(self.store.flight(key))
+        self.assertEqual(self.killed, [key])
+        self.assertEqual([e["task"] for e in self.events("flight_ended")], [f"{REPO}#2"])
+        self.assertEqual(self.sent, [])
+
+    def test_the_sync_never_ends_a_flight_opened_after_its_task_closed(self):
+        self.github.add(2, "Done")
+        self.github.open_issues.discard((REPO, 2))
+        self.closed_at = "2026-10-30T13:00:00Z"
+        key = self.open_flight(2, datetime.fromisoformat("2026-10-31T09:00:00+00:00"))
+        self.clock[0] = datetime.fromisoformat("2026-10-31T09:00:00+00:00") + timedelta(days=3)
+        self.assertEqual(self.sync_and_cycle(), [])
+        self.assertIsNotNone(self.store.flight(key))
+        self.assertEqual((self.killed, self.sent), ([], []))
 
 
 if __name__ == "__main__":

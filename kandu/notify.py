@@ -31,7 +31,8 @@ READY_FOR_USER = ("approved", "approved_with_notes")
 # The first line of every message says how soon the user must act, so a glance sorts them.
 STUCK, YOUR_TURN, DONE, FOR_YOUR_INFO = "stuck", "your_turn", "done", "for_your_info"
 MARKS = {STUCK: "🔴", YOUR_TURN: "🟡", DONE: "🟢", FOR_YOUR_INFO: "⚪"}
-LEVELS = {"pr_ready": YOUR_TURN, "split": YOUR_TURN, "task_done": DONE, "task_replaced": DONE,
+LEVELS = {"pr_ready": YOUR_TURN, "split": YOUR_TURN, "flight_left_open": YOUR_TURN,
+          "task_done": DONE, "task_replaced": DONE,
           "split_made": FOR_YOUR_INFO,
           "queen_split": FOR_YOUR_INFO,
           "blocker_rewritten": FOR_YOUR_INFO,
@@ -58,6 +59,8 @@ MESSAGES = {
         "task_replaced": "{task} was done by another PR or commit, so Kandu closed its own PR.",
         "card_stuck": "{task} is in Ready, but its issue is closed, so Kandu cannot work on it. It takes no worker's place.",
         "split": "A proposal to split {task} waits for you.",
+        "flight_left_open": "{task} was closed without a merge, but its free flight is still open. End it from the "
+                            "Free flights list when you are done with it.",
         "queen_asks": "The queen has a question about {task}. It is on the dashboard.",
         "loop_stopped": "The queen went round on {task} without getting it done, so Kandu stopped it. It waits for you.",
         "pr_ready": "The PR of {task} is ready for your approval.",
@@ -92,6 +95,8 @@ MESSAGES = {
         "task_replaced": "{task} با PR یا کامیت دیگری انجام شد و کندو PR خودش را بست.",
         "card_stuck": "{task} در Ready است، ولی issue آن بسته است و کندو نمی‌تواند رویش کار کند. جای هیچ کارگری را نمی‌گیرد.",
         "split": "پیشنهاد تقسیم {task} منتظر تو است.",
+        "flight_left_open": "{task} بدون ادغام بسته شد، ولی پرواز آزادش هنوز باز است. هر وقت کارت با آن تمام شد، "
+                            "از فهرست پروازهای آزاد ببندش.",
         "queen_asks": "ملکه درباره‌ی {task} سؤالی دارد. سؤالش در داشبورد است.",
         "loop_stopped": "ملکه روی {task} دور خودش چرخید و کار جلو نرفت، پس کندو آن را متوقف کرد. منتظر تو است.",
         "pr_ready": "PR مربوط به {task} آماده‌ی تأیید تو است.",
@@ -160,6 +165,9 @@ def message_for(event, queen=False):
             return _task_message("task_done", "task_replaced", event)
     if kind == "card_stuck":
         return Message("failure", "card_stuck", f"card_stuck:{event['task']}", values={"task": event["task"]})
+    if kind == "flight_left_open":
+        return Message("needs_decision", "flight_left_open", f"flight_left_open:{event['task']}:{event['session']}",
+                       values={"task": event["task"]})
     if kind == "decision" and event["decision"] == "split_waits":
         return _task_message("needs_decision", "split", event)
     if kind == "decision" and event["decision"] == "split_approved":

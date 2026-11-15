@@ -81,6 +81,8 @@ EVENT_FIELDS = {
     "cleaned": TASK_FIELDS + ("what", "target"),
     "clean_kept": TASK_FIELDS + ("what", "target", "reason"),
     "clean_finished": TASK_FIELDS + ("pr",),
+    "flight_ended": TASK_FIELDS + ("reason",),  # a quiet free flight on a merged task, ended by the cleanup
+    "flight_left_open": TASK_FIELDS + ("session",),  # a task closed without a merge while its free flight is open
     "clean_merged_changed": ("enabled",),
     "project_added": ("project",),
     "project_removed": ("project",),

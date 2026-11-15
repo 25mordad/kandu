@@ -66,8 +66,8 @@ COMMENTS = "comments(last: 100) { nodes { author { login } body createdAt } }"
 CLOSER = ("timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { "
           "closer { __typename ... on PullRequest { number merged repository { nameWithOwner } } "
           "... on Commit { oid repository { nameWithOwner } } } } } }")
-ISSUE_NODE = (f"number title body url state stateReason updatedAt labels(first: 30) {{ nodes {{ name }} }} {COMMENTS} "
-              f"{BLOCKED_BY_NODE} {CLOSER}")
+ISSUE_NODE = (f"number title body url state stateReason closedAt updatedAt labels(first: 30) {{ nodes {{ name }} }} "
+              f"{COMMENTS} {BLOCKED_BY_NODE} {CLOSER}")
 PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable mergedAt "
            "updatedAt "
            f"labels(first: 30) {{ nodes {{ name }} }} {COMMENTS}")
@@ -182,7 +182,7 @@ def _issue(node):
     return {"number": node["number"], "title": node["title"], "body": node.get("body") or "", "url": node["url"],
             "state": node["state"], "labels": [label["name"] for label in node["labels"]["nodes"]],
             "updatedAt": node.get("updatedAt"), "comments": _comments(node), "blocked_by": _blocked_by(node),
-            "stateReason": node.get("stateReason"), "closedBy": _closer(node)}
+            "stateReason": node.get("stateReason"), "closedBy": _closer(node), "closedAt": node.get("closedAt")}
 
 
 def _closer(node):

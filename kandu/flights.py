@@ -106,10 +106,7 @@ class Flights:
 
     def open_task(self, project, repo, number, language):
         task = f"{repo}#{number}"
-        # Whether its issue is open now: a session opened on a closed issue (a Blocked task whose deploy failed,
-        # say) is the user's choice, so only an issue that closes while it runs closes it.
-        self._open(task_key(task), {"kind": "task", "task": task, "project": project.name,
-                                    "issue_open": self._issue_open(repo, number)},
+        self._open(task_key(task), {"kind": "task", "task": task, "project": project.name},
                    lambda session: self._task(session, project, repo, number, language))
 
     def _open(self, key, fields, prepare):
@@ -272,9 +269,20 @@ class Flights:
             self._land(record)
         return True
 
+    def last_write(self, record):
+        """When something was last written in the session: its transcript's last change, or else its start."""
+        path = sessions.transcript(record["session"], self.projects_dir)
+        try:
+            written = path.stat().st_mtime if path else 0
+        except OSError:
+            written = 0
+        return max(written, record["epoch"])
+
     def close_finished(self):
-        """Closes each task's session whose issue closed in Kandu's copy since it opened, or that had no activity
-        for 12 hours. One opened on an issue already closed stays until it is idle.
+        """Closes each task's session that had no activity for 12 hours while its issue is not closed in Kandu's copy.
+
+        A session on a closed issue is never closed here: the merge cleanup ends one opened before the merge once it
+        is quiet, and the cycle tells the user of one left open on a task closed without a merge (DESIGN §4, §13).
 
         Kandu's own schedule calls it, so no page needs to be open. Didban and Zanbourdar are never closed here,
         nor a session still starting or one that failed to. Each closed one is summed up as one closed by hand.
@@ -297,18 +305,9 @@ class Flights:
 
     def _finished(self, record):
         repo, number = record["task"].rsplit("#", 1)
-        # Only an issue that was open when the session started and has closed since ends it. A record from before
-        # `issue_open` was kept has no such fact, so it closes only when idle.
-        if record.get("issue_open") is True and self._issue_open(repo, number) is False:
-            return True
-        last = record["epoch"]
-        path = sessions.transcript(record["session"], self.projects_dir)
-        if path is not None:
-            try:
-                last = max(last, path.stat().st_mtime)
-            except OSError:
-                pass
-        return self.clock() - last >= IDLE_SECONDS
+        if self._issue_open(repo, number) is False:
+            return False
+        return self.clock() - self.last_write(record) >= IDLE_SECONDS
 
     def _land(self, record):
         """Keeps what the session spent. One nobody spoke to spent nothing, and leaves no row."""

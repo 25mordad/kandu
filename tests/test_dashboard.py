@@ -1269,7 +1269,7 @@ class LanguageTest(unittest.TestCase):
         values.append(f"it waits for {REPO}#2, {REPO}#3 to merge first")
         from kandu import clean, runner
         values += [runner.KEPT_UNCOMMITTED, runner.KEPT_UNPUSHED, runner.KEPT_NOT_WORKTREE, runner.KEPT_CHECKED_OUT,
-                   clean.KEPT_PUSHED_AFTER, "clean_failed", "folder", "branch", "remote_branch"]
+                   clean.KEPT_PUSHED_AFTER, clean.FLIGHT_QUIET, "clean_failed", "folder", "branch", "remote_branch"]
         missing = [v for v in values if not self.translate(v)]
         self.assertEqual(missing, [])
 

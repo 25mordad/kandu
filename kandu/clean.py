@@ -4,8 +4,14 @@ Code, not an agent. Each cycle looks at the merged PRs the copy holds. For a tas
 it removes the task's folders beside the copy (its worktree and its review checkouts), its local `kandu/` branch
 and its branch on GitHub. A folder or branch that holds work found neither in the merged PR nor on GitHub stays,
 and the log says why. Nothing else is touched: not the copy, not a deploy checkout, not another branch.
+
+A free flight on the task holds the cleanup while it is open. One opened before the merge ends by itself at the first
+cycle in which nothing was written in its session for 120 minutes, and the next cycle cleans up. One opened after the
+merge is the user's to end. A task closed without a merge while a flight opened before the close is still open is
+told to the user once; that flight is never ended by Kandu.
 """
 import re
+import time
 from datetime import datetime
 
 from . import queen
@@ -16,6 +22,8 @@ from .runner import REMOVED, RunnerError
 # A task's own branch: `kandu/<issue>-<slug>`. Kandu's other branches, such as Bazras's, are not a task's.
 TASK_BRANCH = re.compile(r"kandu/(\d+)-[A-Za-z0-9-]+")
 KEPT_PUSHED_AFTER = "it has commits pushed after the merge"
+QUIET_SECONDS = 120 * 60
+FLIGHT_QUIET = "its PR was merged and nothing was written in the session for 120 minutes"
 
 
 def folders(branch, number):
@@ -43,12 +51,46 @@ def _merged_at(pr):
         return None
 
 
+def _task_merged(github, repo, number):
+    """The task's own PR, from its `kandu/` branch in this repo, was merged."""
+    return any(match and match.group(1) == number and not pr.get("isCrossRepository")
+               for pr in github.merged_prs(repo) for match in [TASK_BRANCH.fullmatch(pr["headRefName"])])
+
+
+def tell_open_flights(store, github, flights):
+    """Logs each task closed without a merge while a free flight opened before the close is still open, once per
+    flight, so the user hears of it once. The flight stays open: it holds what the user may still want. A flight
+    counts as open while its session runs: one the user left keeps its record until the page lands it."""
+    for record in store.flights():
+        if record.get("kind") != "task" or not flights.alive(record["key"]):
+            continue
+        task = record["task"]
+        repo, number = task.split("#")
+        if store.last_event("flight_left_open", task=task, session=record["session"]) is not None:
+            continue
+        try:
+            if github.issue_closure(repo, int(number)) is None or _task_merged(github, repo, number):
+                continue
+            closed = github.issue_closed_at(repo, int(number))
+        except GitHubError:
+            continue  # the next cycle looks again
+        try:
+            closed_at = datetime.fromisoformat(closed).timestamp()
+        except (TypeError, ValueError):
+            continue
+        if record["epoch"] < closed_at:
+            store.record("flight_left_open", task=task, project=record["project"], session=record["session"])
+
+
 class Cleaner:
-    def __init__(self, config, store, github, runner):
+    def __init__(self, config, store, github, runner, flights=None, clock=time.time):
+        """`flights` ends a quiet free flight on a merged task; without it, a flight only holds the cleanup."""
         self.config = config
         self.store = store
         self.github = github
         self.runner = runner
+        self.flights = flights
+        self.clock = clock
 
     def _due(self, since):
         """(project, repo, task, PR) for each merged task not cleaned yet, in the registry's order."""
@@ -76,7 +118,8 @@ class Cleaner:
         reachable = {}
         for project, repo, task, pr in list(self._due(since)):
             if flight_open(self.store, task):
-                continue
+                self._end_quiet_flight(project, task, pr)
+                continue  # the next cycle cleans up, once the flight has ended
             machine = project.machine
             if machine not in reachable:
                 reachable[machine] = self.runner.reachable(machine)
@@ -89,6 +132,16 @@ class Cleaner:
                 self._failed(project, task, e)
             except GitHubError as e:
                 self._failed(project, task, e)
+
+    def _end_quiet_flight(self, project, task, pr):
+        """Ends a flight opened before the merge once nothing was written in its session for 120 minutes."""
+        record = self.store.flight(task_key(task))
+        if self.flights is None or record is None or record["epoch"] >= _merged_at(pr).timestamp():
+            return
+        if self.clock() - self.flights.last_write(record) < QUIET_SECONDS:
+            return
+        if self.flights.close(record["key"]):
+            self.store.record("flight_ended", task=task, project=project.name, reason=FLIGHT_QUIET)
 
     def _failed(self, project, task, error):
         self.store.record("decision", task=task, project=project.name, decision="clean_failed", reason=str(error))

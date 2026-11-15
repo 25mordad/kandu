@@ -210,6 +210,13 @@ class GitHubTest(unittest.TestCase):
         self.assertEqual(issue(None, reason="NOT_PLANNED"), {"reason": "NOT_PLANNED", "by": None})
         self.assertIsNone(issue(by_pr, state="OPEN", reason=None))
 
+    def test_an_issue_says_when_it_closed(self):
+        node = {"number": 3, "title": "t", "body": "b", "url": "u", "state": "CLOSED", "stateReason": "NOT_PLANNED",
+                "closedAt": "2026-11-02T09:00:00Z", "labels": {"nodes": []}}
+        gh = FakeGh({"data": {"repository": {"issue": node}}})
+        self.assertEqual(GitHub(gh).read_issue("o/r", 3)["closedAt"], "2026-11-02T09:00:00Z")
+        self.assertIn("closedAt", " ".join(gh.calls[0]))
+
     def test_a_pr_is_closed_through_the_api(self):
         gh = FakeGh()
         GitHub(gh).close_pr("o/r", 7)

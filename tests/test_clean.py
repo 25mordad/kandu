@@ -1,11 +1,14 @@
 """Cleaning up after a merged task (DESIGN §9), with the runner and GitHub mocked: nothing here deletes anything."""
+import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from kandu import clean, flights
+from kandu import clean, flights, notify
+from kandu.config import NOTIFY_EVENTS
 from kandu.github import GitHubError
 from kandu.runner import KEPT_CHECKED_OUT, KEPT_UNCOMMITTED, REMOVED, RunnerError
 from kandu.state import StateStore
@@ -26,15 +29,39 @@ def merged(number=5, issue=1, branch=None, at=AFTER, state="MERGED", head=SHA, f
             "isCrossRepository": fork, "mergedAt": at if state == "MERGED" else None}
 
 
+class Adapter:
+    """A pretend notifier's channel: what would be sent is kept here."""
+
+    def __init__(self):
+        self.sent = []
+
+    def send(self, text):
+        self.sent.append(text)
+
+
 class FakeGitHub:
     def __init__(self):
         self.prs = {REPO: []}
+        self.closures = {}  # (repo, issue) -> (closure, closedAt) once the issue is closed
+        self.gone = set()   # issues GitHub no longer has, such as a deleted or moved one
         self.tips = {}
         self.deleted = []
         self.fail_tip = None
 
     def merged_prs(self, repo):
         return [pr for pr in self.prs.get(repo, []) if pr["state"] == "MERGED"]
+
+    def issue_closure(self, repo, number):
+        if number in self.gone:
+            raise GitHubError(f"no such issue: {repo}#{number}")
+        found = self.closures.get((repo, number))
+        return found and found[0]
+
+    def issue_closed_at(self, repo, number):
+        if number in self.gone:
+            raise GitHubError(f"no such issue: {repo}#{number}")
+        found = self.closures.get((repo, number))
+        return found and found[1]
 
     def branch_tip(self, repo, branch):
         if self.fail_tip:
@@ -227,7 +254,8 @@ class FlightTest(Base):
     def open_flight(self, error=""):
         key = flights.task_key(f"{REPO}#1")
         self.store.write_flight({"key": key, "kind": "task", "task": f"{REPO}#1", "project": "website",
-                                 "session": "s", "started": "t", "epoch": 0, "url": "", "error": error})
+                                 "session": "s", "started": "t", "url": "", "error": error,
+                                 "epoch": datetime.fromisoformat(AFTER).timestamp() + 60})  # opened after the merge
         return key
 
     def test_while_a_flight_is_open_everything_stays_until_it_closes(self):
@@ -244,6 +272,203 @@ class FlightTest(Base):
         self.open_flight(error="the session did not start")
         self.clean()
         self.assertEqual(len(self.runner.calls), 1)
+
+
+class FakeHost:
+    """Stands in for tmux: a session runs while its key is in `running`."""
+
+    def __init__(self):
+        self.running = set()
+        self.commands = []
+
+    def __call__(self, command, **kwargs):
+        self.commands.append(command)
+        key, action = Path(command[2]).stem, command[3]
+        if action == "has-session":
+            return SimpleNamespace(returncode=0 if key in self.running else 1, stdout="", stderr="")
+        if action == "kill-server":
+            self.running.discard(key)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+
+MERGED_AT = datetime.fromisoformat(AFTER).timestamp()
+MINUTE = 60
+
+
+class FreeFlightBase(Base):
+    """The clock, the session and tmux are pretend, and so is the notifier: no message is sent."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = Path(self.store.root).parent
+        self.host = FakeHost()
+        self.time = [MERGED_AT]
+        self.flights = flights.Flights(SimpleNamespace(), self.store, self.root / "logs", run=self.host,
+                                       clock=lambda: self.time[0], projects_dir=self.root / "projects")
+        self.adapter = Adapter()
+        self.store.listeners.append(notify.Notifier(self.store, self.adapter, list(NOTIFY_EVENTS), "en").on_event)
+
+    def clean(self):
+        config = SimpleNamespace(projects=self.projects)
+        clean.Cleaner(config, self.store, self.github, self.runner, flights=self.flights,
+                      clock=lambda: self.time[0]).run(self.store.clean_since(SHIPPED))
+
+    def open_flight(self, opened, issue=1):
+        task = f"{REPO}#{issue}"
+        key = flights.task_key(task)
+        self.store.write_flight({"key": key, "kind": "task", "task": task, "project": "website",
+                                 "session": f"session-{issue}", "started": "t", "epoch": opened, "url": "u",
+                                 "error": ""})
+        self.store.flight_socket(key).touch()
+        self.host.running.add(key)
+        return key
+
+    def write_in_session(self, key, at, output_tokens=7):
+        """Something is written in the session's transcript at this time."""
+        folder = self.root / "projects" / "here"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{self.store.flight(key)['session']}.jsonl"
+        line = {"type": "assistant", "timestamp": "2026-11-02T09:10:00Z",
+                "message": {"id": "m", "usage": {"output_tokens": output_tokens}, "content": []}}
+        path.write_text(json.dumps(line) + "\n", encoding="utf-8")
+        os.utime(path, (at, at))
+
+class FreeFlightTest(FreeFlightBase):
+    """A free flight on a merged task ends by itself once its session is quiet."""
+
+    def test_a_flight_opened_before_the_merge_ends_once_nothing_was_written_for_120_minutes(self):
+        self.github.prs[REPO] = [merged()]
+        key = self.open_flight(MERGED_AT - 60 * MINUTE)
+        self.write_in_session(key, MERGED_AT + 10 * MINUTE)
+        self.time[0] = MERGED_AT + 130 * MINUTE
+        self.clean()
+        self.assertIsNone(self.store.flight(key))
+        self.assertNotIn(key, self.host.running)
+        flown = self.flights.list()["flown"]
+        self.assertEqual([(f["task"], f["tokens"]["output"]) for f in flown], [(f"{REPO}#1", 7)])
+        ended = [(e["task"], e["reason"]) for e in self.events("flight_ended")]
+        self.assertEqual(ended, [(f"{REPO}#1", clean.FLIGHT_QUIET)])
+        self.assertEqual(self.adapter.sent, [])
+
+    def test_the_cycle_after_the_flight_ends_cleans_up_the_task(self):
+        self.github.prs[REPO] = [merged()]
+        self.open_flight(MERGED_AT - 60 * MINUTE)
+        self.time[0] = MERGED_AT + 121 * MINUTE
+        self.clean()
+        self.assertEqual(self.runner.calls, [])
+        self.clean()
+        self.assertEqual(len(self.runner.calls), 1)
+        self.assertEqual(len(self.events("clean_finished")), 1)
+
+    def test_a_flight_written_to_in_the_last_120_minutes_stays_and_is_checked_again(self):
+        self.github.prs[REPO] = [merged()]
+        key = self.open_flight(MERGED_AT - 60 * MINUTE)
+        self.write_in_session(key, MERGED_AT + 30 * MINUTE)
+        self.time[0] = MERGED_AT + 149 * MINUTE
+        self.clean()
+        self.assertIsNotNone(self.store.flight(key))
+        self.assertIn(key, self.host.running)
+        self.assertEqual((self.events("flight_ended"), self.runner.calls), ([], []))
+        self.time[0] = MERGED_AT + 150 * MINUTE
+        self.clean()
+        self.assertIsNone(self.store.flight(key))
+        self.assertEqual(len(self.events("flight_ended")), 1)
+
+    def test_a_flight_opened_after_the_merge_never_ends_by_itself(self):
+        self.github.prs[REPO] = [merged()]
+        key = self.open_flight(MERGED_AT + MINUTE)
+        self.time[0] = MERGED_AT + 30 * 24 * 60 * MINUTE
+        self.clean()
+        self.assertIsNotNone(self.store.flight(key))
+        self.assertIn(key, self.host.running)
+        self.assertEqual((self.events("flight_ended"), self.runner.calls), ([], []))
+
+    def test_a_flight_on_a_task_merged_before_the_cleanup_began_is_left_alone(self):
+        self.github.prs[REPO] = [merged(at=BEFORE)]
+        key = self.open_flight(datetime.fromisoformat(BEFORE).timestamp() - 60 * MINUTE)
+        self.time[0] = MERGED_AT + 300 * MINUTE
+        self.clean()
+        self.assertIsNotNone(self.store.flight(key))
+
+
+class ClosedTaskFlightTest(FreeFlightBase):
+    """A task closed without a merge while its free flight is open: the user hears once, and the flight stays."""
+
+    CLOSED_AT = "2026-11-02T09:00:00Z"
+
+    def setUp(self):
+        super().setUp()
+        self.github.closures = {}
+
+    def close_issue(self, issue=1, by=None, at=CLOSED_AT):
+        self.github.closures[(REPO, issue)] = ({"reason": "NOT_PLANNED", "by": by}, at)
+
+    def tell(self):
+        clean.tell_open_flights(self.store, self.github, self.flights)
+
+    def told(self):
+        return [e["task"] for e in self.events("flight_left_open")]
+
+    def test_the_user_hears_once_that_the_free_flight_is_still_open(self):
+        key = self.open_flight(MERGED_AT - 60 * MINUTE)
+        self.close_issue()
+        self.time[0] = MERGED_AT + 600 * MINUTE
+        self.tell()
+        self.clean()
+        self.tell()
+        self.assertEqual(len(self.adapter.sent), 1)
+        message = self.adapter.sent[0]
+        self.assertTrue(message.startswith("🟡"))
+        self.assertIn(f"{REPO}#1", message)
+        self.assertIn("free flight is still open", message)
+        self.assertIsNotNone(self.store.flight(key))
+        self.assertIn(key, self.host.running)
+        self.assertEqual(len(self.events("flight_left_open")), 1)
+
+    def test_a_flight_opened_after_the_close_brings_no_message(self):
+        self.open_flight(MERGED_AT + MINUTE)
+        self.close_issue()
+        self.tell()
+        self.assertEqual((self.adapter.sent, self.events("flight_left_open")), ([], []))
+
+    def test_an_open_task_brings_no_message(self):
+        self.open_flight(MERGED_AT - 60 * MINUTE)
+        self.tell()
+        self.assertEqual(self.adapter.sent, [])
+
+    def test_a_task_whose_pr_merged_brings_no_message(self):
+        self.github.prs[REPO] = [merged()]
+        self.open_flight(MERGED_AT - 60 * MINUTE)
+        self.close_issue(by={"repo": REPO, "number": 5, "merged": True})
+        self.tell()
+        self.assertEqual(self.adapter.sent, [])
+
+    def test_an_issue_github_no_longer_has_brings_no_message_and_the_others_are_still_told(self):
+        self.open_flight(MERGED_AT - 60 * MINUTE, issue=1)
+        self.open_flight(MERGED_AT - 60 * MINUTE, issue=2)
+        self.github.gone.add(1)
+        self.close_issue(issue=2)
+        self.tell()
+        self.assertEqual(self.told(), [f"{REPO}#2"])
+        self.assertEqual(len(self.adapter.sent), 1)
+        self.assertIn(f"{REPO}#2", self.adapter.sent[0])
+
+    def test_a_closed_issue_without_a_close_time_brings_no_message_and_the_others_are_still_told(self):
+        self.open_flight(MERGED_AT - 60 * MINUTE, issue=1)
+        self.open_flight(MERGED_AT - 60 * MINUTE, issue=2)
+        self.close_issue(issue=1, at=None)
+        self.close_issue(issue=2)
+        self.tell()
+        self.assertEqual(self.told(), [f"{REPO}#2"])
+        self.assertEqual(len(self.adapter.sent), 1)
+        self.assertIn(f"{REPO}#2", self.adapter.sent[0])
+
+    def test_a_flight_whose_session_has_ended_brings_no_message(self):
+        key = self.open_flight(MERGED_AT - 60 * MINUTE)
+        self.host.running.discard(key)  # the user left the session; its record stays until the page lands it
+        self.close_issue()
+        self.tell()
+        self.assertEqual((self.adapter.sent, self.events("flight_left_open")), ([], []))
 
 
 class StartMarkerTest(unittest.TestCase):
