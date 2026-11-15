@@ -61,7 +61,12 @@ BOARD_QUERY = costed(f"""query($owner: String!, $number: Int!, $after: String) {
 
 COMMENTS = "comments(last: 100) { nodes { author { login } body createdAt } }"
 # A new comment changes an issue's `updatedAt`, so reading what changed reads its comments too, in the same request.
-ISSUE_NODE = f"number title body url state updatedAt labels(first: 30) {{ nodes {{ name }} }} {COMMENTS} {BLOCKED_BY_NODE}"
+# Why it was closed, and the PR or commit that closed it: a task whose issue other work completed is replaced.
+CLOSER = ("timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { "
+          "closer { __typename ... on PullRequest { number merged repository { nameWithOwner } } "
+          "... on Commit { oid repository { nameWithOwner } } } } } }")
+ISSUE_NODE = (f"number title body url state stateReason updatedAt labels(first: 30) {{ nodes {{ name }} }} {COMMENTS} "
+              f"{BLOCKED_BY_NODE} {CLOSER}")
 PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable mergedAt "
            "updatedAt "
            f"labels(first: 30) {{ nodes {{ name }} }} {COMMENTS}")
@@ -175,7 +180,28 @@ def _blocked_by(node):
 def _issue(node):
     return {"number": node["number"], "title": node["title"], "body": node.get("body") or "", "url": node["url"],
             "state": node["state"], "labels": [label["name"] for label in node["labels"]["nodes"]],
-            "updatedAt": node.get("updatedAt"), "comments": _comments(node), "blocked_by": _blocked_by(node)}
+            "updatedAt": node.get("updatedAt"), "comments": _comments(node), "blocked_by": _blocked_by(node),
+            "stateReason": node.get("stateReason"), "closedBy": _closer(node)}
+
+
+def _closer(node):
+    """What closed the issue: a PR as {repo, number, merged}, a commit on the default branch as {repo, sha, merged},
+    or None. Only a push to the default branch closes an issue from a commit, so such a commit counts as merged."""
+    events = (node.get("timelineItems") or {}).get("nodes") or []
+    closer = (events[-1] or {}).get("closer") if events else None
+    kind = (closer or {}).get("__typename")
+    if kind == "PullRequest":
+        return {"repo": closer["repository"]["nameWithOwner"], "number": closer["number"], "merged": closer["merged"]}
+    if kind == "Commit":
+        return {"repo": closer["repository"]["nameWithOwner"], "sha": closer["oid"], "merged": True}
+    return None
+
+
+def closure(issue):
+    """None while the issue is open; else why it was closed (`reason`) and the PR or commit that closed it (`by`)."""
+    if issue["state"] == "OPEN":
+        return None
+    return {"reason": issue.get("stateReason"), "by": issue.get("closedBy")}
 
 
 def run_gh(args, gate=None, run=subprocess.run, meter_log=None):
@@ -503,6 +529,15 @@ class GitHub:
 
     def close_issue(self, repo, number):
         self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", "state=closed"])
+
+    def issue_closure(self, repo, number):
+        issue = self.read_issue(repo, number)
+        if issue is None:
+            raise GitHubError(f"{repo}#{number}: no such issue")
+        return closure(issue)
+
+    def close_pr(self, repo, number):
+        self._run(["api", f"repos/{repo}/pulls/{number}", "-X", "PATCH", "-f", "state=closed"])
 
     def comment_issue(self, repo, number, body):
         """A PR takes its comments the same way: on GitHub it is an issue too."""

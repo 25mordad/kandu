@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DEADLINE_FIELD
-from .github import AGENT_LABEL, BY_HAND_LABEL, TOKENS_LABEL, BoardItem, GitHub, GitHubError, is_companion, transient
+from .github import AGENT_LABEL, BY_HAND_LABEL, TOKENS_LABEL, BoardItem, GitHub, GitHubError, closure, is_companion, transient
 
 MIRROR_DIR = Path(__file__).resolve().parent.parent / "state" / "mirror"
 FRESH_SECONDS = 60            # a copy younger than this is not read again: a burst of wakes costs GitHub one read
@@ -278,6 +278,16 @@ class Mirror:
             raise GitHubError(f"{repo}#{number}: no such issue")
         return issue["state"] == "OPEN"
 
+    def issue_closure(self, repo, number):
+        """None while the issue is open; else why it was closed and what closed it (`github.closure`)."""
+        issue = self._issue(repo, number)
+        if issue is None:
+            raise GitHubError(f"{repo}#{number}: no such issue")
+        if issue["state"] != "OPEN" and "stateReason" not in issue:  # kept before the copy kept why
+            self._put(repo, "issues", number, self.remote.read_issue(repo, number))
+            issue = self._repo(repo)["issues"][str(number)]
+        return closure(issue)
+
     def default_branch(self, repo):
         return self._repo(repo)["default_branch"]
 
@@ -451,6 +461,9 @@ class Mirror:
     def close_issue(self, repo, number):
         self._queue_issue("close", repo, number)
 
+    def close_pr(self, repo, number):
+        self._queue_issue("close_pr", repo, number)
+
     def edit_issue(self, repo, number, title, body):
         self._queue_issue("edit", repo, number, title=title, body=body)
 
@@ -522,7 +535,9 @@ class Mirror:
             issue = data["issues"].get(str(entry["number"]))
             pr = data["prs"].get(str(entry["number"]))
             if entry["kind"] == "close" and issue is not None:
-                issue["state"] = "CLOSED"
+                issue.update(state="CLOSED", stateReason="COMPLETED", closedBy=None)
+            elif entry["kind"] == "close_pr" and pr is not None and pr["state"] == "OPEN":
+                pr["state"] = "CLOSED"
             elif entry["kind"] == "edit" and issue is not None:
                 issue["title"], issue["body"] = entry["title"], entry["body"]
             elif entry["kind"] == "unblock" and issue is not None:
@@ -647,6 +662,8 @@ class Mirror:
             self.remote.comment_issue(repo, number, entry["body"])
         elif entry["kind"] == "close":
             self.remote.close_issue(repo, number)
+        elif entry["kind"] == "close_pr":
+            self.remote.close_pr(repo, number)
         elif entry["kind"] == "edit":
             self.remote.edit_issue(repo, number, entry["title"], entry["body"])
         elif entry["kind"] == "label":

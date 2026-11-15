@@ -53,6 +53,7 @@ EVENT_FIELDS = {
     "spec_closed": TASK_FIELDS,
     "deployed": TASK_FIELDS + ("run_id",),
     "task_finished": TASK_FIELDS + ("outcome",),
+    "card_stuck": TASK_FIELDS + ("reason",),  # a card the loop cannot drive: the user hears once
     "project_checked": ("project", "passed", "detail"),
     "project_inspected": ("project", "run_id", "passed", "findings", "judged"),
     "inspect_changed": ("project", "enabled", "at"),

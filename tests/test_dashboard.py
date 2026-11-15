@@ -775,6 +775,18 @@ class ControlTest(Base):
         self.assertEqual(self.store.last_event("user_resumed")["task"], f"{REPO}#1")
         self.assertIsNone(self.store.last_event("user_approved"))
 
+    def test_send_back_reads_github_fresh_and_never_resumes_a_closed_issue(self):
+        self.reviewed(status="Blocked")
+        self.github.issue_is_open.return_value = False
+        status, body = self.post(f"/api/v1/tasks/{REPO}/1/send-back")
+        self.assertEqual((status, body["error"]), (409, "its issue is closed"))
+        self.github.refresh_repo.assert_called_with(REPO)
+        self.github.set_status.assert_not_called()
+        self.github.issue_is_open.return_value = True
+        self.github.refresh_repo.side_effect = GitHubError("HTTP 502")
+        self.assertEqual(self.post(f"/api/v1/tasks/{REPO}/1/send-back")[0], 503)
+        self.github.set_status.assert_not_called()
+
     def test_a_task_that_could_not_be_sized_goes_back_to_be_sized(self):
         self.reviewed(status="Needs info")
         self.api.start_cycle = mock.Mock(return_value=None)

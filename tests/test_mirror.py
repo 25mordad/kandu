@@ -85,6 +85,10 @@ class FakeRemote:
         self._call("close", number)
         self.issues[number]["state"] = "CLOSED"
 
+    def close_pr(self, repo, number):
+        self._call("close_pr", number)
+        self.prs[number]["state"] = "CLOSED"
+
     def edit_issue(self, repo, number, title, body):
         self._call("edit", number)
 
@@ -369,6 +373,29 @@ class MirrorTest(unittest.TestCase):
         self.mirror.refresh_repo(REPO)
         self.assertEqual(len(self.mirror.pr(REPO, 7)["comments"]), 1)
         self.assertIn(("comment", 7, "Review round 1"), self.remote.calls)
+
+    def test_why_an_issue_closed_comes_from_the_copy(self):
+        self.remote.issues[3].update(state="CLOSED", stateReason="COMPLETED",
+                                     closedBy={"repo": REPO, "number": 9, "merged": True})
+        self.assertEqual(self.mirror.issue_closure(REPO, 3),
+                         {"reason": "COMPLETED", "by": {"repo": REPO, "number": 9, "merged": True}})
+        self.assertNotIn("read_issue", self.names())
+
+    def test_an_issue_kept_before_the_copy_kept_why_is_read_once_more(self):
+        self.remote.issues[3]["state"] = "CLOSED"  # an old copy: no stateReason
+        self.assertIsNone(self.mirror.issue_closure(REPO, 3)["reason"])
+        self.assertIn("read_issue", self.names())
+
+    def test_an_open_issue_has_no_closure(self):
+        self.assertIsNone(self.mirror.issue_closure(REPO, 3))
+
+    def test_a_pr_closed_by_kandu_is_closed_in_the_copy_and_sent(self):
+        self.remote.prs = {7: pr()}
+        self.mirror.pr(REPO, 7)
+        self.mirror.close_pr(REPO, 7)
+        self.assertEqual(self.mirror.pr(REPO, 7)["state"], "CLOSED")
+        self.mirror.send()
+        self.assertIn(("close_pr", 7), self.remote.calls)
 
     def test_a_closed_issue_is_closed_in_the_copy_before_it_is_sent(self):
         self.mirror.board_items(BOARD)

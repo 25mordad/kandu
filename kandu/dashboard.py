@@ -688,6 +688,13 @@ class Api:
             raise ApiError(409, "it has no agent label: it is yours to do by hand")
         if project.name in self._paused():
             raise ApiError(409, "this project is paused: resume it first")
+        # GitHub as it is now, not the copy, which may be minutes old: a PR merged a minute ago must count.
+        try:
+            self.github.refresh_repo(item.repo)
+        except GitHubError as e:
+            raise ApiError(503, f"GitHub could not be read: {e}")
+        if not self.github.issue_is_open(item.repo, item.number):
+            raise ApiError(409, "its issue is closed")
         pr = self.github.find_pr(item.repo, item.number)
         if pr is not None and pr["state"] == "MERGED":
             raise ApiError(409, "its PR is already merged")

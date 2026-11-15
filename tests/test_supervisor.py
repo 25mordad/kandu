@@ -67,6 +67,7 @@ class FakeGitHub:
         self.created = []
         self.on_add = lambda key, size: None
         self.boarded = []
+        self.closures = {}
         self.pushed = {}  # (repo, issue) -> the head a worker pushed to its branch, which Kandu opens a PR from
         self.opened = []
         self.bodies = []
@@ -123,6 +124,14 @@ class FakeGitHub:
 
     def issue_is_open(self, repo, number):
         return (repo, number) in self.open_issues
+
+    def issue_closure(self, repo, number):
+        if (repo, number) in self.open_issues:
+            return None
+        return self.closures.get((repo, number), {"reason": "NOT_PLANNED", "by": None})
+
+    def close_pr(self, repo, number):
+        self.pr(repo, number)["state"] = "CLOSED"
 
     def comment_issue(self, repo, number, body):
         self.issue_comments.append(body)
@@ -332,6 +341,19 @@ class QueenStepsTest(Base):
 
     def step(self, action, **fields):
         return {"task": KEY, "action": action, "note": fields.pop("note", "Make the test pass."), **fields}
+
+    def test_a_task_whose_issue_is_closed_is_not_sent_on(self):
+        self.github.open_pr(REPO, 1, SHA1)
+        self.github.open_issues.discard((REPO, 1))
+        for action in ("rework", "verify"):
+            refused, _ = self.sup._carry_out([self.step(action)], [])
+            self.assertEqual(refused, [f"{action} of {KEY}: its issue is closed: only the user can reopen it"])
+        self.assertEqual(self.github.status(1), "Blocked")
+
+    def test_a_closed_issue_is_not_hers_to_look_at(self):
+        self.assertNotIn("issue_closed", queen.NEEDS_A_LOOK)
+        self.assertNotIn("issue_closed", notify.QUEENS_OUTCOMES)
+        self.assertIn("issue_closed", notify.STUCK_OUTCOMES)
 
     def test_a_rework_sends_a_worker_with_her_order_and_the_new_head_is_reviewed(self):
         self.github.open_pr(REPO, 1, SHA1)
@@ -1093,6 +1115,28 @@ class QueenAtWorkTest(Base):
         self.hold(1, 2)
         self.store.record("phase_changed", task=KEY, project="website", phase="fix")
         self.assertEqual(self.view()["at_work"], 1)
+
+    def test_a_ready_card_whose_issue_is_closed_takes_no_workers_place(self):
+        self.github.add(1, "Ready")
+        self.github.add(2, "Ready")
+        self.github.add(3, "In progress")
+        self.github.add(4, "Backlog")
+        self.github.open_issues.discard((REPO, 1))
+        self.assertEqual(self.view()["at_work"], 2)
+        driven = [t for t in self.new_supervisor()._read_tasks() if t.status in ("Ready", "In progress")]
+        self.assertEqual(len(driven), 2)
+
+    def test_a_closed_ready_card_is_told_once_as_stuck(self):
+        self.config.settings.supervisor.queen = False
+        self.github.add(1, "Ready")
+        self.github.open_issues.discard((REPO, 1))
+        self.cycle()
+        self.cycle()
+        stuck = self.events("card_stuck")
+        self.assertEqual([(e["task"], e["project"], e["reason"]) for e in stuck],
+                         [(f"{REPO}#1", "website", "its issue is closed")])
+        message = notify.message_for(stuck[0])
+        self.assertEqual((message.kind, message.text), ("failure", "card_stuck"))
 
     def test_a_task_in_review_is_not_at_work(self):
         self.github.add(1, "In review")
@@ -1993,6 +2037,14 @@ class ReviewRoundsTest(Base):
         self.assertEqual(self.github.status(1), "Done")
         self.assertEqual(self.runner.runs, [])
 
+    def test_a_merged_task_closes_its_issue_if_github_did_not(self):
+        self.config.projects[0].deploy = None
+        self.github.statuses[self.github.items[0].url] = "In review"
+        self.github.open_pr(REPO, 1, SHA1, state="MERGED")
+        self.cycle()
+        self.assertEqual(self.github.closed, [(REPO, 1)])
+        self.assertFalse(self.github.issue_is_open(REPO, 1))
+
     def test_a_closed_pr_is_blocked(self):
         self.github.open_pr(REPO, 1, SHA1, state="CLOSED")
         self.cycle()
@@ -2650,6 +2702,7 @@ class MergeRetryTest(Base):
                                               1, 1)):
             with self.subTest(name):
                 self.store = StateStore(self.root / f"state-{len(name)}")
+                self.github.open_issues.add((REPO, 1))  # the subtest before landed it, which closed its issue
                 self.github.open_pr(REPO, 1, SHA1)
                 self.github.merges.clear()
                 self.github.set_status(None, "https://github.com/acme-org/website/issues/1", "In review")
@@ -2743,6 +2796,7 @@ class MergeRetryTest(Base):
         for kind in ("user_approved", "queen_approved"):
             with self.subTest(kind):
                 self.store = StateStore(self.root / f"state-{kind}")
+                self.github.open_issues.add((REPO, 1))  # the subtest before landed it, which closed its issue
                 self.github.open_pr(REPO, 1, SHA1)
                 self.github.set_status(None, "https://github.com/acme-org/website/issues/1", "In review")
                 self.refuses(4)  # the first try and its three quick ones fail; a minute's wait begins
@@ -2833,6 +2887,123 @@ class MergedWhileBlockedTest(Base):
     def test_a_dry_run_names_it(self):
         self.assertIn(f"{REPO}#1", self.sup.dry_run()[0])
         self.assertEqual(self.runner.commands, [])
+
+
+class MergedInAnyColumnTest(Base):
+    """A card whose PR merged lands from whatever column it sits in, its issue open or already closed."""
+
+    COLUMNS = ("Ready", "In progress", "In review", "Blocked")
+
+    def setUp(self):
+        super().setUp()
+        self.config.projects[0].deploy.live_url = ""
+        self.deploy = self.config.projects[0].deploy.command
+
+    def card(self, column, state="MERGED", issue_open=True):
+        self.github.add(1, column)
+        self.github.open_pr(REPO, 1, SHA1, state=state)
+        if not issue_open:
+            self.github.open_issues.discard((REPO, 1))
+
+    def test_it_is_deployed_once_and_done(self):
+        for column in self.COLUMNS:
+            for issue_open in (True, False):
+                with self.subTest(column=column, issue_open=issue_open):
+                    self.setUp()
+                    self.card(column, issue_open=issue_open)
+                    self.cycle()
+                    self.assertEqual(self.runner.commands, [(self.deploy, True)])
+                    self.assertEqual(self.github.status(1), "Done")
+                    self.assertEqual(self.events("task_finished")[-1]["outcome"], "merged")
+                    self.assertEqual(self.github.merges, [])
+                    self.cycle()
+                    self.assertEqual(self.runner.commands, [(self.deploy, True)])
+
+    def test_a_dry_run_names_it(self):
+        for column in self.COLUMNS:
+            with self.subTest(column=column):
+                self.setUp()
+                self.card(column, issue_open=False)
+                self.assertIn(f"{REPO}#1", "\n".join(self.sup.dry_run()))
+
+    def test_a_closed_pr_is_not_landed(self):
+        for column in self.COLUMNS:
+            with self.subTest(column=column):
+                self.setUp()
+                self.card(column, state="CLOSED", issue_open=False)
+                self.cycle()
+                self.assertEqual(self.runner.commands, [])
+                self.assertNotEqual(self.github.status(1), "Done")
+
+    def test_a_ready_card_with_an_open_pr_and_a_closed_issue_is_not_landed(self):
+        self.card("Ready", state="OPEN", issue_open=False)
+        self.cycle()
+        self.assertEqual((self.runner.commands, self.github.status(1)), ([], "Ready"))
+
+    def test_a_merged_ready_card_is_not_told_as_stuck(self):
+        self.card("Ready", issue_open=False)
+        self.cycle()
+        self.assertEqual(self.events("card_stuck"), [])
+
+
+class IssueClosedTest(Base):
+    """An issue closed while its task is open: replaced by another merged PR or a commit, or stopped by hand."""
+
+    def setUp(self):
+        super().setUp()
+        self.github.add(1, "In review")
+        self.github.open_pr(REPO, 1, SHA1)
+        self.github.open_issues.discard((REPO, 1))
+
+    def outcome(self):
+        return self.store.last_event("task_finished", task=KEY)["outcome"]
+
+    def test_a_task_whose_issue_another_merged_pr_completed_is_replaced(self):
+        self.github.closures[(REPO, 1)] = {"reason": "COMPLETED", "by": {"repo": REPO, "number": 9, "merged": True}}
+        self.cycle()
+        pr = self.github.prs[(REPO, 1)]
+        self.assertEqual(pr["state"], "CLOSED")
+        self.assertIn(f"completed by {REPO}#9, which replaces it", pr["comments"][-1]["body"])
+        self.assertEqual((self.github.status(1), self.outcome()), ("Done", "replaced"))
+        self.assertEqual(self.runner.runs, [])
+        self.assertEqual(notify.message_for(self.events("task_finished")[-1]).text, "task_replaced")
+        self.cycle()
+        self.assertEqual(self.runner.runs, [])
+
+    def test_an_issue_closed_any_other_way_stops_the_task_and_leaves_the_pr(self):
+        self.cycle()
+        self.assertEqual(self.github.prs[(REPO, 1)]["state"], "OPEN")
+        self.assertEqual((self.github.status(1), self.outcome()), ("Blocked", "issue_closed"))
+        self.assertIn("this issue was closed", self.github.issue_comments[-1])
+        self.assertEqual(self.runner.runs, [])
+
+    def test_an_unmerged_closer_does_not_replace_the_task(self):
+        self.github.closures[(REPO, 1)] = {"reason": "COMPLETED", "by": {"repo": REPO, "number": 9, "merged": False}}
+        self.cycle()
+        self.assertEqual(self.github.prs[(REPO, 1)]["state"], "OPEN")
+        self.assertEqual(self.outcome(), "issue_closed")
+
+    def test_an_issue_its_own_pr_closed_is_not_stopped_while_the_copy_shows_the_pr_open(self):
+        self.github.closures[(REPO, 1)] = {"reason": "COMPLETED", "by": {"repo": REPO, "number": 7, "merged": True}}
+        sup = self.new_supervisor()
+        task = next(t for t in sup._read_tasks() if t.key == KEY)
+        self.assertFalse(sup._closed_elsewhere(task, self.github.prs[(REPO, 1)]))
+        self.assertEqual((self.github.prs[(REPO, 1)]["state"], self.github.status(1)), ("OPEN", "In review"))
+        self.assertEqual(self.events("task_finished"), [])
+
+    def test_a_task_whose_issue_a_commit_completed_is_replaced(self):
+        self.github.closures[(REPO, 1)] = {"reason": "COMPLETED",
+                                           "by": {"repo": REPO, "sha": "abc1234def", "merged": True}}
+        self.cycle()
+        self.assertIn(f"completed by {REPO}@abc1234, which replaces it",
+                      self.github.prs[(REPO, 1)]["comments"][-1]["body"])
+        self.assertEqual((self.github.status(1), self.outcome()), ("Done", "replaced"))
+
+    def test_a_task_whose_own_pr_merged_lands_whatever_closed_the_issue(self):
+        self.github.prs[(REPO, 1)]["state"] = "MERGED"
+        self.config.projects[0].deploy = None
+        self.cycle()
+        self.assertEqual((self.github.status(1), self.outcome()), ("Done", "merged"))
 
 
 class SpecTest(Base):

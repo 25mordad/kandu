@@ -28,7 +28,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | GET | `/api/v1/stream` | new events as they happen, as Server-Sent Events |
 | GET | `/api/v1/runs/{run_id}` | what one agent run did: files read, commands, edits |
 | GET | `/api/v1/tasks/{owner}/{repo}/{number}` | a task's issue text, its outcome, and its runs, time and tokens by role |
-| POST | `/api/v1/tasks/{owner}/{repo}/{number}/send-back` | the user sends a task in `Blocked` or `Needs info` back to work; a cycle starts |
+| POST | `/api/v1/tasks/{owner}/{repo}/{number}/send-back` | the user sends a task in `Blocked` or `Needs info` back to work; a cycle starts. Its repo is read from GitHub first: `409` when its issue is closed or its PR merged, `503` when GitHub cannot be read |
 | GET | `/api/v1/reviews/{owner}/{repo}/{number}` | the PR of a task and each review round |
 | POST | `/api/v1/reviews/{owner}/{repo}/{number}/approve` | the user's yes to merge the PR's head, given as `?head=SHA`; a cycle starts |
 | GET | `/api/v1/splits/{owner}/{repo}/{number}` | the proposal to split a task that waits for the user, or `null` |

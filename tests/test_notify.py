@@ -56,7 +56,8 @@ class WhatIsImportantTest(unittest.TestCase):
         for outcome, kind in (("failed", "failure"), ("deploy_failed", "failure"), ("live_check_failed", "failure"),
                               ("sizing_failed", "failure"), ("blocked", "needs_decision"),
                               ("needs_info", "needs_decision"), ("pr_closed", "needs_decision"),
-                              ("merged", "task_done"), ("stopped_by_user", None)):
+                              ("issue_closed", "needs_decision"), ("merged", "task_done"),
+                              ("replaced", "task_done"), ("stopped_by_user", None)):
             self.assertEqual(self.kind_of("task_finished", outcome=outcome, **ON_TASK), kind, outcome)
 
     def test_every_way_a_cycle_ends(self):
@@ -103,6 +104,16 @@ class WhatIsImportantTest(unittest.TestCase):
             self.assertIsNotNone(message_for(event), outcome)
         landed = {"type": "task_finished", "outcome": "deploy_failed", "ts": "t", **ON_TASK}
         self.assertEqual(message_for(landed, queen=True).kind, "failure")
+
+    def test_a_closed_issue_reaches_the_user_even_with_the_queen_on(self):
+        event = {"type": "task_finished", "outcome": "issue_closed", "ts": "t", **ON_TASK}
+        self.assertEqual(message_for(event, queen=True).kind, "needs_decision")
+
+    def test_a_stuck_card_is_told_once_as_a_failure(self):
+        event = {"type": "card_stuck", "reason": "its issue is closed", "ts": "t", **ON_TASK}
+        message = message_for(event, queen=True)
+        self.assertEqual((message.kind, message.text), ("failure", "card_stuck"))
+        self.assertEqual(message.key, message_for(dict(event, ts="later")).key)
 
     def test_a_loop_stop_is_the_users_to_decide(self):
         event = {"type": "loop_stopped", "action": "retry", "reason": "r", "ts": "t", **ON_TASK}

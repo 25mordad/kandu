@@ -198,6 +198,23 @@ class GitHubTest(unittest.TestCase):
         self.assertEqual(items[0].blocked_by, [{"repo": "o/r", "number": 2}, {"repo": "o/other", "number": 9}])
         self.assertEqual(items[1].blocked_by, [])
 
+    def test_an_issue_says_why_it_closed_and_what_closed_it(self):
+        def issue(closer, state="CLOSED", reason="COMPLETED"):
+            node = {"number": 3, "title": "t", "body": "b", "url": "u", "state": state, "stateReason": reason,
+                    "labels": {"nodes": []}, "timelineItems": {"nodes": [{"closer": closer}] if closer else []}}
+            return GitHub(FakeGh({"data": {"repository": {"issue": node}}})).issue_closure("o/r", 3)
+        by_pr = {"__typename": "PullRequest", "number": 9, "merged": True, "repository": {"nameWithOwner": "o/r"}}
+        by_commit = {"__typename": "Commit", "oid": "abc1234", "repository": {"nameWithOwner": "o/r"}}
+        self.assertEqual(issue(by_pr), {"reason": "COMPLETED", "by": {"repo": "o/r", "number": 9, "merged": True}})
+        self.assertEqual(issue(by_commit), {"reason": "COMPLETED", "by": {"repo": "o/r", "sha": "abc1234", "merged": True}})
+        self.assertEqual(issue(None, reason="NOT_PLANNED"), {"reason": "NOT_PLANNED", "by": None})
+        self.assertIsNone(issue(by_pr, state="OPEN", reason=None))
+
+    def test_a_pr_is_closed_through_the_api(self):
+        gh = FakeGh()
+        GitHub(gh).close_pr("o/r", 7)
+        self.assertEqual(gh.calls[0], ["api", "repos/o/r/pulls/7", "-X", "PATCH", "-f", "state=closed"])
+
     def test_an_issue_is_read_with_its_blocked_by_relationships(self):
         issue = {"number": 3, "title": "t", "body": "b", "url": "u", "state": "OPEN", "labels": {"nodes": []},
                  "blockedBy": {"nodes": [{"number": 2, "repository": {"nameWithOwner": "o/r"}}]}}
