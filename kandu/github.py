@@ -1,4 +1,5 @@
 """Everything Kandu reads from and writes to GitHub, through `gh` (DESIGN §3, §10)."""
+import base64
 import json
 import re
 import secrets
@@ -519,6 +520,36 @@ class GitHub:
 
     def repo_is_public(self, repo):
         return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"
+
+    def offer_file_pr(self, repo, branch, path, content, title, body):
+        """Opens a PR that adds one file on a branch of its own, made on GitHub: no copy of the repo is touched.
+
+        Run again, it reuses the branch, replaces the file and keeps the open PR. Returns the PR's URL.
+        """
+        base = self.default_branch(repo)
+        head = self._json(["api", f"repos/{repo}/git/ref/heads/{base}"])["object"]["sha"]
+        try:
+            self._run(["api", f"repos/{repo}/git/refs", "-X", "POST", "-f", f"ref=refs/heads/{branch}",
+                       "-f", f"sha={head}"])
+        except GitHubError as e:
+            if "already exists" not in str(e):
+                raise
+        try:
+            existing = self._json(["api", f"repos/{repo}/contents/{path}?ref={branch}"]).get("sha")
+        except GitHubError as e:
+            if "Not Found" not in str(e) and "404" not in str(e):
+                raise
+            existing = None
+        encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
+        put = ["api", f"repos/{repo}/contents/{path}", "-X", "PUT", "-f", f"message={title}",
+               "-f", f"content={encoded}", "-f", f"branch={branch}"]
+        self._run(put + (["-f", f"sha={existing}"] if existing else []))
+        owner = repo.split("/")[0]
+        found = self._json(["api", f"repos/{repo}/pulls?state=open&head={owner}:{branch}"])
+        if found:
+            return found[0]["html_url"]
+        return self._json(["api", f"repos/{repo}/pulls", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}",
+                           "-f", f"head={branch}", "-f", f"base={base}"])["html_url"]
 
     def issue_text(self, repo, number):
         return self._json(["issue", "view", str(number), "--repo", repo, "--json", "title,body,url"])

@@ -633,6 +633,16 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "queen_answers_one_way": "The queen answers one-way merges",
   "queen_answers_one_way_hint": "Off: a merge with a one-way door or a question for you waits for your yes. On: the queen's yes answers them too.",
   "paused_in_config_hint": "Paused in its config; only a change of config resumes it.",
+  "remove_project": "Remove from Kandu",
+  "remove_project_hint": "Stops its running work and removes Kandu's worktrees for it and its entry in projects.yaml. Its memory is first offered as a PR to its own repo (not to a public one), then archived here, and comes back if you add it again. Its copy, repo, board and issues stay.",
+  "remove_sure": "Sure? Click again",
+  "remove_without_pr": "Remove without the memory PR",
+  "removing": "Removing…",
+  "removed_msg": "{name} was taken out of Kandu.",
+  "memory_offered": "Its memory is offered to its repo as a PR, for you to merge: {pr}",
+  "memory_public": "Its repo is public, so its memory was not offered there; it is archived here.",
+  "memory_declined": "No PR with its memory, as you chose; it is archived here.",
+  "memory_none": "Kandu had no memory of it.",
   "clean_merged": "Clean up after a merge",
   "clean_merged_hint": "On: once a task's PR is merged, its folders beside the repo and its kandu/ branches, here and on GitHub, are removed. A folder with work that is not in the PR stays, and its task says why.",
   "kept_after_merge": "Stayed after the merge",
@@ -897,6 +907,16 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "queen_answers_one_way": "ملکه به ادغام‌های یک‌طرفه جواب می‌دهد",
   "queen_answers_one_way_hint": "خاموش: ادغامی که در یک‌طرفه یا پرسشی برای تو دارد منتظر بلهٔ تو می‌ماند. روشن: بلهٔ ملکه هم به آن‌ها جواب می‌دهد.",
   "paused_in_config_hint": "در تنظیماتش متوقف است؛ فقط تغییر تنظیمات از توقف درش می‌آورد.",
+  "remove_project": "حذف از کندو",
+  "remove_project_hint": "کار در جریانش متوقف می‌شود و worktreeهای کندو برای آن و ورودی‌اش در projects.yaml حذف می‌شوند. حافظه‌اش اول به‌صورت PR به مخزن خودش پیشنهاد می‌شود (نه به مخزن عمومی)، بعد این‌جا بایگانی می‌شود و اگر دوباره اضافه‌اش کنی برمی‌گردد. نسخهٔ پروژه، مخزن، برد و issueهایش می‌مانند.",
+  "remove_sure": "مطمئنی؟ دوباره بزن",
+  "remove_without_pr": "حذف بدون PR حافظه",
+  "removing": "در حال حذف…",
+  "removed_msg": "{name} از کندو حذف شد.",
+  "memory_offered": "حافظه‌اش به‌صورت PR به مخزنش پیشنهاد شد تا تو ادغامش کنی: {pr}",
+  "memory_public": "مخزنش عمومی است، پس حافظه‌اش آن‌جا پیشنهاد نشد؛ این‌جا بایگانی شد.",
+  "memory_declined": "به انتخاب تو، PR حافظه ساخته نشد؛ حافظه‌اش این‌جا بایگانی شد.",
+  "memory_none": "کندو حافظه‌ای از آن نداشت.",
   "clean_merged": "پاک‌سازی بعد از ادغام",
   "clean_merged_hint": "روشن: وقتی PR یک تسک ادغام شد، پوشه‌هایش کنار ریپو و شاخه‌های kandu/ آن، این‌جا و در گیت‌هاب، پاک می‌شوند. پوشه‌ای که کاری بیرون از PR دارد می‌ماند و تسکش می‌گوید چرا.",
   "kept_after_merge": "بعد از ادغام ماند",
@@ -1122,6 +1142,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "clean_finished": "پاک‌سازی بعد از ادغام تمام شد",
   "clean_merged_changed": "پاک‌سازی بعد از ادغام روشن یا خاموش شد",
   "project_added": "پروژه اضافه شد",
+  "project_removed": "پروژه از کندو حذف شد",
   "machine_added": "ماشین اضافه شد",
   "present": "موجود",
   "will be cloned": "clone می‌شود",
@@ -1327,7 +1348,8 @@ async function post(path) {
   if (!token && !await askToken()) return false;
   const r = await fetch("/api/v1" + path, {method: "POST", headers: {Authorization: "Bearer " + token}});
   if (r.status === 403) token = "";
-  if (!r.ok) toast(r.status === 403 ? t("token_required") : tr((await r.json().catch(() => ({}))).error) || t("request_failed"));
+  post.failed = r.ok ? null : await r.json().catch(() => ({}));  // What went wrong, for a caller that offers a next step.
+  if (!r.ok) toast(r.status === 403 ? t("token_required") : tr(post.failed.error) || t("request_failed"));
   refresh();
   return r.ok && await r.json().catch(() => ({}));  // The server's answer, always truthy, or false.
 }
@@ -2181,9 +2203,34 @@ function renderSettings(s) {
   const body = rows.map(p => `<tr><td>${bdi(p.name)}</td>
     <td class="fit"><label title="${esc(p.paused_in_config ? t("paused_in_config_hint") : "")}"><input type="checkbox" data-setting-pause="${esc(p.name)}"${p.paused ? " checked" : ""}${p.paused_in_config ? " disabled" : ""}> ${t("setting_pause")}</label></td>
     <td class="fit"><label title="${esc(t("queen_accepts_splits_hint"))}"><input type="checkbox" data-setting-splits="${esc(p.name)}"${p.split_approval === "queen" ? " checked" : ""}> ${t("queen_accepts_splits")}</label></td>
-    <td class="fit"><label title="${esc(t("queen_answers_one_way_hint"))}"><input type="checkbox" data-setting-one-way="${esc(p.name)}"${p.queen_answers_one_way ? " checked" : ""}> ${t("queen_answers_one_way")}</label></td></tr>`).join("");
+    <td class="fit"><label title="${esc(t("queen_answers_one_way_hint"))}"><input type="checkbox" data-setting-one-way="${esc(p.name)}"${p.queen_answers_one_way ? " checked" : ""}> ${t("queen_answers_one_way")}</label></td>
+    <td class="fit"><button class="btn small danger" data-remove="${esc(p.name)}" title="${esc(t("remove_project_hint"))}">${t("remove_project")}</button></td></tr>`).join("");
   $("cleanmerged").innerHTML = `<label title="${esc(t("clean_merged_hint"))}"><input type="checkbox" data-clean-merged${s.clean_merged ? " checked" : ""}> ${t("clean_merged")}</label><div class="muted">${t("clean_merged_hint")}</div>`;
-  $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th><th class="fit">${t("setting_pause")}</th><th class="fit">${t("queen_accepts_splits")}</th><th class="fit">${t("queen_answers_one_way")}</th></tr></thead><tbody>${body}</tbody></table>`;
+  $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th><th class="fit">${t("setting_pause")}</th><th class="fit">${t("queen_accepts_splits")}</th><th class="fit">${t("queen_answers_one_way")}</th><th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+// Taking a project out of Kandu: the first click asks on the button itself, the second acts. Nothing is typed.
+// When the PR with its memory cannot be made, nothing is removed and the button becomes the choice to go on
+// without that PR, asked the same way.
+async function removeProject(button) {
+  if (button.dataset.sure !== "true") {
+    button.dataset.sure = "true";
+    button.textContent = t("remove_sure");
+    return;
+  }
+  button.dataset.sure = "false";
+  const name = button.dataset.remove, without = button.dataset.withoutPr === "true";
+  const removed = await act(button, `/projects/${encodeURIComponent(name)}/remove${without ? "?without_memory_pr=true" : ""}`, t("removing"));
+  if (!removed) {
+    const offerWithout = Boolean(post.failed?.memory_pr_failed);
+    button.dataset.withoutPr = String(offerWithout || without);
+    button.textContent = t(offerWithout || without ? "remove_without_pr" : "remove_project");
+    return;
+  }
+  const memory = removed.memory || {};
+  toast([fillIn("removed_msg", {name}), memory.why ? fillIn(`memory_${memory.why}`, {pr: memory.pr || ""}) : ""].filter(Boolean).join(" "));
+  renderSettings.key = null;
+  refreshState().catch(() => {});
 }
 
 async function changeCleanMerged(box) {
@@ -2459,6 +2506,7 @@ document.addEventListener("click", e => {
   if (hit("close")) { $("modal").close(); return; }
   if (hit("fly")) { openFlight(hit("fly")); return; }
   if (hit("inspect")) { saveInspect(hit("inspect")); return; }
+  if (hit("remove")) { removeProject(hit("remove")); return; }
   if (hit("land")) { act(hit("land"), `/flights/${encodeURIComponent(hit("land").dataset.land)}/close`).then(() => refreshFlights()).catch(() => {}); return; }
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }

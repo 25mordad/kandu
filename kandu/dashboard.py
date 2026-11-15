@@ -17,8 +17,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, review, sessions, split, tasks, timer,
-               upstream)
+from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, review, sessions, split, tasks,
+               timer, upstream)
 from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup,
                      set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_parallel, set_show_requests)
 from .github import AGENT_LABEL, GitHubError, task_blockers
@@ -144,10 +144,11 @@ def _holds(card, blocker):
 
 
 class ApiError(Exception):
-    def __init__(self, status, message):
+    def __init__(self, status, message, extra=None):
         super().__init__(message)
         self.status = status
         self.message = message
+        self.extra = extra or {}  # more fields of the answer, for a page that offers what to do next
 
 
 class Api:
@@ -839,6 +840,27 @@ class Api:
         self.store.record("project_added", project=result["project"])
         return result
 
+    def remove_project(self, query, name):
+        """Takes the project out of Kandu: offers its memory as a PR to its repo, stops its work, removes Kandu's
+        worktrees for it and its entry in the config, then archives its memory. Its copy, repo, board and issues stay.
+
+        `without_memory_pr=true` is the user's choice to go on when that PR cannot be made. Anything that fails
+        leaves the config as it was.
+        """
+        project = self._project(name)
+        memory_pr = self._field(query, "without_memory_pr", "false") != "true"
+        try:
+            with self._add_lock:
+                result = remove.remove_project(project.name, self.store, self.flights, self.local_dir,
+                                               github=self.github, memory_pr=memory_pr)
+        except remove.MemoryPrError as e:
+            raise ApiError(409, str(e), {"memory_pr_failed": True}) from None
+        except (remove.RemoveError, ConfigError) as e:
+            raise ApiError(409, e.problems[0] if isinstance(e, ConfigError) else str(e)) from None
+        finally:
+            self.refresh_config()
+        return result
+
     def restart(self, query):
         """Takes the config again, re-arms the timer and restarts the dashboard. A running cycle finishes."""
         try:
@@ -1004,6 +1026,7 @@ ROUTES = [
     ("POST", "/projects/{name}/resume", Api.resume_project),
     ("POST", "/projects/{name}/inspect", Api.change_inspect),
     ("POST", "/projects/{name}/settings", Api.change_project_settings),
+    ("POST", "/projects/{name}/remove", Api.remove_project),
     ("POST", "/backup", Api.change_backup),
     ("POST", "/upstream/check", Api.check_upstream),
     ("POST", "/upstream/bring-in", Api.bring_in_updates),
@@ -1045,7 +1068,7 @@ def dispatch(api, method, target, supplied_token=None):
         try:
             return 200, handler(api, parse_qs(url.query), *map(unquote, match.groups()))
         except ApiError as e:
-            return e.status, {"error": e.message}
+            return e.status, {"error": e.message, **e.extra}
         except GitHubError:
             return 502, {"error": "GitHub could not be read"}
     return (405, {"error": "method not allowed"}) if allowed else (404, {"error": "not found"})

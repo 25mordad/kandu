@@ -299,6 +299,9 @@ class Mirror:
     def repo_is_public(self, repo):
         return self.remote.repo_is_public(repo)
 
+    def offer_file_pr(self, repo, branch, path, content, title, body):
+        return self.remote.offer_file_pr(repo, branch, path, content, title, body)
+
     def find_pr(self, repo, issue):
         """Returns the newest PR of an issue's `kandu/` branch in this repo, or None. A fork's PR never counts."""
         prs = self._repo(repo)["prs"].values()

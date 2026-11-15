@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yaml
 
-from . import tasks
+from . import memory, tasks
 from .config import BOARD_COLUMNS, DEFAULT_LOCAL_DIR, RUN_MODES, SSH_REACH, Board, ConfigError, Machine, load_config
 from .github import GitHubError
 from .runner import Host, Runner, RunnerError
@@ -385,6 +385,7 @@ def add_project(fields, github, local_dir=DEFAULT_LOCAL_DIR, check=None, runner=
     if created:
         board = Board(owner=owner, number=github.create_board(owner, fields["name"], BOARD_COLUMNS))
     _write(path, projects_text(text, _entry(fields, board)))
+    restored = memory.restore(local_dir, fields["name"])  # a project added back uses what Kandu learned before
     config = load_config(local_dir)
     project = next(p for p in config.projects if p.name == fields["name"])
 
@@ -399,7 +400,7 @@ def add_project(fields, github, local_dir=DEFAULT_LOCAL_DIR, check=None, runner=
     deploy_task = first_task(DEPLOY_TASK_TITLE, DEPLOY_TASK_BODY) if wants_deploy else None
     checks = check(config, project) if check else []
     return {"project": project.name, "board": {"owner": board.owner, "number": board.number, "created": created},
-            "cloned": cloned, "deploy_task": deploy_task, "test_task": test_task,
+            "cloned": cloned, "memory_restored": bool(restored), "deploy_task": deploy_task, "test_task": test_task,
             "checks": [{"level": level, "text": text} for level, text in checks]}
 
 
