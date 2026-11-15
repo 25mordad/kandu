@@ -7,9 +7,27 @@ set -euo pipefail
 remote="$1"
 no_commit='^0+$'
 
+# A GitHub noreply address whose login is the name, as `<id>+login@users.noreply.github.com`,
+# is an identity GitHub makes public by design, so it is not scanned. Any other name or
+# email is, so a personal address still blocks the push.
+public_identity() {
+  local name email
+  name="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  email="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+  [[ "$email" =~ ^([0-9]+\+)?([a-z0-9-]+)@users\.noreply\.github\.com$ ]] && [ "${BASH_REMATCH[2]}" = "$name" ]
+}
+
+identities() {
+  local an ae cn ce
+  { IFS= read -r an; IFS= read -r ae; IFS= read -r cn; IFS= read -r ce; } < <(git log -1 --format='%an%n%ae%n%cn%n%ce' "$1")
+  public_identity "$an" "$ae" || printf '%s\n%s\n' "$an" "$ae"
+  public_identity "$cn" "$ce" || printf '%s\n%s\n' "$cn" "$ce"
+}
+
 scan_commit() {
   {
-    git log -1 --format='%B%n%an%n%ae%n%cn%n%ce' "$1"
+    git log -1 --format='%B' "$1"
+    identities "$1"
     git diff-tree --root -m -r --no-commit-id --name-only --no-renames --diff-filter=d -z "$1" | tr '\0' '\n'
     git diff-tree --root -m -r --no-commit-id -p -U0 --text --no-color --no-ext-diff --no-textconv --no-renames "$1" | added_lines
   } | scan_private
