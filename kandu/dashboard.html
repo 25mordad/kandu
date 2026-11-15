@@ -236,6 +236,32 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .speech text { fill:#3a2608; font:600 13px var(--sans); text-anchor:middle; unicode-bidi:plaintext; }
 .speech.back rect, .speech.back path { fill:#fde2c4; stroke:#b4580f; }
 .paused * { animation-play-state:paused !important; }
+
+/* The honeycomb look's hive: each project a large cell, each open task a small cell inside it. A project cell
+   shrinks with the screen, so the page never scrolls sideways. */
+.defs { position:absolute; width:0; height:0; overflow:hidden; }
+.honey { display:grid; gap:14px; padding:12px 16px 16px; line-height:1.4; }
+.shelves { display:flex; flex-wrap:wrap; justify-content:center; gap:2px; border-bottom:1px solid var(--line); }
+.pcells { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:8px 12px; }
+.pcell { position:relative; flex:0 1 auto; max-width:100%; container-type:inline-size; }
+.pcell-art { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.pface { fill:color-mix(in srgb, var(--honey) 9%, var(--surface)); stroke:var(--hive); stroke-width:3; stroke-linejoin:round; }
+.pcell.off .pcell-art, .pcell-legend.off { opacity:.42; filter:grayscale(.6); }
+.pcell.off .wait-ring { animation:none; }
+.pcell-name { position:absolute; top:14.5%; inset-inline:22%; display:grid; text-align:center; font-weight:600; font-size:clamp(11px, 7.2cqi, 14px); }
+.pcell-name bdi { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pcell-paused { font-size:clamp(10px, 6cqi, 12px); font-weight:500; color:#d9604f; }
+.pcell-foot { position:absolute; bottom:4.5%; inset-inline:0; display:flex; justify-content:center; }
+.pcell-foot svg { width:36px; height:23px; overflow:visible; }
+.tslot { fill:transparent; }
+.tface { stroke-width:2; stroke-linejoin:round; }
+.tface.filled, .tface.cracked { fill:var(--c); stroke:color-mix(in srgb, var(--c) 55%, #3a2608); }
+.tface.outline { fill:#fffdf5; stroke:var(--c); stroke-width:3; }
+.tface.striped { fill:url(#honey-stripes); stroke:var(--c); }
+.crack { fill:none; stroke:#fffdf5; stroke-width:2; stroke-linejoin:bevel; }
+.tcell .wait-ring { stroke-width:3; }
+.hand-ring { fill:none; stroke:#e8590c; stroke-width:2.5; }
+.tcell:hover .tface { filter:brightness(1.06); stroke-width:3; }
 @media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz, .halo, .wait-ring, .btn.busy::before { animation:none; } .btn, .meter i { transition:none; } }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
@@ -296,7 +322,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
       <div class="card pad" id="requestsbox" hidden><h2 class="card-title" data-t="open_requests"></h2><div id="requests"></div></div>
     </div>
   </section>
-  <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
+  <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="honey" class="honey" hidden></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
   <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div id="cleanmerged" class="card pad"></div><div id="projectsettings" class="card"></div></section>
   <section data-panel="days" class="list" hidden>
@@ -334,6 +360,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <div class="actions"><button class="btn primary" value="yes" data-t="save"></button><button class="btn" value="no" formnovalidate data-t="cancel"></button></div>
 </form></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
+<svg class="defs" width="0" height="0" aria-hidden="true"><defs><pattern id="honey-stripes" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="#bdb8ad"/><rect width="2.2" height="5" fill="#8a8578"/></pattern></defs></svg>
 <script type="application/json" id="text">
 {
  "en": {
@@ -542,6 +569,14 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bazras_looking": "Bazras is looking",
   "bazras_judging": "Bazras is judging",
   "bazras_last": "Bazras",
+  "hive_with_tasks": "With tasks",
+  "hive_no_tasks": "No tasks",
+  "hive_no_open_tasks": "No project has an open task.",
+  "hive_all_busy": "Every project has an open task.",
+  "legend_cell_sizes": "Size of the cell",
+  "legend_edge_signs": "Signs on a cell's edge",
+  "legend_projects": "Projects",
+  "legend_project": "A project, its open tasks inside",
   "legend_flowers": "Tasks",
   "legend_sizes": "Size of the flower",
   "legend_marks": "Signs under a flower",
@@ -762,6 +797,14 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bazras_looking": "بازرس در حال نگاه",
   "bazras_judging": "بازرس در حال قضاوت",
   "bazras_last": "بازرس",
+  "hive_with_tasks": "با تسک",
+  "hive_no_tasks": "بدون تسک",
+  "hive_no_open_tasks": "هیچ پروژه‌ای تسک باز ندارد.",
+  "hive_all_busy": "همه‌ی پروژه‌ها تسک باز دارند.",
+  "legend_cell_sizes": "اندازه‌ی خانه",
+  "legend_edge_signs": "نشانه‌های لبه‌ی خانه",
+  "legend_projects": "پروژه‌ها",
+  "legend_project": "یک پروژه، با تسک‌های بازش درونش",
   "legend_flowers": "تسک‌ها",
   "legend_sizes": "اندازه‌ی گل",
   "legend_marks": "نشانه‌های زیر گل",
@@ -1034,6 +1077,8 @@ let flights = {open: [], flown: []};
 const flightsWarned = new Set();
 let lang = "en", tab = "meadow", shownRun = null, shownTask = null, confirming = false, sendingBack = false, live = [], token = "";
 let lastState = null, lastQueue = null, sceneKey = null, listKey = null, briefOpen = false, closed = new Set();
+// The honeycomb hive's sub-tab: projects with an open task first; "idle" for those with none.
+let shelf = "busy";
 const saved = key => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
 if (saved(LANGUAGE_KEY) === "fa") lang = "fa";
@@ -1101,7 +1146,9 @@ function setLook(chosen) {
   look = chosen === "honeycomb" ? "honeycomb" : "cards";
   save(LOOK_KEY, look);
   applyLook();
-  if (lastState) renderStats(lastState);
+  renderLegend();
+  sceneKey = null;
+  if (lastState) { renderStats(lastState); renderScene(lastState, lastQueue); }
 }
 
 function setLanguage(chosen) {
@@ -1270,15 +1317,27 @@ function markAt(x, drawing, kind = "") {
   return `<g transform="translate(${x} 34)"><circle class="mark ${kind}" r="7"/>${drawing}</g>`;
 }
 
-function flower(item, index) {
+// The marks a task carries, from the local log: the same under a flower and on a honeycomb cell's edge.
+function marksOf(item) {
   const {size, door, sent_back: back, slice, questions, yours} = item.mark || {};
-  const scale = SCALES[size] || 1;
-  const marks = [door && door !== "two-way" ? [MARKS.door] : null, back ? [MARKS.back] : null, slice ? [MARKS.slice] : null,
-                 size || item.column === "Technical debt" || item.by_hand ? null : [MARKS.unsized], questions ? [`<text class="mark-text" y="3.4">${num(questions)}</text>`, "ask"] : null,
-                 yours ? [MARKS.yours, "yours"] : null].filter(Boolean);
+  return [door && door !== "two-way" ? {key: "door", drawing: MARKS.door} : null, back ? {key: "back", drawing: MARKS.back} : null,
+          slice ? {key: "slice", drawing: MARKS.slice} : null,
+          size || item.column === "Technical debt" || item.by_hand ? null : {key: "unsized", drawing: MARKS.unsized},
+          questions ? {key: "questions", drawing: `<text class="mark-text" y="3.4">${num(questions)}</text>`, kind: "ask"} : null,
+          yours ? {key: "yours", drawing: MARKS.yours, kind: "yours"} : null].filter(Boolean);
+}
+
+function flower(item, index) {
+  const scale = SCALES[item.mark?.size] || 1;
+  const marks = marksOf(item);
   const start = -(marks.length - 1) * 7.5;
   return `<g class="bloom" transform="translate(0 34) scale(${scale}) translate(0 -34)">${bloom(item.column, index, item.yours ? HAND : undefined)}</g>
-    ${marks.map(([drawing, kind], i) => markAt(start + i * 15, drawing, kind)).join("")}`;
+    ${marks.map(({drawing, kind}, i) => markAt(start + i * 15, drawing, kind)).join("")}`;
+}
+
+// What shows on hover over a task, in both looks.
+function taskTitle(item) {
+  return `${item.task} · ${item.title} · ${stateText(item)}${item.by_hand && !item.yours ? ` · ${t("by_hand")}` : ""}${heldLines(item.mark, item.blockers).map(line => ` · ${line}`).join("")}`;
 }
 
 const BEE_TOOLS = {
@@ -1409,6 +1468,9 @@ function renderComb(done, days) {
 
 function renderScene(state, queue) {
   if (tab !== "meadow") return;
+  $("scene").hidden = look === "honeycomb";
+  $("honey").hidden = look !== "honeycomb";
+  if (look === "honeycomb") { renderHoneycomb(state, queue); return; }
   const box = $("scene");
   const narrow = box.clientWidth < 760;
   const projects = fields(state, queue).sort((a, b) => rank(a.name) - rank(b.name));
@@ -1429,8 +1491,7 @@ function renderScene(state, queue) {
       const x = patch.x + (i % patch.perRow) * CELL_W + CELL_W / 2 + (patch.width - patch.perRow * CELL_W) / 2;
       const y = patch.y + Math.floor(i / patch.perRow) * CELL_H + 54;
       spots[item.task] = {x, y};
-      const title = `${item.task} · ${item.title} · ${stateText(item)}${item.by_hand && !item.yours ? ` · ${t("by_hand")}` : ""}${heldLines(item.mark, item.blockers).map(line => ` · ${line}`).join("")}`;
-      return `<g class="clickable" data-review="${esc(item.task)}" transform="translate(${x} ${y})"><title>${esc(title)}</title>${flower(item, i)}
+      return `<g class="clickable" data-review="${esc(item.task)}" transform="translate(${x} ${y})"><title>${esc(taskTitle(item))}</title>${flower(item, i)}
         <text class="flower-number" y="52">${numberOf(item.task)}</text></g>`;
     }).join("");
     const middle = patch.x + patch.width / 2;
@@ -1464,6 +1525,7 @@ function renderScene(state, queue) {
 }
 
 function renderLegend() {
+  if (look === "honeycomb") { renderHoneyLegend(); return; }
   const entry = (drawing, label, box, height) => `<span><svg viewBox="${box}" style="height:${height}px" aria-hidden="true">${drawing}</svg>${esc(label)}</span>`;
   const group = (title, entries) => `<div class="legend-group"><b>${t(title)}</b>${entries.join("")}</div>`;
   const kinds = ["Your approval", "Approved", "Needs info", "Needs split", "In review", "In progress", "Ready", "waiting", "Blocked", "Backlog", "Technical debt"];
@@ -1477,6 +1539,162 @@ function renderLegend() {
   const bees = [[queen, "bee_queen"], [bee("worker"), "bee_worker"], [bee("reviewer"), "bee_reviewer"], [bee("scout"), "bee_scout"], [bee("splitter"), "bee_splitter"], [bee("inspector"), "bee_inspector"]]
     .map(([drawing, key]) => entry(drawing, t(key), "-28 -20 58 40", 30));
   $("legend").innerHTML = group("legend_flowers", flowers) + group("legend_sizes", sizes) + group("legend_marks", signs) + group("legend_bees", bees);
+}
+
+// The honeycomb look's hive: each project a large cell, each open task a small cell inside it. It draws the same
+// tasks, states and marks as the meadow, from the same data.
+
+// Each state's form: the colour of its flower, filled for a bloom, outline for a bud, grey for blocked and
+// technical debt; its centre sign; and an orange ring, pulsing or still, when it waits for the user. No two alike.
+const HONEY_STATES = {
+  "Your approval": {colour: "#f5c518", form: "filled", sign: "check", ring: "pulse"},
+  "Approved": {colour: "#8fd19e", form: "filled", sign: "check", ring: ""},
+  "Needs info": {colour: "#f2a65a", form: "filled", sign: "question", ring: ""},
+  "Needs split": {colour: "#e0689a", form: "filled", sign: "scissors", ring: ""},
+  "In review": {colour: "#b394ea", form: "filled", sign: "lens", ring: ""},
+  "In progress": {colour: "#5b9bf0", form: "filled", sign: "dots", ring: ""},
+  "Ready": {colour: "#5fa83f", form: "outline", sign: "play", ring: ""},
+  "waiting": {colour: "#5fa83f", form: "outline", sign: "hourglass", ring: ""},
+  "Backlog": {colour: "#93a07c", form: "outline", sign: "crown", ring: ""},
+  "by hand": {colour: "#5fa83f", form: "outline", sign: "hand", ring: "still"},
+  "Blocked": {colour: "#9a8f80", form: "cracked", sign: "cross", ring: ""},
+  "Technical debt": {colour: "#8a8578", form: "striped", sign: "grass", ring: ""},
+};
+// Centre signs, drawn for a cell of radius 16 and scaled with it.
+const HONEY_SIGNS = {
+  check: '<path class="sign" style="stroke-width:2" d="M-5 0 L-1.5 3.5 L5 -3.5"/>',
+  question: '<text class="sign-text" y="5">?</text>',
+  scissors: '<circle class="sign" cx="-3" cy="3.6" r="2"/><circle class="sign" cx="3" cy="3.6" r="2"/><path class="sign" d="M-1.6 2 L4 -5.5 M1.6 2 L-4 -5.5"/>',
+  lens: SIGNS["In review"],
+  dots: SIGNS["In progress"],
+  play: '<path class="sign solid" d="M-3 -4.5 L4.5 0 L-3 4.5z"/>',
+  hourglass: '<path class="sign" d="M-3.5 -5 h7 l-7 10 h7z"/>',
+  crown: `<path class="sign" style="fill:#f5b301" transform="translate(0 .5) scale(.75)" d="${CROWN}"/>`,
+  hand: `<g transform="translate(-.5 6)">${HAND}</g>`,
+  cross: '<path class="sign" style="stroke:#c43d2f;stroke-width:2.2" d="M-4 -4 L4 4 M4 -4 L-4 4"/>',
+  grass: '<path class="sign" style="stroke:#3f4a1f;stroke-width:1.8" d="M-4 5 Q-4 0 -6.5 -5 M0 5 V-6 M4 5 Q4 0 6.5 -4"/>',
+};
+// A task's size is its cell's radius; an unsized task takes the small one, and its edge says it is not sized.
+const HONEY_SIZES = {Small: 15, Medium: 19.5, Large: 24};
+// The six marks under a flower, each at its own corner of the cell's edge, clockwise from the top.
+const HONEY_MARKS = {
+  door: {corner: 0, name: "mark_door"},
+  back: {corner: 1, name: "sent_back"},
+  slice: {corner: 2, name: "mark_slice"},
+  unsized: {corner: 3, name: "mark_unsized"},
+  questions: {corner: 4, name: "mark_questions"},
+  yours: {corner: 5, name: "waits_for_you"},
+};
+// A task's place: as wide as a large cell with its signs, in nested rows like a honeycomb.
+const SLOT = 58, SLOT_ROW = SLOT * Math.sqrt(3) / 2;
+
+// The corners of a regular hexagon, pointy side up, around the origin: from the top, clockwise.
+const hexCorner = (radius, i) => [radius * Math.cos((i * 60 - 90) * Math.PI / 180), radius * Math.sin((i * 60 - 90) * Math.PI / 180)];
+const hexPoints = radius => [0, 1, 2, 3, 4, 5].map(i => hexCorner(radius, i).map(v => v.toFixed(2)).join(",")).join(" ");
+const honeyState = item => item.yours ? "by hand" : HONEY_STATES[item.column] ? item.column : "Backlog";
+
+// One task cell's drawing, around the origin: its ring, face, crack, centre sign and edge signs.
+function honeyFace(kind, radius, marks = []) {
+  const {colour, form, sign, ring} = HONEY_STATES[kind];
+  const rings = ring ? `<polygon class="${ring === "pulse" ? "wait-ring" : "hand-ring"}" points="${hexPoints(radius + 4)}"/>` : "";
+  const crack = form === "cracked" ? `<path class="crack" d="M${(.43 * radius).toFixed(2)} ${(-.75 * radius).toFixed(2)} l${(-.18 * radius).toFixed(2)} ${(.22 * radius).toFixed(2)} l${(.14 * radius).toFixed(2)} ${(.1 * radius).toFixed(2)} l${(-.2 * radius).toFixed(2)} ${(.24 * radius).toFixed(2)}"/>` : "";
+  const edge = marks.map(({key, drawing, kind: tone}) => {
+    const [x, y] = hexCorner(radius, HONEY_MARKS[key].corner);
+    return `<g transform="translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(.8)"><circle class="mark ${tone || ""}" r="7"/>${drawing}</g>`;
+  }).join("");
+  return `${rings}<polygon class="tface ${form}" style="--c:${colour}" points="${hexPoints(radius)}"/>${crack}
+    <g transform="scale(${(radius / 16).toFixed(3)})">${HONEY_SIGNS[sign]}</g>${edge}`;
+}
+
+// A task cell: its number and title on hover; a tap anywhere on its place opens the same dialog as a flower.
+function taskCell(item, x, y) {
+  const radius = HONEY_SIZES[item.mark?.size] || HONEY_SIZES.Small;
+  return `<g class="tcell clickable" data-review="${esc(item.task)}" transform="translate(${x.toFixed(2)} ${y.toFixed(2)})"><title>${esc(taskTitle(item))}</title>
+    <polygon class="tslot" points="${hexPoints(SLOT / Math.sqrt(3) - 1)}"/>${honeyFace(honeyState(item), radius, marksOf(item))}</g>`;
+}
+
+// How wide a pointy-top hexagon `width` wide is at height `y` from its top.
+function hexWidthAt(width, y) {
+  const height = width * 2 / Math.sqrt(3), from = Math.min(y, height - y);
+  return from >= height / 4 ? width : Math.max(0, width * from / (height / 4));
+}
+
+// The places of `count` task cells inside a project cell: rows between its name and its switch, every place on
+// one honeycomb lattice so no two cells touch. The cell grows until they all fit; reading starts at the top, from
+// the left, or from the right in Persian.
+function cellPlaces(count) {
+  for (let width = count ? 176 : 136; ; width += 8) {
+    const height = width * 2 / Math.sqrt(3), top = height * .25, bottom = height * .84, rows = [];
+    for (let row = 0, y = top + SLOT_ROW / 2; y + SLOT_ROW / 2 <= bottom; row++, y += SLOT_ROW) {
+      const room = Math.min(hexWidthAt(width, y - SLOT_ROW / 2), hexWidthAt(width, y + SLOT_ROW / 2)) - 10;
+      const spots = [];
+      for (let k = -12; k <= 12; k++) {
+        const dx = k * SLOT + (row % 2 ? SLOT / 2 : 0);
+        if (Math.abs(dx) + SLOT / 2 <= room / 2) spots.push(dx);
+      }
+      rows.push({y, spots: spots.sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)});
+    }
+    if (rows.reduce((sum, row) => sum + row.spots.length, 0) < count) continue;
+    const places = [];
+    let used = 0;
+    for (const row of rows) {
+      if (places.length === count) break;
+      const taken = row.spots.slice(0, count - places.length).sort((a, b) => lang === "fa" ? b - a : a - b);
+      places.push(...taken.map(dx => [width / 2 + dx, row.y]));
+      used = row.y + SLOT_ROW / 2;
+    }
+    const shift = count ? (bottom - used) / 2 : 0;  // The rows sit in the middle of the room they have.
+    return {width, height, places: places.map(([x, y]) => [x, y + shift])};
+  }
+}
+
+// A project: one large cell with its name and, but for a pause in the config, its pause switch; faded when paused.
+function projectCell(patch) {
+  const {width, height, places} = cellPlaces(patch.tasks.length);
+  const cells = patch.tasks.map((item, i) => taskCell(item, ...places[i])).join("");
+  const toggle = patchSwitch(patch);
+  return `<div class="pcell${patch.paused ? " off" : ""}" style="width:${width}px;aspect-ratio:${width} / ${height.toFixed(2)}">
+    <svg class="pcell-art" viewBox="0 0 ${width} ${height.toFixed(2)}"><polygon class="pface" points="${hexPoints(height / 2 - 2)}" transform="translate(${width / 2} ${(height / 2).toFixed(2)})"/>${cells}</svg>
+    <div class="pcell-name" title="${esc(patch.name)}"><bdi>${esc(patch.name)}</bdi>${patch.paused ? `<span class="pcell-paused">${t("project_on_pause")}</span>` : ""}</div>
+    ${toggle ? `<div class="pcell-foot"><svg viewBox="-19 -12 38 24">${toggle}</svg></div>` : ""}</div>`;
+}
+
+// The hive in the honeycomb look: projects with an open task, Backlog included, under "With tasks", which opens
+// first; the rest under "No tasks", with their count. A task the queue does not know has a project cell of its own.
+function renderHoneycomb(state, queue) {
+  const projects = fields(state, queue).sort((a, b) => rank(a.name) - rank(b.name));
+  const done = projects.flatMap(patch => patch.tasks.filter(item => item.column === "Done").map(item => ({...item, project: patch.name})));
+  projects.forEach(patch => {
+    patch.tasks = patch.tasks.filter(item => item.column !== "Done")
+      .sort((a, b) => COLUMN_ORDER.indexOf(a.yours ? "Your approval" : a.column) - COLUMN_ORDER.indexOf(b.yours ? "Your approval" : b.column));
+  });
+  const busy = projects.filter(patch => patch.tasks.length), idle = projects.filter(patch => !patch.tasks.length);
+  const stopped = state.stop_requested;
+  const key = JSON.stringify(["honeycomb", shelf, lang, stopped, !queue, projects, state.paused_in_config]);
+  if (key === sceneKey) return;
+  sceneKey = key;
+  const shown = shelf === "idle" ? idle : busy;
+  const empty = shelf === "idle" ? t("hive_all_busy") : t(queue ? "hive_no_open_tasks" : "reading_board");
+  const shelfTab = (name, label) => `<button class="tab" role="tab" data-shelf="${name}" aria-selected="${shelf === name}">${label}</button>`;
+  $("honey").className = `honey${stopped ? " paused" : ""}`;
+  // The count in brackets, not after a dot: a Persian zero is a dot.
+  $("honey").innerHTML = `<div class="shelves" role="tablist">${shelfTab("busy", t("hive_with_tasks"))}${shelfTab("idle", `${t("hive_no_tasks")} (${num(idle.length)})`)}</div>
+    <div class="pcells">${shown.map(projectCell).join("") || `<div class="empty">${empty}</div>`}</div>`;
+  renderComb(done, queue?.done_days);
+}
+
+function renderHoneyLegend() {
+  const entry = (drawing, label, box = "-28 -28 56 56", height = 44) => `<span><svg viewBox="${box}" style="height:${height}px" aria-hidden="true">${drawing}</svg>${esc(label)}</span>`;
+  const group = (title, entries) => `<div class="legend-group"><b>${t(title)}</b>${entries.join("")}</div>`;
+  const named = kind => kind === "by hand" ? t("by_hand_yours") : tr(kind === "waiting" ? "waiting for machine" : kind);
+  const states = Object.keys(HONEY_STATES).map(kind => entry(honeyFace(kind, HONEY_SIZES.Medium), named(kind)));
+  const sizes = [...Object.keys(HONEY_SIZES).map(size => entry(honeyFace("In progress", HONEY_SIZES[size]), tr(size))),
+                 entry(honeyFace("In progress", HONEY_SIZES.Small, marksOf({column: "In progress"})), t("mark_unsized"))];
+  const every = marksOf({column: "Ready", mark: {door: "one-way", sent_back: true, slice: true, questions: 3, yours: true}});
+  const signs = Object.keys(HONEY_MARKS).map(key => entry(honeyFace("Ready", HONEY_SIZES.Medium, every.filter(m => m.key === key)), t(HONEY_MARKS[key].name)));
+  const project = off => `<g class="${off ? "pcell-legend off" : "pcell-legend"}"><polygon class="pface" points="${hexPoints(26)}"/>${honeyFace("In progress", 8)}</g>`;
+  const projects = [entry(project(false), t("legend_project")), entry(project(true), t("project_on_pause"))];
+  $("legend").innerHTML = group("legend_flowers", states) + group("legend_cell_sizes", sizes) + group("legend_edge_signs", signs) + group("legend_projects", projects);
 }
 
 function meter(label, value, limit) {
@@ -2121,6 +2339,7 @@ document.addEventListener("click", e => {
   if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); sendingBack = false; showReviews(shownTask); return; }
   if (hit("back-sure")) { sendingBack = true; confirming = false; showReviews(shownTask); return; }
   if (hit("back")) { doSendBack(hit("back")); return; }
+  if (hit("shelf")) { shelf = hit("shelf").dataset.shelf; sceneKey = null; if (lastState) renderScene(lastState, lastQueue); return; }
   if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
   if (pause) {  // It sits in the project's summary, which would fold.
     e.preventDefault();

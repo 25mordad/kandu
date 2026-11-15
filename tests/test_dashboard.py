@@ -1034,7 +1034,7 @@ class ByHandPageTest(unittest.TestCase):
         self.assertIn('entry(bloom("Backlog", 0, HAND), t("by_hand_yours")', legend)
 
     def test_no_by_hand_flower_is_called_unsized(self):
-        self.assertIn('size || item.column === "Technical debt" || item.by_hand ? null : [MARKS.unsized]', self.page)
+        self.assertIn('size || item.column === "Technical debt" || item.by_hand ? null : {key: "unsized", drawing: MARKS.unsized}', self.page)
 
     def test_its_state_reads_by_hand_waits_for_you_in_both_languages(self):
         self.assertEqual(self.text["en"]["by_hand_yours"], "By hand, waits for you")
@@ -1385,6 +1385,166 @@ class HoneycombLookTest(unittest.TestCase):
         self.assertIn("two looks", looks)
         self.assertIn("each browser", looks.lower())
         self.assertIn("default", looks)
+
+
+class HoneycombHiveTest(unittest.TestCase):
+    """The honeycomb look's hive tab: each project a large cell, each open task a small one inside it (issue #7)."""
+    # The state table of spec #5: each state's colour, its form, its centre sign and its ring.
+    STATES = {
+        "Your approval": ("gold", "filled", "check", "pulse"),
+        "Approved": ("mint", "filled", "check", ""),
+        "Needs info": ("orange", "filled", "question", ""),
+        "Needs split": ("pink", "filled", "scissors", ""),
+        "In review": ("purple", "filled", "lens", ""),
+        "In progress": ("blue", "filled", "dots", ""),
+        "Ready": ("green", "outline", "play", ""),
+        "waiting": ("green", "outline", "hourglass", ""),
+        "Backlog": ("grey-green", "outline", "crown", ""),
+        "by hand": ("green", "outline", "hand", "still"),
+        "Blocked": ("grey", "cracked", "cross", ""),
+        "Technical debt": ("grey", "striped", "grass", ""),
+    }
+
+    def setUp(self):
+        self.page = dashboard.PAGE.read_text(encoding="utf-8")
+        text = re.search(r'<script type="application/json" id="text">(.*?)</script>', self.page, re.DOTALL)
+        self.text = json.loads(text.group(1))
+        self.style = self.page.split("<style>")[1].split("</style>")[0]
+
+    def function(self, name):
+        return self.page.split(f"function {name}(")[1].split("\n}\n")[0]
+
+    def table(self, name):
+        return self.page.split(f"const {name} = {{")[1].split("\n};")[0]
+
+    def honey_states(self):
+        rows = re.findall(r'^  "([\w ]+)": \{colour: "(#[0-9a-f]{6})", form: "(\w+)", sign: "(\w+)", ring: "(\w*)"\},$',
+                          self.table("HONEY_STATES"), re.MULTILINE)
+        return {state: (colour, form, sign, ring) for state, colour, form, sign, ring in rows}
+
+    def test_the_hive_tab_draws_the_honeycomb_in_the_honeycomb_look(self):
+        scene = self.function("renderScene")
+        self.assertIn('if (look === "honeycomb")', scene)
+        self.assertIn("renderHoneycomb(state, queue)", scene)
+        chosen = self.function("setLook")
+        self.assertIn("renderScene(lastState, lastQueue)", chosen)
+        self.assertIn("renderLegend()", chosen)
+        for call in ("act(", "get(", "fetch(", "post("):  # How the page draws, never what it asks.
+            self.assertNotIn(call, self.function("renderHoneycomb"))
+
+    def test_two_sub_tabs_with_tasks_first_and_no_tasks_with_its_count(self):
+        self.assertIn('let shelf = "busy";', self.page)
+        comb = self.function("renderHoneycomb")
+        self.assertIn('t("hive_with_tasks")', comb)
+        self.assertIn('t("hive_no_tasks")', comb)
+        self.assertIn("num(idle.length)", comb)
+        # Only open tasks count, Backlog included: done ones leave before the projects are split.
+        self.assertLess(comb.index('item.column !== "Done"'), comb.index("patch.tasks.length"))
+        self.assertIn('if (hit("shelf"))', self.page)
+        self.assertEqual(self.text["en"]["hive_with_tasks"], "With tasks")
+        self.assertEqual(self.text["en"]["hive_no_tasks"], "No tasks")
+        for key in ("hive_with_tasks", "hive_no_tasks", "hive_no_open_tasks", "hive_all_busy"):
+            self.assertTrue(self.text["fa"][key], key)
+
+    def test_each_project_is_one_cell_with_its_name_fading_when_paused_with_its_switch(self):
+        cell = self.function("projectCell")
+        self.assertIn("esc(patch.name)", cell)
+        self.assertIn('patch.paused ? " off" : ""', cell)
+        self.assertIn('t("project_on_pause")', cell)
+        self.assertIn("patchSwitch(patch)", cell)  # The meadow's switch: same request, and none when the config paused it.
+        self.assertIn('if (lastState.paused_in_config.includes(patch.name)) return "";', self.function("patchSwitch"))
+        self.assertRegex(self.style, r"\.pcell\.off \.pcell-art[^{]*\{[^}]*opacity:")
+
+    def test_each_state_has_the_form_of_the_spec_and_no_two_look_alike(self):
+        states = self.honey_states()
+        self.assertEqual({s: f[1:] for s, f in states.items()}, {s: f[1:] for s, f in self.STATES.items()})
+        forms = list(states.values())
+        self.assertEqual(len(set(forms)), len(forms))
+        signs = self.table("HONEY_SIGNS")
+        for _, _, sign, _ in forms:
+            self.assertIn(f"  {sign}: ", signs)
+        # The filled colours are the flowers' own, so a cell keeps its flower's colour.
+        flowers = self.table("FLOWERS")
+        for state in ("Needs info", "Needs split", "In review", "In progress"):
+            self.assertIn(f'"{state}": {{swatch: "{states[state][0]}"', flowers)
+        self.assertIn(f'petal: "{states["Your approval"][0]}"', flowers)
+        self.assertIn(f'petal: "{states["Approved"][0]}"', flowers)
+        for form in ("filled", "outline", "cracked", "striped"):
+            self.assertIn(f".tface.{form}", self.style)
+        self.assertIn('id="honey-stripes"', self.page)
+
+    def test_a_task_cell_takes_its_size_and_an_unsized_one_the_small_size_with_its_sign(self):
+        sizes = dict(re.findall(r"(\w+): ([\d.]+)", self.page.split("const HONEY_SIZES = {")[1].split("}")[0]))
+        self.assertEqual(list(sizes), ["Small", "Medium", "Large"])
+        self.assertLess(float(sizes["Small"]), float(sizes["Medium"]))
+        self.assertLess(float(sizes["Medium"]), float(sizes["Large"]))
+        self.assertIn("HONEY_SIZES[item.mark?.size] || HONEY_SIZES.Small", self.function("taskCell"))
+        self.assertIn('size || item.column === "Technical debt" || item.by_hand ? null : {key: "unsized"', self.function("marksOf"))
+
+    def test_the_six_marks_sit_on_the_edge_from_the_same_data_as_the_flower(self):
+        self.assertIn("marksOf(item)", self.function("flower"))
+        self.assertIn("marksOf(item)", self.function("taskCell"))
+        corners = dict(re.findall(r"(\w+): \{corner: (\d)", self.table("HONEY_MARKS")))
+        self.assertEqual(set(corners), {"door", "back", "slice", "unsized", "questions", "yours"})
+        self.assertEqual(len(set(corners.values())), 6)  # Each its own corner, so a sign is known by its place too.
+        self.assertIn("HONEY_MARKS[key].corner", self.function("honeyFace"))
+
+    def test_hovering_a_task_cell_names_it_and_a_tap_opens_its_dialog(self):
+        cell = self.function("taskCell")
+        self.assertIn('data-review="${esc(item.task)}"', cell)  # The click handler opens the same dialog.
+        self.assertIn("<title>${esc(taskTitle(item))}</title>", cell)
+        title = self.function("taskTitle")
+        self.assertIn("item.task", title)
+        self.assertIn("item.title", title)
+        self.assertIn("taskTitle(item)", self.function("renderScene"))
+
+    def test_a_task_the_queue_does_not_know_gets_a_project_cell_of_its_own(self):
+        self.assertIn("fields(state, queue)", self.function("renderHoneycomb"))
+        strays = self.function("fields")
+        self.assertIn("if (!patch) projects.push(patch = {name, tasks: []});", strays)
+
+    def test_the_legend_draws_every_state_size_and_sign_in_both_languages(self):
+        self.assertIn('if (look === "honeycomb") { renderHoneyLegend(); return; }', self.function("renderLegend"))
+        legend = self.function("renderHoneyLegend")
+        for table in ("HONEY_STATES", "HONEY_SIZES", "HONEY_MARKS"):
+            self.assertIn(f"Object.keys({table})", legend)
+        self.assertIn('t("mark_unsized")', legend)
+        self.assertIn('t("by_hand_yours")', legend)
+        self.assertIn('t("project_on_pause")', legend)
+        names = dict(re.findall(r'(\w+): \{corner: \d, name: "(\w+)"\}', self.table("HONEY_MARKS")))
+        for key in [*names.values(), "legend_cell_sizes", "legend_edge_signs", "legend_projects", "legend_project"]:
+            self.assertTrue(self.text["en"][key], key)
+            self.assertTrue(self.text["fa"][key], key)
+        for state in self.STATES:
+            if state != "by hand":
+                self.assertTrue(state in self.text["values_fa"] or state == "waiting", state)
+        self.assertIn("waiting for machine", self.text["values_fa"])
+        self.assertIn("HONEY_SIZES.Small, marksOf(", legend)  # An unsized task: the small size with its sign.
+
+    def test_every_state_and_sign_of_the_current_legend_has_its_honeycomb_form(self):
+        current = self.function("renderLegend").split('if (look === "honeycomb")')[1]
+        kinds = re.findall(r'"([\w ]+)"', re.search(r"const kinds = \[(.*?)\];", current).group(1))
+        states = self.honey_states()
+        self.assertTrue(kinds)
+        for kind in kinds:
+            self.assertIn(kind, states)
+        self.assertIn('entry(bloom("Backlog", 0, HAND), t("by_hand_yours")', current)
+        self.assertIn("by hand", states)
+        self.assertIn("Object.keys(SCALES)", current)
+        meadow_sizes = re.findall(r"(\w+): [\d.]+", self.page.split("const SCALES = {")[1].split("}")[0])
+        honey_sizes = re.findall(r"(\w+): [\d.]+", self.page.split("const HONEY_SIZES = {")[1].split("}")[0])
+        self.assertEqual(meadow_sizes, honey_sizes)
+        signs = re.search(r"const signs = \[(.*?)\];", current, re.DOTALL).group(1)
+        names = dict((name, key) for key, name in re.findall(r'(\w+): \{corner: \d, name: "(\w+)"\}', self.table("HONEY_MARKS")))
+        shown = re.findall(r'"(mark_\w+|sent_back|waits_for_you)"', signs)
+        self.assertEqual(len(shown), 6)
+        for name in shown:
+            self.assertIn(name, names)
+
+    def test_no_sideways_scrolling(self):
+        self.assertRegex(self.style, r"\.pcells \{[^}]*flex-wrap:wrap")
+        self.assertRegex(self.style, r"\.pcell \{[^}]*max-width:100%")
+        self.assertRegex(self.style, r"\.shelves \{[^}]*flex-wrap:wrap")
 
 
 class StreamTest(Base):
