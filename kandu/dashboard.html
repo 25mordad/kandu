@@ -260,6 +260,13 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .pcell-name { position:absolute; top:14.5%; inset-inline:22%; display:grid; text-align:center; font-weight:600; font-size:clamp(11px, 7.2cqi, 14px); }
 .pcell-name bdi { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pcell-paused { font-size:clamp(10px, 6cqi, 12px); font-weight:500; color:#d9604f; }
+.pcell-merge { font-size:clamp(10px, 6cqi, 12px); font-weight:500; }
+.merge-mark { font-weight:500; font-size:13px; }
+.merge-dot.auto { fill:#2f8a4e; color:#2f8a4e; } .merge-dot.waits { fill:#e8590c; color:#e8590c; } .merge-dot.frozen { fill:#3d8fb8; color:#3d8fb8; }
+.stepper { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+.stepper b { min-width:2.2em; text-align:center; }
+.pace-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 0; }
+.tokens-field { width:9em; }
 .pcell-foot { position:absolute; bottom:4.5%; inset-inline:0; display:flex; justify-content:center; }
 .pcell-foot svg { width:36px; height:23px; overflow:visible; }
 .tslot { fill:transparent; }
@@ -333,7 +340,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   </section>
   <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="honey" class="honey" hidden></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
-  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div class="card pad add-open"><p class="muted" data-t="add_why"></p><div class="actions"><button id="addopen" class="btn" data-t="add_project"></button></div></div><div id="cleanmerged" class="card pad"></div><div id="projectsettings" class="card"></div></section>
+  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div class="card pad add-open"><p class="muted" data-t="add_why"></p><div class="actions"><button id="addopen" class="btn" data-t="add_project"></button></div></div><div id="pacesettings" class="card pad"></div><div id="cleanmerged" class="card pad"></div><div id="projectsettings" class="card"></div></section>
   <section data-panel="days" class="list" hidden>
     <div class="toolbar"><select id="day" data-t-attr="aria-label" data-t="day"></select><div id="daytotals" class="chips"></div></div>
     <div id="byday" class="card"></div>
@@ -626,7 +633,28 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bee_inspector": "Bazras, the inspector bee",
   "tab_bazras": "Bazras",
   "tab_settings": "Settings",
-  "settings_about": "One row per project, in the order of its registry. A switch changes the setting at once; Kandu keeps your choice, and it wins over the registry.",
+  "settings_about": "One row per project, in the order of its registry. Each control changes the setting at once, and the next cycle uses it. Pause, splits and one-way answers are kept by Kandu and win over the registry; the other values are written in the config.",
+  "pace_title": "Kandu's pace",
+  "pace_workers": "Workers at once, in all of Kandu",
+  "pace_wake": "Wakes every (minutes)",
+  "pace_cycle": "Longest cycle (minutes)",
+  "pace_hint": "The next cycle uses these. A new wake interval counts after Restart Kandu.",
+  "setting_workers": "Workers",
+  "setting_workers_hint": "How many workers build in this project at once",
+  "setting_priority": "Priority",
+  "setting_priority_hint": "1 goes first",
+  "setting_tokens": "Daily tokens",
+  "setting_tokens_hint": "Kandu starts no more work in this project once it has used this many tokens today",
+  "setting_auto_merge": "Merges itself",
+  "setting_frozen": "Frozen",
+  "less": "Less",
+  "more": "More",
+  "mode_auto": "merges itself",
+  "mode_waits": "waits for you",
+  "mode_frozen": "frozen",
+  "mode_auto_hint": "Kandu merges a PR it judges right by itself; a change that is hard to undo still waits for you",
+  "mode_waits_hint": "Every PR waits for your approval before it merges",
+  "mode_frozen_hint": "Frozen: nothing merges by itself, for example before a release",
   "setting_pause": "Pause",
   "queen_accepts_splits": "The queen accepts splits",
   "queen_accepts_splits_hint": "Off: every split proposal waits for your yes. On: a proposal still waits for your yes until the queen can accept one.",
@@ -900,7 +928,28 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bee_inspector": "بازرس، زنبور بازرسی",
   "tab_bazras": "بازرس",
   "tab_settings": "تنظیمات",
-  "settings_about": "برای هر پروژه یک ردیف، به ترتیب رجیستری. هر کلید تنظیم را همان لحظه عوض می‌کند؛ کندو انتخابت را نگه می‌دارد و بر رجیستری مقدم است.",
+  "settings_about": "برای هر پروژه یک ردیف، به ترتیب رجیستری. هر کنترل تنظیم را همان لحظه عوض می‌کند و چرخهٔ بعدی از آن استفاده می‌کند. توقف، تقسیم‌ها و پاسخ‌های یک‌طرفه را کندو نگه می‌دارد و بر رجیستری مقدم‌اند؛ بقیهٔ مقدارها در تنظیمات نوشته می‌شوند.",
+  "pace_title": "آهنگ کار کندو",
+  "pace_workers": "کارگرهای هم‌زمان در کل کندو",
+  "pace_wake": "بیدار شدن هر (دقیقه)",
+  "pace_cycle": "بلندترین چرخه (دقیقه)",
+  "pace_hint": "چرخهٔ بعدی از این‌ها استفاده می‌کند. فاصلهٔ بیدار شدن تازه بعد از «ری‌استارت کندو» حساب می‌شود.",
+  "setting_workers": "کارگرها",
+  "setting_workers_hint": "چند کارگر هم‌زمان در این پروژه کار بسازند",
+  "setting_priority": "اولویت",
+  "setting_priority_hint": "۱ اول می‌رود",
+  "setting_tokens": "توکن روزانه",
+  "setting_tokens_hint": "وقتی این پروژه امروز این‌قدر توکن مصرف کرد، کندو کار تازه‌ای در آن شروع نمی‌کند",
+  "setting_auto_merge": "ادغام خودکار",
+  "setting_frozen": "یخ‌زده",
+  "less": "کمتر",
+  "more": "بیشتر",
+  "mode_auto": "ادغام خودکار",
+  "mode_waits": "منتظر تو",
+  "mode_frozen": "یخ‌زده",
+  "mode_auto_hint": "کندو PRی را که درست بداند خودش ادغام می‌کند؛ تغییری که برگشتش سخت است باز منتظر تو می‌ماند",
+  "mode_waits_hint": "هر PR پیش از ادغام منتظر تأیید تو می‌ماند",
+  "mode_frozen_hint": "یخ‌زده: هیچ چیزی خودکار ادغام نمی‌شود، مثلاً پیش از انتشار",
   "setting_pause": "توقف",
   "queen_accepts_splits": "ملکه شکستن‌ها را می‌پذیرد",
   "queen_accepts_splits_hint": "خاموش: هر پیشنهاد شکستن منتظر بلهٔ تو می‌ماند. روشن: تا وقتی ملکه نتواند پیشنهادی را بپذیرد، باز هم منتظر بلهٔ تو می‌ماند.",
@@ -1118,6 +1167,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "project_paused": "پروژه متوقف شد",
   "limits_changed": "سقف مصرف تغییر کرد",
   "parallel_changed": "تعداد کارگرهای هم‌زمان تغییر کرد",
+  "pace_changed": "آهنگ کار کندو تغییر کرد",
   "kandu_restarted": "کندو ری‌استارت شد",
   "wake_requested": "ملکه دستی بیدار شد",
   "notification_sent": "اعلان فرستاده شد",
@@ -1578,6 +1628,7 @@ function fields(state, queue) {
   }
   for (const patch of projects) {
     patch.paused = (state.paused_projects || []).includes(patch.name);
+    patch.merge = mergeMode(state, patch.name);
     for (const item of patch.tasks) {
       item.mark = state.flowers?.[item.task] || {};
       if (item.yours) item.mark = {...item.mark, yours: true};  // an open by-hand task is the user's to do
@@ -1587,6 +1638,19 @@ function fields(state, queue) {
     }
   }
   return projects;
+}
+
+// Whether a project merges by itself, waits for the user, or is frozen; frozen wins over auto-merge.
+function mergeMode(state, name) {
+  const row = (state.project_settings || []).find(p => p.name === name);
+  if (!row) return "";
+  return row.frozen ? "frozen" : row.auto_merge ? "auto" : "waits";
+}
+
+// The mark beside a project's name; it opens the settings, where the mode is changed.
+function mergeMark(patch) {
+  if (!patch.merge) return "";
+  return ` · <tspan class="merge-mark clickable" data-tab="settings"><title>${esc(t(`mode_${patch.merge}_hint`))}</title><tspan class="merge-dot ${patch.merge}">●</tspan>\u00a0${esc(t(`mode_${patch.merge}`))}</tspan>`;
 }
 
 // Patches keep the config's order, row by row, the first one where reading starts.
@@ -1649,7 +1713,7 @@ function renderScene(state, queue) {
     }).join("");
     const middle = patch.x + patch.width / 2;
     return `<ellipse class="soil${patch.paused ? " off" : ""}" cx="${middle}" cy="${patch.y + patch.height / 2 + 8}" rx="${patch.width / 2}" ry="${patch.height / 2}"/>
-      <g class="${patch.paused ? "patch-off" : ""}"><text class="patch-name" data-name="${esc(patch.name)}" x="${middle}" y="${patch.y + patch.height - 8}">\u2066${esc(patch.name)}\u2069${patch.paused ? ` · <tspan class="patch-paused">${t("project_on_pause")}</tspan>` : ""}</text>${flowers}</g>${patchSwitch(patch)}`;
+      <g class="${patch.paused ? "patch-off" : ""}"><text class="patch-name" data-name="${esc(patch.name)}" x="${middle}" y="${patch.y + patch.height - 8}">\u2066${esc(patch.name)}\u2069${patch.paused ? ` · <tspan class="patch-paused">${t("project_on_pause")}</tspan>` : ""}${mergeMark(patch)}</text>${flowers}</g>${patchSwitch(patch)}`;
   }).join("");
   const bees = (state.workers || []).map((worker, i) => spots[worker.task] ? flight(worker, beeKind(worker.phase), spots[worker.task], {x: home.x, y: home.y + 20}, i) : "").join("")
     + inspectorBee(looking, projects);
@@ -1808,7 +1872,7 @@ function projectCell(patch) {
   const toggle = patchSwitch(patch);
   return `<div class="pcell${patch.paused ? " off" : ""}" style="width:${width}px;aspect-ratio:${width} / ${height.toFixed(2)}">
     <svg class="pcell-art" viewBox="0 0 ${width} ${height.toFixed(2)}"><polygon class="pface" points="${hexPoints(height / 2 - 2)}" transform="translate(${width / 2} ${(height / 2).toFixed(2)})"/>${cells}</svg>
-    <div class="pcell-name" title="${esc(patch.name)}"><bdi>${esc(patch.name)}</bdi>${patch.paused ? `<span class="pcell-paused">${t("project_on_pause")}</span>` : ""}</div>
+    <div class="pcell-name" title="${esc(patch.name)}"><bdi>${esc(patch.name)}</bdi>${patch.paused ? `<span class="pcell-paused">${t("project_on_pause")}</span>` : ""}${patch.merge ? `<span class="pcell-merge" title="${esc(t(`mode_${patch.merge}_hint`))}"><span class="merge-dot ${patch.merge}">●</span>\u00a0${esc(t(`mode_${patch.merge}`))}</span>` : ""}</div>
     ${toggle ? `<div class="pcell-foot"><svg viewBox="-19 -12 38 24">${toggle}</svg></div>` : ""}</div>`;
 }
 
@@ -2193,20 +2257,46 @@ async function saveInspect(button) {
   }
 }
 
-// The settings section: one row per project, in the registry's order. A project paused in its config shows a
-// switch that cannot move, since only the config resumes it. A change goes to the API at once and the next state redraws.
+// A number with a minus and a plus; each press sends the new number at once. `path` holds {n} for it.
+function stepper(value, path, label, step = 1) {
+  const button = (by, sign) => `<button type="button" class="btn small" data-step="${by}" data-step-path="${esc(path)}" data-step-from="${value}" aria-label="${esc(`${t(by < 0 ? "less" : "more")}: ${label}`)}"${value + by < 1 ? " disabled" : ""}>${sign}</button>`;
+  return `<span class="stepper">${button(-step, "−")}<b class="number">${num(value)}</b>${button(step, "+")}</span>`;
+}
+
+async function changeStep(button) {
+  const value = Number(button.dataset.stepFrom) + Number(button.dataset.step);
+  renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
+  if (!await act(button, button.dataset.stepPath.replace("{n}", value))) refreshState().catch(() => {});
+}
+
+// The settings section: Kandu's pace, then one row per project, in the registry's order. A project paused in its
+// config shows a switch that cannot move, since only the config resumes it. A change goes to the API at once and
+// the next state redraws.
 function renderSettings(s) {
   const rows = s.project_settings || [];
-  const key = JSON.stringify([lang, rows, s.clean_merged]);
+  const key = JSON.stringify([lang, rows, s.clean_merged, s.pace, s.parallel?.total]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
+  const name = p => encodeURIComponent(p.name);
   const body = rows.map(p => `<tr><td>${bdi(p.name)}</td>
     <td class="fit"><label title="${esc(p.paused_in_config ? t("paused_in_config_hint") : "")}"><input type="checkbox" data-setting-pause="${esc(p.name)}"${p.paused ? " checked" : ""}${p.paused_in_config ? " disabled" : ""}> ${t("setting_pause")}</label></td>
+    <td class="fit" title="${esc(t("setting_workers_hint"))}">${stepper(p.max_parallel_workers, `/parallel?project=${encodeURIComponent(p.name + ":")}{n}`, `${p.name} · ${t("setting_workers")}`)}</td>
+    <td class="fit" title="${esc(t("setting_priority_hint"))}">${stepper(p.priority, `/projects/${name(p)}/settings?priority={n}`, `${p.name} · ${t("setting_priority")}`)}</td>
+    <td class="fit"><input type="number" class="tokens-field" min="1" step="100000" dir="ltr" value="${p.daily_token_limit}" data-setting-tokens="${esc(p.name)}" title="${esc(t("setting_tokens_hint"))}" aria-label="${esc(`${p.name} · ${t("setting_tokens")}`)}"></td>
+    <td class="fit"><label title="${esc(t("mode_auto_hint"))}"><input type="checkbox" data-setting-auto-merge="${esc(p.name)}"${p.auto_merge ? " checked" : ""}> ${t("setting_auto_merge")}</label></td>
+    <td class="fit"><label title="${esc(t("mode_frozen_hint"))}"><input type="checkbox" data-setting-frozen="${esc(p.name)}"${p.frozen ? " checked" : ""}> ${t("setting_frozen")}</label></td>
     <td class="fit"><label title="${esc(t("queen_accepts_splits_hint"))}"><input type="checkbox" data-setting-splits="${esc(p.name)}"${p.split_approval === "queen" ? " checked" : ""}> ${t("queen_accepts_splits")}</label></td>
     <td class="fit"><label title="${esc(t("queen_answers_one_way_hint"))}"><input type="checkbox" data-setting-one-way="${esc(p.name)}"${p.queen_answers_one_way ? " checked" : ""}> ${t("queen_answers_one_way")}</label></td>
     <td class="fit"><button class="btn small danger" data-remove="${esc(p.name)}" title="${esc(t("remove_project_hint"))}">${t("remove_project")}</button></td></tr>`).join("");
+  const pace = s.pace || {};
+  $("pacesettings").innerHTML = `<h2 class="card-title">${t("pace_title")}</h2>
+    ${s.parallel ? `<div class="pace-row"><span>${t("pace_workers")}</span>${stepper(s.parallel.total, "/parallel?total={n}", t("pace_workers"))}</div>` : ""}
+    ${pace.wake_every_minutes ? `<div class="pace-row"><span>${t("pace_wake")}</span>${stepper(pace.wake_every_minutes, "/pace?wake_every_minutes={n}", t("pace_wake"), 5)}</div>` : ""}
+    ${pace.max_cycle_minutes ? `<div class="pace-row"><span>${t("pace_cycle")}</span>${stepper(pace.max_cycle_minutes, "/pace?max_cycle_minutes={n}", t("pace_cycle"), 5)}</div>` : ""}
+    <div class="muted">${t("pace_hint")}</div>`;
   $("cleanmerged").innerHTML = `<label title="${esc(t("clean_merged_hint"))}"><input type="checkbox" data-clean-merged${s.clean_merged ? " checked" : ""}> ${t("clean_merged")}</label><div class="muted">${t("clean_merged_hint")}</div>`;
-  $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th><th class="fit">${t("setting_pause")}</th><th class="fit">${t("queen_accepts_splits")}</th><th class="fit">${t("queen_answers_one_way")}</th><th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
+  const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "queen_accepts_splits", "queen_answers_one_way"];
+  $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th>${heads.map(h => `<th class="fit">${t(h)}</th>`).join("")}<th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
 // Taking a project out of Kandu: the first click asks on the button itself, the second acts. Nothing is typed.
@@ -2239,10 +2329,15 @@ async function changeCleanMerged(box) {
 }
 
 async function changeSetting(box) {
-  const name = box.dataset.settingPause ?? box.dataset.settingSplits ?? box.dataset.settingOneWay;
-  const path = box.dataset.settingPause !== undefined ? `/projects/${encodeURIComponent(name)}/${box.checked ? "pause" : "resume"}`
-    : box.dataset.settingSplits !== undefined ? `/projects/${encodeURIComponent(name)}/settings?split_approval=${box.checked ? "queen" : "user"}`
-    : `/projects/${encodeURIComponent(name)}/settings?queen_answers_one_way=${box.checked}`;
+  const d = box.dataset;
+  const name = d.settingPause ?? d.settingSplits ?? d.settingOneWay ?? d.settingAutoMerge ?? d.settingFrozen ?? d.settingTokens;
+  const settings = `/projects/${encodeURIComponent(name)}/settings?`;
+  const path = d.settingPause !== undefined ? `/projects/${encodeURIComponent(name)}/${box.checked ? "pause" : "resume"}`
+    : d.settingSplits !== undefined ? `${settings}split_approval=${box.checked ? "queen" : "user"}`
+    : d.settingAutoMerge !== undefined ? `${settings}auto_merge=${box.checked}`
+    : d.settingFrozen !== undefined ? `${settings}frozen=${box.checked}`
+    : d.settingTokens !== undefined ? `${settings}daily_token_limit=${encodeURIComponent(box.value)}`
+    : `${settings}queen_answers_one_way=${box.checked}`;
   renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
   if (!await act(box, path)) refreshState().catch(() => {});
 }
@@ -2507,6 +2602,7 @@ document.addEventListener("click", e => {
   if (hit("fly")) { openFlight(hit("fly")); return; }
   if (hit("inspect")) { saveInspect(hit("inspect")); return; }
   if (hit("remove")) { removeProject(hit("remove")); return; }
+  if (hit("step")) { changeStep(hit("step")); return; }
   if (hit("land")) { act(hit("land"), `/flights/${encodeURIComponent(hit("land").dataset.land)}/close`).then(() => refreshFlights()).catch(() => {}); return; }
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }
@@ -2536,7 +2632,7 @@ document.addEventListener("click", e => {
   if (e.target === $("modal")) $("modal").close();
 });
 document.addEventListener("change", e => {
-  if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way]")) changeSetting(e.target);
+  if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way], [data-setting-auto-merge], [data-setting-frozen], [data-setting-tokens]")) changeSetting(e.target);
   if (e.target.matches?.("[data-clean-merged]")) changeCleanMerged(e.target);
 });
 document.addEventListener("toggle", e => {

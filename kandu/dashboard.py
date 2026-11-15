@@ -19,8 +19,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, review, sessions, split, tasks,
                timer, upstream)
-from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup,
-                     set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_parallel, set_show_requests)
+from .config import (DEFAULT_LOCAL_DIR, PACE_SETTINGS, REGISTRY_SETTINGS, TECHNICAL_DEBT, ConfigError, Inspect,
+                     load_config, set_backup, set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_pace,
+                     set_parallel, set_project_values, set_show_requests)
 from .github import AGENT_LABEL, GitHubError, task_blockers
 from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
@@ -211,6 +212,7 @@ class Api:
             "machines": [{"name": m.name, "always_on": m.always_on} for m in self.config.settings.machines],
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
             "parallel": self._parallel(),
+            "pace": self._pace(),
             "queen": self._queen_report(),
             "flowers": marks,
             "waits_for_you": self._waits_for_you(marks),
@@ -948,33 +950,85 @@ class Api:
             self.store.record("project_resumed", project=project.name)
         return {"paused": False}
 
+    def _registry_value(self, project, setting):
+        return self.config.auto_merge_for(project) if setting == "auto_merge" else getattr(project, setting)
+
     def _project_settings(self):
-        """One row per project, in the registry's order: its pause and each setting the dashboard may change."""
+        """One row per project, in the registry's order: its pause, how many workers it may have, and each setting
+        the dashboard may change, from Kandu's state or the registry."""
         paused = self._paused()
-        return [{"name": p.name, "paused": p.name in paused, "paused_in_config": p.paused}
+        return [{"name": p.name, "paused": p.name in paused, "paused_in_config": p.paused,
+                 "max_parallel_workers": p.max_parallel_workers}
                 | {setting: self.store.project_setting(p, setting) for setting in PROJECT_SETTINGS}
+                | {setting: self._registry_value(p, setting) for setting in REGISTRY_SETTINGS}
                 for p in self.config.projects]
 
-    def change_project_settings(self, query, name):
-        """Changes a project's settings in Kandu's state, where they win over the registry. Each change is logged.
+    @staticmethod
+    def _read_value(kind, setting, text):
+        if kind is bool:
+            if text not in ("true", "false"):
+                raise ApiError(400, f"{setting} is true or false")
+            return text == "true"
+        try:
+            return int(text)
+        except ValueError:
+            raise ApiError(400, f"{setting}: give a whole number") from None
 
-        Proposals already accepted and splits already made stay as they are: only a later proposal reads it.
+    def change_project_settings(self, query, name):
+        """Changes a project's settings. Each change is logged.
+
+        `split_approval` and `queen_answers_one_way` are kept in Kandu's state, where they win over the registry;
+        proposals already accepted and splits already made stay as they are. `priority`, `daily_token_limit`,
+        `auto_merge` and `frozen` are written in its entry in `projects.yaml`, and the next cycle uses them. Nothing
+        is changed if any value is wrong.
         """
         project = self._project(name)
         given = {setting: values[0] for setting, values in query.items()}
         if not given:
             raise ApiError(400, "give a setting, such as split_approval=user")
-        changes = {}
+        changes, registry = {}, {}
         for setting, text in given.items():
+            if setting in REGISTRY_SETTINGS:
+                registry[setting] = self._read_value(REGISTRY_SETTINGS[setting], setting, text)
+                continue
             value = {"true": True, "false": False}.get(text, text) if True in PROJECT_SETTINGS.get(setting, ()) else text
             if not is_project_setting(setting, value):
                 raise ApiError(400, f"not a project setting: {setting}={text}")
             changes[setting] = value
+        if registry:
+            old = {setting: self._registry_value(project, setting) for setting in registry}
+            try:
+                with self._add_lock:
+                    set_project_values(project.name, registry, self.local_dir)
+            except ConfigError as e:
+                raise ApiError(400, e.problems[0]) from None
+            self.refresh_config()
+            for setting, value in registry.items():
+                self.store.record("project_setting_changed", project=project.name, setting=setting,
+                                  old=old[setting], new=value)
         for setting, value in changes.items():
             old = self.store.project_setting(project, setting)
             self.store.set_project_setting(project.name, setting, value)
             self.store.record("project_setting_changed", project=project.name, setting=setting, old=old, new=value)
-        return changes
+        return changes | registry
+
+    def _pace(self):
+        supervisor = self.config.settings.supervisor
+        return {setting: getattr(supervisor, setting) for setting in PACE_SETTINGS}
+
+    def change_pace(self, query):
+        """How often the supervisor wakes and how long a cycle may run, in `kandu.yaml`. The next cycle uses the
+        cycle length; a new wake interval reaches the timer on "Restart Kandu"."""
+        values = {setting: self._read_value(int, setting, values[0]) for setting, values in query.items()}
+        old = self._pace()
+        try:
+            with self._add_lock:
+                set_pace(values, self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        self.refresh_config()
+        self.store.record("pace_changed", old=old, new=self._pace())
+        return {"pace": self._pace()}
 
     def stop_worker(self, query, run_id):
         workers = self.store.read_current().get("workers", [])
@@ -1016,6 +1070,7 @@ ROUTES = [
     ("POST", "/resume", Api.resume),
     ("POST", "/limits", Api.change_limits),
     ("POST", "/parallel", Api.change_parallel),
+    ("POST", "/pace", Api.change_pace),
     ("POST", "/restart", Api.restart),
     ("POST", "/machines", Api.add_machine),
     ("POST", "/projects/detect", Api.detect_project),

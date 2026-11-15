@@ -834,11 +834,14 @@ class ControlTest(Base):
         self.api.config.projects[0].priority, self.api.config.projects[1].priority = 2, 1
         self.store.pause_project("internal-tool")
         self.api.config.projects[0].paused = True
-        self.assertEqual(self.get("/api/v1/state")[1]["project_settings"], [
+        keys = ("name", "paused", "paused_in_config", "split_approval", "queen_answers_one_way", "priority")
+        rows = self.get("/api/v1/state")[1]["project_settings"]
+        self.assertEqual([{key: row[key] for key in keys} for row in rows], [
             {"name": "website", "paused": True, "paused_in_config": True, "split_approval": "user",
-             "queen_answers_one_way": False},
+             "queen_answers_one_way": False, "priority": 2},
             {"name": "internal-tool", "paused": True, "paused_in_config": False, "split_approval": "user",
-             "queen_answers_one_way": False}])
+             "queen_answers_one_way": False, "priority": 1}])
+        self.assertEqual(set(rows[0]), set(keys) | {"max_parallel_workers", "daily_token_limit", "auto_merge", "frozen"})
 
     def test_the_split_switch_is_kept_wins_over_the_registry_and_is_logged(self):
         self.api.config.projects[0].split_approval = "queen"

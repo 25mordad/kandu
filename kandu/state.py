@@ -84,6 +84,7 @@ EVENT_FIELDS = {
     "clean_merged_changed": ("enabled",),
     "project_added": ("project",),
     "project_removed": ("project",),
+    "pace_changed": ("old", "new"),
     "machine_added": ("machine",),
     "upstream_checked": ("remote", "branch", "behind", "ahead"),
     "upstream_check_failed": ("remote", "branch", "reason"),

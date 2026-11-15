@@ -7,7 +7,9 @@ import argparse
 import json
 import posixpath
 import re
+import shutil
 import sys
+import tempfile
 import types
 from dataclasses import MISSING, dataclass, field, fields, is_dataclass
 from pathlib import Path
@@ -671,6 +673,97 @@ def set_show_requests(enabled, local_dir=DEFAULT_LOCAL_DIR):
                           {"show_requests": "true" if enabled else "false"})
     if ((yaml.safe_load(text) or {}).get("dashboard") or {}).get("show_requests") is not enabled:
         raise ConfigError(["dashboard.show_requests: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
+# What the dashboard's settings tab changes in a project's entry, and the kind of each value. The next cycle uses them.
+REGISTRY_SETTINGS = {"priority": int, "daily_token_limit": int, "auto_merge": bool, "frozen": bool}
+# The supervisor's pace in `kandu.yaml`. A new wake interval reaches the timer on "Restart Kandu".
+PACE_SETTINGS = ("wake_every_minutes", "max_cycle_minutes")
+
+
+def _yaml_scalar(value):
+    return ("true" if value else "false") if isinstance(value, bool) else str(value)
+
+
+def _check_values(values, kinds, where, problems):
+    for key, value in values.items():
+        kind = kinds.get(key)
+        if kind is None:
+            problems.append(f"{where}{key}: not a setting the dashboard changes")
+        elif type(value) is not kind:
+            problems.append(f"{where}{key}: must be {'true or false' if kind is bool else 'a whole number'}")
+        elif kind is int:
+            _check_positive(value, f"{where}{key}", problems)
+
+
+def _check_on_copy(local_dir, name, text):
+    """Loads the config as it would be with `text` as `name`, in a folder of its own. Raises ConfigError."""
+    local_dir = Path(local_dir)
+    with tempfile.TemporaryDirectory() as tmp:
+        for file in ("kandu.yaml", "projects.yaml"):
+            shutil.copy(local_dir / file, Path(tmp) / file)
+        (Path(tmp) / name).write_text(text, encoding="utf-8")
+        return load_config(tmp)
+
+
+def _set_project_values(text, name, values):
+    """Sets each `key: value` in this project's entry only, keeping a comment beside it, since it says what the key
+    is for. A key the entry lacks is added after its last line."""
+    lines = text.split("\n")
+    starts = [i for i, l in enumerate(lines) if re.match(r"^\s*- name:", l)]
+    start = next((i for i in starts if re.fullmatch(rf"\s*- name:\s*[\"']?{re.escape(name)}[\"']?\s*(#.*)?", lines[i])), None)
+    if start is None:
+        raise ConfigError([f"projects: no entry named {name!r} in projects.yaml"])
+    pad = " " * (len(lines[start]) - len(lines[start].lstrip())) + "  "
+    for key, value in values.items():
+        end = next((i for i in starts if i > start), len(lines))
+        line = re.compile(rf"^({re.escape(pad)}{key}:[ \t]*)([^#]*?)([ \t]+#.*)?$")
+        hits = [i for i in range(start + 1, end) if line.match(lines[i])]
+        if len(hits) > 1:
+            raise ConfigError([f"{name}.{key}: expected one such line in its entry, found {len(hits)}"])
+        if hits:
+            found, written = line.match(lines[hits[0]]), _yaml_scalar(value)
+            comment = found.group(3) or ""
+            if comment:  # it stays in its column, as long as the value leaves room
+                width = len(found.group(2)) + len(comment) - len(comment.lstrip())
+                comment = " " * max(1, width - len(written)) + comment.lstrip()
+            lines[hits[0]] = f"{pad}{key}: {written}{comment}"
+        else:
+            last = max(i for i in range(start, end) if lines[i].strip() and not lines[i].lstrip().startswith("#"))
+            lines.insert(last + 1, f"{pad}{key}: {_yaml_scalar(value)}")
+            starts = [i + 1 if i > last else i for i in starts]
+    return "\n".join(lines)
+
+
+def set_project_values(name, values, local_dir=DEFAULT_LOCAL_DIR):
+    """Changes a project's priority, daily tokens, auto-merge or freeze in `projects.yaml`, line by line.
+
+    The whole config is checked on a copy first, so nothing is written if any value is wrong.
+    """
+    problems = []
+    _check_values(values, REGISTRY_SETTINGS, f"{name}.", problems)
+    if not values:
+        problems.append(f"{name}: give a setting to change")
+    if problems:
+        raise ConfigError(problems)
+    path = Path(local_dir) / "projects.yaml"
+    text = _set_project_values(path.read_text(encoding="utf-8"), name, values)
+    _check_on_copy(local_dir, "projects.yaml", text)
+    _replace_file(path, text)
+
+
+def set_pace(values, local_dir=DEFAULT_LOCAL_DIR):
+    """Changes how often the supervisor wakes and how long a cycle may run, in `kandu.yaml`'s `supervisor` block."""
+    problems = []
+    _check_values(values, dict.fromkeys(PACE_SETTINGS, int), "supervisor.", problems)
+    if not values:
+        problems.append("supervisor: give wake_every_minutes or max_cycle_minutes")
+    if problems:
+        raise ConfigError(problems)
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_top_block(path.read_text(encoding="utf-8"), "supervisor", values)
+    _check_on_copy(local_dir, "kandu.yaml", text)
     _replace_file(path, text)
 
 

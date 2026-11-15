@@ -76,7 +76,8 @@ state/
 | `project_added` | `project`: the user added a project from the dashboard's form |
 | `project_removed` | `project`: the user took a project out of Kandu, from the dashboard or with `kandu.remove` |
 | `machine_added` | `machine`: the user added a machine from the dashboard's form |
-| `project_setting_changed` | `project`, `setting`, `old`, `new`: the user changed a project's setting in the dashboard's settings section; `old` is what it was, from the state or else the registry |
+| `project_setting_changed` | `project`, `setting`, `old`, `new`: the user changed a project's setting in the dashboard's settings section; `old` is what it was, from the state or else the registry. `priority`, `daily_token_limit`, `auto_merge` and `frozen` are written in the registry |
+| `pace_changed` | `old`, `new`: the user changed `wake_every_minutes` or `max_cycle_minutes` in the dashboard; each holds both values |
 | `project_setting_carried` | `project`, `setting`, `value`: the first cycle after a setting came set it in the state, once, for a project the install already had, so it keeps its earlier behaviour (`queen_answers_one_way`, true) |
 | `limits_changed` | `session`, `week` |
 | `drop_blockers_changed` | `enabled`: the user let the queen ask to drop a blocker, or stopped her, from the dashboard |
