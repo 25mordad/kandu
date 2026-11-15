@@ -24,8 +24,10 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Bazras** | The inspector bee: a daily, read-only look at a live project's health; its findings go in a private report, never into a task by itself |
 | **Finding** (Bazras) | Something Bazras's code found wrong: a reverted Kandu commit, rework, a failed unit or cron line, new error lines in a log, failing tests or a failing check |
 | **Request** | What the user wants done, in their words, before it is a task; Didban keeps it until its tasks exist |
-| **Spec** | The issue that holds a request of several tasks: its Problem, Solution, Decisions and Out of scope. It is never work: no `agent` label, no card, never sized; each of its tasks names it and takes its Out of scope, and it closes with the last of them |
+| **Spec** | The issue that holds a request of several tasks, or any request defined with `/kandu-to-issue`: its Problem, Solution, Decisions and Out of scope. It is never work: no `agent` label, no card, never sized; each of its tasks names it and takes its Out of scope, and it closes with the last of them |
 | **Decision map** | The short list Didban shows after each round of refining a task: ✅ decided, ❓ asked now, ⏳ waits for another answer, ✂️ out of scope; refining ends when nothing is ❓ or ⏳. Didban saves it with the request after each round |
+| **Design tree** | The decisions of a request, each nested under the one it hangs off, as `/kandu-grill-with-docs` shows it; its flat copy is saved as the decision map |
+| **Frontier** | The decisions in a design tree whose parents are all settled: what can be asked now. `/kandu-grill-with-docs` asks the whole frontier at once |
 | **Family** | A group of repos that share one board |
 | **Board** | The GitHub Project of a family |
 | **Registry** | `local/projects.yaml`; a project not in it is never touched |

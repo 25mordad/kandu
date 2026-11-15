@@ -164,6 +164,7 @@ There are no forms. You configure Kandu by talking to it in Claude Code. It firs
 - `/kandu-setup` (once): where the supervisor runs, which machines exist and how to reach them, Claude access and usage limits, GitHub account and owners, notifications and language, defaults.
 - `/kandu-add` (per project): repos, location, permission to run (`clone` or `in-place`), board, how to test and deploy, live URL, where secrets are, forbidden areas, repo rules, merge mode, priority.
 - `/kandu-task`: define a task; it becomes an issue on the right board.
+- `/kandu-grill-with-docs` and `/kandu-to-issue`: the same in two steps, the way of Matt Pocock's skills. The first asks every open decision at once and saves each one; the second turns the interview into a spec and its tasks.
 - `/kandu-config`: change anything later ("pause this project for a week").
 - `/kandu-doctor`: check that everything works.
 
