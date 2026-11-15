@@ -313,7 +313,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <div id="stats" class="stats"></div>
   <section data-panel="work" class="layout">
     <div class="list">
-      <div class="tools"><input id="search" type="search" data-t-attr="placeholder aria-label" data-t="search"></div>
+      <div class="tools"><input id="search" type="search" dir="auto" data-t-attr="placeholder aria-label" data-t="search"></div>
       <div id="projects" class="list"></div>
     </div>
     <div class="side">
@@ -336,7 +336,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 <dialog id="modal"><div class="dialog-head"><h2 id="modaltitle"></h2><button class="btn plain small" data-close data-t-attr="aria-label" data-t="close">×</button></div><div id="modalbody" class="dialog-body"></div></dialog>
 <dialog id="tokenbox" class="small"><form method="dialog" class="dialog-body" id="tokenform">
   <h2 data-t="control_token"></h2><p class="muted" data-t="token_why"></p>
-  <input id="token" type="password" autocomplete="off" data-t-attr="aria-label" data-t="control_token">
+  <input id="token" type="password" autocomplete="off" dir="ltr" data-t-attr="aria-label" data-t="control_token">
   <div class="actions"><button class="btn primary" value="yes" data-t="continue"></button><button class="btn" value="no" data-t="cancel"></button></div>
 </form></dialog>
 <dialog id="limitsbox" class="small"><form method="dialog" class="dialog-body">

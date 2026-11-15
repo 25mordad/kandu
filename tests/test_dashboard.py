@@ -1259,6 +1259,34 @@ class LanguageTest(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+    def text_fields(self):
+        """Every text, search and password field of the page, written in its HTML or drawn by its script."""
+        fields = re.findall(r"<input\b[^>]*>", self.page)
+        typed = [(re.search(r'\btype="(\w+)"', f), f) for f in fields]
+        return [f for kind, f in typed if kind is None or kind.group(1) in ("text", "search", "password")]
+
+    def direction(self, field_id):
+        field = re.search(rf'<input id="{field_id}"[^>]*>', self.page).group(0)
+        found = re.search(r'\bdir="(\w+)"', field)
+        return found and found.group(1)
+
+    def test_every_text_and_password_field_has_its_direction_set(self):
+        fields = self.text_fields()
+        self.assertGreaterEqual(len(fields), 3)
+        self.assertEqual([f for f in fields if not re.search(r'\bdir="(ltr|rtl|auto)"', f)], [])
+
+    def test_the_control_token_writes_left_to_right_in_both_languages(self):
+        self.assertEqual(self.direction("token"), "ltr")
+
+    def test_the_search_box_follows_the_direction_of_what_is_typed(self):
+        self.assertEqual(self.direction("search"), "auto")
+        self.assertRegex(self.page, r'\[dir="auto"\] \{[^}]*unicode-bidi:plaintext')
+
+    def test_the_fields_that_had_a_direction_keep_it(self):
+        self.assertEqual(self.direction("backupat"), "ltr")
+        self.assertEqual(self.direction("backupdestination"), "ltr")
+        self.assertRegex(self.page, r'<input type="time"[^>]*data-inspect-at=[^>]*dir="ltr">')
+
     def test_every_reason_a_merge_waits_has_a_persian_form(self):
         gate = (ROOT / "kandu" / "merge.py").read_text(encoding="utf-8")
         values = re.findall(r'reasons\.append\("([^"]+)"\)', gate)
