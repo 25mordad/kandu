@@ -43,7 +43,7 @@ input, select { font:400 14px/1.4 var(--sans); min-height:36px; padding:6px 12px
 .pulse { display:inline-flex; align-items:center; gap:7px; min-width:0; font-size:13px; color:var(--muted); }
 .pulse i { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:none; }
 .pulse.awake i { background:var(--good); box-shadow:0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent); }
-.pulse.stopped i { background:var(--bad); }
+.pulse.stopped i, .pulse.refused i { background:var(--bad); }
 .spacer { flex:1; }
 .tabs { display:flex; gap:2px; max-width:1240px; margin:auto; padding:0 12px; overflow-x:auto; scrollbar-width:none; }
 .tab { font:500 14px/1.4 var(--sans); padding:8px 12px 10px; border:0; border-bottom:2px solid transparent; background:none; color:var(--muted); cursor:pointer; white-space:nowrap; }
@@ -375,6 +375,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "look_cards": "Cards",
   "look_switch": "Switch the dashboard's look",
   "loading": "loading",
+  "github_refused": "GitHub refuses calls: Kandu tries again at {at}",
   "control_token": "control token",
   "read_board": "Read the board",
   "restart_kandu": "Restart Kandu",
@@ -603,6 +604,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "look_cards": "کارتی",
   "look_switch": "عوض کردن نمای داشبورد",
   "loading": "در حال بارگذاری",
+  "github_refused": "GitHub تماس‌ها را رد می‌کند: کندو ساعت {at} دوباره امتحان می‌کند",
   "control_token": "توکن کنترل",
   "read_board": "خواندن تخته",
   "restart_kandu": "ری‌استارت کندو",
@@ -1097,6 +1099,8 @@ const digits = text => lang === "fa" ? faDigits(String(text)) : String(text);
 const short = value => new Intl.NumberFormat(locale(), {notation: "compact", maximumFractionDigits: 1}).format(value);
 const when = iso => new Date(iso).toLocaleString(locale(), {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"});
 const clock = iso => new Date(iso).toLocaleTimeString(locale(), {hour: "2-digit", minute: "2-digit"});
+// While GitHub refuses Kandu for a rate limit, the header says so and when Kandu calls it again.
+const githubRefused = s => s?.github_refused ? t("github_refused").replace("{at}", clock(s.github_refused.at)) : "";
 const dayName = day => new Date(day + "T12:00").toLocaleDateString(locale(), {year: "numeric", month: "long", day: "numeric"});
 const bdi = text => `<bdi>${esc(text)}</bdi>`;
 // Isolated, so `#` stays before its number inside right-to-left text.
@@ -1958,8 +1962,9 @@ async function refreshState() {
   lastState = s;
   if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
   const name = s.stop_requested ? "stopped" : (s.supervisor || "never ran");
-  $("pulse").className = `pulse ${s.stop_requested ? "stopped" : s.supervisor === "awake" ? "awake" : ""}`;
-  $("state").textContent = tr(name) + (s.last_reason ? " · " + tr(s.last_reason) : "");
+  const refused = githubRefused(s);
+  $("pulse").className = `pulse ${s.stop_requested ? "stopped" : refused ? "refused" : s.supervisor === "awake" ? "awake" : ""}`;
+  $("state").textContent = (refused ? refused + " · " : "") + tr(name) + (s.last_reason ? " · " + tr(s.last_reason) : "");
   $("stop").hidden = s.stop_requested;
   $("resume").hidden = !s.stop_requested;
   renderStats(s);

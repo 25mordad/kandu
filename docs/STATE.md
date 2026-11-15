@@ -135,11 +135,15 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 | `type` | `call` |
 | `caller` | the process that ran it: `supervisor`, `dashboard`, `didban`, `flight-<key>`, … |
 | `run` | the agent run it came from, if any; `run_finished` names its role and task |
+| `call` | for a call Kandu's own code made, its id: a `cost` line with the same id says what it cost |
 | `command` | the first two words, such as `pr view`; `api graphql` or `api rest` for `gh api` |
 | `kind` | `graphql` or `rest`: the hourly limit it counts against |
 | `exit` | the exit code of `gh` |
 
-No other argument is kept. The dashboard adds a `limit` line every five minutes with `graphql_used`, `graphql_reset`, `rest_used` and `rest_reset` as GitHub reports them, so points that no counted call explains came from outside Kandu. `.venv/bin/python -m kandu.ghmeter` shows a day by hour, caller and command.
+No other argument is kept. Kandu's own GraphQL queries ask GitHub what they cost, and a `cost` line keeps the answer: `call` and `points`. A call without one counts as one point, the least a call costs. The dashboard adds a `limit` line every five minutes with `graphql_used`, `graphql_reset`, `rest_used` and `rest_reset` as GitHub reports them, so points that no counted call explains came from outside Kandu. `.venv/bin/python -m kandu.ghmeter` shows a day's points by hour, caller and command.
+
+## gh/backoff.json
+Exists after GitHub refused a call for a rate limit, primary or secondary: `until` (Unix seconds), `why` (GitHub's answer, first line) and `refusals` (how many in a row). Until then no Kandu process calls GitHub, and the dashboard says when it tries again. `meter/gh` keeps it for every `gh` an agent runs too: during it, a call waits until `until` and then goes, and a rate-limit answer to an agent's call writes this file the same way. The wait is the reset GitHub gives for a spent limit; without one it is a minute, doubled with each refusal in a row, at most an hour. The first call that goes through removes the file.
 
 ## Other files
 `state/stopped` exists while the user has stopped the supervisor. `state/paused/<project>` exists while the user has paused that project. `state/project-settings.json` maps a project's name to the settings the user chose in the dashboard, such as `{"website": {"split_approval": "user", "queen_answers_one_way": true}}`; one named there wins over the registry, and one not named there comes from it. `state/settings-carried` exists once the first cycle after `queen_answers_one_way` came has carried it (`project_setting_carried`), so it runs only once. `state/bazras.json` names the project Bazras is looking at, only while it looks, and `state/bazras.lock` is held during its run. `state/clean-since` holds the time of the first cycle that had the cleanup after a merge; only a PR merged after it is cleaned up. `state/supervisor.lock` is held during a cycle, `state/split.lock` while a split is accepted. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.

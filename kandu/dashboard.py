@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import (backup, bazras, clean, flights, ghmeter, queen, questions, review, sessions, split, tasks, timer,
+from . import (backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, review, sessions, split, tasks, timer,
                upstream)
 from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup,
                      set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_parallel, set_show_requests)
@@ -153,8 +153,9 @@ class ApiError(Exception):
 class Api:
     def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic, start_cycle=timer.start_cycle,
                  local_dir=DEFAULT_LOCAL_DIR, timer_on=timer.timer_on, flights_=None, restart=timer.restart,
-                 backup_timer=timer.enable_backup, install_dir=upstream.INSTALL_DIR):
+                 backup_timer=timer.enable_backup, install_dir=upstream.INSTALL_DIR, gate=None):
         self.config = config
+        self.gate = gate or ghlimit.GATE
         self.store = store
         self.github = github
         self.logs_dir = Path(logs_dir)
@@ -217,7 +218,16 @@ class Api:
             "show_requests": self.config.settings.dashboard.show_requests,
             "clean_merged": self.config.settings.supervisor.clean_merged,
             "upstream": self._upstream(),
+            "github_refused": self._github_refused(),
         }
+
+    def _github_refused(self):
+        """While GitHub refuses Kandu for a rate limit: when Kandu calls it again, and what GitHub said."""
+        held = self.gate.blocked()
+        if held is None:
+            return None
+        at = datetime.fromtimestamp(held["until"], timezone.utc).isoformat(timespec="seconds")
+        return {"at": at, "why": held.get("why", "")}
 
     def _upstream(self):
         """The install's `main` against its upstream, and the open task that brings the updates in; None while off.

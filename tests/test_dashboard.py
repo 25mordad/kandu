@@ -63,6 +63,23 @@ class ReadTest(Base):
         self.assertEqual(body["limits"], {"session": 70, "week": 60})
         self.assertEqual(body["language"], "en")
 
+    def test_state_says_while_github_refuses_calls_and_when_kandu_tries_again(self):
+        from kandu.ghlimit import Gate
+        now = [1_800_000_000.0]
+        self.api.gate = Gate(self.root / "backoff.json", clock=lambda: now[0], lookup=lambda: None)
+        self.assertIsNone(self.get("/api/v1/state")[1]["github_refused"])
+        self.api.gate.refused("GraphQL: API rate limit already exceeded for user ID 1.")
+        refused = self.get("/api/v1/state")[1]["github_refused"]
+        self.assertEqual(datetime.fromisoformat(refused["at"]).timestamp(), now[0] + 60)
+        self.assertIn("rate limit", refused["why"])
+        now[0] += 60
+        self.assertIsNone(self.get("/api/v1/state")[1]["github_refused"])
+
+    def test_the_header_says_while_github_refuses_calls(self):
+        page = (ROOT / "kandu" / "dashboard.html").read_text(encoding="utf-8")
+        self.assertIn('const refused = githubRefused(s);', page)
+        self.assertIn('refused ? "refused"', page)
+
     def test_state_lists_every_project_by_priority(self):
         order = self.get("/api/v1/state")[1]["project_order"]
         self.assertEqual(sorted(order), sorted(p.name for p in self.config.projects))

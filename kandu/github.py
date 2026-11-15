@@ -1,11 +1,12 @@
 """Everything Kandu reads from and writes to GitHub, through `gh` (DESIGN §3, §10)."""
 import json
 import re
+import secrets
 import subprocess
 import time
 from dataclasses import dataclass, field
 
-from . import ghmeter
+from . import ghlimit, ghmeter
 from .config import BOARD_FIELDS, DEADLINE_FIELD
 
 KANDU_LABEL = "kandu"
@@ -22,17 +23,25 @@ PR_FIELDS = "number,title,state,url,body,changedFiles,files,headRefName,headRefO
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 ISSUE_REFERENCE = re.compile(r"(?:(?<![\w.-])([\w.-]+/[\w.-]+))?#(\d+)")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-THREADS_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
+
+
+def costed(query):
+    """The query also asks what it cost, so the meter counts the points GitHub took, not one a call."""
+    head, _, tail = query.rpartition("}")
+    return f"{head} rateLimit {{ cost }} }}{tail}"
+
+
+THREADS_QUERY = costed("""query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes {
     isResolved resolvedBy { login } comments(first: 1) { nodes { author { login } } }
   } } } }
-}"""
+}""")
 
 # GitHub's own "blocked by" relationships of an issue: `task_blockers` joins them with `## Blocked by`.
 BLOCKED_BY_NODE = "blockedBy(first: 50) { nodes { number repository { nameWithOwner } } }"
 SELECT_VALUE = "... on ProjectV2ItemFieldSingleSelectValue { name }"
 # `fieldValueByName` is what keeps this at one point a page: `gh project item-list` costs 100.
-BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
+BOARD_QUERY = costed(f"""query($owner: String!, $number: Int!, $after: String) {{
   repositoryOwner(login: $owner) {{ ... on ProjectV2Owner {{ projectV2(number: $number) {{
     id
     fields(first: 50) {{ nodes {{ ... on ProjectV2FieldCommon {{ id name }} ... on ProjectV2SingleSelectField {{ options {{ id name }} }} }} }}
@@ -48,7 +57,7 @@ BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
       content {{ ... on Issue {{ number title url body closedAt repository {{ nameWithOwner }} labels(first: 50) {{ nodes {{ name }} }} {BLOCKED_BY_NODE} }} }}
     }}
   }} }} }} }}
-}}"""
+}}""")
 
 COMMENTS = "comments(last: 100) { nodes { author { login } body createdAt } }"
 # A new comment changes an issue's `updatedAt`, so reading what changed reads its comments too, in the same request.
@@ -63,7 +72,7 @@ PR_DEEP = """files(first: 100) { nodes { path additions deletions } }
   reviewThreads(first: 20) { nodes { isResolved resolvedBy { login } path line
     comments(first: 20) { nodes { author { login } body createdAt } } } }"""
 # One request reads what a repo holds for Kandu: what changed in its issues, every open PR, the PRs that closed lately.
-REPO_QUERY = f"""query($owner: String!, $name: String!, $since: DateTime, $issuesAfter: String, $openAfter: String,
+REPO_QUERY = costed(f"""query($owner: String!, $name: String!, $since: DateTime, $issuesAfter: String, $openAfter: String,
       $issues: Boolean!, $open: Boolean!, $closed: Boolean!) {{
   repository(owner: $owner, name: $name) {{
     defaultBranchRef {{ name }}
@@ -74,16 +83,16 @@ REPO_QUERY = f"""query($owner: String!, $name: String!, $since: DateTime, $issue
     closed: pullRequests(first: 30, states: [CLOSED, MERGED], orderBy: {{field: UPDATED_AT, direction: DESC}})
         @include(if: $closed) {{ nodes {{ {PR_NODE} }} }}
   }}
-}}"""
-ISSUE_QUERY = f"""query($owner: String!, $name: String!, $number: Int!) {{
+}}""")
+ISSUE_QUERY = costed(f"""query($owner: String!, $name: String!, $number: Int!) {{
   repository(owner: $owner, name: $name) {{ issue(number: $number) {{ {ISSUE_NODE} }} }}
-}}"""
-PR_QUERY = f"""query($owner: String!, $name: String!, $number: Int!) {{
+}}""")
+PR_QUERY = costed(f"""query($owner: String!, $name: String!, $number: Int!) {{
   repository(owner: $owner, name: $name) {{ pullRequest(number: $number) {{ {PR_NODE} {PR_DEEP} }} }}
-}}"""
+}}""")
 REPO_ISSUE_LIMIT = 500
 OPEN_PR_LIMIT = 100
-CONTENT_QUERY = "query($url: URI!) { resource(url: $url) { ... on Issue { id } ... on PullRequest { id } } }"
+CONTENT_QUERY = costed("query($url: URI!) { resource(url: $url) { ... on Issue { id } ... on PullRequest { id } } }")
 ADD_ITEM = ("mutation($project: ID!, $content: ID!) { addProjectV2ItemById(input: {projectId: $project, contentId: $content}) "
             "{ item { id } } }")
 
@@ -169,13 +178,28 @@ def _issue(node):
             "updatedAt": node.get("updatedAt"), "comments": _comments(node), "blocked_by": _blocked_by(node)}
 
 
-def run_gh(args):
+def run_gh(args, gate=None, run=subprocess.run, meter_log=None):
+    """Runs one `gh` call, unless GitHub refuses calls for now (`ghlimit`): then it raises without calling.
+
+    A rate-limit answer makes every Kandu process wait before its next call, as GitHub says or longer each time.
+    The error says "rate limit", so it counts as trouble that passes by itself (`transient`).
+    """
+    gate = gate or ghlimit.GATE
+    held = gate.blocked()
+    if held:
+        raise GitHubError(f"gh {' '.join(args[:2])}: {gate.say(held)}")
+    call = secrets.token_hex(6)
     try:
-        result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=TIMEOUT_SECONDS, env=ghmeter.env())
+        result = run(["gh", *args], capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
+                     env=ghmeter.env(call=call, log_dir=meter_log, gate_kept=True))
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         raise GitHubError(f"gh {args[0]}: {type(e).__name__}") from e
     if result.returncode != 0:
+        if ghlimit.is_refusal(result.stderr):
+            raise GitHubError(f"gh {' '.join(args[:2])}: {gate.say(gate.refused(result.stderr))}")
         raise GitHubError(f"gh {' '.join(args[:2])}: {result.stderr.strip()}")
+    gate.cleared()
+    ghmeter.record_cost(call, result.stdout, meter_log)
     return result.stdout
 
 
@@ -394,7 +418,7 @@ class GitHub:
         """Adds columns to a board. Each existing option keeps its id, or its items would lose their column."""
         data = self._json(["project", "field-list", str(board.number), "--owner", board.owner, "--format", "json"])
         status = next(f for f in data["fields"] if f["name"] == "Status")
-        query = ("query { node(id: %s) { ... on ProjectV2SingleSelectField { options { id name color description } } } }"
+        query = costed("query { node(id: %s) { ... on ProjectV2SingleSelectField { options { id name color description } } } }"
                  % json.dumps(status["id"]))
         options = self._json(["api", "graphql", "-f", f"query={query}"])["data"]["node"]["options"]
         kept = [f'{{id: {json.dumps(o["id"])}, name: {json.dumps(o["name"])}, color: {o["color"]}, '

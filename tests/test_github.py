@@ -1,8 +1,14 @@
 import json
+import subprocess
+import tempfile
 import unittest
+import unittest.mock
+from pathlib import Path
 
+from kandu import ghmeter
 from kandu.config import Board
-from kandu.github import PR_FIELDS, PR_NODE, GitHub, GitHubError, blockers_in, task_blockers, branch_for, is_companion, slugify, transient
+from kandu.ghlimit import FIRST_WAIT_SECONDS, LONGEST_WAIT_SECONDS, Gate, main as ghlimit_main, spent_limit_reset
+from kandu.github import BOARD_QUERY, REPO_QUERY, run_gh, PR_FIELDS, PR_NODE, GitHub, GitHubError, blockers_in, task_blockers, branch_for, is_companion, slugify, transient
 
 BOARD = Board(owner="acme", number=1)
 ISSUE = {"number": 3, "title": "t", "url": "u", "body": "b", "repository": {"nameWithOwner": "o/r"},
@@ -344,3 +350,183 @@ class GitHubTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeRun:
+    """`subprocess.run` for `gh`: answers in turn, and keeps each call with its environment."""
+
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.calls = []
+
+    def __call__(self, argv, **kwargs):
+        self.calls.append((argv, kwargs.get("env") or {}))
+        code, out, err = self.answers.pop(0)
+        return subprocess.CompletedProcess(argv, code, out, err)
+
+
+PRIMARY = (1, "", "GraphQL: API rate limit already exceeded for user ID 1.")
+SECONDARY = (1, "", "gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.")
+ANSWER = (0, "{}", "")
+
+
+class BackOffTest(unittest.TestCase):
+    """A rate-limit answer stops every call until GitHub's time, instead of a retry that keeps the block going."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.now = 1000.0
+        self.reset = None  # when GitHub says the spent limit comes back
+        self.gate = Gate(self.tmp / "backoff.json", clock=lambda: self.now, lookup=lambda: self.reset)
+
+    def call(self, run):
+        return run_gh(["api", "graphql"], gate=self.gate, run=run, meter_log=self.tmp / "gh")
+
+    def refused(self, run):
+        with self.assertRaises(GitHubError) as caught:
+            self.call(run)
+        return caught.exception
+
+    def test_a_rate_limit_answer_is_followed_by_a_wait_not_a_retry(self):
+        run = FakeRun(PRIMARY, ANSWER)
+        self.refused(run)
+        again = self.refused(run)  # tried again at once: GitHub is not asked
+        self.assertEqual(len(run.calls), 1)
+        self.assertTrue(transient(again))  # so a queued change waits, and is not dropped
+        self.now += FIRST_WAIT_SECONDS
+        self.assertEqual(self.call(run), "{}")
+        self.assertEqual(len(run.calls), 2)
+        self.assertIsNone(self.gate.blocked())
+
+    def test_the_wait_is_shared_by_every_process(self):
+        self.refused(FakeRun(SECONDARY))
+        other = FakeRun(ANSWER)
+        with self.assertRaises(GitHubError):
+            run_gh(["pr", "view"], gate=Gate(self.gate.path, clock=lambda: self.now, lookup=lambda: None), run=other)
+        self.assertEqual(other.calls, [])
+
+    def test_a_spent_limit_waits_until_github_says_it_comes_back(self):
+        self.reset = 5000
+        run = FakeRun(PRIMARY, ANSWER)
+        self.refused(run)
+        self.now = 4999
+        self.refused(run)
+        self.assertEqual(len(run.calls), 1)
+        self.now = 5001
+        self.call(run)
+        self.assertEqual(len(run.calls), 2)
+
+    def test_without_a_time_from_github_each_wait_in_a_row_is_longer(self):
+        run = FakeRun(SECONDARY, SECONDARY, ANSWER, SECONDARY)
+        self.refused(run)
+        self.assertEqual(self.gate.blocked()["until"], self.now + FIRST_WAIT_SECONDS)
+        self.now += FIRST_WAIT_SECONDS
+        self.refused(run)
+        self.assertEqual(self.gate.blocked()["until"], self.now + 2 * FIRST_WAIT_SECONDS)
+        self.now += 2 * FIRST_WAIT_SECONDS
+        self.call(run)  # a call that goes through ends the streak
+        self.refused(run)
+        self.assertEqual(self.gate.blocked()["until"], self.now + FIRST_WAIT_SECONDS)
+
+    def test_the_wait_is_never_longer_than_an_hour(self):
+        self.gate.path.write_text(json.dumps({"until": 0, "refusals": 30, "why": "x"}))
+        self.refused(FakeRun(SECONDARY))
+        self.assertEqual(self.gate.blocked()["until"], self.now + LONGEST_WAIT_SECONDS)
+
+    def test_another_failure_sets_no_wait(self):
+        run = FakeRun((1, "", "GraphQL: Could not resolve to an Issue"), ANSWER)
+        self.refused(run)
+        self.assertIsNone(self.gate.blocked())
+        self.call(run)
+        self.assertEqual(len(run.calls), 2)
+
+    def test_an_unreadable_backoff_file_holds_nothing(self):
+        self.gate.path.write_text("not json")
+        self.assertEqual(self.call(FakeRun(ANSWER)), "{}")
+
+    def test_the_meter_leaves_kandus_own_calls_to_this_gate(self):
+        run = FakeRun(ANSWER)
+        self.call(run)
+        self.assertEqual(run.calls[0][1][ghmeter.GATE_ENV], "kandu")
+        self.assertNotIn(ghmeter.GATE_ENV, ghmeter.env(base=run.calls[0][1]))  # an agent started from here keeps it
+
+    def test_the_points_a_call_cost_are_written_beside_it(self):
+        run = FakeRun((0, json.dumps({"data": {"rateLimit": {"cost": 7}}}), ""))
+        self.call(run)
+        call = run.calls[0][1][ghmeter.CALL_ENV]
+        [day] = (self.tmp / "gh").iterdir()
+        [line] = [json.loads(text) for text in day.read_text().splitlines()]
+        self.assertEqual((line["type"], line["call"], line["points"]), ("cost", call, 7))
+
+    def test_kandus_reads_ask_what_they_cost(self):
+        for query in (BOARD_QUERY, REPO_QUERY):
+            self.assertIn("rateLimit { cost }", query)
+            self.assertEqual(query.count("{"), query.count("}"))
+
+    def test_the_meter_records_an_agents_refusal(self):
+        stdin = "gh: You have exceeded a secondary rate limit."
+        with unittest.mock.patch("sys.stdin", __import__("io").StringIO(stdin)), \
+                unittest.mock.patch("kandu.ghlimit.spent_limit_reset", lambda: None), \
+                unittest.mock.patch("sys.stdout", __import__("io").StringIO()):
+            self.assertEqual(ghlimit_main(["refused", str(self.gate.path)]), 0)
+        self.assertEqual(json.loads(self.gate.path.read_text())["refusals"], 1)
+
+
+def rate_limit(graphql_remaining=4000, graphql_reset=5000, core_remaining=4500, core_reset=6000):
+    """An answer shaped like GitHub's `gh api rate_limit`."""
+    return json.dumps({
+        "resources": {
+            "core": {"limit": 5000, "used": 5000 - core_remaining, "remaining": core_remaining,
+                     "reset": core_reset},
+            "search": {"limit": 30, "used": 30, "remaining": 0, "reset": 9999},
+            "graphql": {"limit": 5000, "used": 5000 - graphql_remaining, "remaining": graphql_remaining,
+                        "reset": graphql_reset},
+        },
+        "rate": {"limit": 5000, "used": 5000 - core_remaining, "remaining": core_remaining, "reset": core_reset},
+    })
+
+
+class SpentLimitResetTest(unittest.TestCase):
+    """GitHub's own rate_limit answer says when a spent primary limit comes back."""
+
+    def test_a_spent_graphql_limit_comes_back_at_its_reset(self):
+        run = FakeRun((0, rate_limit(graphql_remaining=0, graphql_reset=5000), ""))
+        self.assertEqual(spent_limit_reset(run=run), 5000)
+        self.assertEqual(run.calls[0][0], ["gh", "api", "rate_limit"])
+
+    def test_a_spent_core_limit_comes_back_at_its_reset(self):
+        run = FakeRun((0, rate_limit(core_remaining=0, core_reset=6000), ""))
+        self.assertEqual(spent_limit_reset(run=run), 6000)
+
+    def test_when_both_are_spent_the_later_reset_wins(self):
+        run = FakeRun((0, rate_limit(graphql_remaining=0, graphql_reset=7000,
+                                     core_remaining=0, core_reset=6000), ""))
+        self.assertEqual(spent_limit_reset(run=run), 7000)
+
+    def test_none_spent_is_none(self):
+        # search is spent in this answer too; only graphql and core stop Kandu.
+        self.assertIsNone(spent_limit_reset(run=FakeRun((0, rate_limit(), ""))))
+
+    def test_an_unreadable_answer_is_none(self):
+        for out in ("", "not json", "{}", json.dumps({"resources": None}), json.dumps([1]),
+                    json.dumps({"resources": {"graphql": {"remaining": 0}}})):
+            with self.subTest(out=out):
+                self.assertIsNone(spent_limit_reset(run=FakeRun((1, out, "HTTP 502"))))
+
+    def test_gh_that_cannot_run_is_none(self):
+        def broken(argv, **kwargs):
+            raise OSError("gh not found")
+        self.assertIsNone(spent_limit_reset(run=broken))
+
+    def test_gh_that_times_out_is_none(self):
+        def slow(argv, **kwargs):
+            raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
+        self.assertIsNone(spent_limit_reset(run=slow))
+
+    def test_a_gate_with_github_s_answer_waits_until_the_reset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = FakeRun((0, rate_limit(graphql_remaining=0, graphql_reset=5000), ""))
+            gate = Gate(Path(tmp) / "backoff.json", clock=lambda: 1000.0, lookup=lambda: spent_limit_reset(run=run))
+            self.assertGreaterEqual(gate.refused("API rate limit already exceeded")["until"], 5000)

@@ -24,6 +24,8 @@ LOG_DIR = DEFAULT_STATE_DIR / "gh"
 CALLER_ENV = "GH_METER_CALLER"
 RUN_ENV = "GH_METER_RUN"
 LOG_ENV = "GH_METER_LOG"
+GATE_ENV = "GH_METER_GATE"  # set when the caller keeps GitHub's back-off itself, so the meter leaves it alone
+CALL_ENV = "GH_METER_CALL"  # names one call, so the points GitHub says it cost can be put beside it
 SAMPLE_CALLER = "meter"
 SAMPLE_EVERY_SECONDS = 300
 SAMPLE_TIMEOUT_SECONDS = 20
@@ -34,15 +36,44 @@ def caller():
     return os.environ.get(CALLER_ENV) or Path(sys.argv[0]).stem or "other"
 
 
-def env(name=None, run=None, base=None):
-    """An environment whose `gh` is the meter, naming the caller and the run."""
+def env(name=None, run=None, base=None, call=None, log_dir=None, gate_kept=False):
+    """An environment whose `gh` is the meter, naming the caller and the run, and the call when it is one.
+    `gate_kept` says the caller keeps GitHub's back-off itself (`ghlimit`); otherwise the meter keeps it."""
     base = dict(os.environ if base is None else base)
     base["PATH"] = f"{METER_DIR}:{base.get('PATH', '')}"
     base[CALLER_ENV] = name or base.get(CALLER_ENV) or caller()
-    base[LOG_ENV] = str(LOG_DIR)
+    base[LOG_ENV] = str(log_dir or LOG_DIR)
     if run:
         base[RUN_ENV] = run
+    if call:
+        base[CALL_ENV] = call
+    else:
+        base.pop(CALL_ENV, None)
+    if gate_kept:
+        base[GATE_ENV] = "kandu"
+    else:
+        base.pop(GATE_ENV, None)  # a child, such as an agent, keeps the back-off through the meter
     return base
+
+
+def record_cost(call, answer, log_dir=None, now=None):
+    """Writes the points a GraphQL call really cost, when its answer says so (`rateLimit { cost }`)."""
+    if not call or '"rateLimit"' not in (answer or ""):
+        return None
+    try:
+        points = int(json.loads(answer)["data"]["rateLimit"]["cost"])
+    except (ValueError, KeyError, TypeError):
+        return None
+    log_dir = Path(log_dir or LOG_DIR)
+    now = now or datetime.now().astimezone()
+    line = {"v": 1, "ts": now.isoformat(timespec="seconds"), "type": "cost", "call": call, "points": points}
+    try:
+        log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with open(log_dir / f"{now.date().isoformat()}.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(line) + "\n")
+    except OSError:
+        return None
+    return line
 
 
 def path_line():
@@ -113,29 +144,39 @@ def who(call, runs):
     return f"{run.get('role')} {run.get('task') or run.get('project') or ''}".strip()
 
 
+def points(call, costs):
+    """What a call spent: what GitHub said it cost, or one point, the least a call costs, when it did not say."""
+    return costs.get(call.get("call") or None, 1)
+
+
 def report(day, log_dir=LOG_DIR, store=None):
     store = store or StateStore()
     lines = read(day, log_dir)
     calls = [line for line in lines if line.get("type") == "call" and line.get("caller") != SAMPLE_CALLER]
     limits = sorted((line for line in lines if line.get("type") == "limit"), key=lambda line: line["ts"])
     graphql = [c for c in calls if c.get("kind") == "graphql"]
+    costs = {line["call"]: line["points"] for line in lines if line.get("type") == "cost" and line.get("call")}
     runs = runs_by_id(store, day)
     out = [f"GitHub use on {day}: {len(graphql)} GraphQL calls and {len(calls) - len(graphql)} REST calls counted "
            f"from Kandu, {sum(1 for c in calls if c.get('exit'))} failed."]
 
     spent = spent_by_hour(limits)
-    counted = Counter(c["ts"][11:13] for c in graphql)
+    counted = Counter()
+    for c in graphql:
+        counted[c["ts"][11:13]] += points(c, costs)
     if spent:
-        out += ["", "Hour  GraphQL points spent  calls counted  not from Kandu"]
+        out += ["", "Hour  GraphQL points spent  points counted  not from Kandu"]
         for hour in sorted(set(spent) | set(counted)):
             out.append(f"{hour}:00 {spent[hour]:>20} {counted[hour]:>14} {max(spent[hour] - counted[hour], 0):>15}")
     else:
         out += ["", "No samples of the limit yet: the dashboard writes one every few minutes."]
 
-    sections = [("By caller", Counter(who(c, runs) for c in graphql)),
-                ("By command", Counter(c["command"] for c in graphql))]
-    for title, counter in sections:
-        out += ["", f"{title} (GraphQL calls)"]
+    by_caller, by_command = Counter(), Counter()
+    for c in graphql:
+        by_caller[who(c, runs)] += points(c, costs)
+        by_command[c["command"]] += points(c, costs)
+    for title, counter in (("By caller", by_caller), ("By command", by_command)):
+        out += ["", f"{title} (GraphQL points)"]
         out += [f"{count:>6}  {name}" for name, count in counter.most_common(15)]
     return "\n".join(out)
 

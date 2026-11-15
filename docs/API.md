@@ -10,7 +10,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `project_settings`, `timer_on`, `language`, `limits`, `queen`, `flowers`, `waits_for_you`, `bazras`, `backup`, `drop_blockers`, `show_requests`, `clean_merged` and `upstream` |
+| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `project_settings`, `timer_on`, `language`, `limits`, `queen`, `flowers`, `waits_for_you`, `bazras`, `backup`, `drop_blockers`, `show_requests`, `clean_merged`, `upstream` and `github_refused`: while GitHub refuses Kandu for a rate limit, `{"at": ISO time Kandu calls it again, "why": GitHub's answer, first line}`, otherwise null |
 | GET | `/api/v1/queue` | each project's board columns, with `Done` holding only what closed in the last `done_days` days, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes or moves |
 | GET | `/api/v1/boards` | every board in the config, with its projects, columns, fields and cards, read from Kandu's copy of GitHub, so it costs GitHub nothing; `?fresh=1` reads each board into the copy first, at most once a minute |
 | GET | `/api/v1/days` | dates that have events |
