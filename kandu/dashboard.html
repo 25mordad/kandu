@@ -208,6 +208,12 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .patch-off .bloom { filter:grayscale(.3); opacity:.8; }
 .patch-off .sway, .patch-off .wait-ring { animation:none; }
 .soil.off { opacity:.25; }
+.soil.over { fill:#e03131; opacity:.55; stroke:#a61e1e; stroke-width:3; }
+.soil.off.over { opacity:.4; }
+.badge.limit { background:#c92a2a; color:#fff; }
+.badge.limit::before { background:#fff; }
+.pcell.over .pface, .pcell-legend.over .pface { fill:color-mix(in srgb, #e03131 30%, var(--surface)); stroke:#a61e1e; }
+.pcell-limit { font-size:clamp(10px, 6cqi, 12px); font-weight:600; color:#c92a2a; }
 .patch-paused { fill:#d9604f; }
 .switch .track { fill:#2f8a4e; stroke:#3a2608; stroke-width:1; transition:fill .15s; }
 .switch .knob { fill:#fffdf5; stroke:#3a2608; stroke-width:1; transition:transform .15s; }
@@ -720,6 +726,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "legend_cell_sizes": "Size of the cell",
   "legend_edge_signs": "Signs on a cell's edge",
   "legend_projects": "Projects",
+  "over_limit": "Daily token limit reached",
+  "over_limit_hint": "Tokens today / daily token limit. Nothing new starts in this project until tomorrow.",
+  "legend_over_limit": "Red: the project reached its daily token limit, so nothing new starts there until tomorrow",
   "legend_project": "A project, its open tasks inside",
   "legend_flowers": "Tasks",
   "legend_sizes": "Size of the flower",
@@ -1028,6 +1037,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "legend_cell_sizes": "اندازه‌ی خانه",
   "legend_edge_signs": "نشانه‌های لبه‌ی خانه",
   "legend_projects": "پروژه‌ها",
+  "over_limit": "سقف توکن روزانه پر شد",
+  "over_limit_hint": "توکن‌های امروز / سقف توکن روزانه. تا فردا کار تازه‌ای در این پروژه شروع نمی‌شود.",
+  "legend_over_limit": "قرمز: پروژه به سقف توکن روزانه‌اش رسیده، پس تا فردا کار تازه‌ای در آن شروع نمی‌شود",
   "legend_project": "یک پروژه، با تسک‌های بازش درونش",
   "legend_flowers": "تسک‌ها",
   "legend_sizes": "اندازه‌ی گل",
@@ -1667,6 +1679,7 @@ function fields(state, queue) {
   for (const patch of projects) {
     patch.paused = (state.paused_projects || []).includes(patch.name);
     patch.merge = mergeMode(state, patch.name);
+    patch.over = overLimit(state, patch.name);
     for (const item of patch.tasks) {
       item.mark = state.flowers?.[item.task] || {};
       if (item.yours) item.mark = {...item.mark, yours: true};  // an open by-hand task is the user's to do
@@ -1676,6 +1689,16 @@ function fields(state, queue) {
     }
   }
   return projects;
+}
+
+// A project at its daily token limit starts nothing new today. Its patch or cell turns red with an outline, which a
+// pause never draws, and a paused project at its limit keeps both marks. The mark goes when the day or the limit changes.
+const overLimit = (state, name) => state?.over_limit?.[name] || null;
+const limitText = over => `\u2066${num(over.today)} / ${num(over.limit)}\u2069`;
+
+function limitBadge(over) {
+  if (!over) return "";
+  return `<span class="badge limit" title="${esc(t("over_limit_hint"))}">${t("over_limit")} · ${limitText(over)}</span>`;
 }
 
 // Whether a project merges by itself, waits for the user, or is frozen; frozen wins over auto-merge.
@@ -1750,7 +1773,8 @@ function renderScene(state, queue) {
         <text class="flower-number" y="52">${numberOf(item.task)}</text></g>`;
     }).join("");
     const middle = patch.x + patch.width / 2;
-    return `<ellipse class="soil${patch.paused ? " off" : ""}" cx="${middle}" cy="${patch.y + patch.height / 2 + 8}" rx="${patch.width / 2}" ry="${patch.height / 2}"/>
+    const limit = patch.over ? `<title>${esc(`${t("over_limit")} · ${limitText(patch.over)}`)}</title>` : "";
+    return `<ellipse class="soil${patch.paused ? " off" : ""}${patch.over ? " over" : ""}" cx="${middle}" cy="${patch.y + patch.height / 2 + 8}" rx="${patch.width / 2}" ry="${patch.height / 2}">${limit}</ellipse>
       <g class="${patch.paused ? "patch-off" : ""}"><text class="patch-name" data-name="${esc(patch.name)}" x="${middle}" y="${patch.y + patch.height - 8}">\u2066${esc(patch.name)}\u2069${patch.paused ? ` · <tspan class="patch-paused">${t("project_on_pause")}</tspan>` : ""}${mergeMark(patch)}</text>${flowers}</g>${patchSwitch(patch)}`;
   }).join("");
   const bees = (state.workers || []).map((worker, i) => spots[worker.task] ? flight(worker, beeKind(worker.phase), spots[worker.task], {x: home.x, y: home.y + 20}, i) : "").join("")
@@ -1793,7 +1817,9 @@ function renderLegend() {
   const queen = `${bee("queen")}<path transform="translate(11 -9)" fill="#f5b301" stroke="#3a2608" d="${CROWN}"/>`;
   const bees = [[queen, "bee_queen"], [bee("worker"), "bee_worker"], [bee("reviewer"), "bee_reviewer"], [bee("scout"), "bee_scout"], [bee("splitter"), "bee_splitter"], [bee("inspector"), "bee_inspector"]]
     .map(([drawing, key]) => entry(drawing, t(key), "-28 -20 58 40", 30));
-  $("legend").innerHTML = group("legend_flowers", flowers) + group("legend_sizes", sizes) + group("legend_marks", signs) + group("legend_bees", bees);
+  const over = Object.keys(lastState?.over_limit || {}).length  // The legend explains the red only while it shows.
+    ? group("legend_projects", [entry('<ellipse class="soil over" rx="21" ry="9"/>', t("legend_over_limit"), "-24 -12 48 24", 20)]) : "";
+  $("legend").innerHTML = group("legend_flowers", flowers) + group("legend_sizes", sizes) + group("legend_marks", signs) + group("legend_bees", bees) + over;
 }
 
 // The honeycomb look's hive: each project a large cell, each open task a small cell inside it. It draws the same
@@ -1908,9 +1934,9 @@ function projectCell(patch) {
   const {width, height, places} = cellPlaces(patch.tasks.length);
   const cells = patch.tasks.map((item, i) => taskCell(item, ...places[i])).join("");
   const toggle = patchSwitch(patch);
-  return `<div class="pcell${patch.paused ? " off" : ""}" style="width:${width}px;aspect-ratio:${width} / ${height.toFixed(2)}">
+  return `<div class="pcell${patch.paused ? " off" : ""}${patch.over ? " over" : ""}"${patch.over ? ` title="${esc(`${t("over_limit")} · ${limitText(patch.over)}`)}"` : ""} style="width:${width}px;aspect-ratio:${width} / ${height.toFixed(2)}">
     <svg class="pcell-art" viewBox="0 0 ${width} ${height.toFixed(2)}"><polygon class="pface" points="${hexPoints(height / 2 - 2)}" transform="translate(${width / 2} ${(height / 2).toFixed(2)})"/>${cells}</svg>
-    <div class="pcell-name" title="${esc(patch.name)}"><bdi>${esc(patch.name)}</bdi>${patch.paused ? `<span class="pcell-paused">${t("project_on_pause")}</span>` : ""}${patch.merge ? `<span class="pcell-merge" title="${esc(t(`mode_${patch.merge}_hint`))}"><span class="merge-dot ${patch.merge}">●</span>\u00a0${esc(t(`mode_${patch.merge}`))}</span>` : ""}</div>
+    <div class="pcell-name" title="${esc(patch.name)}"><bdi>${esc(patch.name)}</bdi>${patch.paused ? `<span class="pcell-paused">${t("project_on_pause")}</span>` : ""}${patch.over ? `<span class="pcell-limit">${t("over_limit")}</span>` : ""}${patch.merge ? `<span class="pcell-merge" title="${esc(t(`mode_${patch.merge}_hint`))}"><span class="merge-dot ${patch.merge}">●</span>\u00a0${esc(t(`mode_${patch.merge}`))}</span>` : ""}</div>
     ${toggle ? `<div class="pcell-foot"><svg viewBox="-19 -12 38 24">${toggle}</svg></div>` : ""}</div>`;
 }
 
@@ -1947,8 +1973,9 @@ function renderHoneyLegend() {
                  entry(honeyFace("In progress", HONEY_SIZES.Small, marksOf({column: "In progress"})), t("mark_unsized"))];
   const every = marksOf({column: "Ready", mark: {door: "one-way", sent_back: true, slice: true, questions: 3, yours: true}});
   const signs = Object.keys(HONEY_MARKS).map(key => entry(honeyFace("Ready", HONEY_SIZES.Medium, every.filter(m => m.key === key)), t(HONEY_MARKS[key].name)));
-  const project = off => `<g class="${off ? "pcell-legend off" : "pcell-legend"}"><polygon class="pface" points="${hexPoints(26)}"/>${honeyFace("In progress", 8)}</g>`;
-  const projects = [entry(project(false), t("legend_project")), entry(project(true), t("project_on_pause"))];
+  const project = kind => `<g class="pcell-legend ${kind}"><polygon class="pface" points="${hexPoints(26)}"/>${honeyFace("In progress", 8)}</g>`;
+  const projects = [entry(project(""), t("legend_project")), entry(project("off"), t("project_on_pause")),
+                    ...(Object.keys(lastState?.over_limit || {}).length ? [entry(project("over"), t("legend_over_limit"))] : [])];
   $("legend").innerHTML = group("legend_flowers", states) + group("legend_cell_sizes", sizes) + group("legend_edge_signs", signs) + group("legend_projects", projects);
 }
 
@@ -2218,6 +2245,8 @@ async function refreshState() {
   $("state").textContent = (refused ? refused + " · " : "") + tr(name) + (s.last_reason ? " · " + tr(s.last_reason) : "");
   $("stop").hidden = s.stop_requested;
   $("resume").hidden = !s.stop_requested;
+  const marked = Object.keys(s.over_limit || {}).sort().join();
+  if (marked !== renderLegend.marked) { renderLegend.marked = marked; renderLegend(); }  // It explains the red while it shows.
   renderStats(s);
   renderBees(s);
   renderQueen(s);
@@ -2246,7 +2275,7 @@ function projectCard(project, shown, total, searching) {
   const paused = lastState.paused_projects.includes(project.name);
   const inConfig = lastState.paused_in_config.includes(project.name);  // Only a change of config resumes this one.
   const pause = `${paused ? `<span class="badge" style="--c:#d9604f">${t("project_on_pause")}</span>` : ""}${inConfig ? "" : `<button class="btn small project-pause" data-pause="${esc(project.name)}" data-paused="${paused}">${t(paused ? "resume_project" : "pause_project")}</button>`}`;
-  return `<details class="card project" data-project="${esc(project.name)}"${open ? " open" : ""}><summary><span class="project-name">${bdi(project.name)}</span><span class="number">${num(total)}</span>
+  return `<details class="card project" data-project="${esc(project.name)}"${open ? " open" : ""}><summary><span class="project-name">${bdi(project.name)}</span>${limitBadge(overLimit(lastState, project.name))}<span class="number">${num(total)}</span>
     <span class="counts">${counts.map(([column, count]) => `<span class="badge" style="--c:${FLOWERS[column].swatch}" title="${esc(tr(column === "waiting" ? "waiting for machine" : column))}">${num(count)}</span>`).join("")}</span>${pause}</summary>${bazrasLine(project.name)}${table}</details>`;
 }
 
@@ -2390,7 +2419,7 @@ function renderProjects() {
   if (!lastState) return;
   const words = $("search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const projects = fields(lastState, lastQueue);
-  const key = JSON.stringify([lang, words, projects, lastState.paused_projects]);
+  const key = JSON.stringify([lang, words, projects, lastState.paused_projects, lastState.over_limit]);
   if (key === listKey) return;
   listKey = key;
   const cards = projects.map(project => ({project, total: project.tasks.length, shown: project.tasks.filter(item => matches(project.name, item, words))}))
