@@ -15,6 +15,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | GET | `/api/v1/boards` | every board in the config, with its projects, columns, fields and cards, read from Kandu's copy of GitHub, so it costs GitHub nothing; `?fresh=1` reads each board into the copy first, at most once a minute |
 | GET | `/api/v1/days` | dates that have events |
 | GET | `/api/v1/days/{day}` | one day's tokens by task, model and role, and its finished tasks |
+| GET | `/api/v1/usage` | tokens over a range: by project with its tasks under it, Kandu's own runs, the sessions, and by role and model |
 | GET | `/api/v1/bazras` | every project in priority order: whether Bazras looks at it (`enabled`), its hour (`at`), `paused_in_config`, and its newest reports, newest first, each with `date`, `all_well`, `findings` (a count) and `text`; `default_at` is `bazras.at` |
 | GET | `/api/v1/didban` | the last Didban sessions: when, title, tokens and what each did; counted in no limit |
 | GET | `/api/v1/requests` | the open requests by project, in priority order, then those whose project is not named yet (`project` null): each with `id`, `text` and its decision `map` (`decided`, `asked`, `later`, `out`), or null when it has none; read from local state only, so it costs GitHub nothing. While `show_requests` is off: `{"show_requests": false, "projects": []}` |
@@ -57,6 +58,17 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | POST | `/api/v1/projects/{name}/inspect` | `enabled=true` or `false`, and optionally `at=HH:MM`: turn Bazras on or off for a project, and set its hour, in `projects.yaml`; off is the default |
 
 ## Examples
+
+`GET /api/v1/usage?range=week` answers
+```json
+{"from": "2026-11-02", "to": "2026-11-08", "today": "2026-11-04", "total": 800,
+ "roles": {"worker": 370, "reviewer": 400, "queen": 10, "didban": 20}, "models": {"opus": 380, "sonnet": 400},
+ "projects": [{"project": "website", "total": 770, "limit": null, "counted": null,
+               "tasks": [{"task": "acme-org/website#12", "total": 770, "outcome": "merged"}]}],
+ "kandu": 10, "sessions": 20,
+ "tasks": [{"task": "acme-org/website#12", "project": "website", "total": 770, "outcome": "merged"}]}
+```
+`range` is `today` (the default), `week` (Monday to Sunday), `last7` (the last 7 days, today included) or `month`; `from=2026-10-01&to=2026-10-31` asks for any range instead, both days included, and `400` names a bad one. Tokens are counted as the daily limit counts them: everything but cache reads. Projects and their tasks come from most to fewest tokens, and `tasks` lists every task the same way. `kandu` is what Kandu spent outside any task's work: the queen, the supervisor, Bazras and sizing (every `splitter` run, though it names a task). `sessions` is Didban's sessions and the free flights, each on the day it started, under the role `didban` or `flight`; they name no model, so `models` leaves them out. The projects, `kandu` and `sessions` add up to `total`. `limit` is the project's daily token limit when the range is just today, otherwise null; `counted` is then what counts against it today, as Kandu counts it to stop the project, its sizing included, so it can be more than `total`. `outcome` is the task's last outcome in the range, or null.
 
 `POST /api/v1/projects/detect?machine=laptop&path=~/code/website` answers `{"proposal": {"machine": "laptop", "path": "~/code/website", "repo": "acme-org/website", "name": "website", "family": "website", "run": "", "description": "", "test": "npm test", "run_local": "npm run dev", "deploy": "", "live_url": "", "secrets_from": "~/code/website/.env", "repo_rules": "Follow AGENTS.md.", "forbidden": "", "test_task": false, "deploy_task": true, "priority": 1, "max_parallel_workers": 1, "daily_token_limit": 1000000, "auto_merge": false}, "warnings": [], "copy": "present", "board": "a new board"}`. `copy` is `will be cloned` when the path does not exist yet. `run` is always empty: the user chooses it. Send the proposal's fields back, changed or not, to `POST /api/v1/projects`; it answers `{"project": "website", "board": {"owner": "acme-org", "number": 4, "created": true}, "cloned": false, "memory_restored": false, "test_task": null, "deploy_task": "https://github.com/acme-org/website/issues/1", "checks": [{"level": "ok", "text": "..."}]}`, or `400` naming the first problem, before anything is written or created. Both config files get one more entry at the end, so their comments stay.
 

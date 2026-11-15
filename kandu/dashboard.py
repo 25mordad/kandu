@@ -12,7 +12,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -576,6 +576,52 @@ class Api:
                     for e in self.store.events(day) if e["type"] == "task_finished"]
         return self.store.tokens_for_day(day) | {"finished": finished}
 
+    def _range(self, query):
+        """The first and last day of the asked range: a named one counted from today, or `from` and `to`."""
+        today = date.fromisoformat(self.store.today())
+        if "from" in query or "to" in query:
+            try:
+                first, last = (date.fromisoformat(self._field(query, name)) for name in ("from", "to"))
+            except ValueError:
+                raise ApiError(400, "from and to must both be YYYY-MM-DD") from None
+            if first > last:
+                raise ApiError(400, "from must not be after to")
+            return first, last
+        name = self._field(query, "range", "today")
+        if name == "today":
+            return today, today
+        if name == "week":  # Monday to Sunday
+            monday = today - timedelta(days=today.weekday())
+            return monday, monday + timedelta(days=6)
+        if name == "last7":
+            return today - timedelta(days=6), today
+        if name == "month":
+            following = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
+            return today.replace(day=1), following - timedelta(days=1)
+        raise ApiError(400, "range must be today, week, last7 or month")
+
+    def usage(self, query):
+        """Tokens by project over a range, each project's tasks under it, most first, with Kandu's own runs and the
+        sessions apart, so the rows add up to the total."""
+        first, last = self._range(query)
+        report = self.store.usage_between(first.isoformat(), last.isoformat())
+        today = first == last == date.fromisoformat(self.store.today())
+        limits = {p.name: p.daily_token_limit for p in self.config.projects}
+        tasks = sorted(({"task": task, "project": e["project"], "total": e["tokens"], "outcome": e["outcome"]}
+                        for task, e in report["tasks"].items()), key=lambda t: (-t["total"], t["task"]))
+        projects = {}
+        for task in tasks:
+            projects.setdefault(task["project"], []).append({k: task[k] for k in ("task", "total", "outcome")})
+        # The limit counts all of a project's runs today, its sizing too, though sizing shows under Kandu itself here.
+        grouped = sorted(({"project": name, "total": sum(t["total"] for t in rows),
+                           "limit": limits.get(name) if today else None,
+                           "counted": self.store.tokens_counted(first.isoformat(), project=name) if today else None,
+                           "tasks": rows}
+                          for name, rows in projects.items()), key=lambda p: (-p["total"], p["project"] or ""))
+        return {"from": first.isoformat(), "to": last.isoformat(), "today": self.store.today(),
+                "total": report["total"], "roles": report["roles"], "models": report["models"],
+                "projects": grouped, "kandu": report["kandu"], "sessions": report["sessions"], "tasks": tasks}
+
     def events(self, query):
         try:
             after = int(query.get("after", ["0"])[0])
@@ -1045,6 +1091,7 @@ ROUTES = [
     ("GET", "/boards", Api.boards),
     ("GET", "/days", Api.days),
     ("GET", "/days/{day}", Api.day),
+    ("GET", "/usage", Api.usage),
     ("GET", "/didban", Api.didban),
     ("GET", "/requests", Api.requests),
     ("POST", "/requests", Api.change_show_requests),

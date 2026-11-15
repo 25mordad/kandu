@@ -102,6 +102,8 @@ def is_project_setting(setting, value):
 
 
 NO_TASK_ROLES = ("supervisor", "queen", "bazras")
+# The usage view counts their runs as Kandu itself: sizing (the splitter's) names a task but is not its work.
+KANDU_ROLES = ("supervisor", "queen", "bazras", "splitter")
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
 
 
@@ -252,6 +254,53 @@ class StateStore:
                 _add_tokens(report["no_task"] if task is None else report["tasks"].setdefault(task, _empty_tokens()), usage)
                 _add_tokens(report["models"].setdefault(model, _empty_tokens()), usage)
                 _add_tokens(report["roles"].setdefault(event["role"], _empty_tokens()), usage)
+        return report
+
+    def usage_between(self, first, last):
+        """Tokens from day `first` to day `last`, both included, counted as the daily limit counts them.
+
+        Split by task, with each task's project and its last outcome in the range, and by role and model. Runs with
+        no task and sizing runs go under `kandu`, Kandu's own spending. Didban's sessions and the free flights are
+        kept apart from the event log; each counts under `sessions` on the day it started, with the role `didban`
+        or `flight`. So the tasks, `kandu` and `sessions` add up to `total`.
+        """
+        counted = lambda usage: sum(usage.get(kind, 0) for kind in TOKEN_KINDS if kind != "cache_read")
+        report = {"total": 0, "tasks": {}, "kandu": 0, "sessions": 0, "roles": {}, "models": {}}
+
+        def add(where, role, tokens, model=None):
+            report["total"] += tokens
+            report["roles"][role] = report["roles"].get(role, 0) + tokens
+            if model is not None:
+                report["models"][model] = report["models"].get(model, 0) + tokens
+            if isinstance(where, str):
+                report[where] += tokens
+            else:
+                where["tokens"] += tokens
+
+        outcomes = {}
+        for day in self.days():
+            if not first <= day <= last:
+                continue
+            for event in self.events(day):
+                if event["type"] == "task_finished":
+                    outcomes[event["task"]] = event["outcome"]
+                if event["type"] != "run_finished":
+                    continue
+                own = event["task"] is None or event["role"] in KANDU_ROLES
+                where = "kandu" if own else report["tasks"].setdefault(
+                    event["task"], {"project": event["project"], "tokens": 0, "outcome": None})
+                for model, usage in event["models"].items():
+                    add(where, event["role"], counted(usage), model)
+        for task, entry in report["tasks"].items():
+            entry["outcome"] = outcomes.get(task)
+        for role, sessions in (("didban", self.didban_sessions()), ("flight", self.flown())):
+            for session in sessions:
+                try:
+                    day = datetime.fromisoformat(session["started"].replace("Z", "+00:00")).astimezone().date().isoformat()
+                except (KeyError, TypeError, AttributeError, ValueError):
+                    continue
+                if first <= day <= last:
+                    add("sessions", role, counted(session.get("tokens") or {}))
         return report
 
     def task_cost(self, task):

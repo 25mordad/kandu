@@ -131,6 +131,12 @@ tr:last-child td { border-bottom:0; }
 .textlink:focus-visible { outline:2px solid var(--honey); outline-offset:2px; }
 .limit-edit { margin-inline-start:6px; text-decoration:underline; }
 .limit-field { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-block:8px; }
+.usage .toolbar { margin-bottom:8px; }
+.usage-range { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+#usage tr.group td { font-weight:600; border-top:1px solid var(--line); }
+#usage tr.sub td:first-child { padding-inline-start:1.6em; }
+.limit-note { display:block; font-weight:400; font-size:12px; color:var(--muted); }
+.limit-note.over { color:#d9604f; font-weight:600; }
 .tokenbar { display:block; height:4px; min-width:2px; margin-top:4px; border-radius:2px; background:var(--honey); }
 
 .bee-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 0; border-bottom:1px solid var(--line); }
@@ -342,6 +348,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
   <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div class="card pad add-open"><p class="muted" data-t="add_why"></p><div class="actions"><button id="addopen" class="btn" data-t="add_project"></button></div></div><div id="pacesettings" class="card pad"></div><div id="cleanmerged" class="card pad"></div><div id="projectsettings" class="card"></div></section>
   <section data-panel="days" class="list" hidden>
+    <div class="card pad usage"><div class="toolbar"><h2 class="card-title" data-t="usage_title"></h2>
+      <div class="usage-range"><select id="usagerange" data-t-attr="aria-label" data-t="usage_title"><option value="today" data-t="range_today"></option><option value="week" data-t="range_week"></option><option value="last7" data-t="range_last7"></option><option value="month" data-t="range_month"></option><option value="custom" data-t="range_custom"></option></select>
+      <span id="usagedates" hidden><input id="usagefrom" type="date" dir="ltr" data-t-attr="aria-label" data-t="usage_from"> – <input id="usageto" type="date" dir="ltr" data-t-attr="aria-label" data-t="usage_to"></span></div></div>
+      <div id="usagetotals" class="chips"></div><div id="usage"></div></div>
     <div class="toolbar"><select id="day" data-t-attr="aria-label" data-t="day"></select><div id="daytotals" class="chips"></div></div>
     <div id="byday" class="card"></div>
     <div id="didbansessions" class="card"></div>
@@ -518,6 +528,19 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "empty": "Empty",
   "github_unreadable": "GitHub could not be read",
   "no_activity": "No activity yet",
+  "usage_title": "Tokens by project",
+  "range_today": "Today",
+  "range_week": "This week",
+  "range_last7": "Last 7 days",
+  "range_month": "This month",
+  "range_custom": "From – to",
+  "usage_from": "From",
+  "usage_to": "To",
+  "kandu_itself": "Kandu itself",
+  "kandu_itself_hint": "The queen, sizing, Bazras and the supervisor: work outside any task",
+  "usage_sessions": "Didban and free flights",
+  "of_limit": "{counted} of {limit} today",
+  "no_usage": "No tokens spent in this range",
   "outcome": "Outcome",
   "tokens": "Tokens",
   "total": "Total",
@@ -813,6 +836,19 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "empty": "خالی",
   "github_unreadable": "GitHub خوانده نشد",
   "no_activity": "هنوز فعالیتی نیست",
+  "usage_title": "توکن به تفکیک پروژه",
+  "range_today": "امروز",
+  "range_week": "این هفته",
+  "range_last7": "۷ روز گذشته",
+  "range_month": "این ماه",
+  "range_custom": "از – تا",
+  "usage_from": "از",
+  "usage_to": "تا",
+  "kandu_itself": "خود کندو",
+  "kandu_itself_hint": "ملکه، اندازه‌گیری، بازرس و ناظر: کاری بیرون از هر تسک",
+  "usage_sessions": "دیدبان و پروازهای آزاد",
+  "of_limit": "{counted} از {limit} امروز",
+  "no_usage": "در این بازه توکنی مصرف نشده",
   "outcome": "نتیجه",
   "tokens": "توکن",
   "total": "جمع",
@@ -1217,7 +1253,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "splitter": "اندازه‌گیر",
   "live_check": "بررسی زنده",
   "checker": "بررسی‌کننده",
-  "supervisor": "ناظر"
+  "supervisor": "ناظر",
+  "didban": "دیدبان",
+  "flight": "پرواز آزاد"
  },
  "patterns_fa": [
   [
@@ -2426,8 +2464,31 @@ async function openFlight(button) {
   await refreshFlights();
 }
 
+// Tokens by project over a range, each project's tasks under it, then Kandu itself and the sessions, so the rows
+// add up to the total. Today also shows what counts against each project's daily limit.
+async function refreshUsage() {
+  const range = $("usagerange").value, custom = range === "custom";
+  $("usagedates").hidden = !custom;
+  if (custom && !($("usagefrom").value && $("usageto").value)) return;
+  const query = custom ? `from=${$("usagefrom").value}&to=${$("usageto").value}` : `range=${range}`;
+  const usage = await get(`/usage?${query}`);
+  const most = Math.max(1, ...usage.projects.map(p => p.total), usage.kandu, usage.sessions);
+  const bar = value => `<span class="tokenbar" style="width:${(100 * value / most).toFixed(1)}%"></span>`;
+  const cell = value => `<td class="fit end" title="${esc(num(value))}">${esc(short(value))}${bar(value)}</td>`;
+  const limit = p => p.limit ? `<span class="limit-note${p.counted >= p.limit ? " over" : ""}">${esc(fillIn("of_limit", {counted: short(p.counted), limit: short(p.limit)}))}</span>` : "";
+  const rows = usage.projects.map(p => `<tr class="group"><td>${bdi(p.project)}${limit(p)}</td><td class="fit hide-narrow"></td>${cell(p.total)}</tr>`
+    + p.tasks.map(task => `<tr class="sub" data-review="${esc(task.task)}"><td class="number">${numberOf(task.task)}</td><td class="fit hide-narrow">${task.outcome ? esc(tr(task.outcome)) : "—"}</td>${cell(task.total)}</tr>`).join("")).join("")
+    + (usage.kandu ? `<tr class="group" title="${esc(t("kandu_itself_hint"))}"><td>${t("kandu_itself")}</td><td class="fit hide-narrow"></td>${cell(usage.kandu)}</tr>` : "")
+    + (usage.sessions ? `<tr class="group"><td>${t("usage_sessions")}</td><td class="fit hide-narrow"></td>${cell(usage.sessions)}</tr>` : "");
+  $("usage").innerHTML = rows ? `<table class="rows"><thead><tr><th>${t("project")}</th><th class="fit hide-narrow">${t("outcome")}</th><th class="fit end">${t("tokens")}</th></tr></thead><tbody>${rows}</tbody></table>`
+    : `<div class="empty">${t("no_usage")}</div>`;
+  const chips = obj => Object.entries(obj).sort(([, a], [, b]) => b - a).map(([name, used]) => `<span class="chip">${bdi(tr(name))}: ${esc(short(used))}</span>`);
+  $("usagetotals").innerHTML = [`<span class="chip"><b>${t("total")}: ${esc(short(usage.total))}</b></span>`, ...chips(usage.roles), ...chips(usage.models)].join("");
+}
+
 async function refreshDays() {
   refreshDidban();
+  refreshUsage().catch(() => {});
   const {days} = await get("/days");
   const select = $("day"), chosen = select.value;
   select.innerHTML = days.slice().reverse().map(d => `<option value="${esc(d)}">${esc(dayName(d))}</option>`).join("");
@@ -2716,6 +2777,8 @@ document.querySelector("[data-addclose]").onclick = () => $("addbox").close();
 $("wake").onclick = e => act(e.currentTarget, "/wake");
 $("reload").onclick = e => busy(e.currentTarget, () => refreshQueue(lastState, true));
 $("day").onchange = refreshDays;
+$("usagerange").onchange = () => refreshUsage().catch(() => {});
+$("usagefrom").onchange = $("usageto").onchange = () => refreshUsage().catch(() => {});
 $("search").oninput = renderProjects;
 $("lang").onclick = () => setLanguage(lang === "fa" ? "en" : "fa");
 $("look").onclick = () => setLook(look === "honeycomb" ? "cards" : "honeycomb");
