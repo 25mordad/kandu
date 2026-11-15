@@ -272,6 +272,11 @@ class Mirror:
         return {"title": issue["title"], "body": issue["body"], "url": issue["url"],
                 "blocked_by": issue.get("blocked_by", [])}
 
+    def copied_issue_open(self, repo, number):
+        """Whether an issue is open, by the copy alone: None if the copy does not hold it. Asks GitHub nothing."""
+        issue = ((self._load(self._path("repos", repo)) or {}).get("issues") or {}).get(str(number))
+        return None if issue is None else issue["state"] == "OPEN"
+
     def issue_is_open(self, repo, number):
         issue = self._issue(repo, number)
         if issue is None:

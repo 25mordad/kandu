@@ -164,7 +164,7 @@ class Api:
         self.start_cycle = start_cycle
         self.timer_on = timer_on
         self.local_dir = local_dir
-        self.flights = flights_ or flights.Flights(config, store, logs_dir)
+        self.flights = flights_ or flights.Flights(config, store, logs_dir, github=github)
         self.restart_kandu = restart
         self.backup_timer = backup_timer
         self.upstream = upstream.Upstream(install_dir)

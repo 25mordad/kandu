@@ -9,6 +9,7 @@ import json
 import sys
 
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
+from .flights import Flights
 from .github import GitHubError
 from .mirror import MIRROR_DIR, open_github
 from .state import StateStore
@@ -17,8 +18,11 @@ from .tasks import label_by_hand
 DROPPED_SHOWN = 10
 
 
-def sync(config, mirror, store=None):
+def sync(config, mirror, store=None, flights=None):
     """Reads first, then sends the queue, which wins over what changed on GitHub meanwhile. Returns a line to print.
+
+    Once sent, the tasks' free flights that are done close, by the copy alone (`flights.Flights.close_finished`).
+    An error there is reported in the line and does not stop the sync.
 
     With a `store`, the first sync that reads everything also gives the open by-hand tasks made before the
     `by-hand` label that label, once: a marker in the state keeps later syncs from doing it again.
@@ -35,7 +39,12 @@ def sync(config, mirror, store=None):
             if labelled:
                 lines.append(f"  labelled by hand: {', '.join(labelled)}")
     sent, kept, dropped = mirror.send()
-    line = f"sync: sent {sent}, waiting {kept}, dropped {dropped}"
+    try:
+        closed = flights.close_finished() if flights is not None else []
+    except Exception as e:  # a hung tmux or a flight forgotten meanwhile must not stop the next sync
+        closed = []
+        lines.append(f"  could not close sessions: {type(e).__name__}")
+    line = f"sync: sent {sent}, waiting {kept}, dropped {dropped}, closed {len(closed)} session(s)"
     return "\n".join([line, *lines, *[f"  could not read {f}" for f in failed]])
 
 
@@ -73,7 +82,8 @@ def main():
     elif args.read:
         print("\n".join(mirror.refresh(config, max_age=0)) or "sync: read")
     else:
-        print(sync(config, mirror, StateStore()))
+        store = StateStore()
+        print(sync(config, mirror, store, Flights(config, store, github=mirror)))
     return 0
 
 

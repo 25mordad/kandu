@@ -181,6 +181,16 @@ class MirrorTest(unittest.TestCase):
         self.assertIn(("edit_pr_body", 7, "C"), self.remote.calls)
         self.assertEqual(self.mirror.pr(REPO, 7)["body"], "C")
 
+    def test_whether_an_issue_is_open_by_the_copy_alone(self):
+        self.assertIsNone(self.mirror.copied_issue_open(REPO, 3))  # no copy yet, and GitHub is not asked
+        self.assertEqual(self.remote.calls, [])
+        self.mirror.refresh_repo(REPO)
+        self.assertTrue(self.mirror.copied_issue_open(REPO, 3))
+        self.mirror.close_issue(REPO, 3)
+        self.assertFalse(self.mirror.copied_issue_open(REPO, 3))
+        self.assertIsNone(self.mirror.copied_issue_open(REPO, 99))
+        self.assertEqual(self.names(), ["read_repo"])
+
     def test_merged_prs_come_from_the_copy(self):
         self.remote.prs = {7: pr(7, state="MERGED"), 8: pr(8, issue=4, state="CLOSED"), 9: pr(9, issue=5)}
         self.assertEqual([p["number"] for p in self.mirror.merged_prs(REPO)], [7])
