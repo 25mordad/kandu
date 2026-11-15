@@ -3,7 +3,7 @@ description: Add a project to Kandu, by conversation
 ---
 Read `docs/COMMANDS.md`, then add one project to `local/projects.yaml`, in the shape of `config.example/projects.example.yaml`. A project that is not in this file is never touched.
 
-1. Read what you can: the git remote, existing boards, the test command, how it deploys, CI, PR bots, branch protection.
+1. Read what you can: the git remote, existing boards, the test command, how it deploys, CI, PR bots, branch protection. `.venv/bin/python -m kandu.add project --machine MACHINE --path PATH --dry-run` reads the repo, test command, deploy script, secrets file, forbidden folders and repo rules from the copy and changes nothing; start from its proposal and its warnings.
 2. Show the findings, then ask as one numbered list:
    1. Name, one line on what it is, and its family.
    2. Which repos, and who owns them?

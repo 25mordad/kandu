@@ -156,6 +156,15 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .dialog-head { position:sticky; top:0; z-index:1; display:flex; align-items:flex-start; gap:10px; padding:14px 16px; background:var(--surface); border-bottom:1px solid var(--line); }
 .dialog-head h2 { flex:1; min-width:0; font-size:16px; font-weight:600; overflow-wrap:anywhere; }
 .dialog-body { padding:16px; display:grid; gap:12px; min-width:0; }
+.add-grid { display:grid; gap:10px; margin-block:10px; min-width:0; }
+.add-grid label { display:grid; gap:4px; min-width:0; }
+.add-grid label > span { font-size:13px; color:var(--muted); }
+.add-grid .check { display:flex; align-items:center; gap:8px; }
+.add-grid .check input { min-height:auto; }
+.add-grid input, .add-grid select { min-width:0; width:100%; }
+.add-sub { padding:12px; border:1px dashed var(--line); border-radius:12px; background:var(--sunken); }
+.add-checks { list-style:none; padding:0; margin:8px 0 0; display:grid; gap:4px; font-size:13px; overflow-wrap:anywhere; }
+.add-checks .FAIL { color:var(--bad); } .add-checks .ok { color:var(--good); } .add-checks .warn { color:var(--accent); }
 .actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .confirm { display:grid; gap:10px; padding:12px; border-radius:10px; background:var(--sunken); }
 .round { border:1px solid var(--line); border-radius:12px; }
@@ -324,7 +333,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   </section>
   <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="honey" class="honey" hidden></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
-  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div id="cleanmerged" class="card pad"></div><div id="projectsettings" class="card"></div></section>
+  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div class="card pad add-open"><p class="muted" data-t="add_why"></p><div class="actions"><button id="addopen" class="btn" data-t="add_project"></button></div></div><div id="cleanmerged" class="card pad"></div><div id="projectsettings" class="card"></div></section>
   <section data-panel="days" class="list" hidden>
     <div class="toolbar"><select id="day" data-t-attr="aria-label" data-t="day"></select><div id="daytotals" class="chips"></div></div>
     <div id="byday" class="card"></div>
@@ -358,6 +367,44 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <label class="limit-field"><span data-t="backup_destination"></span><input id="backupdestination" type="text" required dir="ltr"></label>
   <label class="limit-field"><span data-t="backup_keep"></span><input id="backupkeep" type="number" min="1" required></label>
   <div class="actions"><button class="btn primary" value="yes" data-t="save"></button><button class="btn" value="no" formnovalidate data-t="cancel"></button></div>
+</form></dialog>
+<dialog id="addbox"><div class="dialog-head"><h2 data-t="add_project"></h2><button class="btn plain small" data-addclose data-t-attr="aria-label" data-t="close">×</button></div>
+<form class="dialog-body" id="addform" novalidate>
+  <p class="muted" data-t="add_why"></p>
+  <div class="add-grid">
+    <label><span data-t="add_machine"></span><select id="addmachine"></select></label>
+    <div id="newmachine" class="add-grid add-sub" hidden>
+      <p class="muted" data-t="new_machine_why"></p>
+      <label><span data-t="machine_name"></span><input id="mname" dir="ltr" placeholder="laptop"></label>
+      <label><span data-t="ssh_alias"></span><input id="mssh" dir="ltr" placeholder="laptop"></label>
+      <label class="check"><input type="checkbox" id="malways"><span data-t="always_on"></span></label>
+      <div class="actions"><button type="button" class="btn" id="maddbtn" data-t="add_machine_btn"></button></div>
+    </div>
+    <label><span data-t="add_path"></span><input id="addpath" dir="ltr" placeholder="~/code/website"></label>
+    <label><span data-t="add_repo"></span><input id="addrepo" dir="ltr" placeholder="owner/name"></label>
+  </div>
+  <div class="actions"><button type="button" class="btn primary" id="detectbtn" data-t="detect"></button></div>
+  <div id="proposal" hidden>
+    <p id="proposalnote" class="muted"></p>
+    <ul id="proposalwarnings" class="add-checks"></ul>
+    <div class="add-grid">
+      <label><span data-t="run_label"></span><select data-f="run"><option value="" data-t="run_choose"></option><option value="in-place" data-t="run_in_place"></option><option value="clone" data-t="run_clone"></option></select></label>
+      <label><span data-t="project_name"></span><input data-f="name" dir="ltr"></label>
+      <label><span data-t="description"></span><input data-f="description" dir="auto"></label>
+      <label><span data-t="test_command"></span><input data-f="test" dir="ltr"></label>
+      <label><span data-t="run_local"></span><input data-f="run_local" dir="ltr"></label>
+      <label><span data-t="deploy_command"></span><input data-f="deploy" dir="ltr"></label>
+      <label><span data-t="live_url"></span><input data-f="live_url" dir="ltr" placeholder="https://"></label>
+      <label><span data-t="secrets_from"></span><input data-f="secrets_from" dir="ltr"></label>
+      <label><span data-t="forbidden_label"></span><input data-f="forbidden" dir="ltr" placeholder="data/, migrations/"></label>
+      <label><span data-t="repo_rules"></span><input data-f="repo_rules" dir="auto"></label>
+      <label class="check"><input type="checkbox" data-f="auto_merge"><span data-t="auto_merge_label"></span></label>
+      <label class="check"><input type="checkbox" data-f="test_task"><span data-t="test_task_label"></span></label>
+      <label class="check"><input type="checkbox" data-f="deploy_task"><span data-t="deploy_task_label"></span></label>
+    </div>
+    <div class="actions"><button type="button" class="btn primary" id="addbtn" data-t="add_it"></button></div>
+  </div>
+  <div id="addresult"></div>
 </form></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
 <svg class="defs" width="0" height="0" aria-hidden="true"><defs><pattern id="honey-stripes" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="#bdb8ad"/><rect width="2.2" height="5" fill="#8a8578"/></pattern></defs></svg>
@@ -477,6 +524,41 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "number": "No.",
   "status": "Status",
   "close": "Close",
+  "add_project": "+ Project",
+  "add_why": "Add a project from its machine and its path there. Kandu reads the rest from the copy, shows you a proposal, and writes nothing until you add it.",
+  "add_machine": "Machine",
+  "new_machine": "New machine…",
+  "new_machine_why": "Kandu reaches it from this machine by an SSH alias in ~/.ssh/config, with a key that needs no password.",
+  "machine_name": "Machine name",
+  "ssh_alias": "SSH alias",
+  "always_on": "Always on (if not, its tasks wait while it is off)",
+  "add_machine_btn": "Add machine",
+  "machine_reachable": "Machine added; it answered.",
+  "machine_unreachable": "Machine added, but it did not answer over SSH yet.",
+  "add_path": "Path on that machine",
+  "add_repo": "Repo (optional, read from git if empty)",
+  "detect": "Read the project",
+  "run_label": "Where Kandu works on it",
+  "run_choose": "Choose…",
+  "run_in_place": "In place: a separate worktree beside this copy",
+  "run_clone": "Clone: Kandu's own copy, which it may clone",
+  "project_name": "Project name",
+  "description": "One line on what it is",
+  "test_command": "Test command",
+  "run_local": "Local run command (optional)",
+  "deploy_command": "Deploy command (optional)",
+  "live_url": "Live URL (optional; empty if behind a login)",
+  "secrets_from": "Secrets file (location only)",
+  "forbidden_label": "Forbidden areas, comma-separated (no agent changes them)",
+  "repo_rules": "Repo rules",
+  "auto_merge_label": "Merge by itself (a change that is hard to undo still waits for you)",
+  "test_task_label": "No working tests: put a first task on the board that writes scripts/checks.sh",
+  "deploy_task_label": "No deploy found: put a first task on the board that writes deploy/deploy.sh",
+  "add_it": "Add project",
+  "proposal_note": "Repo {repo}, copy: {copy}, board: {board}.",
+  "project_added_msg": "Project {name} added, on board #{board}.",
+  "test_task_made": "The task that writes the checks script",
+  "deploy_task_made": "The task that writes the deploy script",
   "open": "Open",
   "cancel": "Cancel",
   "didban_sessions": "Didban sessions",
@@ -706,6 +788,41 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "number": "شماره",
   "status": "وضعیت",
   "close": "بستن",
+  "add_project": "+ پروژه",
+  "add_why": "پروژه را با ماشین و مسیرش روی آن اضافه کن. کندو بقیه را از همان نسخه می‌خواند، پیشنهادی نشانت می‌دهد و تا وقتی اضافه‌اش نکنی چیزی نمی‌نویسد.",
+  "add_machine": "ماشین",
+  "new_machine": "ماشین جدید…",
+  "new_machine_why": "کندو از همین ماشین با یک alias در \u2066~/.ssh/config\u2069 و کلیدی بدون رمز به آن وصل می‌شود.",
+  "machine_name": "نام ماشین",
+  "ssh_alias": "alias در SSH",
+  "always_on": "همیشه روشن (اگر نه، کارهایش تا روشن شدن صبر می‌کنند)",
+  "add_machine_btn": "افزودن ماشین",
+  "machine_reachable": "ماشین اضافه شد و جواب داد.",
+  "machine_unreachable": "ماشین اضافه شد، ولی هنوز از SSH جواب نداد.",
+  "add_path": "مسیر روی آن ماشین",
+  "add_repo": "ریپو (اختیاری، اگر خالی باشد از git خوانده می‌شود)",
+  "detect": "خواندن پروژه",
+  "run_label": "کندو کجا رویش کار کند",
+  "run_choose": "انتخاب کن…",
+  "run_in_place": "درجا: یک worktree جدا کنار همین نسخه",
+  "run_clone": "clone: نسخه‌ی خود کندو که می‌تواند clone کند",
+  "project_name": "نام پروژه",
+  "description": "یک خط درباره‌ی اینکه چیست",
+  "test_command": "دستور تست",
+  "run_local": "دستور اجرای محلی (اختیاری)",
+  "deploy_command": "دستور deploy (اختیاری)",
+  "live_url": "آدرس نسخه‌ی زنده (اختیاری؛ اگر پشت لاگین است خالی)",
+  "secrets_from": "فایل secrets (فقط محل آن)",
+  "forbidden_label": "ناحیه‌های ممنوع، با ویرگول جدا (هیچ agentی تغییرشان نمی‌دهد)",
+  "repo_rules": "قوانین ریپو",
+  "auto_merge_label": "ادغام خودکار (تغییری که برگشتش سخت است باز منتظر تو می‌ماند)",
+  "test_task_label": "تست قابل اجرا نیست: یک تسک اول روی برد بگذار که scripts/checks.sh را بنویسد",
+  "deploy_task_label": "deploy پیدا نشد: یک تسک اول روی برد بگذار که deploy/deploy.sh را بنویسد",
+  "add_it": "افزودن پروژه",
+  "proposal_note": "ریپو {repo}، نسخه: {copy}، برد: {board}.",
+  "project_added_msg": "پروژه‌ی {name} اضافه شد، روی برد #{board}.",
+  "test_task_made": "تسکی که اسکریپت checks را می‌نویسد",
+  "deploy_task_made": "تسکی که اسکریپت deploy را می‌نویسد",
   "open": "باز کردن",
   "cancel": "انصراف",
   "didban_sessions": "جلسه‌های دیدبان",
@@ -1004,6 +1121,11 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "clean_kept": "بعد از ادغام نگه داشته شد",
   "clean_finished": "پاک‌سازی بعد از ادغام تمام شد",
   "clean_merged_changed": "پاک‌سازی بعد از ادغام روشن یا خاموش شد",
+  "project_added": "پروژه اضافه شد",
+  "machine_added": "ماشین اضافه شد",
+  "present": "موجود",
+  "will be cloned": "clone می‌شود",
+  "a new board": "برد جدید",
   "clean_failed": "پاک‌سازی نشد، چرخه‌ی بعد دوباره امتحان می‌شود",
   "folder": "پوشه",
   "branch": "شاخه",
@@ -2381,6 +2503,72 @@ $("modal").addEventListener("close", () => { shownRun = shownTask = null; confir
 $("stop").onclick = e => act(e.currentTarget, "/stop");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
 $("restart").onclick = e => act(e.currentTarget, "/restart");
+
+// Adding a project: a few facts from the user, the rest read from the copy and shown before anything is written.
+const fillIn = (key, values) => Object.entries(values).reduce((text, [k, v]) => text.replaceAll(`{${k}}`, v), t(key));
+
+function machineOptions(chosen) {
+  const machines = lastState?.machines || [];
+  $("addmachine").innerHTML = machines.map(m => `<option value="${esc(m.name)}">${esc(m.name)}</option>`).join("")
+    + `<option value="">${esc(t("new_machine"))}</option>`;
+  if (chosen !== undefined) $("addmachine").value = chosen;
+  $("newmachine").hidden = $("addmachine").value !== "";
+}
+
+function openAdd() {
+  machineOptions();
+  $("proposal").hidden = true;
+  $("addresult").innerHTML = "";
+  $("addbox").showModal();
+}
+
+async function addMachine(button) {
+  const query = new URLSearchParams({name: $("mname").value, ssh: $("mssh").value, always_on: $("malways").checked});
+  const result = await act(button, `/machines?${query}`);
+  if (!result) return;
+  toast(t(result.reachable ? "machine_reachable" : "machine_unreachable"));
+  await refreshState();
+  machineOptions(result.machine);
+}
+
+async function detectProject(button) {
+  const query = new URLSearchParams({machine: $("addmachine").value, path: $("addpath").value, repo: $("addrepo").value});
+  const found = await act(button, `/projects/detect?${query}`);
+  if (!found) return;
+  const p = found.proposal;
+  for (const input of $("proposal").querySelectorAll("[data-f]")) {
+    if (input.type === "checkbox") input.checked = Boolean(p[input.dataset.f]);
+    else input.value = p[input.dataset.f] ?? "";
+  }
+  $("addrepo").value = p.repo;
+  $("addpath").value = p.path;
+  $("proposalnote").textContent = fillIn("proposal_note", {repo: p.repo, copy: tr(found.copy), board: tr(found.board)});
+  $("proposalwarnings").innerHTML = (found.warnings || []).map(w => `<li class="warn" dir="ltr">${esc(w)}</li>`).join("");
+  $("proposal").hidden = false;
+  $("addresult").innerHTML = "";
+}
+
+async function addProject(button) {
+  const query = new URLSearchParams({machine: $("addmachine").value, path: $("addpath").value, repo: $("addrepo").value});
+  for (const input of $("proposal").querySelectorAll("[data-f]")) query.set(input.dataset.f, input.type === "checkbox" ? input.checked : input.value);
+  const result = await act(button, `/projects?${query}`);
+  if (!result) return;
+  const made = (url, key) => !url ? "" : url.startsWith("http")
+    ? `<p><a class="textlink" href="${esc(url)}" target="_blank" rel="noopener">${esc(t(key))} ↗</a></p>`
+    : `<p class="muted" dir="ltr">${esc(url)}</p>`;
+  $("proposal").hidden = true;
+  $("addresult").innerHTML = `<p>${esc(fillIn("project_added_msg", {name: result.project, board: result.board.number}))}</p>`
+    + made(result.test_task, "test_task_made") + made(result.deploy_task, "deploy_task_made")
+    + `<ul class="add-checks">${result.checks.map(c => `<li class="${esc(c.level)}" dir="ltr">${esc(c.level)} · ${esc(c.text)}</li>`).join("")}</ul>`;
+}
+
+$("addopen").onclick = openAdd;
+$("addmachine").onchange = () => machineOptions($("addmachine").value);
+$("maddbtn").onclick = e => addMachine(e.currentTarget);
+$("detectbtn").onclick = e => detectProject(e.currentTarget);
+$("addbtn").onclick = e => addProject(e.currentTarget);
+$("addform").onsubmit = e => e.preventDefault();
+document.querySelector("[data-addclose]").onclick = () => $("addbox").close();
 $("wake").onclick = e => act(e.currentTarget, "/wake");
 $("reload").onclick = e => busy(e.currentTarget, () => refreshQueue(lastState, true));
 $("day").onchange = refreshDays;

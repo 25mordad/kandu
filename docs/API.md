@@ -10,7 +10,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `project_settings`, `timer_on`, `language`, `limits`, `queen`, `flowers`, `waits_for_you`, `bazras`, `backup`, `drop_blockers`, `show_requests`, `clean_merged`, `upstream` and `github_refused`: while GitHub refuses Kandu for a rate limit, `{"at": ISO time Kandu calls it again, "why": GitHub's answer, first line}`, otherwise null |
+| GET | `/api/v1/state` | `current.json` (see [STATE.md](STATE.md)), plus `stop_requested`, `paused_projects`, `paused_in_config`, `project_order`, `project_settings`, `timer_on`, `language`, `limits`, `queen`, `flowers`, `waits_for_you`, `bazras`, `backup`, `drop_blockers`, `show_requests`, `clean_merged`, `upstream`, `machines` (each with `name` and `always_on`) and `github_refused`: while GitHub refuses Kandu for a rate limit, `{"at": ISO time Kandu calls it again, "why": GitHub's answer, first line}`, otherwise null |
 | GET | `/api/v1/queue` | each project's board columns, with `Done` holding only what closed in the last `done_days` days, read from GitHub at most every 15 minutes, however many pages ask, and sooner once a task finishes or moves |
 | GET | `/api/v1/boards` | every board in the config, with its projects, columns, fields and cards, read from Kandu's copy of GitHub, so it costs GitHub nothing; `?fresh=1` reads each board into the copy first, at most once a minute |
 | GET | `/api/v1/days` | dates that have events |
@@ -35,6 +35,9 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | POST | `/api/v1/splits/{owner}/{repo}/{number}/approve` | the user's yes to that proposal; its slices become issues |
 | POST | `/api/v1/drop-blockers/{owner}/{repo}/{number}` | the user's yes to the queen's ask to drop a blocker from a task, given as `?blocker=OWNER/REPO%23N`; the blocker leaves the issue's `## Blocked by` and a cycle starts |
 | POST | `/api/v1/drop-blockers` | `enabled=true` or `false`: let the queen ask to drop a blocker, or stop her, in `kandu.yaml`; off is the default |
+| POST | `/api/v1/machines` | add a machine the brain reaches by SSH: `?name=laptop&ssh=laptop&always_on=false`; answers `{"machine": "laptop", "reachable": true}` |
+| POST | `/api/v1/projects/detect` | read the copy at `?machine=&path=` (and optional `repo=owner/name`) and propose a project entry; changes nothing |
+| POST | `/api/v1/projects` | add a project from the fields of a proposal, with `run` (`clone` or `in-place`) chosen by the user; clones the copy and creates the family's board when missing, then runs the doctor's checks for it |
 | POST | `/api/v1/clean-merged` | `enabled=true` or `false`: turn the cleanup after a merge on or off, in `kandu.yaml`; on is the default; answers `{"clean_merged": false}` |
 | POST | `/api/v1/stop` | stop the supervisor; running agents are killed |
 | POST | `/api/v1/resume` | allow the next cycle to run |
@@ -52,6 +55,8 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | POST | `/api/v1/projects/{name}/inspect` | `enabled=true` or `false`, and optionally `at=HH:MM`: turn Bazras on or off for a project, and set its hour, in `projects.yaml`; off is the default |
 
 ## Examples
+
+`POST /api/v1/projects/detect?machine=laptop&path=~/code/website` answers `{"proposal": {"machine": "laptop", "path": "~/code/website", "repo": "acme-org/website", "name": "website", "family": "website", "run": "", "description": "", "test": "npm test", "run_local": "npm run dev", "deploy": "", "live_url": "", "secrets_from": "~/code/website/.env", "repo_rules": "Follow AGENTS.md.", "forbidden": "", "test_task": false, "deploy_task": true, "priority": 1, "max_parallel_workers": 1, "daily_token_limit": 1000000, "auto_merge": false}, "warnings": [], "copy": "present", "board": "a new board"}`. `copy` is `will be cloned` when the path does not exist yet. `run` is always empty: the user chooses it. Send the proposal's fields back, changed or not, to `POST /api/v1/projects`; it answers `{"project": "website", "board": {"owner": "acme-org", "number": 4, "created": true}, "cloned": false, "test_task": null, "deploy_task": "https://github.com/acme-org/website/issues/1", "checks": [{"level": "ok", "text": "..."}]}`, or `400` naming the first problem, before anything is written or created. Both config files get one more entry at the end, so their comments stay.
 
 `GET /api/v1/state`
 ```json

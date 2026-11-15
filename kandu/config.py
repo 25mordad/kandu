@@ -17,6 +17,7 @@ import yaml
 
 DEFAULT_LOCAL_DIR = Path(__file__).resolve().parent.parent / "local"
 SSH_REACH = re.compile(r"ssh \w[\w.@-]*")
+RUN_MODES = ("clone", "in-place")  # where a project runs: always set by the user, never inferred
 ROLES = ("worker", "reviewer", "splitter", "live_check", "queen")
 MODEL_ROLES = ROLES + ("bazras",)  # Bazras's tools are fixed in code, so it has no `permissions` entry.
 CLOCK = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
@@ -442,7 +443,7 @@ def _check_projects(projects, s, problems):
                     problems.append(f"{where}.board.columns: unknown column {column!r}")
             if family_boards.setdefault(p.family, p.board) != p.board:
                 problems.append(f"{where}.board: family {p.family!r} already has another board; one board per family")
-        _check_one_of(p.run, ("clone", "in-place"), f"{where}.run", problems)
+        _check_one_of(p.run, RUN_MODES, f"{where}.run", problems)
         if p.machine not in machines:
             problems.append(f"{where}.machine: unknown machine {p.machine!r}")
         if p.run == "clone" and p.machine != s.brain.machine:

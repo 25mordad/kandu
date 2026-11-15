@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import (backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, review, sessions, split, tasks, timer,
+from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, review, sessions, split, tasks, timer,
                upstream)
 from .config import (DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, Inspect, load_config, set_backup,
                      set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_parallel, set_show_requests)
@@ -170,6 +170,7 @@ class Api:
         self.upstream = upstream.Upstream(install_dir)
         self._config_stamp = config_stamp(local_dir)
         self._config_lock = threading.Lock()
+        self._add_lock = threading.Lock()  # one change to the config files at a time
         self._queue = None
         self._queue_time = None
         self._queue_failed = False
@@ -206,6 +207,7 @@ class Api:
             "project_order": [p.name for p in sorted(self.config.projects, key=lambda p: p.priority)],
             "project_settings": self._project_settings(),
             "language": self.config.settings.language,
+            "machines": [{"name": m.name, "always_on": m.always_on} for m in self.config.settings.machines],
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
             "parallel": self._parallel(),
             "queen": self._queen_report(),
@@ -800,6 +802,43 @@ class Api:
         self.store.stop_file.unlink(missing_ok=True)
         return {"stop_requested": False}
 
+    @staticmethod
+    def _field(query, name, default=""):
+        return query.get(name, [default])[0]
+
+    def add_machine(self, query):
+        """A machine the brain reaches by an SSH alias; answers whether it answered."""
+        try:
+            with self._add_lock:
+                result = add.add_machine(self._field(query, "name"), self._field(query, "ssh"),
+                                         self._field(query, "always_on") == "true", self.local_dir)
+        except (add.AddError, ConfigError) as e:
+            raise ApiError(400, str(e)) from None
+        self.refresh_config()
+        self.store.record("machine_added", machine=result["machine"])
+        return result
+
+    def detect_project(self, query):
+        """What the copy at a path says about itself, as a proposed entry. Changes nothing."""
+        try:
+            return add.detect(self.config, self._field(query, "machine"), self._field(query, "path"),
+                              self._field(query, "repo"))
+        except add.AddError as e:
+            raise ApiError(400, str(e)) from None
+
+    def add_project(self, query):
+        """Writes the project, cloning its copy and creating its board if needed, then checks it."""
+        fields = {name: values[0] for name, values in query.items()}
+        try:
+            with self._add_lock:
+                result = add.add_project(fields, self.github, self.local_dir,
+                                         lambda config, project: add.doctor_checks(config, project, self.github))
+        except (add.AddError, ConfigError) as e:
+            raise ApiError(400, str(e)) from None
+        self.refresh_config()
+        self.store.record("project_added", project=result["project"])
+        return result
+
     def restart(self, query):
         """Takes the config again, re-arms the timer and restarts the dashboard. A running cycle finishes."""
         try:
@@ -956,6 +995,9 @@ ROUTES = [
     ("POST", "/limits", Api.change_limits),
     ("POST", "/parallel", Api.change_parallel),
     ("POST", "/restart", Api.restart),
+    ("POST", "/machines", Api.add_machine),
+    ("POST", "/projects/detect", Api.detect_project),
+    ("POST", "/projects", Api.add_project),
     ("POST", "/wake", Api.wake),
     ("POST", "/workers/{run_id}/stop", Api.stop_worker),
     ("POST", "/projects/{name}/pause", Api.pause_project),
@@ -1038,9 +1080,11 @@ def make_handler(api):
         def log_message(self, format, *args):
             pass
 
-        def _send(self, status, body, content_type):
+        def _send(self, status, body, content_type, cache=True):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
+            if not cache:  # a page kept by the browser or a proxy would hide an update of Kandu
+                self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
@@ -1072,7 +1116,7 @@ def make_handler(api):
         def do_GET(self):
             path = urlparse(self.path).path
             if path == "/":
-                self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
+                self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8", cache=False)
             elif path == f"/{FONT.name}":
                 self._send(200, FONT.read_bytes(), "font/woff2")
             elif path == f"{API}/stream":

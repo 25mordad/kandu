@@ -82,6 +82,8 @@ EVENT_FIELDS = {
     "clean_kept": TASK_FIELDS + ("what", "target", "reason"),
     "clean_finished": TASK_FIELDS + ("pr",),
     "clean_merged_changed": ("enabled",),
+    "project_added": ("project",),
+    "machine_added": ("machine",),
     "upstream_checked": ("remote", "branch", "behind", "ahead"),
     "upstream_check_failed": ("remote", "branch", "reason"),
     "upstream_task_created": TASK_FIELDS + ("url", "behind"),

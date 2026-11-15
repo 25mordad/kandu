@@ -73,6 +73,8 @@ state/
 | `notification_failed` | `kind`, `key`, `reason` |
 | `project_paused` | `project` |
 | `project_resumed` | `project` |
+| `project_added` | `project`: the user added a project from the dashboard's form |
+| `machine_added` | `machine`: the user added a machine from the dashboard's form |
 | `project_setting_changed` | `project`, `setting`, `old`, `new`: the user changed a project's setting in the dashboard's settings section; `old` is what it was, from the state or else the registry |
 | `project_setting_carried` | `project`, `setting`, `value`: the first cycle after a setting came set it in the state, once, for a project the install already had, so it keeps its earlier behaviour (`queen_answers_one_way`, true) |
 | `limits_changed` | `session`, `week` |
