@@ -87,6 +87,9 @@ EVENT_FIELDS = {
     "project_added": ("project",),
     "project_removed": ("project",),
     "pace_changed": ("old", "new"),
+    "machine_down": ("machine", "since"),                   # it stopped answering: an outage starts
+    "machine_unreachable": ("machine", "since", "waiting"),  # the outage is long and tasks wait: the user hears
+    "machine_up": ("machine", "since", "told"),              # it answers again: the outage ends
     "machine_added": ("machine",),
     "upstream_checked": ("remote", "branch", "behind", "ahead"),
     "upstream_check_failed": ("remote", "branch", "reason"),

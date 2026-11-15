@@ -11,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from . import waits
 from .queen import COULD_NOT_FINISH
@@ -37,7 +38,7 @@ LEVELS = {"pr_ready": YOUR_TURN, "pr_held": YOUR_TURN, "split": YOUR_TURN, "flig
           "split_made": FOR_YOUR_INFO,
           "queen_split": FOR_YOUR_INFO,
           "blocker_rewritten": FOR_YOUR_INFO,
-          "usage_limit": FOR_YOUR_INFO, "project_limit": FOR_YOUR_INFO}  # Everything else stops work: STUCK.
+          "usage_limit": FOR_YOUR_INFO, "project_limit": FOR_YOUR_INFO, "machine_back": FOR_YOUR_INFO}  # Everything else stops work: STUCK.
 
 MESSAGES = {
     "en": {
@@ -64,6 +65,8 @@ MESSAGES = {
                             "Free flights list when you are done with it.",
         "queen_asks": "The queen has a question about {task}. It is on the dashboard.",
         "loop_stopped": "The queen went round on {task} without getting it done, so Kandu stopped it. It waits for you.",
+        "machine_unreachable": "Machine {machine} has not answered since {since}. Tasks waiting for it: {waiting}.",
+        "machine_back": "Machine {machine} is reachable again. It had not answered since {since}.",
         "pr_held": "The PR of {task} passed review, but something holds its merge.",
         "pr_ready": "The PR of {task} is ready for your approval.",
         "task_done": "{task} is merged and done.",
@@ -101,6 +104,8 @@ MESSAGES = {
                             "از فهرست پروازهای آزاد ببندش.",
         "queen_asks": "ملکه درباره‌ی {task} سؤالی دارد. سؤالش در داشبورد است.",
         "loop_stopped": "ملکه روی {task} دور خودش چرخید و کار جلو نرفت، پس کندو آن را متوقف کرد. منتظر تو است.",
+        "machine_unreachable": "ماشین {machine} از {since} جواب نمی‌دهد. تسک‌های منتظرش: {waiting}.",
+        "machine_back": "ماشین {machine} دوباره در دسترس است. از {since} جواب نمی‌داد.",
         "pr_held": "PR مربوط به {task} بازبینی را رد کرد، ولی چیزی ادغامش را نگه داشته است.",
         "pr_ready": "PR مربوط به {task} آماده‌ی تأیید تو است.",
         "task_done": "{task} ادغام شد و تمام شد.",
@@ -154,6 +159,13 @@ def _ready_message(event):
     return _task_message("pr_ready", "pr_held" if wait["held"] else "pr_ready", event, wait)
 
 
+def _machine_message(text, event):
+    """Once per outage: its key is the machine and when the outage began."""
+    since = datetime.fromisoformat(event["since"]).strftime("%Y-%m-%d %H:%M")
+    values = {"machine": event["machine"], "since": since, "waiting": event.get("waiting")}
+    return Message("machine_unreachable", text, f"{text}:{event['machine']}:{event['since']}", values=values)
+
+
 def message_for(event, queen=False):
     """Returns what the user must hear about this event, or None. `queen`: the queen is on."""
     kind = event["type"]
@@ -196,6 +208,10 @@ def message_for(event, queen=False):
         return Message("usage_limit", "project_limit", key, values={"project": event["project"]})
     if kind == "project_checked" and not event["passed"]:
         return Message("failure", "check_failed", values={"project": event["project"]})
+    if kind == "machine_unreachable":
+        return _machine_message("machine_unreachable", event)
+    if kind == "machine_up" and event["told"]:  # the user heard of the outage, so hears of its end
+        return _machine_message("machine_back", event)
     if kind == "backup_failed":  # Told once a day: the timer tries again until a copy is made.
         return Message("failure", "backup_failed", f"backup_failed:{event['ts'][:10]}")
     if kind == "queen_finished" and event["brief"].startswith(COULD_NOT_FINISH):

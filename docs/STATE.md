@@ -73,6 +73,9 @@ state/
 | `notification_failed` | `kind`, `key`, `reason` |
 | `project_paused` | `project` |
 | `project_resumed` | `project` |
+| `machine_down` | `machine`, `since`: the machine stopped answering; an outage starts |
+| `machine_unreachable` | `machine`, `since`, `waiting`: the outage has lasted `supervisor.unreachable_alert_hours` while `waiting` tasks wait for it; once per outage, and the user hears |
+| `machine_up` | `machine`, `since`, `told`: it answers again and the outage that began at `since` ends; `told` says whether the user heard of it, and then hears of its end |
 | `project_added` | `project`: the user added a project from the dashboard's form |
 | `project_removed` | `project`: the user took a project out of Kandu, from the dashboard or with `kandu.remove` |
 | `machine_added` | `machine`: the user added a machine from the dashboard's form |
@@ -128,6 +131,7 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 | `workers` | one object per active task: `task`, `project`, `machine`, `phase`, `started` |
 | `queen_run` | the run id of the queen while she is awake, otherwise null |
 | `waiting_for_machine` | tasks whose machine was off in the last cycle |
+| `unreachable_machines` | each machine that did not answer in the last cycle: `machine`, `since` (when its outage began) and the `tasks` that wait for it, to be sized or worked |
 
 `phase` is `implement`, `review round N`, `sizing notes` or `fix round N`.
 

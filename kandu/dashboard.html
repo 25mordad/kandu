@@ -343,6 +343,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   </nav>
 </header>
 <main>
+  <div id="machines" class="list" hidden></div>
   <div id="asks" class="list" hidden></div>
   <div id="stats" class="stats"></div>
   <section data-panel="work" class="layout">
@@ -625,6 +626,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "add_machine_btn": "Add machine",
   "machine_reachable": "Machine added; it answered.",
   "machine_unreachable": "Machine added, but it did not answer over SSH yet.",
+  "machine_off": "Machine {machine} has not answered since {since}",
+  "machine_waits": "Waiting for it:",
+  "machine_waits_none": "No task waits for it.",
   "add_path": "Path on that machine",
   "add_repo": "Repo (optional, read from git if empty)",
   "detect": "Read the project",
@@ -984,6 +988,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "add_machine_btn": "افزودن ماشین",
   "machine_reachable": "ماشین اضافه شد و جواب داد.",
   "machine_unreachable": "ماشین اضافه شد، ولی هنوز از SSH جواب نداد.",
+  "machine_off": "ماشین {machine} از {since} جواب نمی‌دهد",
+  "machine_waits": "منتظرش:",
+  "machine_waits_none": "هیچ تسکی منتظرش نیست.",
   "add_path": "مسیر روی آن ماشین",
   "add_repo": "ریپو (اختیاری، اگر خالی باشد از git خوانده می‌شود)",
   "detect": "خواندن پروژه",
@@ -1354,6 +1361,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "project_added": "پروژه اضافه شد",
   "project_removed": "پروژه از کندو حذف شد",
   "machine_added": "ماشین اضافه شد",
+  "machine_down": "ماشین جواب نداد",
+  "machine_unreachable": "ماشین ساعت‌ها جواب نداده و تسک‌ها منتظرند",
+  "machine_up": "ماشین دوباره جواب داد",
   "present": "موجود",
   "will be cloned": "clone می‌شود",
   "a new board": "برد جدید",
@@ -2355,6 +2365,15 @@ function renderQueen(s) {
     <button class="btn small" data-review="${esc(d.task)}">${t("open")}</button></div>`).join("");
 }
 
+// Each machine that does not answer: since when, and the tasks that wait for it, to be sized or worked.
+function unreachableMachines(s) {
+  return (s.unreachable_machines || []).map(m => {
+    const tasks = m.tasks.map(task => `${bdi(repoOf(task))} ${numberOf(task)}`).join(", ");
+    return `<div class="ask"><div class="ask-text"><div class="ask-who" dir="auto">${t("machine_off").replace("{machine}", bdi(m.machine)).replace("{since}", esc(when(m.since)))}</div>
+    <div dir="auto">${m.tasks.length ? `${t("machine_waits")} ${tasks}` : t("machine_waits_none")}</div></div></div>`;
+  }).join("");
+}
+
 async function refreshState() {
   const s = await get("/state");
   lastState = s;
@@ -2365,6 +2384,8 @@ async function refreshState() {
   $("state").textContent = (refused ? refused + " · " : "") + tr(name) + (s.last_reason ? " · " + tr(s.last_reason) : "");
   $("stop").hidden = s.stop_requested;
   $("resume").hidden = !s.stop_requested;
+  $("machines").innerHTML = unreachableMachines(s);
+  $("machines").hidden = !(s.unreachable_machines || []).length;
   const marked = Object.keys(s.over_limit || {}).sort().join();
   if (marked !== renderLegend.marked) { renderLegend.marked = marked; renderLegend(); }  // It explains the red while it shows.
   renderStats(s);

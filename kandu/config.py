@@ -31,7 +31,8 @@ BOARD_COLUMNS = ("Backlog", TECHNICAL_DEBT, "Ready", "In progress", "In review",
 BOARD_FIELDS = {"Priority": ("High", "Medium", "Low"), "Kind": ("Bug", "Feature", "Chore"),
                 "Size": ("Small", "Medium", "Large")}
 DEADLINE_FIELD = "Deadline"
-NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "task_done", "usage_limit", "claude_login")
+NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "task_done", "usage_limit", "claude_login",
+                 "machine_unreachable")
 NOTIFY_LANGUAGES = ("en", "fa")
 
 
@@ -113,6 +114,7 @@ class Supervisor:
     queen: bool = True
     queen_max_retries: int = 3
     queen_daily_token_limit: int = 2000000
+    unreachable_alert_hours: int = 12  # a machine silent this long while tasks wait for it: the user hears once
     queen_drop_blockers: bool = False   # she may ask the user to drop a blocker; off until the user turns it on
     # A merged task's folders and branches go: on by default, as the user chose, and off from the dashboard.
     clean_merged: bool = True
@@ -397,7 +399,7 @@ def _check_settings(s, problems):
         _check_one_of(s.notify.language, NOTIFY_LANGUAGES, "notify.language", problems)
 
     for name in ("wake_every_minutes", "max_cycle_minutes", "max_parallel_workers", "max_parallel_sizers",
-                 "queen_max_retries", "queen_daily_token_limit"):
+                 "queen_max_retries", "queen_daily_token_limit", "unreachable_alert_hours"):
         _check_positive(getattr(s.supervisor, name), f"supervisor.{name}", problems)
     _check_positive(s.github.sync_every_minutes, "github.sync_every_minutes", problems)
     if s.supervisor.auto_revert:

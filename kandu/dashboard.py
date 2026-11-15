@@ -325,7 +325,7 @@ class Api:
             "project_order": [p.name for p in sorted(self.config.projects, key=lambda p: p.priority)],
             "project_settings": self._project_settings(),
             "language": self.config.settings.language,
-            "machines": [{"name": m.name, "always_on": m.always_on} for m in self.config.settings.machines],
+            "machines": self._machines(),
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
             "parallel": self._parallel(),
             "pace": self._pace(),
@@ -1193,6 +1193,12 @@ class Api:
             self.store.set_project_setting(project.name, setting, value)
             self.store.record("project_setting_changed", project=project.name, setting=setting, old=old, new=value)
         return changes | registry
+
+    def _machines(self):
+        """Each machine, and since when it has not answered, as the supervisor last saw it, or null while it does."""
+        down = {m["machine"]: m["since"] for m in self.store.read_current().get("unreachable_machines") or []}
+        return [{"name": m.name, "always_on": m.always_on, "down_since": down.get(m.name)}
+                for m in self.config.settings.machines]
 
     def _over_limit(self):
         """The projects whose tokens today reached their daily limit, as the supervisor counts them to start nothing

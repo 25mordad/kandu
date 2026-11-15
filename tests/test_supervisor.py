@@ -1373,6 +1373,35 @@ class GateTest(Base):
         self.assertEqual(self.store.read_current()["waiting_for_machine"], [f"{REPO}#1"])
         self.assertEqual(self.github.status(1), "Ready")
 
+    def test_an_outage_is_logged_once_and_shown_with_the_tasks_that_wait(self):
+        self.runner.down.add("server")
+        self.cycle()
+        self.cycle()
+        downs = self.events("machine_down")
+        self.assertEqual([(e["machine"], e["since"]) for e in downs], [("server", NOW.isoformat(timespec="seconds"))])
+        self.assertEqual(self.store.read_current()["unreachable_machines"],
+                         [{"machine": "server", "since": downs[0]["since"], "tasks": [f"{REPO}#1"]}])
+        self.assertEqual(self.events("machine_unreachable"), [])  # not long enough yet
+
+    def test_a_long_outage_while_tasks_wait_is_told_once_and_its_end_too(self):
+        self.runner.down.add("server")
+        self.cycle()
+        self.clock[0] = NOW + timedelta(hours=self.config.settings.supervisor.unreachable_alert_hours)
+        self.cycle()
+        self.cycle()
+        told = self.events("machine_unreachable")
+        self.assertEqual([(e["machine"], e["waiting"]) for e in told], [("server", 1)])
+        self.runner.down.clear()
+        self.cycle()
+        back = self.events("machine_up")
+        self.assertEqual([(e["machine"], e["since"], e["told"]) for e in back], [("server", told[0]["since"], True)])
+        self.assertEqual(self.store.read_current()["unreachable_machines"], [])
+
+    def test_a_machine_nobody_needs_is_not_asked(self):
+        self.runner.down.add("laptop")
+        self.cycle()
+        self.assertEqual(self.events("machine_down"), [])
+
     def test_a_board_that_cannot_be_read(self):
         self.github.board_items = mock.Mock(side_effect=GitHubError("down"))
         self.assertIn("could not read", self.cycle())

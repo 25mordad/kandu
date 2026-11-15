@@ -267,7 +267,7 @@ class ApiTest(Base):
             status, body = self.post("/api/v1/machines?name=desk&ssh=desk&always_on=true")
         self.assertEqual((status, body["reachable"]), (200, False))
         machines = dispatch(self.api, "GET", "/api/v1/state")[1]["machines"]
-        self.assertIn({"name": "desk", "always_on": True}, machines)
+        self.assertIn({"name": "desk", "always_on": True, "down_since": None}, machines)
         self.assertEqual(self.api.store.last_event("machine_added")["machine"], "desk")
 
 

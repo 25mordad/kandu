@@ -52,6 +52,7 @@ notify:
     - task_done
     - usage_limit
     - claude_login
+    - machine_unreachable      # a machine has not answered for hours while tasks wait for it, and when it is back
 
 bazras:                        # optional; Bazras's daily look at projects whose `inspect` is on (DESIGN §5)
   at: "06:00"                  # default hour; a project's inspect.at overrides it
@@ -80,6 +81,7 @@ supervisor:                    # optional; these are the defaults
   queen: true                  # true = an LLM runs the cycle for every project; it wakes only when needed
   queen_max_retries: 3         # how often the queen may take each kind of step on one task (retry, rework, check, new task, merge order); past it the task stops and you hear of it
   queen_daily_token_limit: 2000000   # her own limit; past it, running work ends and nothing new starts
+  unreachable_alert_hours: 12  # a machine that has not answered this long while tasks wait for it: you hear once
   queen_drop_blockers: false   # true = the queen may ask you to drop a blocker a task does not need; off until you turn it on, here or in the dashboard
   clean_merged: true           # true = once a task's PR is merged, its folders beside the repo and its kandu/ branches go; a folder with work not in the PR stays. Off here or in the dashboard
 

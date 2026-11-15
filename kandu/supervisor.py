@@ -234,6 +234,9 @@ class Supervisor:
         self.queen_run = None
         self.workers = {}
         self.waiting = []
+        self.seen = {}  # machine -> whether it answered when last asked this cycle
+        self.waiting_on = defaultdict(set)  # machine -> the tasks that wait for it this cycle, to be sized or worked
+        self.unreachable = []  # what the dashboard shows of each machine that does not answer
         self.merged = Counter()
         self.held = {}  # task key -> the head whose merge waited this cycle
         self.retrying = {}  # task key -> the merge GitHub refused for a moment, tried again in this cycle
@@ -342,6 +345,7 @@ class Supervisor:
             self.store.write_current({
                 "supervisor": supervisor, "last_reason": reason, "next_wake": next_wake, "usage": usage,
                 "workers": list(self.workers.values()), "waiting_for_machine": self.waiting,
+                "unreachable_machines": self.unreachable,
                 "queen_run": self.queen_run,
             })
 
@@ -1273,7 +1277,8 @@ class Supervisor:
                 continue
             if self.store.tokens_counted(today, project=project.name) >= project.daily_token_limit:
                 continue
-            if not self.runner.reachable(project.machine):
+            if not self._reachable(project.machine):
+                self.waiting_on[project.machine].add(key)
                 continue
             task = Task(project, item.repo, item.number, item.title, item.url, item.status,
                         branch_for(item.number, item.title))
@@ -1787,11 +1792,57 @@ class Supervisor:
 
     # One cycle.
 
+    def _reachable(self, machine):
+        answered = self.runner.reachable(machine)
+        with self._lock:
+            self.seen[machine] = answered
+        return answered
+
     def _reachable_tasks(self, tasks):
         machines = {task.project.machine for task in tasks}
-        reachable = {m for m in machines if self.runner.reachable(m)}
+        reachable = {m for m in machines if self._reachable(m)}
         self.waiting = [t.key for t in tasks if t.project.machine not in reachable]
+        for task in tasks:
+            if task.project.machine not in reachable:
+                self.waiting_on[task.project.machine].add(task.key)
         return [t for t in tasks if t.project.machine in reachable]
+
+    def _outage(self, machine):
+        """When the machine's open outage began, or None while it answers."""
+        down = self.store.last_event("machine_down", machine=machine)
+        if down is None or self.store.last_event("machine_up", machine=machine, since=down["since"]) is not None:
+            return None
+        return down["since"]
+
+    def _watch_machines(self):
+        """One message per long outage that tasks wait on, and one when the machine answers again.
+
+        A machine is asked only when a task needs it, or while its outage is open, so its return is seen.
+        """
+        now = self.now()
+        limit = timedelta(hours=self.config.settings.supervisor.unreachable_alert_hours)
+        unreachable = []
+        for machine in (m.name for m in self.config.settings.machines):
+            since = self._outage(machine)
+            answered = self.seen.get(machine)
+            if answered is None and since is not None:
+                answered = self._reachable(machine)
+            if answered is None:
+                continue
+            told = since is not None and self.store.last_event("machine_unreachable", machine=machine,
+                                                                 since=since) is not None
+            if answered:
+                if since is not None:
+                    self.store.record("machine_up", machine=machine, since=since, told=told)
+                continue
+            if since is None:
+                since = now.isoformat(timespec="seconds")
+                self.store.record("machine_down", machine=machine, since=since)
+            waiting = sorted(self.waiting_on.get(machine, ()))
+            unreachable.append({"machine": machine, "since": since, "tasks": waiting})
+            if waiting and not told and now - datetime.fromisoformat(since) >= limit:
+                self.store.record("machine_unreachable", machine=machine, since=since, waiting=len(waiting))
+        self.unreachable = unreachable
 
     def _over_budget(self, task):
         """A project at its daily limit starts nothing, however its task reached `Ready`."""
@@ -1872,6 +1923,8 @@ class Supervisor:
         self.merged.clear()
         self.held.clear()
         self.retrying.clear()
+        self.seen.clear()
+        self.waiting_on.clear()
         self.store.carry_settings(self.config.projects)  # before the first snapshot: it tells an install that ran before
         self.store.record("supervisor_woke")
         clean_since = self.store.clean_since(woke)  # set once, on the first cycle that has the cleanup
@@ -1897,6 +1950,7 @@ class Supervisor:
             reason = self._work_through_board()
         self._tell_open_flights()
         self._clean(clean_since)
+        self._watch_machines()
         if self.queen_trouble is not None:
             reason = f"{reason}; the queen could not look: {self.queen_trouble}"
         self.store.record("supervisor_slept", reason=reason, next_wake=self.next_wake)
