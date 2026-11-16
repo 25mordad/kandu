@@ -28,7 +28,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | GET | `/api/v1/events` | a page of events; `day` (default: the last) and `after` (default: 0) |
 | GET | `/api/v1/stream` | new events as they happen, as Server-Sent Events |
 | GET | `/api/v1/runs/{run_id}` | what one agent run did: files read, commands, edits |
-| GET | `/api/v1/tasks/{owner}/{repo}/{number}` | a task's issue text, its outcome, and its runs, time and tokens by role |
+| GET | `/api/v1/tasks/{owner}/{repo}/{number}` | a task's issue text, its outcome, its runs, time and tokens by role, and its `steps`: the task's events so far, oldest first, each as recorded without its tokens |
 | POST | `/api/v1/tasks/{owner}/{repo}/{number}/to-queen` | stop Kandu's tries on a task in its own error, as if the last had failed: a task never sized goes to `Needs info` as `sizing_failed`, any other to `Blocked` as `failed`, with Kandu's usual comment, and a cycle starts unless Kandu is stopped, so the queen looks at it now; answers `{"task", "to", "cycle_started"}`. `409` for a task in any other state or while a try runs |
 | POST | `/api/v1/tasks/{owner}/{repo}/{number}/send-back` | the user sends a task in `Blocked` or `Needs info` back to work; a cycle starts. Its repo is read from GitHub first: `409` when its issue is closed or its PR merged, `503` when GitHub cannot be read |
 | GET | `/api/v1/reviews/{owner}/{repo}/{number}` | the PR of a task and each review round |

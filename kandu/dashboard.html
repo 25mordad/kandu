@@ -122,15 +122,31 @@ main { max-width:1240px; margin:auto; padding:16px; display:grid; gap:14px; }
 .tools input { flex:1; }
 .list { display:grid; gap:10px; }
 
-.project summary { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:11px 16px; cursor:pointer; list-style:none; border-radius:14px; }
-.project summary::-webkit-details-marker { display:none; }
-.project-pause { margin-inline-start:auto; }
 .slice-body { white-space:pre-wrap; overflow-wrap:anywhere; }
-.project summary::before { content:""; width:7px; height:7px; border-inline-end:2px solid var(--muted); border-block-end:2px solid var(--muted); transform:rotate(-45deg); transition:transform .15s; flex:none; }
-[dir="rtl"] .project summary::before { transform:rotate(45deg); }
-.project[open] summary::before { transform:rotate(45deg); }
-.project-name { font-weight:600; overflow-wrap:anywhere; min-width:0; }
-.counts { display:flex; flex-wrap:wrap; gap:4px; margin-inline-start:auto; }
+/* Tasks: a group per project that folds, a row per task, and beside them the bees at work and the queen's brief. */
+.tools input { min-height:46px; padding:0 14px; border-radius:12px; font-size:15px; }
+.group { background:var(--surface); border:1px solid var(--line); border-radius:16px; overflow:hidden; min-width:0; }
+.group summary { display:flex; align-items:center; flex-wrap:wrap; gap:4px 10px; min-height:54px; padding:8px 16px; cursor:pointer; list-style:none; }
+.group summary::-webkit-details-marker { display:none; }
+.group summary > b { font-size:15px; font-weight:700; min-width:0; overflow-wrap:anywhere; }
+.group summary > span { font-size:13px; font-weight:600; }
+.group summary::after { content:"▸"; width:16px; text-align:center; color:var(--ink3); }
+[dir="rtl"] .group summary::after { content:"◂"; }
+.group[open] summary::after, [dir="rtl"] .group[open] summary::after { content:"▾"; }
+.group-count { color:var(--ink3); font-weight:500 !important; }
+.task-row { all:unset; box-sizing:border-box; cursor:pointer; width:100%; display:flex; align-items:center; flex-wrap:wrap; gap:4px 12px; min-height:50px; padding:10px 16px; border-top:1px solid var(--line); }
+.task-row:hover { background:var(--surface2); }
+.task-row:focus-visible { outline:2px solid var(--honey); outline-offset:-2px; }
+.row-state { flex:none; width:150px; display:flex; align-items:center; gap:7px; font-size:12px; font-weight:600; }
+.row-state .pdot { width:8px; height:8px; cursor:inherit; }
+.row-state .pdot.bee { width:12px; }
+.row-title { flex:1 1 180px; min-width:0; font-size:14px; overflow-wrap:anywhere; }
+.row-title .number { color:var(--ink3); }
+.row-meta { font-size:12px; color:var(--ink3); overflow-wrap:anywhere; }
+.bees { display:flex; flex-direction:column; }
+.bees .today-head { margin-bottom:6px; }
+.side-brief { display:flex; flex-direction:column; gap:4px; }
+.bazras-line { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 16px; font-size:13px; color:var(--muted); border-top:1px solid var(--line); }
 
 .badge { --c:#a8a297; display:inline-flex; align-items:center; gap:6px; padding:1px 9px; border-radius:999px; font-size:12px; font-weight:500; line-height:1.8; white-space:nowrap; background:color-mix(in srgb, var(--c) 16%, transparent); }
 .badge::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--c); }
@@ -162,11 +178,12 @@ tr:last-child td { border-bottom:0; }
 .wait-line { margin:2px 0; padding-inline-start:12px; border-inline-start:3px solid var(--line); }
 .tokenbar { display:block; height:4px; min-width:2px; margin-top:4px; border-radius:2px; background:var(--honey); }
 
-.bee-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 0; border-bottom:1px solid var(--line); }
-.bee-row:last-child { border-bottom:0; padding-bottom:0; }
-.bee-row:first-of-type { padding-top:0; }
-.bee-who { flex:1 1 150px; min-width:0; }
-.bee-who div { font-size:13px; color:var(--muted); }
+.bee-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--line); font-size:14px; }
+.bee-row > .pdot.bee { width:16px; height:11px; cursor:default; }
+.bee-who { all:unset; box-sizing:border-box; cursor:pointer; flex:1; min-width:0; }
+.bee-who:focus-visible { outline:2px solid var(--honey); outline-offset:2px; }
+.bee-who b { display:block; font-size:14px; font-weight:600; overflow-wrap:anywhere; }
+.bee-who small { display:block; font-size:12px; color:var(--ink3); overflow-wrap:anywhere; }
 .brief { white-space:pre-line; overflow-wrap:anywhere; }
 .brief.clamp { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:7; overflow:hidden; }
 .meta { font-size:12px; color:var(--muted); margin-bottom:6px; }
@@ -182,6 +199,45 @@ tr:last-child td { border-bottom:0; }
 dialog { width:min(760px, calc(100vw - 24px)); max-height:calc(100dvh - 24px); padding:0; border:1px solid var(--line); border-radius:16px; background:var(--surface); color:var(--ink); box-shadow:0 20px 60px #00000040; }
 dialog.small { width:min(420px, calc(100vw - 24px)); }
 dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
+/* The task's sheet: centred on a wide screen, from the bottom on a phone; its footer stays in view. */
+dialog.sheet { width:min(600px, calc(100vw - 24px)); max-height:calc(100dvh - 80px); background:var(--bg); overflow:hidden; }
+dialog.sheet[open] { display:flex; flex-direction:column; }
+.sheet-body { flex:1; min-height:0; overflow:auto; padding:16px 20px 20px; display:flex; flex-direction:column; gap:14px; }
+.sheet-grip { display:none; align-self:center; width:40px; height:5px; border-radius:3px; background:var(--line); }
+.sheet-head { display:flex; align-items:center; gap:14px; }
+.sheet-hex { flex:none; width:56px; height:64px; display:grid; place-items:center; font-size:16px; font-weight:800; clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); background:var(--honey); color:var(--honey-ink); }
+.sheet-hex.amber { background:var(--amber); color:var(--surface); } .sheet-hex.red { background:var(--red); color:var(--surface); }
+.sheet-who { flex:1; min-width:0; }
+.sheet-who .muted { font-size:14px; overflow-wrap:anywhere; }
+.sheet-who h2 { font-size:21px; font-weight:700; line-height:1.25; overflow-wrap:anywhere; }
+.sheet-close { all:unset; box-sizing:border-box; cursor:pointer; flex:none; align-self:flex-start; width:44px; height:44px; display:grid; place-items:center; border-radius:50%; background:var(--surface2); font-size:15px; font-weight:700; }
+.sheet-close:focus-visible { outline:2px solid var(--honey); outline-offset:2px; }
+.phases { display:grid; grid-template-columns:repeat(var(--n), minmax(0, 1fr)); gap:2px; }
+.phase { display:flex; flex-direction:column; align-items:center; gap:6px; min-width:0; }
+.phase .hex { width:30px; height:34px; background:var(--line); }
+.phase span { font-size:11px; line-height:1.2; text-align:center; font-weight:600; color:var(--ink3); overflow-wrap:anywhere; }
+.phase.done .hex { background:var(--honey); } .phase.done span { color:var(--ink); }
+.phase.now .hex { background:var(--amber); } .phase.now span { color:var(--amber); font-weight:700; }
+.sheet-state { display:flex; align-items:center; flex-wrap:wrap; gap:6px 16px; font-size:13px; color:var(--ink2); }
+.sheet-state .textlink { text-decoration:underline; text-underline-offset:3px; }
+.sheet-what { font-size:14px; color:var(--ink2); }
+.sheet-box { padding:14px 16px; border-radius:14px; background:var(--surface); border:1px solid var(--line); display:flex; flex-direction:column; gap:8px; min-width:0; }
+.sheet-box-head { font-size:12px; font-weight:700; color:var(--ink2); }
+.sheet-question { font-size:15px; font-weight:600; overflow-wrap:anywhere; }
+.sheet-section { display:flex; flex-direction:column; gap:10px; }
+.steps { display:flex; flex-direction:column; }
+.step { display:flex; gap:14px; }
+.step > .hex { width:16px; height:18px; margin-top:3px; background:var(--honey); }
+.step.last > .hex { background:var(--amber); }
+.step > div { flex:1; min-width:0; padding-bottom:14px; }
+.step-head { display:flex; align-items:baseline; gap:8px; }
+.step-head b { flex:1; min-width:0; font-size:14px; overflow-wrap:anywhere; }
+.step-head time { flex:none; font-size:12px; color:var(--ink3); }
+.step-text { font-size:13px; color:var(--ink2); overflow-wrap:anywhere; }
+.sheet-foot { flex:none; padding:14px 20px calc(18px + env(safe-area-inset-bottom)); background:var(--surface); border-top:1px solid var(--line); display:flex; flex-direction:column; gap:8px; }
+.sheet-note { font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+.sheet-foot .actions > .btn, .sheet-foot .flightbox > .btn { flex:1 1 auto; min-height:48px; border-radius:12px; font-size:15px; white-space:normal; }
+.sheet-foot .flightbox { flex:1 1 auto; }
 .dialog-head { position:sticky; top:0; z-index:1; display:flex; align-items:flex-start; gap:10px; padding:14px 16px; background:var(--surface); border-bottom:1px solid var(--line); }
 .dialog-head h2 { flex:1; min-width:0; font-size:16px; font-weight:600; overflow-wrap:anywhere; }
 .dialog-body { padding:16px; display:grid; gap:12px; min-width:0; }
@@ -206,7 +262,6 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .report { font:12px/1.7 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0 0; padding:10px 12px; border-radius:8px; background:color-mix(in srgb, var(--muted) 10%, transparent); }
 .look { padding:12px 0; border-top:1px solid var(--line); }
 .look-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-.bazras-line { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 16px; font-size:13px; color:var(--muted); border-bottom:1px solid var(--line); }
 .toast { position:fixed; inset-inline:16px; bottom:16px; z-index:20; width:fit-content; max-width:calc(100vw - 32px); margin-inline:auto; padding:9px 16px; border-radius:10px; background:var(--ink); color:var(--bg); font-size:14px; }
 
 .meadow { overflow:hidden; line-height:0; }
@@ -223,6 +278,8 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .soil { fill:var(--soil); opacity:.45; }
 /* Today: what waits for the user, the hive, the flight paths, the queen's brief and today's events. */
 body[data-page="today"] #stats, body[data-page="today"] #asks { display:none; }
+/* Tasks shows what waits for the user in its groups and sheets, as Today does: the tiles and the asks stay off it too. */
+body[data-page="tasks"] #stats, body[data-page="tasks"] #asks { display:none; }
 .today { display:flex; flex-direction:column; gap:24px; min-width:0; }
 .today-grid { display:flex; flex-wrap:wrap; gap:28px; align-items:flex-start; }
 .today-grid > * { min-width:0; display:flex; flex-direction:column; gap:24px; }
@@ -279,6 +336,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
 .pdot.stuck { background:var(--red); }
 .pdot.bee { background:repeating-linear-gradient(90deg, var(--honey) 0 3px, var(--honey-ink) 3px 5px); box-shadow:0 0 0 1.5px var(--honey-ink); }
 .pdot.turn { background:var(--dot); }
+.pdot.ok { background:var(--green); }
 .pmore { font-size:11px; font-weight:700; color:var(--ink2); }
 .pdone { width:22px; height:25px; display:grid; place-items:center; background:var(--honey); color:var(--honey-ink); font-size:11px; font-weight:800; clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); }
 .plegend { display:flex; flex-wrap:wrap; gap:4px 16px; padding-top:4px; font-size:12px; color:var(--ink3); }
@@ -374,13 +432,16 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   .today-waits { max-width:none; }
   .pdot { width:10px; height:10px; }
   .stage { gap:2px; }
+  dialog.sheet { width:100%; max-width:100%; height:94dvh; max-height:94dvh; margin:auto 0 0; border-radius:22px 22px 0 0; border-bottom:0; }
+  .sheet-grip { display:block; }
+  .phase .hex { width:24px; height:28px; }
+  .row-state { width:auto; }
   dialog.menu, [dir="rtl"] dialog.menu { width:100%; max-width:100%; margin:auto 0 0; border-radius:20px 20px 0 0; padding:8px 8px calc(14px + env(safe-area-inset-bottom)); }
 }
 @media (max-width: 640px) {
   #projectsettings th, #projectsettings .fit { white-space:normal; }
   th, td { padding-inline:12px; }
   .hide-narrow { display:none; }
-  .counts { margin-inline-start:0; width:100%; }
   .stat-value { font-size:21px; }
 }
 </style>
@@ -418,8 +479,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
       <div id="projects" class="list"></div>
     </div>
     <div class="side">
-      <div class="card pad"><h2 class="card-title" data-t="active_workers"></h2><div id="workers"></div></div>
-      <div class="card pad" id="queenbox" hidden><h2 class="card-title" data-t="queen"></h2><div id="queen"></div></div>
+      <div id="workers" class="bees"></div>
+      <div id="queenbox" class="side-brief" hidden></div>
       <div class="card pad" id="requestsbox" hidden><h2 class="card-title" data-t="open_requests"></h2><div id="requests"></div></div>
     </div>
   </section>
@@ -461,6 +522,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   <h2 data-t="restart_ask"></h2><p class="muted" data-t="restart_why"></p>
   <div class="actions confirm-actions"><button class="btn" value="no" data-t="cancel"></button><button type="button" id="restartnow" class="btn primary" data-t="restart_now"></button></div>
 </form></dialog>
+<dialog id="sheet" class="sheet" data-t-attr="aria-label" data-t="task_sheet"><div id="sheetbody" class="sheet-body"></div><div id="sheetfoot" class="sheet-foot"></div></dialog>
 <dialog id="modal"><div class="dialog-head"><h2 id="modaltitle"></h2><button class="btn plain small" data-close data-t-attr="aria-label" data-t="close">×</button></div><div id="modalbody" class="dialog-body"></div></dialog>
 <dialog id="tokenbox" class="small"><form method="dialog" class="dialog-body" id="tokenform">
   <h2 data-t="control_token"></h2><p class="muted" data-t="token_why"></p>
@@ -571,8 +633,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "wake_queen": "Wake the queen",
   "stop": "Stop",
   "resume": "Resume",
-  "pause_project": "Pause project",
-  "resume_project": "Resume project",
   "project_on_pause": "Paused",
   "by_hand": "By hand",
   "by_hand_hint": "No agent label: Kandu leaves it alone. Open a free flight to do it yourself.",
@@ -601,7 +661,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "map_asked": "asked now",
   "map_later": "waits for another answer",
   "map_out": "out of scope",
-  "queen_cost": "This look / today / limit",
   "queen_deciding": "Deciding",
   "sent_back": "Back from review",
   "bee_queen": "Queen",
@@ -620,13 +679,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "reading_board": "Reading the boards…",
   "done_in_hive": "{count} done in the last {days} days",
   "cost_tokens": "Tokens used",
-  "cost_cached": "Read from cache",
-  "cost_role": "Who",
-  "cost_runs": "Runs",
-  "cost_time": "Time",
-  "cost_none": "No agent ran on this task.",
-  "minutes": "min",
-  "english_text": "English text",
   "approve_split_sure": "Create these slices as tasks on the board? Each one runs after the one before it.",
   "split_approved": "The slices are on the board.",
   "split_decline_hint": "To decline or change it, go to Didban.",
@@ -645,11 +697,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "week": "Week",
   "next_wake": "next wake",
   "timer_off": "Timer off",
-  "watch": "Watch",
   "none": "None",
   "project": "Project",
-  "title": "Title",
-  "empty": "Empty",
   "github_unreadable": "GitHub could not be read",
   "no_activity": "No activity yet",
   "state_fine": "All fine",
@@ -717,14 +766,12 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "tokens": "Tokens",
   "total": "Total",
   "nothing_yet": "Nothing yet",
-  "no_pr": "No PR yet",
   "round": "Round",
   "blocker": "Blocker",
   "note": "Note",
   "tab_work": "Tasks",
-  "search": "Search tasks and projects",
+  "search": "Search tasks by title or #number",
   "number": "No.",
-  "status": "Status",
   "close": "Close",
   "add_project": "+ Project",
   "add_why": "Add a project from its machine and its path there. Kandu reads the rest from the copy, shows you a proposal, and writes nothing until you add it.",
@@ -824,8 +871,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "limits_why": "Kandu starts no new work at these percents. The next cycle uses them.",
   "continue": "Continue",
   "token_why": "Stop, resume and approve need the control token. It is kept only until this page closes.",
-  "show_more": "Show more",
-  "show_less": "Show less",
   "no_match": "No task matches this search.",
   "bee_splitter": "Splitter bee",
   "bee_inspector": "Bazras, the inspector bee",
@@ -948,7 +993,33 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "ask_didban": "Ask Didban",
   "health_bees": "Bees {n} of {most}",
   "health_machine": "{machine} down since {since}",
-  "brief_tokens": "{n} tokens"
+  "brief_tokens": "{n} tokens",
+  "pause_project": "Pause project",
+  "resume_project": "Resume project",
+  "bees_of": "{n} of {most}",
+  "bees_none": "No bees flying.",
+  "bees_none_asleep": "No bees fly while Kandu sleeps.",
+  "bees_none_limit": "No bees fly at a usage limit.",
+  "bees_none_limit_at": "No bees until usage resets at {at}.",
+  "bees_none_stopped": "No bees fly while Kandu is stopped.",
+  "so_far_min": "{n} min",
+  "so_far_hours": "{h} h {m} min",
+  "mark_sent_back": "sent back",
+  "mark_slice": "a slice",
+  "mark_question": "{n} question",
+  "mark_questions": "{n} questions",
+  "tasks_empty": "No task is on a board yet.",
+  "waiting_machine": "Waiting for a machine",
+  "task_sheet": "Task",
+  "task_pr": "PR",
+  "task_issue": "Issue",
+  "task_run_log": "Run log",
+  "task_steps": "Steps so far",
+  "no_steps": "Nothing has happened yet.",
+  "proposed_slices": "Proposed slices · one PR each",
+  "stop_bee": "Stop this bee",
+  "step_round": "round {n}",
+  "step_blockers": "{n} blockers"
  },
  "fa": {
   "brand": "کندو",
@@ -993,8 +1064,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "wake_queen": "بیدار کردن ملکه",
   "stop": "توقف",
   "resume": "ادامه",
-  "pause_project": "توقف پروژه",
-  "resume_project": "ادامه‌ی پروژه",
   "project_on_pause": "متوقف",
   "by_hand": "دستی",
   "by_hand_hint": "برچسب agent ندارد: ملکه سراغش نمی‌رود. با پرواز آزاد خودت انجامش بده.",
@@ -1023,7 +1092,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "map_asked": "الان پرسیده شد",
   "map_later": "منتظر پاسخی دیگر",
   "map_out": "بیرون از دامنه",
-  "queen_cost": "این بار / امروز / سقف",
   "queen_deciding": "در حال تصمیم",
   "sent_back": "برگشت از بازبینی",
   "bee_queen": "ملکه",
@@ -1042,13 +1110,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "reading_board": "در حال خواندن بردها…",
   "done_in_hive": "{count} تسک انجام‌شده در {days} روز اخیر",
   "cost_tokens": "توکن مصرف‌شده",
-  "cost_cached": "خوانده از کش",
-  "cost_role": "چه کسی",
-  "cost_runs": "اجرا",
-  "cost_time": "زمان",
-  "cost_none": "هیچ ایجنتی روی این تسک کار نکرد.",
-  "minutes": "دقیقه",
-  "english_text": "متن انگلیسی",
   "approve_split_sure": "این تکه‌ها به‌صورت تسک روی برد ساخته شوند؟ هر کدام بعد از قبلی اجرا می‌شود.",
   "split_approved": "تکه‌ها روی برد ساخته شدند.",
   "split_decline_hint": "برای رد یا تغییر آن، به دیدبان برو.",
@@ -1067,11 +1128,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "week": "هفته",
   "next_wake": "بیداری بعدی",
   "timer_off": "تایمر خاموش است",
-  "watch": "تماشا",
   "none": "هیچ",
   "project": "پروژه",
-  "title": "عنوان",
-  "empty": "خالی",
   "github_unreadable": "GitHub خوانده نشد",
   "no_activity": "هنوز فعالیتی نیست",
   "state_fine": "همه‌چیز درست",
@@ -1139,14 +1197,12 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "tokens": "توکن",
   "total": "جمع",
   "nothing_yet": "هنوز چیزی نیست",
-  "no_pr": "هنوز PR نیست",
   "round": "دور",
   "blocker": "مانع",
   "note": "یادداشت",
   "tab_work": "کارها",
-  "search": "جست‌وجو در تسک‌ها و پروژه‌ها",
+  "search": "جست‌وجوی تسک با عنوان یا #شماره",
   "number": "شماره",
-  "status": "وضعیت",
   "close": "بستن",
   "add_project": "+ پروژه",
   "add_why": "پروژه را با ماشین و مسیرش روی آن اضافه کن. کندو بقیه را از همان نسخه می‌خواند، پیشنهادی نشانت می‌دهد و تا وقتی اضافه‌اش نکنی چیزی نمی‌نویسد.",
@@ -1246,8 +1302,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "limits_why": "کندو با رسیدن به این درصدها کار تازه‌ای شروع نمی‌کند. چرخهٔ بعدی از آن‌ها استفاده می‌کند.",
   "continue": "ادامه",
   "token_why": "توقف، ادامه و تأیید به توکن کنترل نیاز دارند. توکن فقط تا بسته شدن این صفحه نگه داشته می‌شود.",
-  "show_more": "بیشتر",
-  "show_less": "کمتر",
   "no_match": "هیچ تسکی با این جست‌وجو پیدا نشد.",
   "bee_splitter": "زنبور اندازه‌گیر",
   "bee_inspector": "بازرس، زنبور بازرسی",
@@ -1370,9 +1424,36 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "ask_didban": "از دیدبان بپرس",
   "health_bees": "زنبورها {n} از {most}",
   "health_machine": "{machine} از {since} جواب نمی‌دهد",
-  "brief_tokens": "{n} توکن"
+  "brief_tokens": "{n} توکن",
+  "pause_project": "توقف پروژه",
+  "resume_project": "ادامه‌ی پروژه",
+  "bees_of": "{n} از {most}",
+  "bees_none": "هیچ زنبوری پرواز نمی‌کند.",
+  "bees_none_asleep": "تا کندو خواب است هیچ زنبوری پرواز نمی‌کند.",
+  "bees_none_limit": "در سقف مصرف هیچ زنبوری پرواز نمی‌کند.",
+  "bees_none_limit_at": "تا بازنشانی مصرف در {at} هیچ زنبوری پرواز نمی‌کند.",
+  "bees_none_stopped": "تا کندو متوقف است هیچ زنبوری پرواز نمی‌کند.",
+  "so_far_min": "{n} دقیقه",
+  "so_far_hours": "{h} ساعت و {m} دقیقه",
+  "mark_sent_back": "برگشت داده شده",
+  "mark_slice": "یک تکه",
+  "mark_question": "{n} پرسش",
+  "mark_questions": "{n} پرسش",
+  "tasks_empty": "هنوز تسکی روی هیچ بوردی نیست.",
+  "waiting_machine": "در انتظار ماشین",
+  "task_sheet": "تسک",
+  "task_pr": "PR",
+  "task_issue": "issue",
+  "task_run_log": "گزارش اجرا",
+  "task_steps": "گام‌ها تا اینجا",
+  "no_steps": "هنوز اتفاقی نیفتاده.",
+  "proposed_slices": "تکه‌های پیشنهادی · هر کدام یک PR",
+  "stop_bee": "توقف این زنبور",
+  "step_round": "دور {n}",
+  "step_blockers": "{n} مانع"
  },
  "values_fa": {
+  "review": "بازبینی",
   "awake": "بیدار",
   "waiting for machine": "در انتظار ماشین",
   "asleep": "خواب",
@@ -1647,7 +1728,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
 const $ = id => document.getElementById(id);
 const esc = text => String(text ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const get = path => fetch("/api/v1" + path).then(r => r.ok ? r.json() : Promise.reject(r.status));
-const LANGUAGE_KEY = "kandu-language", TAB_KEY = "kandu-tab", CLOSED_KEY = "kandu-closed-projects";
+const LANGUAGE_KEY = "kandu-language", TAB_KEY = "kandu-tab", FOLDED_KEY = "kandu-closed-projects";
 const TEXT = JSON.parse($("text").textContent);
 const LIVE_LINES = 200;
 const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1656,7 +1737,7 @@ const COLUMN_ORDER = ["Stuck", "Your approval", "Needs info", "Needs split", "Ap
 let flights = {open: [], flown: []};
 const flightsWarned = new Set();
 let lang = "en", tab = "today", shownRun = null, shownTask = null, confirming = false, sendingBack = false, live = [], token = "";
-let lastState = null, lastQueue = null, sceneKey = null, listKey = null, briefOpen = false, closed = new Set();
+let lastState = null, lastQueue = null, sceneKey = null, listKey = null, folded = {};  // each project the user folded (true) or opened (false)
 const saved = key => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
 const forget = key => { try { localStorage.removeItem(key); } catch {} };
@@ -1666,7 +1747,10 @@ forget("kandu-look");
 const OLD_TABS = {meadow: "today", work: "tasks"};
 if (saved(LANGUAGE_KEY) === "fa") lang = "fa";
 if (saved(TAB_KEY)) tab = saved(TAB_KEY);
-try { closed = new Set(JSON.parse(saved(CLOSED_KEY)) || []); } catch {}
+try {
+  const kept = JSON.parse(saved(FOLDED_KEY)) || {};
+  folded = Array.isArray(kept) ? Object.fromEntries(kept.map(name => [name, true])) : kept;  // before, it kept only the folded ones
+} catch {}
 
 const locale = () => lang === "fa" ? "fa-IR" : "en-GB";
 const t = key => TEXT[lang][key];
@@ -1684,10 +1768,8 @@ const bdi = text => `<bdi>${esc(text)}</bdi>`;
 // Isolated, so `#` stays before its number inside right-to-left text.
 const numberOf = task => `\u2066#${num(Number(task.split("#")[1]))}\u2069`;
 const repoOf = task => task.split("#")[0].split("/").pop();
-const badge = (column, label) => `<span class="badge" style="--c:${FLOWERS[column]?.swatch || "#a8a297"}">${esc(tr(label || column))}</span>`;
 // An open by-hand task waits for the user, never for the queen, whatever its column.
 const stateText = item => item.yours ? t("by_hand_yours") : tr(item.column === "waiting" ? "waiting for machine" : item.column);
-const stateBadge = item => item.yours ? `<span class="badge" style="--c:#e8590c">${esc(t("by_hand_yours"))}</span>` : badge(item.column, item.column === "waiting" ? "waiting for machine" : item.column);
 
 // What the API says stays in English; the page translates the values it knows.
 function tr(value) {
@@ -1721,7 +1803,7 @@ function setLanguage(chosen) {
   applyLanguage();
   renderLive();
   if (shownRun) showRun(shownRun);
-  if (shownTask) showReviews(shownTask);
+  if (shownTask) showTask(shownTask);
   refresh();
 }
 
@@ -1796,14 +1878,14 @@ async function doSendBack(button) {
   const done = await act(button, `/tasks/${repo}/${number}/send-back`);
   sendingBack = false;
   if (done) { toast(t("sent_back_done")); await refreshQueue(lastState, true).catch(() => {}); }
-  showReviews(task);
+  showTask(task);
 }
 
 async function approve(button) {
   const [repo, number] = button.dataset.approve.split("#");
   await act(button, `/reviews/${repo}/${number}/approve?head=${encodeURIComponent(button.dataset.head)}`);
   confirming = false;
-  showReviews(button.dataset.approve);
+  showTask(button.dataset.approve);
 }
 
 // The meadow. Everything on it comes from real state: a bee flies only while a real agent runs.
@@ -2258,22 +2340,14 @@ function changeBackup(button) {
 }
 
 function renderBees(s) {
-  const workers = s.workers || [];
-  $("workers").innerHTML = workers.map(w => `<div class="bee-row"><div class="bee-who"><button class="textlink" data-review="${esc(w.task)}">${bdi(repoOf(w.task))} ${numberOf(w.task)}</button>
-      <div>${esc(tr(w.phase))} · ${bdi(w.machine)} · ${esc(clock(w.started))}</div></div>
-      ${w.run_id ? `<button class="btn small" data-run="${esc(w.run_id)}">${t("watch")}</button><button class="btn small danger" data-stop="${esc(w.run_id)}">${t("stop")}</button>` : ""}</div>`).join("")
-    || `<div class="muted">${t("none")}</div>`;
+  $("workers").innerHTML = beesHtml(beesAtWork(s, lastQueue, new Date()));
 }
 
 function renderQueen(s) {
   $("queenbox").hidden = !s.queen;
   $("asks").hidden = !s.queen?.questions.length && !s.queen?.drops?.length;
   if (!s.queen) return;
-  const cost = [s.queen.tokens, s.queen.today, s.queen.limit].map(short).join(" / ");
-  const long = s.queen.brief.length > 420;
-  $("queen").innerHTML = `<div class="meta">${esc(when(s.queen.ts))} · ${t("queen_cost")}: ${esc(cost)}</div>
-    <div dir="auto" class="brief${long && !briefOpen ? " clamp" : ""}">${esc(s.queen.brief)}</div>
-    ${long ? `<button class="btn plain small" data-brief>${t(briefOpen ? "show_less" : "show_more")}</button>` : ""}`;
+  $("queenbox").innerHTML = briefHtml(s.queen);
   $("asks").innerHTML = s.queen.questions.map(q => `<div class="ask"><div class="ask-text"><div class="ask-who">${t("queen_asks")} · ${bdi(repoOf(q.task))} ${numberOf(q.task)}</div><div dir="auto">${esc(q.question)}</div></div>
     <button class="btn small" data-review="${esc(q.task)}">${t("open")}</button></div>`).join("")
     + (s.queen.drops || []).map(d => `<div class="ask"><div class="ask-text"><div class="ask-who">${t("queen_asks")} · ${bdi(repoOf(d.task))} ${numberOf(d.task)}</div>
@@ -2662,33 +2736,101 @@ async function refreshState() {
   return s;
 }
 
-function matches(project, item, words) {
-  const text = `${project} ${item.task} ${item.title} ${stateText(item)} ${item.by_hand ? t("by_hand") : ""} ${item.mark?.yours ? t("waits_for_you") : ""}`.toLowerCase();
-  return words.every(word => text.includes(word));
+// The Tasks page: every task, found by its title or its number, in a group per project, those that need attention
+// first. A group says its state as its lane on Today does, and folds; with many projects only those that need
+// attention start open, until the user folds or opens one.
+const FEW_PROJECTS = 4;
+
+// What the user typed: a number when it is one ("#12", "12", "۱۲"), and words to find in a title otherwise.
+function taskQuery(text) {
+  const plain = String(text || "").replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)).replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).trim().toLowerCase();
+  if (!plain) return null;
+  const number = plain.match(/^#?(\d+)$/);
+  return {text: plain, number: number ? Number(number[1]) : null};
 }
 
-function projectCard(project, shown, total, searching) {
-  const sorted = [...shown].sort((a, b) => COLUMN_ORDER.indexOf(a.column) - COLUMN_ORDER.indexOf(b.column));
-  const counts = COLUMN_ORDER.map(column => [column, sorted.filter(item => item.column === column).length]).filter(([, count]) => count);
-  const rows = sorted.map(item => {
-    return `<tr data-review="${esc(item.task)}"><td class="fit number">${numberOf(item.task)}</td><td dir="auto"><button class="textlink">${esc(item.title || item.task)}</button>${item.by_hand && !item.yours ? ` <span class="badge" title="${esc(t("by_hand_hint"))}">${t("by_hand")}</span>` : ""}${item.mark?.yours && !item.yours ? ` <span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : ""}${heldLines(item.mark, item.blockers).map(line => `<div class="muted" dir="auto">${esc(line)}</div>`).join("")}</td>
-      <td class="fit">${stateBadge(item)}</td></tr>`;
-  }).join("");
-  const table = rows ? `<table class="rows"><thead><tr><th class="fit">${t("number")}</th><th>${t("title")}</th><th class="fit">${t("status")}</th></tr></thead><tbody>${rows}</tbody></table>`
-    : `<div class="empty">${t("empty")}</div>`;
-  const open = searching || !closed.has(project.name);
-  const paused = lastState.paused_projects.includes(project.name);
-  const inConfig = lastState.paused_in_config.includes(project.name);  // Only a change of config resumes this one.
-  const pause = `${paused ? `<span class="badge" style="--c:#d9604f">${t("project_on_pause")}</span>` : ""}${inConfig ? "" : `<button class="btn small project-pause" data-pause="${esc(project.name)}" data-paused="${paused}">${t(paused ? "resume_project" : "pause_project")}</button>`}`;
-  return `<details class="card project" data-project="${esc(project.name)}"${open ? " open" : ""}><summary><span class="project-name">${bdi(project.name)}</span>${limitBadge(overLimit(lastState, project.name))}<span class="number">${num(total)}</span>
-    <span class="counts">${counts.map(([column, count]) => `<span class="badge" style="--c:${FLOWERS[column].swatch}" title="${esc(tr(column === "waiting" ? "waiting for machine" : column))}">${num(count)}</span>`).join("")}</span>${pause}</summary>${bazrasLine(project.name)}${table}</details>`;
+function taskMatches(item, query) {
+  if (!query) return true;
+  return query.number === Number(item.task.split("#")[1]) || (item.title || "").toLowerCase().includes(query.text);
 }
 
-// The project's last look, in its card; only for a project Bazras looks at.
-function bazrasLine(name) {
-  const looks = lastState.bazras?.last || {};
-  if (!(name in looks)) return "";
-  const last = looks[name];
+// The marks a task carries, from the local log, in words.
+function taskMarks(item) {
+  const {size, door, sent_back: back, slice, questions} = item.mark || {};
+  return [size ? tr(size) : null, door && door !== "two-way" ? tr(door) : null, back ? t("mark_sent_back") : null,
+          slice ? t("mark_slice") : null, questions ? fillIn(questions === 1 ? "mark_question" : "mark_questions", {n: num(questions)}) : null,
+          item.by_hand && !item.yours ? t("by_hand") : null].filter(Boolean);
+}
+
+// A task's row: its state with a dot coloured as on Today, its number, its title, and its phase and marks. What
+// waits for the user says what it waits for, as in "Waits for you", and comes first; the rest follow by state.
+function taskRow(item, waits, workers) {
+  const wait = waits.get(item.task), worker = workers.get(item.task);
+  const kind = dotKind(item, new Set(workers.keys()), new Set(waits.keys()));
+  const dot = kind !== "turn" ? kind : item.column === "Blocked" ? "stuck" : item.column === "Approved" ? "ok" : "turn";
+  const tone = wait ? "amber" : ["Stuck", "Blocked"].includes(item.column) ? "red" : item.column === "Approved" ? "green"
+    : ["Done", "Backlog", "Technical debt"].includes(item.column) ? "muted" : "ink";
+  const label = wait ? wait.kind : item.column === "waiting" ? t("waiting_machine") : stateText(item);
+  return {task: item.task, number: numberOf(item.task), title: item.title || repoOf(item.task), label, tone, dot,
+          meta: [worker?.phase ? tr(worker.phase) : null, ...taskMarks(item)].join(" · "),
+          order: wait ? wait.order - WAIT_ORDER.length : COLUMN_ORDER.indexOf(item.column)};
+}
+
+function taskGroups(s, queue, query, folded) {
+  const items = waitItems(s, queue);
+  const waits = new Map(items.filter(item => !item.stuck).map(item => [item.task, item]));
+  const workers = new Map((s.workers || []).map(w => [w.task, w]));
+  const patches = new Map(fields(s, queue).map(patch => [patch.name, patch]));
+  const lanes = flightPaths(s, queue, items), many = lanes.length > FEW_PROJECTS;
+  const number = row => Number(row.task.split("#")[1]);
+  return lanes.map(lane => {
+    const rows = (patches.get(lane.name)?.tasks || []).filter(item => taskMatches(item, query)).map(item => taskRow(item, waits, workers))
+      .sort((a, b) => a.order - b.order || number(a) - number(b));
+    const chosen = folded[lane.name];
+    const open = query ? true : chosen !== undefined ? !chosen : !many || lane.attention;
+    const looks = s.bazras?.last || {};
+    return {name: lane.name, line: lane.line, tone: lane.tone, paused: lane.paused, count: rows.length, open, rows,
+            limit: overLimit(s, lane.name), watched: lane.name in looks, look: looks[lane.name] || null};
+  }).filter(group => !query || group.rows.length);
+}
+
+function groupsHtml(groups, query, queue) {
+  if (!groups.length) return `<div class="card empty">${t(query ? "no_match" : queue ? "tasks_empty" : "reading_board")}</div>`;
+  const row = r => `<button class="task-row" data-review="${esc(r.task)}"><span class="row-state tone-${r.tone}"><i class="pdot ${r.dot}"></i>${esc(r.label)}</span>
+    <span class="row-title" dir="auto"><span class="number">${r.number}</span> ${esc(r.title)}</span>${r.meta ? `<span class="row-meta" dir="auto">${esc(r.meta)}</span>` : ""}</button>`;
+  return groups.map(g => `<details class="group" data-project="${esc(g.name)}" data-open="${g.open}"${g.open ? " open" : ""}><summary><b>${bdi(g.name)}</b>
+    <span class="tone-${g.tone}">${esc(g.line)}</span>${limitBadge(g.limit)}<span class="spacer"></span><span class="group-count">${num(g.count)}</span></summary>${g.watched ? bazrasLine(g.look) : ""}${g.rows.map(row).join("")}</details>`).join("");
+}
+
+// How long a bee has flown, in whole minutes.
+function soFar(started, now) {
+  const minutes = Math.max(0, Math.round((now - new Date(started)) / 60000));
+  return minutes < 60 ? fillIn("so_far_min", {n: num(minutes)}) : fillIn("so_far_hours", {h: num(Math.floor(minutes / 60)), m: num(minutes % 60)});
+}
+
+// Each running worker with its task, project, phase, machine and time so far; with none, why: stopped, at a usage
+// limit (until it resets, when `/usage` said), asleep, or simply none.
+function beesAtWork(s, queue, now) {
+  const titles = Object.fromEntries(Object.values(queue?.projects || {}).flatMap(columns => Object.values(columns).flat()).map(item => [item.task, item.title]));
+  const rows = (s.workers || []).map(w => ({task: w.task, title: titles[w.task] || repoOf(w.task), run: w.run_id || null,
+    meta: [w.project || repoOf(w.task), w.phase ? tr(w.phase) : null, w.machine, w.started ? soFar(w.started, now) : null].filter(Boolean).join(" · ")}));
+  const most = s.parallel?.total, usage = s.usage || {}, limits = s.limits || {};
+  const over = ["session", "week"].filter(name => usage[name] >= limits[name]);
+  const resets = over.map(name => usage[`${name}_resets`]).filter(Boolean).sort().pop();
+  const none = rows.length ? null : s.stop_requested ? t("bees_none_stopped")
+    : over.length ? (resets ? fillIn("bees_none_limit_at", {at: when(resets)}) : t("bees_none_limit"))
+    : s.supervisor !== "awake" ? t("bees_none_asleep") : t("bees_none");
+  return {count: most ? fillIn("bees_of", {n: num(rows.length), most: num(most)}) : num(rows.length), rows, none};
+}
+
+function beesHtml(view) {
+  const row = r => `<div class="bee-row"><i class="pdot bee"></i><button class="bee-who" data-review="${esc(r.task)}"><b dir="auto">${numberOf(r.task)} ${esc(r.title)}</b><small dir="auto">${esc(r.meta)}</small></button>
+    ${r.run ? `<button class="btn small danger" data-stop="${esc(r.run)}">${t("stop")}</button>` : ""}</div>`;
+  return `<div class="today-head"><b>${t("active_workers")}</b><span class="muted">${esc(view.count)}</span></div>${view.rows.map(row).join("") || `<div class="bee-row muted">${esc(view.none)}</div>`}`;
+}
+
+// The project's last look, in its group; only for a project Bazras looks at.
+function bazrasLine(last) {
   const said = !last ? t("bazras_none_yet") : lookBadge(last);
   return `<div class="bazras-line">${t("bazras_last")}: ${said}${last ? ` <span class="number">${esc(dayName(last.date))}</span>` : ""} <button class="textlink" data-tab="bazras">${t("tab_bazras")} →</button></div>`;
 }
@@ -2822,16 +2964,12 @@ function rank(name) {
 
 function renderProjects() {
   if (!lastState) return;
-  const words = $("search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const projects = fields(lastState, lastQueue);
-  const key = JSON.stringify([lang, words, projects, lastState.paused_projects, lastState.over_limit]);
+  const query = taskQuery($("search").value);
+  const groups = taskGroups(lastState, lastQueue, query, folded);
+  const key = JSON.stringify([lang, query, groups, Boolean(lastQueue)]);
   if (key === listKey) return;
   listKey = key;
-  const cards = projects.map(project => ({project, total: project.tasks.length, shown: project.tasks.filter(item => matches(project.name, item, words))}))
-    .filter(card => card.shown.length || !words.length)
-    .sort((a, b) => rank(a.project.name) - rank(b.project.name));
-  $("projects").innerHTML = cards.map(card => projectCard(card.project, card.shown, card.total, words.length)).join("")
-    || `<div class="card empty">${t(words.length ? "no_match" : "empty_meadow")}</div>`;
+  $("projects").innerHTML = groupsHtml(groups, query, lastQueue);
 }
 
 async function refreshQueue(state, fresh) {
@@ -2839,6 +2977,7 @@ async function refreshQueue(state, fresh) {
     lastQueue = await get(fresh ? "/queue?fresh=1" : "/queue");
     renderStats(state);
     renderProjects();
+    renderBees(state);  // its tasks' titles come from the queue
     renderScene(state, lastQueue);
     renderToday();
     if (lastQueue.stale) toast(t("github_unreadable"));
@@ -2966,9 +3105,8 @@ function openModal(title) {
   if (!$("modal").open) $("modal").showModal();
 }
 
-async function showRun(runId) {
+async function showRun(runId) {  // over the task's sheet, when opened from it
   shownRun = runId;
-  shownTask = null;
   const {actions} = await get("/runs/" + encodeURIComponent(runId));
   if (shownRun !== runId) return;
   openModal(`${t("run")} ${bdi(runId)}`);
@@ -2986,15 +3124,6 @@ function roundBox(round, open) {
     ${(round.wait_for_user || []).map(q => `<div class="finding blocker" dir="auto">${esc(q)}</div>`).join("")}
     ${round.open.map(f => `<div class="finding${f.blocker ? " blocker" : ""}"><div class="finding-head">${t(f.blocker ? "blocker" : "note")} · <bdi class="mono">${esc(f.path)}</bdi></div><div dir="auto">${esc(f.body)}</div></div>`).join("")}
   </div></details>`;
-}
-
-function doneBox(info) {
-  const counted = tokens => tokens.total - tokens.cache_read;  // As the daily limit counts them.
-  const minutes = ms => `${num(Math.max(1, Math.round(ms / 60000)))} ${t("minutes")}`;
-  const roles = Object.entries(info.cost.roles).map(([role, used]) => `<tr><td>${esc(tr(role))}</td><td class="fit number">${num(used.runs)}</td><td class="fit number">${minutes(used.duration_ms)}</td><td class="fit number">${num(counted(used.tokens))}</td></tr>`).join("");
-  return `${info.issue ? `<div class="slice-body" dir="auto">${esc(info.issue.body)}</div>` : ""}
-    <div class="chips">${info.outcome ? `<span class="chip">${esc(tr(info.outcome))}</span>` : ""}<span class="chip">${t("cost_tokens")}: ${num(counted(info.cost.total))}</span><span class="chip">${t("cost_cached")}: ${num(info.cost.total.cache_read)}</span></div>
-    ${roles ? `<table class="rows"><thead><tr><th>${t("cost_role")}</th><th class="fit">${t("cost_runs")}</th><th class="fit">${t("cost_time")}</th><th class="fit">${t("tokens")}</th></tr></thead><tbody>${roles}</tbody></table>` : `<p class="muted">${t("cost_none")}</p>`}`;
 }
 
 function queued(task) {
@@ -3029,19 +3158,6 @@ function sendBack(task, item) {
   if (!item || item.by_hand || !["Blocked", "Needs info"].includes(item.column)) return "";
   if (!sendingBack) return `<button class="btn primary" data-back-sure>${t("send_back")}</button>`;
   return `<div class="confirm"><div>${t("send_back_sure")}</div><div class="actions"><button class="btn primary" data-back="${esc(task)}">${t("send_back")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`;
-}
-
-// Whether the task is fine, has a problem, hit an error or is stuck, in one plain sentence with its reason. In
-// Kandu's own error it says which try failed, and offers to stop the tries so the queen looks now.
-function statusLine(task) {
-  const status = lastState?.flowers?.[task]?.status;
-  if (!status) return "";
-  let text = statusText(status);
-  if (status.tries) text += " " + fillIn("status_tries", {this: num(status.tries.this), of: num(status.tries.of)});
-  const toQueen = status.why === "internal_error" ? `<button class="btn small" data-to-queen="${esc(task)}" title="${esc(t("to_queen_hint"))}">${t("to_queen")}</button>` : "";
-  const cleaned = status.cleaned ? `<p class="muted" dir="auto">${esc(t("cleaned_folder"))}: ${esc(tr(status.cleaned))}</p>` : "";
-  const waiting = waitLines(status.wait).map(line => `<div class="wait-line" dir="auto">${line}</div>`).join("");
-  return `<div class="status-line ${esc(status.state)}"><span class="badge">${esc(t(`state_${status.state}`))}</span><span dir="auto">${esc(text)}</span>${toQueen}</div>${waiting}${cleaned}`;
 }
 
 // A task's status in one plain sentence, with its reason.
@@ -3082,10 +3198,9 @@ function waitLines(wait) {
 async function toQueen(button) {
   const [repo, number] = button.dataset.toQueen.split("#");
   if (await act(button, `/tasks/${repo}/${number}/to-queen`)) { toast(t("to_queen_done")); await refreshQueue(lastState, true).catch(() => {}); }
-  showReviews(button.dataset.toQueen);
+  showTask(button.dataset.toQueen);
 }
 
-const yoursChip = (task, item) => item?.yours || lastState?.flowers?.[task]?.yours ? `<span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : "";
 
 // What a by-hand task is and how the user does it, with its goal and criteria from the copy, read-only.
 function byHandBox(item) {
@@ -3095,18 +3210,11 @@ function byHandBox(item) {
     ${part(t("issue_goal"), item.goal)}${part(t("issue_criteria"), item.criteria)}`;
 }
 
-function splitBox(task, proposal) {
-  // The user's language, also one the page has no text for. The English is what reaches the issue.
-  const own = lang === "en" && TEXT[lastState.language] ? null : proposal.user_text;
-  const original = slice => own ? `<details><summary class="muted">${t("english_text")}</summary><div class="slice-body" dir="auto">${esc(slice.body)}</div></details>` : "";
-  const slices = proposal.slices.map((slice, i) => `<details class="round"${i === 0 ? " open" : ""}><summary>${num(i + 1)}. <span dir="auto">${esc(own?.slices[i].title || slice.title)}</span></summary><div class="round-body">
-    <div class="chips"><span class="chip">${esc(tr(slice.size))}</span><span class="chip">${num(slice.files)} ${t("files_touched")}</span><span class="chip">${esc(tr(slice.door))}</span></div>
-    <div class="slice-body" dir="auto">${esc(own?.slices[i].body || slice.body)}</div>${original(slice)}
-  </div></details>`).join("");
-  const accept = confirming
+// The user's yes to the slices, asked first.
+function splitAccept(task, proposal) {
+  return confirming
     ? `<div class="confirm"><div>${t("approve_split_sure")}</div><div class="actions"><button class="btn primary" data-split="${esc(task)}" data-fingerprint="${esc(proposal.fingerprint)}">${t("approve_split")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`
     : `<button class="btn primary" data-sure>${t("approve_split")}</button>`;
-  return `<div dir="auto">${esc(own?.reason || proposal.reason)}</div>${slices}<div class="actions">${accept}</div><p class="muted">${t("split_decline_hint")}</p>`;
 }
 
 async function approveSplit(button) {
@@ -3115,41 +3223,139 @@ async function approveSplit(button) {
   const path = `/splits/${repo}/${number}/approve?proposal=${encodeURIComponent(button.dataset.fingerprint)}`;
   if (await act(button, path, t("split_creating"))) toast(t("split_approved"));
   confirming = false;
-  showReviews(task);
+  showTask(task);
 }
 
-async function showReviews(task) {
+// A task's sheet: from the bottom on a phone, centred on a wide screen. It tells the task's story, its phases, links,
+// what it does, the queen's question, the proposed slices and its steps so far, and its footer says what waits and
+// offers the actions Kandu has for its state. Every place that opens a task opens this sheet.
+const PHASES = ["sizing", "implement", "review", "merge", "deploy", "live check"];
+const QUIET_STEPS = ["notification_sent", "notification_failed"];  // they tell the user, not the task's story
+
+// The phases a task walked, then those still to come; the one it is in now is marked: a worker's phase, the merge
+// while its PR waits or was approved, its last review while in review. A stuck task stays at the phase it stopped
+// in. A task waiting its turn is in none yet, and a done one has walked them all.
+function taskPhases(item, worker, steps) {
+  const kind = phase => /^(review round|fix round|update$|queen's|sizing notes$)/.test(phase) ? "review" : phase;
+  const walked = [];
+  for (const step of steps) if (step.type === "phase_changed" && step.phase && walked.at(-1) !== step.phase) walked.push(step.phase);
+  const column = item?.column, last = walked.at(-1) || null;
+  if (column === "Done") return (walked.length ? walked : PHASES).map(name => ({name, label: tr(name), at: "done"}));
+  const now = worker?.phase || (["Your approval", "Approved"].includes(column) ? "merge"
+    : column === "In review" ? (kind(last || "") === "review" ? last : "review")
+    : ["In progress", "Blocked", "Stuck"].includes(column) ? last || (column === "In progress" ? "implement" : null) : null);
+  const list = now && walked.at(-1) !== now ? [...walked, now] : walked;
+  const furthest = Math.max(-1, ...list.map(name => PHASES.indexOf(kind(name))));
+  return [...list.map((name, i) => ({name, at: now && i === list.length - 1 ? "now" : "done"})),
+          ...PHASES.slice(furthest + 1).map(name => ({name, at: "next"}))].map(p => ({...p, label: tr(p.name)}));
+}
+
+// One step of the task's story: what happened, when, and its detail.
+function stepOf(e) {
+  const named = text => lang === "en" ? text.replace(/_/g, " ").replace(/^./, c => c.toUpperCase()) : tr(text);
+  const title = e.type === "phase_changed" && e.phase ? (lang === "en" ? named(e.phase) : tr(e.phase)) : named(e.type);
+  const detail = [e.round ? fillIn("step_round", {n: num(e.round)}) : null, typeof e.blockers === "number" ? fillIn("step_blockers", {n: num(e.blockers)}) : null,
+                  e.size ? tr(e.size) : null, e.door ? tr(e.door) : null, e.role ? tr(e.role) : null,
+                  e.duration_ms ? fillIn("so_far_min", {n: num(Math.max(1, Math.round(e.duration_ms / 60000)))}) : null,
+                  ...[e.action, e.decision, e.reason, e.outcome].filter(Boolean).map(tr)].filter(Boolean);
+  return {title, time: when(e.ts), text: detail.join(" · ")};
+}
+
+// What the sheet shows of a task, from the state, the queue and what the API says of it: its PR and reviews, its
+// issue and steps, and the split proposed for it.
+function sheetView(task, s, queue, {review, info, proposal}) {
+  const item = fields(s, queue).flatMap(patch => patch.tasks.map(entry => ({...entry, project: patch.name}))).find(entry => entry.task === task);
+  const wait = waitItems(s, queue).find(entry => entry.task === task);
+  const worker = (s.workers || []).find(w => w.task === task) || null;
+  const steps = (info?.steps || []).filter(e => !QUIET_STEPS.includes(e.type));
+  const body = info?.issue?.body || "";
+  const goal = body.match(/^##\s*Goal\s*\n([\s\S]*?)(?=\n##\s|$)/m)?.[1].trim() || body.split(/\n\s*\n/)[0].trim();
+  const status = s.flowers?.[task]?.status || null;
+  const stuck = item && (["Stuck", "Blocked"].includes(item.column) || status?.state === "stuck") && !worker;
+  const [repo, number] = task.split("#");
+  return {task, item: item || null, worker, status, review: review || null, proposal: proposal || null, info: info || null,
+          number: numberOf(task), project: item?.project || repoOf(task), title: item?.title || review?.pr?.title || repoOf(task),
+          meta: [item?.project || repoOf(task), ...(item ? taskMarks(item) : [])].join(" · "),
+          state: wait && !wait.stuck ? wait.kind : item ? (item.column === "waiting" ? t("waiting_machine") : stateText(item)) : "",
+          tone: stuck ? "red" : wait ? "amber" : "honey",
+          phases: taskPhases(item, worker, steps),
+          links: {pr: review?.pr?.url || null, issue: item?.url || `https://github.com/${repo}/issues/${number}`,
+                  run: worker?.run_id || steps.filter(e => e.run_id).at(-1)?.run_id || null},
+          what: goal, question: (s.queen?.questions || []).find(q => q.task === task)?.question || null,
+          drop: (s.queen?.drops || []).find(d => d.task === task) || null,
+          steps: steps.map(stepOf), wait: wait || null, language: s.language};
+}
+
+function sheetBody(v) {
+  const link = (url, label) => url ? `<a class="textlink" href="${esc(url)}" target="_blank" rel="noopener">${label} ↗</a>` : "";
+  const phases = v.phases.map(p => `<div class="phase ${p.at}"><i class="hex"></i><span>${esc(p.label)}</span></div>`).join("");
+  const status = v.status ? `<div class="status-line ${esc(v.status.state)}"><span class="badge">${esc(t(`state_${v.status.state}`))}</span><span dir="auto">${esc(statusText(v.status)
+    + (v.status.tries ? " " + fillIn("status_tries", {this: num(v.status.tries.this), of: num(v.status.tries.of)}) : ""))}</span></div>
+    ${v.status.cleaned ? `<p class="muted" dir="auto">${esc(t("cleaned_folder"))}: ${esc(tr(v.status.cleaned))}</p>` : ""}` : "";
+  // The user's language, also one the page has no text for. The English is what reaches the issue.
+  const own = v.proposal && (lang === "en" && TEXT[v.language] ? null : v.proposal.user_text);
+  const slices = v.proposal ? `<div class="sheet-box"><div class="sheet-box-head">${t("proposed_slices")}</div><div dir="auto">${esc(own?.reason || v.proposal.reason)}</div>
+    ${v.proposal.slices.map((slice, i) => `<details class="round"><summary>${num(i + 1)}. <span dir="auto">${esc(own?.slices[i].title || slice.title)}</span></summary><div class="round-body">
+    <div class="chips"><span class="chip">${esc(tr(slice.size))}</span><span class="chip">${num(slice.files)} ${t("files_touched")}</span><span class="chip">${esc(tr(slice.door))}</span></div>
+    <div class="slice-body" dir="auto">${esc(own?.slices[i].body || slice.body)}</div></div></details>`).join("")}<p class="muted">${t("split_decline_hint")}</p></div>` : "";
+  const counted = tokens => tokens.total - tokens.cache_read;  // as the daily limit counts them
+  const cost = v.item?.column === "Done" && v.info?.cost ? `<div class="chips">${v.info.outcome ? `<span class="chip">${esc(tr(v.info.outcome))}</span>` : ""}<span class="chip">${t("cost_tokens")}: ${num(counted(v.info.cost.total))}</span></div>` : "";
+  const r = v.review;
+  const lines = [...(r ? heldLines({waited: r.waited}, r.blockers) : heldLines(v.item?.mark, v.item?.blockers)), ...keptLines(r?.kept)];
+  const steps = v.steps.map((step, i) => `<div class="step${i === v.steps.length - 1 ? " last" : ""}"><i class="hex"></i><div><div class="step-head"><b dir="auto">${esc(step.title)}</b><time>${esc(step.time)}</time></div>
+    ${step.text ? `<div class="step-text" dir="auto">${esc(step.text)}</div>` : ""}</div></div>`).join("");
+  return `<div class="sheet-grip" aria-hidden="true"></div>
+    <div class="sheet-head"><div class="sheet-hex ${v.tone}">${v.number}</div><div class="sheet-who"><div class="muted" dir="auto">${esc(v.meta)}</div><h2 dir="auto">${esc(v.title)}</h2></div>
+    <button class="sheet-close" data-close-sheet aria-label="${esc(t("close"))}">✕</button></div>
+    <div class="phases" style="--n:${v.phases.length}">${phases}</div>
+    <div class="sheet-state"><b class="tone-${v.tone === "honey" ? "ink" : v.tone}">${esc(v.state)}</b><span class="spacer"></span>${link(v.links.pr, t("task_pr"))}${link(v.links.issue, t("task_issue"))}
+    ${v.links.run ? `<button class="textlink" data-run="${esc(v.links.run)}">${t("task_run_log")}</button>` : ""}</div>
+    ${status}${v.what ? `<div class="sheet-what slice-body" dir="auto">${esc(v.what)}</div>` : ""}
+    ${v.question ? `<div class="sheet-box"><div class="sheet-box-head tone-amber">${t("kind_queen")}</div><div class="sheet-question" dir="auto">${esc(v.question)}</div></div>` : ""}
+    ${slices}${byHandBox(v.item)}${cost}${lines.map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
+    <div class="sheet-section"><b>${t("task_steps")}</b><div class="steps">${steps || `<div class="muted">${t("no_steps")}</div>`}</div></div>
+    ${r?.rounds?.length ? `<div class="sheet-section">${r.rounds.slice().reverse().map((round, i) => roundBox(round, i === 0)).join("")}</div>` : ""}`;
+}
+
+// The footer: what waits, if anything, and the actions Kandu has for the task's state; with none, its page on GitHub.
+function sheetFoot(v) {
+  const notes = v.status?.wait ? waitLines(v.status.wait) : v.wait ? [esc(v.wait.line)] : [];
+  const tone = v.tone === "honey" ? "amber" : v.tone;
+  const project = v.item?.project || repoOf(v.task);
+  const actions = [
+    v.review?.pr ? approval(v.task, v.review.pr, v.review.holds) : "",
+    v.proposal ? splitAccept(v.task, v.proposal) : "",
+    sendBack(v.task, v.item),
+    v.status?.why === "internal_error" ? `<button class="btn" data-to-queen="${esc(v.task)}" title="${esc(t("to_queen_hint"))}">${t("to_queen")}</button>` : "",
+    v.drop ? `<button class="btn primary" data-drop="${esc(v.task)}" data-blocker="${esc(v.drop.blocker)}">${t("drop_yes")}</button>` : "",
+    v.question ? `<button class="btn" data-fly="didban" data-focus="${esc(project)}">${t("ask_didban")}</button>` : "",
+    v.item?.by_hand ? `<span id="taskflight" class="flightbox">${flightControls(flights.open.find(f => f.task === v.task), v.task, t("open_flight"))}</span>` : "",
+    v.worker?.run_id ? `<button class="btn danger" data-stop="${esc(v.worker.run_id)}">${t("stop_bee")}</button>` : "",
+  ].filter(Boolean);
+  const github = v.links.pr || v.links.issue;
+  if (!actions.length || actions.every(a => a.startsWith("<p"))) actions.push(`<a class="btn" href="${esc(github)}" target="_blank" rel="noopener">${t("open_github")} ↗</a>`);
+  return `${notes.length ? `<div class="sheet-note tone-${tone}">${notes.map(line => `<div dir="auto">${line}</div>`).join("")}</div>` : ""}<div class="actions">${actions.join("")}</div>`;
+}
+
+async function showTask(task) {
   shownTask = task;
-  shownRun = null;
   const [repo, number] = task.split("#");
   const item = queued(task);
-  const [r, proposal, info] = await Promise.all([get(`/reviews/${repo}/${number}`),
-    item?.column === "Needs split" ? get(`/splits/${repo}/${number}`).then(s => s.split) : null,
-    item?.column === "Done" ? get(`/tasks/${repo}/${number}`) : null]);
+  const [review, proposal, info] = await Promise.all([get(`/reviews/${repo}/${number}`).catch(() => null),
+    item?.column === "Needs split" ? get(`/splits/${repo}/${number}`).then(s => s.split).catch(() => null) : null,
+    get(`/tasks/${repo}/${number}`).catch(() => null)]);
   if (shownTask !== task) return;
-  const link = (url, label) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${label} ↗</a>`;
-  if (!r.pr) {
-    openModal(`${numberOf(task)} ${bdi(item?.title || repoOf(task))}`);
-    $("modalbody").innerHTML = `<div class="actions">${item ? stateBadge(item) : ""}${yoursChip(task, item)}<span class="muted">${t("no_pr")}</span></div>${statusLine(task)}${byHandBox(item)}${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}<div class="actions">${sendBack(task, item)}</div>${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}<div id="taskflight" class="actions"></div>`;
-    renderFlights();
-    return;
-  }
-  openModal(`${numberOf(task)} ${bdi(item?.title || r.pr.title)}`);
-  $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? stateBadge(item) : ""}${yoursChip(task, item)}</div>
-    ${statusLine(task)}${byHandBox(item)}${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}
-    <div class="actions">${sendBack(task, item)}</div>
-    ${heldLines({waited: r.waited}, r.blockers).map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
-    ${keptLines(r.kept).map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
-    <div class="actions">${approval(task, r.pr, r.holds)}${link(r.pr.url, t("open_github"))}</div>
-    <div id="taskflight" class="actions"></div>
-    ${r.rounds.slice().reverse().map((round, i) => roundBox(round, i === 0)).join("")}`;
-  renderFlights();
+  const view = sheetView(task, lastState || {}, lastQueue, {review, info, proposal});
+  $("sheetbody").innerHTML = sheetBody(view);
+  $("sheetfoot").innerHTML = sheetFoot(view);
+  if (!$("sheet").open) { $("sheet").showModal(); $("sheetbody").scrollTop = 0; }
 }
 
 document.addEventListener("click", e => {
   const hit = name => e.target.closest(`[data-${name}]`);
   const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
   if (hit("close")) { $("modal").close(); return; }
+  if (hit("close-sheet")) { $("sheet").close(); return; }
   if (hit("menu")) { chooseMore(hit("menu")); return; }
   if (e.target === $("moremenu") || e.target.closest("#moremenu a")) { $("moremenu").close(); return; }
   if (hit("fly")) { openFlight(hit("fly")); return; }
@@ -3165,15 +3371,14 @@ document.addEventListener("click", e => {
   if (hit("requests")) { act(hit("requests"), `/requests?enabled=${hit("requests").dataset.requests}`).then(() => refreshState()).catch(() => {}); return; }
   if (hit("drops")) { act(hit("drops"), `/drop-blockers?enabled=${hit("drops").dataset.drops}`).then(() => refreshState()).catch(() => {}); return; }
   if (hit("drop")) { dropBlocker(hit("drop")); return; }
-  if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); sendingBack = false; showReviews(shownTask); return; }
-  if (hit("back-sure")) { sendingBack = true; confirming = false; showReviews(shownTask); return; }
+  if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); sendingBack = false; showTask(shownTask); return; }
+  if (hit("back-sure")) { sendingBack = true; confirming = false; showTask(shownTask); return; }
   if (hit("back")) { doSendBack(hit("back")); return; }
   if (hit("wait-to")) { waitKey = hit("wait-to").dataset.waitTo; renderToday(); return; }
-  if (hit("approve-open")) { confirming = true; sendingBack = false; showReviews(hit("approve-open").dataset.approveOpen); return; }
-  if (hit("back-open")) { sendingBack = true; confirming = false; showReviews(hit("back-open").dataset.backOpen); return; }
+  if (hit("approve-open")) { confirming = true; sendingBack = false; showTask(hit("approve-open").dataset.approveOpen); return; }
+  if (hit("back-open")) { sendingBack = true; confirming = false; showTask(hit("back-open").dataset.backOpen); return; }
   if (hit("to-queen")) { toQueen(hit("to-queen")); return; }
-  if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
-  if (pause) {  // It sits in the project's summary, which would fold.
+  if (pause) {  // the meadow's switch
     e.preventDefault();
     act(pause, `/projects/${encodeURIComponent(pause.dataset.pause)}/${pause.dataset.paused === "true" ? "resume" : "pause"}`);
     return;
@@ -3184,8 +3389,9 @@ document.addEventListener("click", e => {
   if (stop) { act(stop, `/workers/${encodeURIComponent(stop.dataset.stop)}/stop`); return; }
   if (run) { showRun(run.dataset.run); return; }
   const review = hit("review");
-  if (review) { confirming = false; sendingBack = false; showReviews(review.dataset.review); }
+  if (review) { confirming = false; sendingBack = false; showTask(review.dataset.review); }
   if (e.target === $("modal")) $("modal").close();
+  if (e.target === $("sheet")) $("sheet").close();
 });
 document.addEventListener("change", e => {
   if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way], [data-setting-auto-merge], [data-setting-frozen], [data-setting-tokens]")) changeSetting(e.target);
@@ -3196,11 +3402,14 @@ document.addEventListener("toggle", e => {
   const asked = e.target.dataset?.request;
   if (asked !== undefined) { if (e.target.open) openRequests.add(asked); else openRequests.delete(asked); return; }
   const name = e.target.dataset?.project;
-  if (name === undefined || $("search").value.trim()) return;
-  if (e.target.open) closed.delete(name); else closed.add(name);
-  save(CLOSED_KEY, JSON.stringify([...closed]));
+  // A group drawn open says so too: only the user's own fold or open is kept, and not while searching opens them all.
+  if (name === undefined || $("search").value.trim() || String(e.target.open) === e.target.dataset.open) return;
+  e.target.dataset.open = e.target.open;
+  folded[name] = !e.target.open;
+  save(FOLDED_KEY, JSON.stringify(folded));
 }, true);
-$("modal").addEventListener("close", () => { shownRun = shownTask = null; confirming = false; });
+$("modal").addEventListener("close", () => { shownRun = null; });
+$("sheet").addEventListener("close", () => { shownTask = null; confirming = sendingBack = false; });
 $("stop").onclick = askStop;
 $("stopnow").onclick = e => confirmed(e.currentTarget, "/stop", "stopbox");
 $("resume").onclick = e => act(e.currentTarget, "/resume");

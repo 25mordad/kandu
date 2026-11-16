@@ -283,8 +283,8 @@ return {first: pick(waitView(items, null)), third: pick(waitView(items, items[2]
 
     def test_an_action_opens_the_task_at_its_step(self):
         clicks = self.page.split('document.addEventListener("click"')[1].split("\n});")[0]
-        self.assertIn('if (hit("approve-open")) { confirming = true; sendingBack = false; showReviews(hit("approve-open").dataset.approveOpen); return; }', clicks)
-        self.assertIn('if (hit("back-open")) { sendingBack = true; confirming = false; showReviews(hit("back-open").dataset.backOpen); return; }', clicks)
+        self.assertIn('if (hit("approve-open")) { confirming = true; sendingBack = false; showTask(hit("approve-open").dataset.approveOpen); return; }', clicks)
+        self.assertIn('if (hit("back-open")) { sendingBack = true; confirming = false; showTask(hit("back-open").dataset.backOpen); return; }', clicks)
 
     # Flight paths.
 
@@ -366,7 +366,7 @@ return {first: pick(waitView(items, null)), third: pick(waitView(items, items[2]
         self.assertIn('<span class="pmore">+3</span>', html)
         self.assertRegex(html, r'<span class="pdone"[^>]*>2</span>')
         clicks = self.page.split('document.addEventListener("click"')[1].split("\n});")[0]
-        self.assertIn("if (review) { confirming = false; sendingBack = false; showReviews(review.dataset.review); }", clicks)
+        self.assertIn("if (review) { confirming = false; sendingBack = false; showTask(review.dataset.review); }", clicks)
 
     def test_the_legend_explains_the_four_colours(self):
         html = self.run_js(self.given() + "return pathsHtml(flightPaths(s, queue, items), queue);")

@@ -151,7 +151,9 @@ class PageTest(unittest.TestCase):
             self.assertEqual(self.page.count(f'"{key}": '), 2, key)
 
     def test_the_card_shows_the_status_and_a_stuck_task_is_drawn_as_stuck(self):
-        self.assertEqual(self.page.count("${statusLine(task)}"), 2)  # with a PR and without one
+        sheet = self.page.split("function sheetBody(")[1].split("\n}\n")[0]
+        self.assertIn("statusText(v.status)", sheet)  # with a PR and without one
+        self.assertIn('data-to-queen="${esc(v.task)}"', self.page.split("function sheetFoot(")[1].split("\n}\n")[0])
         self.assertIn('if (hit("to-queen")) { toQueen(hit("to-queen")); return; }', self.page)
         self.assertIn('item.mark.status?.state === "stuck" && !working.has(item.task)', self.page)
         for table in ("const COLUMN_ORDER = [\"Stuck\"", '  "Stuck": {swatch:'):

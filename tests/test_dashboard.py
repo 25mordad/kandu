@@ -248,6 +248,23 @@ class ReadTest(Base):
         self.assertEqual(answer["cost"]["total"]["cache_read"], 300)
         self.assertEqual(answer["cost"]["roles"]["worker"]["runs"], 2)
 
+    def test_a_task_lists_its_steps_so_far_oldest_first_with_their_times(self):
+        self.github.issue_text.return_value = {"title": "Big", "body": "Why", "url": "u"}
+        usage = {"opus": {"input": 10, "output": 20, "cache_read": 100, "cache_creation": 5}}
+        self.store.record("task_sized", task=f"{REPO}#1", project="website", run_id="r-0", size="Medium", files=3,
+                          door="two-way", criteria=2, slices=None)
+        self.store.record("phase_changed", task=f"{REPO}#2", project="website", phase="implement")  # another task
+        self.store.record("phase_changed", task=f"{REPO}#1", project="website", phase="implement")
+        self.store.record("run_finished", task=f"{REPO}#1", project="website", run_id="r-1", role="worker",
+                          models=usage, duration_ms=60000, is_error=False)
+        steps = self.get(f"/api/v1/tasks/{REPO}/1")[1]["steps"]
+        self.assertEqual([(s["type"], s.get("phase"), s.get("run_id")) for s in steps],
+                         [("task_sized", None, "r-0"), ("phase_changed", "implement", None), ("run_finished", None, "r-1")])
+        self.assertTrue(all(datetime.fromisoformat(s["ts"]) for s in steps))
+        self.assertEqual(steps[0]["size"], "Medium")
+        self.assertNotIn("models", steps[2])  # the tokens stay in the cost
+        self.assertEqual(self.get(f"/api/v1/tasks/{REPO}/3")[1]["steps"], [])
+
     def test_a_task_outside_the_config_is_not_read(self):
         self.assertEqual(self.get("/api/v1/tasks/x/y/1")[0], 404)
         self.github.issue_text.assert_not_called()
@@ -1070,16 +1087,16 @@ class ByHandPageTest(unittest.TestCase):
         self.assertEqual(self.text["fa"]["by_hand_yours"], "دستی، منتظر توست")
         self.assertNotIn("ملکه", self.text["fa"]["by_hand_yours"])
         self.assertIn('item.yours ? t("by_hand_yours")', self.page)  # In place of the column's name.
-        rows = self.page.split("function projectCard(")[1].split("\n}\n")[0]
-        self.assertIn("stateBadge(item)", rows)
-        dialog = self.page.split("async function showReviews(")[1].split("\n}\n")[0]
-        self.assertEqual(dialog.count("stateBadge(item)"), 2)  # With a PR and without one.
-        self.assertNotIn("badge(item.column)", dialog)
+        rows = self.page.split("function taskRow(")[1].split("\n}\n")[0]
+        self.assertIn("stateText(item)", rows)
+        sheet = self.page.split("function sheetView(")[1].split("\n}\n")[0]
+        self.assertIn("stateText(item)", sheet)  # With a PR and without one.
+        self.assertNotIn("badge(item.column)", sheet)
 
-    def test_its_dialog_shows_the_chip_that_it_waits_for_you(self):
-        self.assertIn("const yoursChip = (task, item) => item?.yours || lastState?.flowers?.[task]?.yours", self.page)
-        dialog = self.page.split("async function showReviews(")[1].split("\n}\n")[0]
-        self.assertEqual(dialog.count("yoursChip(task, item)"), 2)
+    def test_its_sheet_says_that_it_waits_for_you(self):
+        sheet = self.page.split("function sheetView(")[1].split("\n}\n")[0]
+        self.assertIn("const wait = waitItems(s, queue).find(entry => entry.task === task);", sheet)
+        self.assertIn("state: wait && !wait.stuck ? wait.kind", sheet)  # "By hand, waits for you"
 
     def test_its_dialog_explains_it_and_shows_its_goal_and_criteria_in_both_languages(self):
         for language in ("en", "fa"):
@@ -1099,8 +1116,8 @@ class ByHandPageTest(unittest.TestCase):
         self.assertIn('part(t("issue_goal"), item.goal)', box)
         self.assertIn('part(t("issue_criteria"), item.criteria)', box)
         self.assertNotIn("<textarea", box)  # Read-only.
-        dialog = self.page.split("async function showReviews(")[1].split("\n}\n")[0]
-        self.assertEqual(dialog.count("byHandBox(item)"), 2)
+        sheet = self.page.split("function sheetBody(")[1].split("\n}\n")[0]
+        self.assertEqual(sheet.count("byHandBox(v.item)"), 1)
 
 
 class HeldByBlockerTest(Base):

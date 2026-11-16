@@ -54,9 +54,10 @@ class PageTest(unittest.TestCase):
 
     def test_the_patch_and_the_card_turn_red(self):
         self.assertIn('${patch.over ? " over" : ""}" cx=', self.page)  # the meadow's soil
-        self.assertIn("${limitBadge(overLimit(lastState, project.name))}", self.page)
+        self.assertIn("limit: overLimit(s, lane.name)", self.page)  # its group on the Tasks page
+        self.assertIn("${limitBadge(g.limit)}", self.page)
         self.assertRegex(self.page, r"\.soil\.over \{[^}]*stroke:")  # an outline a pause never draws
-        self.assertIn("lastState.over_limit]", self.page)  # the list redraws when it changes
+        self.assertIn("const key = JSON.stringify([lang, query, groups", self.page)  # the list redraws when it changes
 
     def test_the_legend_explains_the_red_while_it_shows_in_both_languages(self):
         self.assertIn("lastState?.over_limit", self.page.split("function renderLegend()", 1)[1].split("\n}\n", 1)[0])

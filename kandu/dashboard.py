@@ -893,7 +893,7 @@ class Api:
         return {"task": key, "to": to, "cycle_started": started}
 
     def task(self, query, owner, repo, number):
-        """What a task was and what it cost. An unreadable issue costs only its text, not the numbers."""
+        """What a task was, what it cost and its steps. An unreadable issue costs only its text, not the numbers."""
         key = self._split_task(owner, repo, number)
         try:
             text = self.github.issue_text(f"{owner}/{repo}", int(number))
@@ -901,7 +901,12 @@ class Api:
             text = None
         finished = self.store.last_event("task_finished", task=key)
         return {"task": key, "issue": text, "outcome": finished and finished["outcome"],
-                "cost": self.store.task_cost(key)}
+                "cost": self.store.task_cost(key), "steps": self._steps(key)}
+
+    def _steps(self, key):
+        """The task's events so far, oldest first, as its sheet tells them; the tokens stay in the cost."""
+        return [{k: v for k, v in event.items() if k not in ("v", "task", "models")}
+                for day in self.store.days() for event in self.store.events(day) if event.get("task") == key]
 
     def _split_task(self, owner, repo, number):
         full = f"{owner}/{repo}"
