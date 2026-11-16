@@ -77,6 +77,19 @@ async function seen() {
   })()`);
 }
 
+// The Look menu, opened from the header's Look button: the looks it lists, the one it marks, then closed again.
+async function menu() {
+  return evaluate(`(() => {
+    document.getElementById("look").click();
+    const box = document.getElementById("lookmenu");
+    const seen = {open: box.open, looks: [...box.querySelectorAll("[data-choose-look]")].map(b => b.dataset.chooseLook),
+                  current: [...box.querySelectorAll('[aria-current="true"]')].map(b => b.dataset.chooseLook),
+                  sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth};
+    box.close();
+    return seen;
+  })()`);
+}
+
 async function run() {
   socket = new WebSocket(await endpoint);
   socket.onmessage = event => {
@@ -115,13 +128,15 @@ async function run() {
     const steps = {};
     await load(() => send("Page.reload"));
     steps.first = await seen();
-    await load(() => soon('document.getElementById("look").click()'));
+    steps.menu = await menu();
+    await load(() => soon('(document.getElementById("look").click(), document.querySelector(\'#lookmenu [data-choose-look="clean"]\').click())'));
     steps.switched = await seen();
     await load(() => send("Page.reload"));
     steps.reloaded = await seen();
+    steps.clean_menu = await menu();
     await evaluate('document.getElementById("more").click()');
     steps.more_open = await evaluate('document.getElementById("moremenu").open');
-    await load(() => soon('document.querySelector(\'#moremenu [data-menu="look"]\').click()'));
+    await load(() => soon('(document.querySelector(\'#moremenu [data-menu="look"]\').click(), document.querySelector(\'#lookmenu [data-choose-look="classic"]\').click())'));
     steps.back = await seen();
     await load(() => send("Page.reload"));
     steps.back_reloaded = await seen();

@@ -158,13 +158,21 @@ class ClassicPageTest(unittest.TestCase):
     def test_it_is_marked_as_the_classic_look(self):
         self.assertTrue('<html lang="en" data-look="classic">' in self.page)
 
-    def test_a_button_beside_the_language_switch_goes_to_the_kandu_clean_look(self):
-        self.assertRegex(self.header, r'<button id="look" class="btn plain" data-t="look_clean"></button>\s*<button id="lang"')
-        self.assertTrue('$("look").onclick = () => chooseLook("clean");' in self.page)
-        self.assertIn('$("look").title = t("look_clean_hint");', function(self.page, "applyLanguage"))
-        self.assertEqual((self.text["en"]["look_clean"], self.text["en"]["look_clean_hint"]),
-                         ("Kandu Clean", "Switch to the Kandu Clean look"))
-        self.assertNotEqual(self.text["fa"]["look_clean"], self.text["en"]["look_clean"])
+    def test_a_look_button_beside_the_language_switch_opens_the_look_menu(self):
+        self.assertRegex(self.header, r'<button id="look" class="btn plain" aria-haspopup="dialog"><span data-t="look"></span> ▾</button>\s*<button id="lang"')
+        self.assertTrue('$("look").onclick = openLooks;' in self.page)
+        self.assertIn('$("look").title = t("look_hint");', function(self.page, "applyLanguage"))
+        self.assertTrue('const LOOK_HERE = "classic";' in self.page)
+        for gone in ("look_clean", "look_clean_hint"):
+            self.assertNotIn(gone, self.text["en"], gone)
+
+    def test_wake_the_queen_carries_a_honey_crown_that_stays_while_it_works(self):
+        self.assertRegex(self.header, r'<button id="wake" class="btn plain"><svg class="crown" viewBox="0 0 24 24" aria-hidden="true"><path d="[^"]+"/></svg>'
+                                      r'<span data-t="wake_queen"></span></button>')
+        self.assertRegex(self.style, r"\.crown \{[^}]*fill:var\(--honey\)")
+        busy = function(self.page, "busy")
+        self.assertIn("const label = button.innerHTML", busy)
+        self.assertIn("button.innerHTML = label;", busy)
 
     @unittest.skipUnless(NODE, "needs node to run the page's script")
     def test_choosing_kandu_clean_keeps_the_choice_in_the_browser_and_opens_it(self):
@@ -286,29 +294,87 @@ class CleanSwitchTest(unittest.TestCase):
         self.assertTrue('<html lang="en" data-look="clean">' in self.page)
 
     @unittest.skipUnless(NODE, "needs node to run the page's script")
-    def test_more_offers_the_classic_look_on_a_wide_screen_and_on_a_phone(self):
+    def test_more_offers_the_look_menu_on_a_wide_screen_and_on_a_phone(self):
         items = run_js(self.prelude() + "console.log(JSON.stringify([moreItems([], true), moreItems([], false)]));")
         for menu in items:
-            classic = [i for i in menu if i["label"] == "Classic look"]
-            self.assertEqual(len(classic), 1)
-            self.assertEqual(classic[0]["attrs"], 'data-menu="look"')
-            self.assertEqual(classic[0]["hint"], "look")
+            look = [i for i in menu if i["label"] == "Look"]
+            self.assertEqual(len(look), 1)
+            self.assertEqual(look[0]["attrs"], 'data-menu="look"')
+            self.assertEqual(look[0]["hint"], "Kandu Clean")
+
+    def test_a_look_button_beside_the_language_switch_on_a_wide_screen_opens_the_look_menu(self):
+        header = self.page.split('<header class="top">')[1].split("</header>")[0]
+        self.assertRegex(header, r'<button id="look" class="btn plain head-wide" aria-haspopup="dialog"><span data-t="look"></span> ▾</button>\s*<button id="lang"')
+        self.assertTrue('$("look").onclick = openLooks;' in self.page)
+        self.assertTrue('const LOOK_HERE = "clean";' in self.page)
 
     @unittest.skipUnless(NODE, "needs node to run the page's script")
     def test_choosing_it_keeps_the_choice_in_the_browser_and_opens_it(self):
-        done = run_js(self.prelude().replace("const LOOK_COOKIE", 'const document = {cookie: ""}; const calls = [];\n'
-                                             "const location = {reload: () => calls.push(document.cookie)};\n"
+        done = run_js(self.prelude().replace("const LOOK_COOKIE", 'const calls = [];\nconst openLooks = () => calls.push("open the look menu");\n'
                                              "const $ = id => ({close: () => calls.push(`close ${id}`)});\nconst LOOK_COOKIE", 1)
                       + '(async () => { await chooseMore({dataset: {menu: "look"}}); console.log(JSON.stringify(calls)); })();')
-        self.assertEqual(done, ["close moremenu", "kandu-look=classic; path=/; max-age=34560000; samesite=strict"])
+        self.assertEqual(done, ["close moremenu", "open the look menu"])
 
     def test_its_words_read_in_both_languages(self):
-        for key in ("look_classic", "hint_look"):
+        for key in ("look", "look_hint"):
             self.assertEqual(self.page.count(f'"{key}": '), 2, key)
-        self.assertNotEqual(words(self.page)["fa"]["look_classic"], self.text["en"]["look_classic"])
+        for gone in ("look_classic", "hint_look"):
+            self.assertNotIn(gone, self.text["en"], gone)
 
     def test_it_no_longer_forgets_the_look_a_browser_chose(self):
         self.assertFalse('forget("kandu-look")' in self.page)
+
+
+class LookMenuTest(unittest.TestCase):
+    """The Look menu, the same in both looks: every look the dashboard has, the one this page is marked."""
+    PAGES = {"classic": dashboard.CLASSIC_PAGE, "clean": dashboard.PAGE}
+
+    def test_both_looks_have_the_same_menu(self):
+        classic, clean = read(dashboard.CLASSIC_PAGE), read(dashboard.PAGE)
+        for name in ("lookItems", "openLooks", "pickLook", "chooseLook"):
+            self.assertEqual(function(classic, name), function(clean, name), name)
+        self.assertEqual(line(classic, "const LOOK_NAMES = "), line(clean, "const LOOK_NAMES = "))
+        for page in (classic, clean):
+            self.assertIn('<dialog id="lookmenu" class="menu" data-t-attr="aria-label" data-t="look"><div class="menu-head" data-t="look"></div>'
+                          '<div id="lookitems"></div><p class="menu-hint" data-t="look_hint"></p></dialog>', page)
+            self.assertIn('if (hit("choose-look")) { pickLook(hit("choose-look")); return; }', page)
+            self.assertIn('if (e.target === $("lookmenu")) { $("lookmenu").close(); return; }', page)
+            for lang in ("en", "fa"):
+                for key in ("look", "look_hint", "default_look_classic", "default_look_clean"):
+                    self.assertIn(key, words(page)[lang], f"{lang}: {key}")
+            self.assertNotEqual(words(page)["fa"]["look"], words(page)["en"]["look"])
+
+    def test_the_state_names_every_look_in_the_menus_order(self):
+        self.assertEqual(list(dashboard.LOOKS), ["classic", "clean"])
+        self.assertIn('"looks": list(LOOKS),', (ROOT / "kandu" / "dashboard.py").read_text(encoding="utf-8"))
+        api = read(ROOT / "docs" / "API.md")
+        self.assertIn("`looks`", next(each for each in api.splitlines() if each.startswith("| GET | `/api/v1/state`")))
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_it_lists_the_looks_the_state_names_and_marks_this_one(self):
+        for here, path in self.PAGES.items():
+            page = read(path)
+            seen = run_js(f"const TEXT = {json.dumps(words(page))}; let lang = \"fa\";\n" + line(page, "const esc = ")
+                          + line(page, "const LOOK_NAMES = ") + function(page, "lookItems")
+                          + 'console.log(JSON.stringify([lookItems(["classic", "clean", "sunny"], "clean"), lookItems(undefined, "classic")]));')
+            three, fallback = seen
+            self.assertEqual(re.findall(r'data-choose-look="(\w+)" aria-current="(\w+)"', three),
+                             [("classic", "false"), ("clean", "true"), ("sunny", "false")], here)
+            self.assertIn("<span>sunny</span>", three)  # a look this page has no name for shows as it is called
+            self.assertIn(f"<span>{words(page)['fa']['default_look_clean']}</span>", three)
+            self.assertEqual(three.count("✓"), 1)
+            self.assertEqual(re.findall(r'data-choose-look="(\w+)"', fallback), ["classic", "clean"], here)
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_choosing_another_look_keeps_it_in_the_browser_and_this_one_only_closes(self):
+        for here, path in self.PAGES.items():
+            page = read(path)
+            other = "clean" if here == "classic" else "classic"
+            done = run_js("const document = {cookie: \"\"}; const calls = []; const location = {reload: () => calls.push(document.cookie)};\n"
+                          "const $ = id => ({close: () => calls.push(`close ${id}`)});\n"
+                          + line(page, "const LOOK_COOKIE = ") + line(page, "const LOOK_HERE = ") + function(page, "chooseLook") + function(page, "pickLook")
+                          + f'pickLook({{dataset: {{chooseLook: "{here}"}}}}); pickLook({{dataset: {{chooseLook: "{other}"}}}}); console.log(JSON.stringify(calls));')
+            self.assertEqual(done, ["close lookmenu", "close lookmenu", f"kandu-look={other}; path=/; max-age=34560000; samesite=strict"], here)
 
 
 class DesignTest(unittest.TestCase):
@@ -357,6 +423,9 @@ class BrowserTest(Served):
         for case in report["results"]:
             name = f'{case["lang"]} at {case["width"]}px'
             steps = case["steps"]
+            menus = {step: steps.pop(step) for step in ("menu", "clean_menu")}
+            for step, current in (("menu", "classic"), ("clean_menu", "clean")):
+                self.assertEqual(menus[step], {"open": True, "looks": ["classic", "clean"], "current": [current], "sideways": False}, f"{name}, {step}")
             looks = {step: seen["look"] for step, seen in steps.items() if step != "more_open"}
             self.assertEqual(looks, {"first": "classic", "switched": "clean", "reloaded": "clean", "back": "classic",
                                      "back_reloaded": "classic"}, name)

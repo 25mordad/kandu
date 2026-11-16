@@ -1374,13 +1374,13 @@ class FrameTest(unittest.TestCase):
     # Nothing of the honeycomb look; its switch goes only to the Classic look.
 
     def test_it_has_nothing_of_the_honeycomb_look_and_switches_only_to_the_classic_look(self):
-        self.assertNotIn('id="look"', self.page)
+        self.assertIn('<button id="look" class="btn plain head-wide" aria-haspopup="dialog">', self.page)  # the Look menu's
         self.assertNotIn("dataset.look", self.page)
         for gone in ("LOOK_KEY", "setLook", "applyLook", "hexCell", "HONEY_", "pcell", "shelf", 'id="honey"', "honey-stripes"):
             self.assertNotIn(gone, self.page, gone)
         for key in ("look_cards", "look_switch", "hive_with_tasks", "hive_no_tasks", "legend_cell_sizes"):
             self.assertNotIn(key, self.text["en"], key)
-        self.assertEqual([key for key in self.text["en"] if key.startswith("look_")], ["look_classic"])
+        self.assertEqual([key for key in self.text["en"] if key.startswith("look_")], ["look_hint"])
 
     def test_design_says_the_frame_is_the_kandu_clean_looks(self):
         section = (ROOT / "DESIGN.md").read_text(encoding="utf-8").split("## 7. Dashboard")[1].split("\n## 8.")[0]
@@ -1512,11 +1512,11 @@ const pick = items => items.map(i => i.label);
 console.log(JSON.stringify({{phone: pick(moreItems([], false)), wide: pick(moreItems([], true)),
   phoneOpen: moreItems({json.dumps(open_)}, false), wideOpen: pick(moreItems({json.dumps(open_)}, true))}}));""")
         self.assertEqual(menus["phone"], ["Wake the queen", "Read the board", "Restart Kandu", "Open Didban", "Open Zanbourdar",
-                                          "Bazras", "Daily usage", "Live stream", "Classic look", "فارسی"])
+                                          "Bazras", "Daily usage", "Live stream", "Look", "فارسی"])
         self.assertEqual(menus["wide"], ["Read the board", "Restart Kandu", "Open Zanbourdar", "Bazras", "Daily usage",
-                                         "Live stream", "Classic look", "فارسی"])
+                                         "Live stream", "Look", "فارسی"])
         self.assertEqual(menus["wideOpen"], ["Read the board", "Restart Kandu", "Close Didban", "Go to Zanbourdar",
-                                             "Close Zanbourdar", "Bazras", "Daily usage", "Live stream", "Classic look", "فارسی"])
+                                             "Close Zanbourdar", "Bazras", "Daily usage", "Live stream", "Look", "فارسی"])
         items = {i["label"]: i for i in menus["phoneOpen"]}
         self.assertEqual(items["Go to Didban"]["href"], "https://claude.ai/code/x")
         self.assertEqual(items["Close Didban"]["attrs"], 'data-land="didban-1"')

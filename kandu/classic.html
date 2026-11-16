@@ -247,6 +247,19 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 #projectsettings { overflow-x:auto; }
+/* The Look menu: under the header on a wide screen, from the bottom on a phone. */
+dialog.menu { width:min(320px, calc(100vw - 24px)); margin:64px 20px auto auto; padding:8px; border-radius:14px; box-shadow:0 20px 50px #00000033; }
+[dir="rtl"] dialog.menu { margin:64px auto auto 20px; }
+.menu-item { all:unset; box-sizing:border-box; cursor:pointer; width:100%; display:flex; align-items:center; gap:10px; min-height:46px; padding:0 12px; border-radius:10px; font-size:15px; color:var(--ink); }
+.menu-item:hover { background:var(--sunken); }
+.menu-item:focus-visible { outline:2px solid var(--honey); outline-offset:-2px; }
+.menu-item:disabled { opacity:.6; cursor:default; }
+.menu-item > span { flex:1; min-width:0; }
+.menu-item small { font-size:12px; color:var(--muted); }
+.menu-head { padding:8px 12px 4px; font-size:12px; font-weight:700; color:var(--muted); }
+.menu-hint { margin:4px 12px 6px; font-size:12px; color:var(--muted); }
+/* Wake the queen carries her crown, in honey. */
+.crown { flex:none; width:18px; height:18px; fill:var(--honey); stroke:var(--hive-dark); stroke-width:1.4; stroke-linejoin:round; }
 /* A task's sheet, the Kandu Clean look's: its colours named as there, from the Classic look's own. */
 #sheet { --amber:#b4500a; --red:var(--bad); --green:var(--good); --blue:#2f62b0; --surface2:var(--sunken); --ink2:var(--muted); --ink3:var(--muted); --honey-ink:var(--on-honey); }
 @media (prefers-color-scheme: dark) { #sheet { --amber:#f2a05c; --blue:#86a9ee; } }
@@ -317,6 +330,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
 .name-field { width:100%; }
 .patch-name.clickable:hover { text-decoration:underline; }
 @media (max-width: 640px) {
+  dialog.menu, [dir="rtl"] dialog.menu { width:100%; max-width:100%; margin:auto 0 0; border-radius:20px 20px 0 0; padding:8px 8px calc(14px + env(safe-area-inset-bottom)); }
   dialog.sheet { width:100%; max-width:100%; height:94dvh; max-height:94dvh; margin:auto 0 0; border-radius:22px 22px 0 0; border-bottom:0; }
   .sheet-grip { display:block; }
   #projectsettings th, #projectsettings .fit { white-space:normal; }
@@ -336,11 +350,11 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
     <button id="stop" class="btn danger" data-t="stop"></button>
     <button id="resume" class="btn primary" data-t="resume" hidden></button>
     <button id="reload" class="btn plain" data-t="read_board"></button>
-    <button id="wake" class="btn plain" data-t="wake_queen"></button>
+    <button id="wake" class="btn plain"><svg class="crown" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8.5l4.6 3.9L12 5l4.4 7.4L21 8.5 19.2 19H4.8z"/></svg><span data-t="wake_queen"></span></button>
     <button id="restart" class="btn plain" data-t="restart_kandu"></button>
     <span id="didbanbox" class="flightbox"></span>
     <span id="zanbourdarbox" class="flightbox"></span>
-    <button id="look" class="btn plain" data-t="look_clean"></button>
+    <button id="look" class="btn plain" aria-haspopup="dialog"><span data-t="look"></span> ▾</button>
     <button id="lang" class="btn plain" lang="" data-t="other_language"></button>
   </div>
   <nav class="tabs" role="tablist">
@@ -382,6 +396,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   </section>
   <section data-panel="activity" class="card" hidden><div id="live" class="feed-scroll"></div></section>
 </main>
+<dialog id="lookmenu" class="menu" data-t-attr="aria-label" data-t="look"><div class="menu-head" data-t="look"></div><div id="lookitems"></div><p class="menu-hint" data-t="look_hint"></p></dialog>
 <dialog id="modal"><div class="dialog-head"><h2 id="modaltitle"></h2><button class="btn plain small" data-close data-t-attr="aria-label" data-t="close">×</button></div><div id="modalbody" class="dialog-body"></div></dialog>
 <dialog id="sheet" class="sheet" data-t-attr="aria-label" data-t="task_sheet"><div id="sheetbody" class="sheet-body"></div><div id="sheetfoot" class="sheet-foot"></div></dialog>
 <dialog id="setsheet" class="sheet" data-t-attr="aria-label" data-t="tab_settings"><div id="setbody" class="sheet-body"></div><div id="setfoot" class="sheet-foot"></div></dialog>
@@ -459,8 +474,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "bee_reviewer": "Reviewer bee",
   "bee_scout": "Scout bee",
   "other_language": "فارسی",
-  "look_clean": "Kandu Clean",
-  "look_clean_hint": "Switch to the Kandu Clean look",
+  "look": "Look",
+  "look_hint": "This browser keeps the look you choose.",
   "loading": "loading",
   "github_refused": "GitHub refuses calls: Kandu tries again at {at}",
   "control_token": "control token",
@@ -856,8 +871,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "bee_reviewer": "زنبور بازبین",
   "bee_scout": "زنبور پیشاهنگ",
   "other_language": "English",
-  "look_clean": "کندو کلین",
-  "look_clean_hint": "رفتن به نمای کندو کلین",
+  "look": "نما",
+  "look_hint": "این مرورگر نمایی را که انتخاب کنی نگه می‌دارد.",
   "loading": "در حال بارگذاری",
   "github_refused": "GitHub تماس‌ها را رد می‌کند: کندو ساعت {at} دوباره امتحان می‌کند",
   "control_token": "توکن کنترل",
@@ -1588,12 +1603,12 @@ function applyLanguage() {
     if (attrs) attrs.split(" ").forEach(attr => el.setAttribute(attr, t(el.dataset.t)));
     else el.textContent = t(el.dataset.t);
   }
-  $("look").title = t("look_clean_hint");
+  $("look").title = t("look_hint");
   renderLegend();
 }
 
-// The look: each browser keeps the one it chose in a cookie, so the dashboard sends that look's page. The button
-// beside the language switch goes to the Kandu Clean look.
+// The look: each browser keeps the one it chose in a cookie, so the dashboard sends that look's page. The Look button
+// beside the language switch opens the Look menu.
 const LOOK_COOKIE = "kandu-look", LOOK_DAYS = 400;
 function chooseLook(chosen) {
   document.cookie = `${LOOK_COOKIE}=${chosen}; path=/; max-age=${LOOK_DAYS * 86400}; samesite=strict`;
@@ -1658,7 +1673,7 @@ async function post(path) {
 // A click always answers while the server works, in any button.
 async function busy(button, work, text = t("working")) {
   const group = [...(button.closest(".actions")?.querySelectorAll("button") || [button])].filter(b => !b.disabled);
-  const label = button.textContent, drawn = button instanceof SVGElement;  // The meadow's switch has no text to swap: it only fades.
+  const label = button.innerHTML, drawn = button instanceof SVGElement;  // The meadow's switch has no text to swap: it only fades.
   group.forEach(b => { b.disabled = true; });
   button.classList.add("busy");
   if (!drawn) button.textContent = text;
@@ -1670,7 +1685,7 @@ async function busy(button, work, text = t("working")) {
   } finally {
     group.forEach(b => { b.disabled = false; });
     button.classList.remove("busy");
-    if (!drawn) button.textContent = label;
+    if (!drawn) button.innerHTML = label;
   }
 }
 
@@ -2996,6 +3011,8 @@ document.addEventListener("click", e => {
   const hit = name => e.target.closest(`[data-${name}]`);
   const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
   if (hit("close")) { $("modal").close(); return; }
+  if (hit("choose-look")) { pickLook(hit("choose-look")); return; }
+  if (e.target === $("lookmenu")) { $("lookmenu").close(); return; }
   if (hit("close-sheet")) { $("sheet").close(); return; }
   if (hit("settings-open")) { e.preventDefault(); openSettings(hit("settings-open").dataset.settingsOpen); return; }  // A name in a summary would fold it.
   if (hit("draft") && hit("draft").tagName === "BUTTON") { changeDraft(hit("draft")); return; }
@@ -3058,6 +3075,24 @@ $("setsheet").addEventListener("close", () => { setEdit = null; });
 $("stop").onclick = e => act(e.currentTarget, "/stop");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
 $("restart").onclick = e => act(e.currentTarget, "/restart");
+
+// The Look menu lists every look the dashboard has, from the state, and marks the one this page is. A page that has
+// not read the state yet knows the two it came with. A choice is kept in this browser's cookie.
+const LOOK_NAMES = ["classic", "clean"];
+const LOOK_HERE = "classic";  // the look this page is
+function lookItems(looks, current) {
+  return (looks?.length ? looks : LOOK_NAMES).map(look => `<button class="menu-item" data-choose-look="${esc(look)}" aria-current="${look === current}"><span>${esc(TEXT[lang][`default_look_${look}`] || look)}</span>${look === current ? '<small aria-hidden="true">✓</small>' : ""}</button>`).join("");
+}
+
+function openLooks() {
+  $("lookitems").innerHTML = lookItems(lastState?.looks, LOOK_HERE);
+  $("lookmenu").showModal();
+}
+
+function pickLook(button) {
+  $("lookmenu").close();
+  if (button.dataset.chooseLook !== LOOK_HERE) chooseLook(button.dataset.chooseLook);
+}
 
 // Adding a project: a few facts from the user, the rest read from the copy and shown before anything is written.
 const fillIn = (key, values) => Object.entries(values).reduce((text, [k, v]) => text.replaceAll(`{${k}}`, v), t(key));
@@ -3131,7 +3166,7 @@ $("usagerange").onchange = () => refreshUsage().catch(() => {});
 $("usagefrom").onchange = $("usageto").onchange = () => refreshUsage().catch(() => {});
 $("search").oninput = renderProjects;
 $("lang").onclick = () => setLanguage(lang === "fa" ? "en" : "fa");
-$("look").onclick = () => chooseLook("clean");
+$("look").onclick = openLooks;
 addEventListener("resize", () => { if (lastState) renderScene(lastState, lastQueue); });
 
 async function refresh() {

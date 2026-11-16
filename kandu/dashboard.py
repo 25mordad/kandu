@@ -31,7 +31,7 @@ from .tasks import TaskError
 PAGE = Path(__file__).with_name("dashboard.html")  # the Kandu Clean look
 CLASSIC_PAGE = Path(__file__).with_name("classic.html")
 LOOK_COOKIE = "kandu-look"  # the look each browser chose; the page sets it
-LOOKS = {"clean": PAGE, "classic": CLASSIC_PAGE}
+LOOKS = {"classic": CLASSIC_PAGE, "clean": PAGE}  # in the order the Look menu lists them
 FONT = Path(__file__).with_name("vazirmatn.woff2")
 TOKEN_ENV = "KANDU_DASHBOARD_TOKEN"
 API = "/api/v1"
@@ -342,6 +342,7 @@ class Api:
             "drop_blockers": self.config.settings.supervisor.queen_drop_blockers,
             "show_requests": self.config.settings.dashboard.show_requests,
             "default_look": self.config.settings.dashboard.look,
+            "looks": list(LOOKS),
             "clean_merged": self.config.settings.supervisor.clean_merged,
             "upstream": self._upstream(),
             "github_refused": self._github_refused(),

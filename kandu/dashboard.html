@@ -89,6 +89,8 @@ dialog.menu { width:min(320px, calc(100vw - 24px)); margin:64px 20px auto auto; 
 .menu-item:disabled { opacity:.6; cursor:default; }
 .menu-item > span { flex:1; min-width:0; }
 .menu-item small { font-size:12px; color:var(--ink3); }
+.menu-head { padding:8px 12px 4px; font-size:12px; font-weight:700; color:var(--muted); }
+.menu-hint { margin:4px 12px 6px; font-size:12px; color:var(--muted); }
 .menu-line { height:1px; margin:4px 0; background:var(--line); }
 .btn.stopnow { background:var(--red); border-color:var(--red); color:var(--surface); font-weight:700; }
 .confirm-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; }
@@ -498,6 +500,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
     <button id="wake" class="btn head-wide" data-t="wake_queen"></button>
     <span id="didbanbox" class="flightbox head-wide"></span>
     <button id="more" class="btn more" aria-haspopup="dialog" data-t-attr="aria-label" data-t="more"><span class="more-word"><span data-t="more"></span> ▾</span><span class="more-dots" aria-hidden="true">•••</span></button>
+    <button id="look" class="btn plain head-wide" aria-haspopup="dialog"><span data-t="look"></span> ▾</button>
     <button id="lang" class="btn plain head-wide" lang="" data-t="other_language"></button>
   </div>
   <nav class="tabs" role="tablist">
@@ -560,6 +563,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   <button class="navtab" id="morenav" aria-haspopup="dialog"><span data-t="more"></span></button>
 </nav>
 <dialog id="moremenu" class="menu"><div id="moreitems"></div></dialog>
+<dialog id="lookmenu" class="menu" data-t-attr="aria-label" data-t="look"><div class="menu-head" data-t="look"></div><div id="lookitems"></div><p class="menu-hint" data-t="look_hint"></p></dialog>
 <dialog id="stopbox" class="small"><form method="dialog" class="dialog-body">
   <h2 data-t="stop_ask"></h2><p id="stoptext" class="muted"></p>
   <div class="actions confirm-actions"><button class="btn" value="no" data-t="keep_running"></button><button type="button" id="stopnow" class="btn stopnow" data-t="stop_now"></button></div>
@@ -666,8 +670,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "hint_usage": "tokens",
   "hint_live": "events",
   "hint_language": "language",
-  "hint_look": "look",
-  "look_classic": "Classic look",
+  "look": "Look",
+  "look_hint": "This browser keeps the look you choose.",
   "hive": "The hive",
   "empty_meadow": "The meadow is empty: no task is on a board yet.",
   "bee_worker": "Worker bee",
@@ -1127,8 +1131,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "hint_usage": "توکن‌ها",
   "hint_live": "رویدادها",
   "hint_language": "زبان",
-  "hint_look": "نما",
-  "look_classic": "نمای کلاسیک",
+  "look": "نما",
+  "look_hint": "این مرورگر نمایی را که انتخاب کنی نگه می‌دارد.",
   "hive": "کندو",
   "empty_meadow": "مرغزار خالی است: هنوز تسکی روی هیچ بوردی نیست.",
   "bee_worker": "زنبور کارگر",
@@ -2779,7 +2783,7 @@ function moreItems(open, wide) {
     item(t("tab_bazras"), t("hint_bazras"), 'data-tab="bazras"'),
     item(t("by_day"), t("hint_usage"), 'data-tab="days"'),
     item(t("live_stream"), t("hint_live"), 'data-tab="activity"'),
-    item(t("look_classic"), t("hint_look"), 'data-menu="look"'),
+    item(t("look"), t("default_look_clean"), 'data-menu="look"'),
     item(t("other_language"), t("hint_language"), 'data-menu="lang"'),
   ];
 }
@@ -2796,18 +2800,36 @@ function openMore() {
   $("moremenu").showModal();
 }
 
-// The look: each browser keeps the one it chose in a cookie, so the dashboard sends that look's page. More goes to
-// the Classic look.
+// The look: each browser keeps the one it chose in a cookie, so the dashboard sends that look's page. The Look button
+// in the header, and Look in More, open the Look menu.
 const LOOK_COOKIE = "kandu-look", LOOK_DAYS = 400;
 function chooseLook(chosen) {
   document.cookie = `${LOOK_COOKIE}=${chosen}; path=/; max-age=${LOOK_DAYS * 86400}; samesite=strict`;
   location.reload();
 }
 
+// The Look menu lists every look the dashboard has, from the state, and marks the one this page is. A page that has
+// not read the state yet knows the two it came with. A choice is kept in this browser's cookie.
+const LOOK_NAMES = ["classic", "clean"];
+const LOOK_HERE = "clean";  // the look this page is
+function lookItems(looks, current) {
+  return (looks?.length ? looks : LOOK_NAMES).map(look => `<button class="menu-item" data-choose-look="${esc(look)}" aria-current="${look === current}"><span>${esc(TEXT[lang][`default_look_${look}`] || look)}</span>${look === current ? '<small aria-hidden="true">✓</small>' : ""}</button>`).join("");
+}
+
+function openLooks() {
+  $("lookitems").innerHTML = lookItems(lastState?.looks, LOOK_HERE);
+  $("lookmenu").showModal();
+}
+
+function pickLook(button) {
+  $("lookmenu").close();
+  if (button.dataset.chooseLook !== LOOK_HERE) chooseLook(button.dataset.chooseLook);
+}
+
 // An action from More: the menu stays open while it works, then closes. Restart asks first.
 async function chooseMore(button) {
   const what = button.dataset.menu;
-  if (what === "look") { $("moremenu").close(); chooseLook("classic"); return; }
+  if (what === "look") { $("moremenu").close(); openLooks(); return; }
   if (what === "restart") { $("moremenu").close(); $("restartbox").showModal(); return; }
   if (what === "lang") { $("moremenu").close(); setLanguage(lang === "fa" ? "en" : "fa"); return; }
   if (what === "wake") await act(button, "/wake");
@@ -3651,6 +3673,8 @@ document.addEventListener("click", e => {
   if (hit("close")) { $("modal").close(); return; }
   if (hit("close-sheet")) { $("sheet").close(); return; }
   if (hit("menu")) { chooseMore(hit("menu")); return; }
+  if (hit("choose-look")) { pickLook(hit("choose-look")); return; }
+  if (e.target === $("lookmenu")) { $("lookmenu").close(); return; }
   if (e.target === $("moremenu") || e.target.closest("#moremenu a")) { $("moremenu").close(); return; }
   if (hit("fly")) { openFlight(hit("fly")); return; }
   if (hit("inspect")) { saveInspect(hit("inspect")); return; }
@@ -3717,6 +3741,7 @@ $("stopnow").onclick = e => confirmed(e.currentTarget, "/stop", "stopbox");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
 $("restartnow").onclick = e => confirmed(e.currentTarget, "/restart", "restartbox");
 $("more").onclick = $("morenav").onclick = openMore;
+$("look").onclick = openLooks;
 
 // Adding a project: a few facts from the user, the rest read from the copy and shown before anything is written.
 const fillIn = (key, values) => Object.entries(values).reduce((text, [k, v]) => text.replaceAll(`{${k}}`, v), t(key));
