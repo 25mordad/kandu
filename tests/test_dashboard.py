@@ -995,7 +995,7 @@ class HiveTest(unittest.TestCase):
             self.assertIn(f'"{column}":', flowers)
 
     def test_a_finished_task_fills_the_comb_and_opens_its_cost(self):
-        self.assertIn('<div id="comb"', self.page)
+        self.assertIn('<div id="hivebox"', self.page)
         self.assertIn('class="cell full" data-review=', self.page)
         self.assertIn('get(`/tasks/${repo}/${number}`)', self.page)
 

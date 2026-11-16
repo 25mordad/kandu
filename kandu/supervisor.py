@@ -340,7 +340,8 @@ class Supervisor:
     # The dashboard's snapshot.
 
     def _snapshot(self, supervisor, reason=None, next_wake=None):
-        usage = self.usage and {"session": self.usage.session, "week": self.usage.week}
+        usage = self.usage and {"session": self.usage.session, "week": self.usage.week,
+                                "session_resets": self.usage.session_resets, "week_resets": self.usage.week_resets}
         with self._lock:
             self.store.write_current({
                 "supervisor": supervisor, "last_reason": reason, "next_wake": next_wake, "usage": usage,

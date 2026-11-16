@@ -1430,7 +1430,14 @@ class GateTest(Base):
         self.cycle()
         self.assertEqual(self.events("supervisor_slept")[0]["reason"], "nothing ready")
         self.assertEqual(self.store.read_current()["next_wake"], "2026-10-30T13:00:00+00:00")
-        self.assertEqual(self.store.read_current()["usage"], {"session": 10, "week": 10})
+        self.assertEqual(self.store.read_current()["usage"], {"session": 10, "week": 10, "session_resets": None, "week_resets": None})
+
+    def test_the_snapshot_says_when_each_limit_resets(self):
+        self.github.items.clear()
+        self.usage = Usage(70, 10, "2026-10-30T18:20:00+01:00", "2026-11-05T20:00:00+01:00")
+        self.cycle()
+        self.assertEqual(self.store.read_current()["usage"], {"session": 70, "week": 10, "session_resets": "2026-10-30T18:20:00+01:00",
+                                                             "week_resets": "2026-11-05T20:00:00+01:00"})
 
 
 class ParallelTest(Base):

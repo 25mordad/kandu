@@ -221,13 +221,79 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .sky-top { stop-color:var(--sky-top); } .sky-low { stop-color:var(--sky-low); }
 .hill { fill:var(--grass); } .hill.far { fill:var(--grass-deep); opacity:.7; }
 .soil { fill:var(--soil); opacity:.45; }
-.comb { line-height:1.4; padding:16px 20px; border-top:1px solid var(--line); }
-.comb b { display:block; margin-bottom:10px; }
-.cells { display:flex; flex-wrap:wrap; gap:4px; }
-.cell { width:76px; height:66px; border:0; padding:0 8px; background:var(--sunken); color:var(--on-honey); font:600 14px var(--sans); clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%); display:flex; flex-direction:column; align-items:center; justify-content:center; }
+/* Today: what waits for the user, the hive, the flight paths, the queen's brief and today's events. */
+body[data-page="today"] #stats, body[data-page="today"] #asks { display:none; }
+.today { display:flex; flex-direction:column; gap:24px; min-width:0; }
+.today-grid { display:flex; flex-wrap:wrap; gap:28px; align-items:flex-start; }
+.today-grid > * { min-width:0; display:flex; flex-direction:column; gap:24px; }
+.today-waits { flex:1 1 340px; max-width:400px; }
+.today-paths { flex:999 1 440px; gap:10px; }
+.today-side { flex:1 1 260px; gap:20px; }
+.today-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 8px; margin-bottom:8px; }
+.today-head > b { font-size:16px; font-weight:700; }
+.today-head .muted { font-size:13px; color:var(--ink3); }
+.tone-amber { color:var(--amber); } .tone-red { color:var(--red); } .tone-green { color:var(--green); } .tone-blue { color:var(--blue); } .tone-muted { color:var(--ink3); } .tone-ink { color:var(--ink); }
+i.tone-amber { background:var(--amber); } i.tone-red { background:var(--red); } i.tone-green { background:var(--green); } i.tone-blue { background:var(--blue); } i.tone-muted { background:var(--ink3); } i.tone-ink { background:var(--ink); }
+.hex { flex:none; width:9px; height:10px; clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); }
+.health { display:none; flex-wrap:wrap; gap:6px 20px; font-size:13px; color:var(--ink2); }
+.hitem { all:unset; box-sizing:border-box; cursor:pointer; flex:none; max-width:100%; min-height:28px; display:flex; align-items:center; gap:7px; }
+.hitem:focus-visible { outline:2px solid var(--honey); outline-offset:2px; }
+.hitem > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hitem .gauges, .hitem .gauge { font-size:13px; }
+.waits .today-head { align-items:center; }
+.btn.step { width:36px; min-height:36px; padding:0; font-size:18px; color:var(--ink2); }
+.wait-card { display:flex; flex-direction:column; gap:8px; padding:18px; background:var(--surface); border:1px solid var(--line); border-radius:18px; }
+.wait-kind { display:flex; align-items:center; flex-wrap:wrap; gap:4px 8px; font-size:13px; }
+.wait-kind b { font-weight:700; }
+.wait-title { font-size:19px; font-weight:700; line-height:1.3; overflow-wrap:anywhere; }
+.wait-why { font-size:14px; color:var(--ink2); overflow-wrap:anywhere; }
+.wait-card .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+.wait-card .actions .btn { flex:1 1 auto; min-height:46px; border-radius:12px; white-space:normal; }
+.wait-rest { display:flex; flex-direction:column; margin-top:12px; }
+.wait-row { all:unset; box-sizing:border-box; cursor:pointer; display:flex; align-items:center; gap:10px; min-height:48px; padding:6px 4px; border-top:1px solid var(--line); }
+.wait-row:focus-visible { outline:2px solid var(--honey); outline-offset:-2px; }
+.wait-row > span:nth-child(2) { flex:1; min-width:0; }
+.wait-row b { display:block; font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wait-row small { display:block; font-size:12px; color:var(--ink3); }
+.cells { display:flex; flex-wrap:wrap; gap:3px; }
+.cell { flex:none; width:44px; height:50px; border:0; padding:0; background:var(--surface2); color:var(--honey-ink); font:800 12px/1.1 var(--sans); clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); display:flex; align-items:center; justify-content:center; }
 .cell.full { background:var(--honey); cursor:pointer; }
 .cell.full:hover { filter:brightness(1.08); }
-.cell small { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:400; font-size:10px; }
+.sentence { align-self:flex-start; max-width:100%; padding:8px 12px; border-radius:10px; background:var(--surface); border:1px solid var(--line); font-size:14px; line-height:1.4; }
+.sentence b { font-weight:800; }
+.stage-names, .lane-track { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); }
+.stage-names { font-size:11px; font-weight:600; color:var(--ink3); text-align:center; }
+.stage-names span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lanes { display:flex; flex-direction:column; gap:12px; margin-top:4px; }
+.lane { display:flex; flex-direction:column; gap:4px; }
+.lane.off { opacity:.45; }
+.lane-head { display:flex; align-items:baseline; gap:8px; font-size:13px; }
+.lane-head b { font-weight:700; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lane-line { margin-inline-start:auto; font-weight:600; white-space:nowrap; }
+.lane-track { position:relative; height:34px; align-items:center; border-radius:17px; background:var(--surface); border:1px solid var(--line); }
+.lane-track::before { content:""; position:absolute; inset-inline:8%; top:50%; height:1px; background:var(--line); }
+.stage { position:relative; min-width:0; display:flex; justify-content:center; align-items:center; gap:3px; overflow:hidden; }
+.pdot { all:unset; box-sizing:border-box; flex:none; width:12px; height:12px; border-radius:50%; cursor:pointer; }
+button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; }
+.pdot.you { background:var(--amber); }
+.pdot.stuck { background:var(--red); }
+.pdot.bee { background:repeating-linear-gradient(90deg, var(--honey) 0 3px, var(--honey-ink) 3px 5px); box-shadow:0 0 0 1.5px var(--honey-ink); }
+.pdot.turn { background:var(--dot); }
+.pmore { font-size:11px; font-weight:700; color:var(--ink2); }
+.pdone { width:22px; height:25px; display:grid; place-items:center; background:var(--honey); color:var(--honey-ink); font-size:11px; font-weight:800; clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); }
+.plegend { display:flex; flex-wrap:wrap; gap:4px 16px; padding-top:4px; font-size:12px; color:var(--ink3); }
+.plegend span { display:flex; align-items:center; gap:6px; }
+.plegend .pdot { width:9px; height:9px; cursor:default; }
+.plegend .pdot.bee { width:13px; }
+.brief { font-size:14px; color:var(--ink2); overflow-wrap:anywhere; }
+.events { display:flex; flex-direction:column; }
+.event { display:flex; gap:12px; padding:6px 0; font-size:13px; line-height:1.45; }
+.event[data-review] { cursor:pointer; }
+.event time { flex:none; width:42px; color:var(--ink3); }
+.event i { flex:none; width:7px; height:7px; margin-top:6px; border-radius:50%; }
+.event span { min-width:0; overflow-wrap:anywhere; }
+#meadowbox > summary { cursor:pointer; padding:12px 16px; font-weight:600; }
+#meadowbox[open] > summary { border-bottom:1px solid var(--line); }
 .patch-off .bloom { filter:grayscale(.3); opacity:.8; }
 .patch-off .sway, .patch-off .wait-ring { animation:none; }
 .soil.off { opacity:.25; }
@@ -304,6 +370,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   .more-dots { display:inline; }
   main { padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
   .toast { bottom:calc(84px + env(safe-area-inset-bottom)); }
+  .health { display:flex; }
+  .today-waits { max-width:none; }
+  .pdot { width:10px; height:10px; }
+  .stage { gap:2px; }
   dialog.menu, [dir="rtl"] dialog.menu { width:100%; max-width:100%; margin:auto 0 0; border-radius:20px 20px 0 0; padding:8px 8px calc(14px + env(safe-area-inset-bottom)); }
 }
 @media (max-width: 640px) {
@@ -353,7 +423,15 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
       <div class="card pad" id="requestsbox" hidden><h2 class="card-title" data-t="open_requests"></h2><div id="requests"></div></div>
     </div>
   </section>
-  <section data-panel="today" class="card meadow" hidden><div id="scene"></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
+  <section data-panel="today" class="today" hidden>
+    <div id="health" class="health"></div>
+    <div class="today-grid">
+      <div class="today-waits"><div id="waits" class="waits" hidden></div><div id="hivebox"></div></div>
+      <div class="today-paths"><div id="sentence" class="sentence"></div><div id="paths"></div></div>
+      <div class="today-side"><div id="briefbox" hidden></div><div id="todayevents" class="events"></div></div>
+    </div>
+    <details id="meadowbox" class="card"><summary data-t="meadow"></summary><div class="meadow"><div id="scene"></div><div id="legend" class="legend"></div></div></details>
+  </section>
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
   <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div class="card pad add-open"><p class="muted" data-t="add_why"></p><div class="actions"><button id="addopen" class="btn" data-t="add_project"></button></div></div><div id="pacesettings" class="card pad"></div><div id="cleanmerged" class="card pad"></div><div id="projectsettings" class="card"></div></section>
   <section data-panel="days" class="list" hidden>
@@ -826,7 +904,51 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "waits_for_you_count": "Waits for you",
   "send_back": "Back to work",
   "send_back_sure": "Send this task back to work? Its next cycle reviews the newest head, or fixes what the last review found. It merges nothing: the merge gate still decides.",
-  "sent_back_done": "Back on the board in Ready. A cycle is picking it up."
+  "sent_back_done": "Back on the board in Ready. A cycle is picking it up.",
+  "meadow": "The meadow",
+  "flight_paths": "Flight paths",
+  "projects_one": "{n} project",
+  "projects_many": "{n} projects",
+  "paths_empty": "No task is on a board yet.",
+  "stage_shape": "Shape",
+  "stage_ready": "Ready",
+  "stage_build": "Build",
+  "stage_review": "Review",
+  "stage_merge": "Merge",
+  "stage_live": "Live",
+  "dot_you": "needs you",
+  "dot_stuck": "stuck",
+  "dot_bee": "a bee on it",
+  "dot_turn": "waiting its turn",
+  "lane_stuck": "{n} stuck",
+  "lane_wait_one": "{n} waits for you",
+  "lane_wait": "{n} wait for you",
+  "lane_bee_one": "{n} bee at work",
+  "lane_bees": "{n} bees at work",
+  "lane_quiet": "Quiet · {n} open",
+  "lane_all_done": "All done",
+  "live_done": "{n} done",
+  "today_all_clear": "All clear",
+  "today_bee_flying": "{n} bee flying",
+  "today_bees_flying": "{n} bees flying",
+  "today_stopped": "nothing starts until you resume",
+  "today_session_limit": "At the 5-hour limit",
+  "today_week_limit": "At the weekly limit",
+  "today_checks_again": "Kandu checks it again at {at}",
+  "today_resets": "resets {at}",
+  "today_events": "Today",
+  "today_none": "Nothing happened yet today.",
+  "wait_place": "{at} of {of}",
+  "previous": "Previous",
+  "next": "Next",
+  "kind_queen": "The queen asks",
+  "kind_check": "A check fails",
+  "kind_blocker": "Waits for another task",
+  "split_waits": "The splitter proposes slices: accept them here, or change them in Didban.",
+  "ask_didban": "Ask Didban",
+  "health_bees": "Bees {n} of {most}",
+  "health_machine": "{machine} down since {since}",
+  "brief_tokens": "{n} tokens"
  },
  "fa": {
   "brand": "کندو",
@@ -1204,7 +1326,51 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "waits_for_you_count": "منتظر توست",
   "send_back": "دوباره به کار",
   "send_back_sure": "این تسک دوباره به کار برگردد؟ چرخه‌ی بعدی آخرین نسخه را بازبینی می‌کند، یا ایرادهای بازبینی قبلی را درست می‌کند. چیزی ادغام نمی‌شود: دروازه‌ی ادغام همچنان تصمیم می‌گیرد.",
-  "sent_back_done": "برگشت به ستون Ready. یک چرخه سراغش می‌رود."
+  "sent_back_done": "برگشت به ستون Ready. یک چرخه سراغش می‌رود.",
+  "meadow": "مرغزار",
+  "flight_paths": "مسیرهای پرواز",
+  "projects_one": "{n} پروژه",
+  "projects_many": "{n} پروژه",
+  "paths_empty": "هنوز تسکی روی هیچ بوردی نیست.",
+  "stage_shape": "شکل‌دهی",
+  "stage_ready": "آماده",
+  "stage_build": "ساخت",
+  "stage_review": "بازبینی",
+  "stage_merge": "ادغام",
+  "stage_live": "زنده",
+  "dot_you": "منتظر توست",
+  "dot_stuck": "گیر کرده",
+  "dot_bee": "زنبوری رویش کار می‌کند",
+  "dot_turn": "در نوبت",
+  "lane_stuck": "{n} گیر کرده",
+  "lane_wait_one": "{n} منتظر توست",
+  "lane_wait": "{n} منتظر توست",
+  "lane_bee_one": "{n} زنبور در کار",
+  "lane_bees": "{n} زنبور در کار",
+  "lane_quiet": "آرام · {n} باز",
+  "lane_all_done": "همه انجام شد",
+  "live_done": "{n} انجام‌شده",
+  "today_all_clear": "همه‌چیز روبه‌راه است",
+  "today_bee_flying": "{n} زنبور در پرواز",
+  "today_bees_flying": "{n} زنبور در پرواز",
+  "today_stopped": "تا ادامه ندهی چیزی شروع نمی‌شود",
+  "today_session_limit": "در سقف مصرف پنج‌ساعته",
+  "today_week_limit": "در سقف مصرف هفتگی",
+  "today_checks_again": "کندو ساعت {at} دوباره نگاه می‌کند",
+  "today_resets": "بازنشانی در {at}",
+  "today_events": "امروز",
+  "today_none": "امروز هنوز اتفاقی نیفتاده.",
+  "wait_place": "{at} از {of}",
+  "previous": "قبلی",
+  "next": "بعدی",
+  "kind_queen": "ملکه می‌پرسد",
+  "kind_check": "یک بررسی ناموفق است",
+  "kind_blocker": "منتظر تسکی دیگر",
+  "split_waits": "زنبور اندازه‌گیر پیشنهاد داده این تسک تکه شود: همین‌جا قبولش کن، یا در دیدبان تغییرش بده.",
+  "ask_didban": "از دیدبان بپرس",
+  "health_bees": "زنبورها {n} از {most}",
+  "health_machine": "{machine} از {since} جواب نمی‌دهد",
+  "brief_tokens": "{n} توکن"
  },
  "values_fa": {
   "awake": "بیدار",
@@ -1563,6 +1729,7 @@ function showTab(chosen) {
   chosen = OLD_TABS[chosen] || chosen;
   tab = document.querySelector(`[data-panel="${chosen}"]`) ? chosen : "today";
   save(TAB_KEY, tab);
+  document.body.dataset.page = tab;  // not `data-tab`, which marks what opens a tab
   for (const el of document.querySelectorAll("[data-tab]")) el.setAttribute("aria-selected", el.dataset.tab === tab);
   for (const el of document.querySelectorAll("[data-panel]")) el.hidden = el.dataset.panel !== tab;
   sceneKey = null;
@@ -1663,7 +1830,7 @@ const CROWN = "M-7 -5 l3.5 4 3.5 -5 3.5 5 3.5 -4 v8 h-14z";
 // An open by-hand task is the user's: a hand in place of the queen's crown, as she never picks it.
 const HAND = '<path class="sign" style="fill:#f08c4a;stroke-width:1.2" transform="translate(0 -6)" d="M-4 4 V-2 a1 1 0 0 1 2 0 V-5 a1 1 0 0 1 2 0 V-6 a1 1 0 0 1 2 0 V-5 a1 1 0 0 1 2 0 V0 l1.6 -1.6 a1 1 0 0 1 1.4 1.4 L2 4.5 Q1 6 -1 6 H-2 Q-4 6 -4 4z"/>';
 const SCALES = {Small: .72, Medium: 1, Large: 1.4};
-const CELL_W = 72, CELL_H = 124, COMB_ROW = 12;
+const CELL_W = 72, CELL_H = 124;
 const CHECK = '<path class="sign light" d="M-4.5 0 L-1 3.5 L5 -3.5"/>';
 const SIGNS = {
   "Backlog": `<path class="sign" fill="#f5b301" transform="translate(0 -7) scale(.8)" d="${CROWN}"/>`,
@@ -1836,6 +2003,7 @@ function fields(state, queue) {
       // A merge held by an open blocker is nobody's to approve yet: it keeps its column and says what it waits for.
       const held = item.mark.pr === "held" || (item.blockers || []).length > 0;
       if (item.mark.pr && ON_THE_WAY.includes(item.column) && !held) item.column = item.mark.pr === "waits" ? "Your approval" : "Approved";
+      item.stage = STAGE_OF[item.column];  // its stage on Today's flight path, where a stuck task stays
       // Kandu will not move it on by itself, and no agent runs on it: it is neither waiting nor working.
       if (item.mark.status?.state === "stuck" && !working.has(item.task) && [...ON_THE_WAY, "Approved"].includes(item.column)) item.column = "Stuck";
     }
@@ -1888,16 +2056,8 @@ function patchSwitch(patch) {
     <title>${t(patch.paused ? "resume_project" : "pause_project")}</title><rect class="track" x="-18" y="-11" width="36" height="22" rx="11"/><circle class="knob" cx="8" r="8"/></g>`;
 }
 
-// A finished task leaves the field and fills a cell of the comb under it.
-function renderComb(done, days) {
-  const free = Math.max(COMB_ROW - done.length % COMB_ROW, 0) % COMB_ROW + (done.length ? 0 : COMB_ROW);
-  const full = done.map(item => `<button class="cell full" data-review="${esc(item.task)}" title="${esc(item.title)}">${numberOf(item.task)}<small>${esc(item.project)}</small></button>`);
-  const label = days ? t("done_in_hive").replace("{count}", num(done.length)).replace("{days}", num(days)) : "";
-  $("comb").innerHTML = `<b>${t("hive")}${label ? ` · ${label}` : ""}</b><div class="cells">${full.join("")}${'<span class="cell"></span>'.repeat(free)}</div>`;
-}
-
 function renderScene(state, queue) {
-  if (tab !== "today") return;
+  if (tab !== "today" || !$("meadowbox").open) return;
   const box = $("scene");
   const narrow = box.clientWidth < 760;
   const projects = fields(state, queue).sort((a, b) => rank(a.name) - rank(b.name));
@@ -1949,7 +2109,6 @@ function renderScene(state, queue) {
     toggle.setAttribute("transform", `translate(${lang === "fa" ? b.x - 28 : b.x + b.width + 28} ${b.y + b.height / 2})`);
   }
   if (stopped) box.firstElementChild.pauseAnimations();
-  renderComb(done, queue?.done_days);
 }
 
 function renderLegend() {
@@ -2132,6 +2291,246 @@ function unreachableMachines(s) {
   }).join("");
 }
 
+// Today: what waits for the user first, then each project's flight path, the queen's brief and today's events. All
+// of it comes from the state and the queue the page already reads, and the events it already follows.
+
+// A flight path's six stages, and the stage of each column as the page places a task: a PR that waits for a yes or
+// was approved is at Merge, a task waiting for its machine is still Ready, and a stuck one stays where it stopped.
+const STAGES = ["stage_shape", "stage_ready", "stage_build", "stage_review", "stage_merge", "stage_live"];
+const STAGE_OF = {"Backlog": 0, "Technical debt": 0, "Needs info": 0, "Needs split": 0, "Ready": 1, "waiting": 1, "In progress": 2, "Blocked": 2, "In review": 3, "Your approval": 4, "Approved": 4, "Done": 5};
+const DOTS_SHOWN = 3;
+const HIVE_CELLS = 12;  // the hive shows at least this many cells, empty ones after the done tasks
+const DOT_ORDER = ["stuck", "you", "bee", "turn"];  // the most urgent first, when a stage holds more than it shows
+const WAIT_ORDER = ["approval", "queen", "decision", "split", "by_hand", "stuck"];
+const EVENT_TONES = {red: ["loop_stopped", "machine_down", "machine_unreachable", "card_stuck", "backup_failed", "notification_failed", "upstream_check_failed"], amber: ["merge_held", "blocker_drop_asked", "task_held"], green: ["supervisor_woke", "user_approved", "queen_approved", "queen_accepted_split", "deployed", "machine_up", "backup_made"], blue: ["task_picked", "phase_changed", "review_finished", "run_finished", "task_sized", "notes_sized", "slice_created", "task_split"]};
+let waitKey = null;  // the item of "Waits for you" in view, kept by its task while the list changes
+
+// What waits for the user, each open task once: the queen's ask, a PR for their yes or decision, a split for them to
+// accept, an open by-hand task, and a stuck task no worker is on. Needs first, then stuck, in the projects' order.
+// Each offers the actions Kandu has for it, and opening its task.
+function waitItems(s, queue) {
+  const open = {};
+  for (const [project, columns] of Object.entries(queue?.projects || {}))
+    for (const [column, tasks] of Object.entries(columns)) for (const entry of tasks) open[entry.task] = {...entry, project, column};
+  const done = task => open[task]?.column === "Done";
+  const working = new Set((s.workers || []).map(w => w.task));
+  const order = name => { const at = (s.project_order || []).indexOf(name); return at < 0 ? 1e9 : at; };
+  const splitsMine = name => ((s.project_settings || []).find(p => p.name === name)?.split_approval || "user") === "user";
+  const button = (label, attrs, primary = false) => ({label, attrs, primary});
+  const items = new Map();
+  const add = (task, kind, label, tone, line, actions) => {
+    if (items.has(task)) return;
+    const project = open[task]?.project || repoOf(task);
+    items.set(task, {task, project, title: open[task]?.title || "", kind: label, tone, line, stuck: kind === "stuck",
+                     order: WAIT_ORDER.indexOf(kind), rank: order(project), actions: [...actions, button(t("open"), `data-review="${esc(task)}"`)]});
+  };
+  const marks = Object.entries(s.flowers || {});
+  for (const d of s.queen?.drops || [])
+    add(d.task, "queen", t("kind_queen"), "amber", `${fillIn("drop_ask", {blocker: d.blocker})}: ${d.reason}`,
+        [button(t("drop_yes"), `data-drop="${esc(d.task)}" data-blocker="${esc(d.blocker)}"`, true)]);
+  for (const [task, mark] of marks) {
+    if (mark.status?.state !== "stuck" || working.has(task) || !open[task] || done(task)) continue;
+    const back = ["Blocked", "Needs info"].includes(open[task].column) && !open[task].by_hand;
+    add(task, "stuck", t("state_stuck"), "red", statusText(mark.status), back ? [button(t("send_back"), `data-back-open="${esc(task)}"`, true)] : []);
+  }
+  for (const q of s.queen?.questions || []) {
+    if (done(q.task)) continue;
+    add(q.task, "queen", t("kind_queen"), "amber", q.question, [button(t("ask_didban"), `data-fly="didban" data-focus="${esc(open[q.task]?.project || repoOf(q.task))}"`, true)]);
+  }
+  for (const [task, mark] of marks) {
+    if (!mark.yours || done(task)) continue;
+    const on = mark.status?.wait?.on;
+    const line = mark.status?.why ? statusText(mark.status) : fillIn("wait_on", {what: t(on === "yes" ? "wait_yes" : on === "unknown" ? "wait_unknown" : "wait_decision")});
+    if (on === "yes") add(task, "approval", tr("Your approval"), "amber", line, [button(t("approve"), `data-approve-open="${esc(task)}"`, true)]);
+    else if (on === "check" || on === "blocker") add(task, "decision", t(`kind_${on}`), "amber", line, []);
+    else add(task, "decision", t("waits_for_you"), "amber", line, [button(t("ask_didban"), `data-fly="didban" data-focus="${esc(open[task]?.project || repoOf(task))}"`)]);
+  }
+  for (const [task, entry] of Object.entries(open)) {
+    if (entry.column === "Needs split" && splitsMine(entry.project))
+      add(task, "split", tr("Needs split"), "amber", t("split_waits"), [button(t("approve_split"), `data-approve-open="${esc(task)}"`, true)]);
+    else if (entry.yours && !done(task))
+      add(task, "by_hand", t("by_hand_yours"), "amber", t("by_hand_hint"), [button(t("open_flight"), `data-fly="${esc(task)}"`, true)]);
+  }
+  const number = item => Number(item.task.split("#")[1]);
+  return [...items.values()].sort((a, b) => a.stuck - b.stuck || a.rank - b.rank || a.order - b.order || number(a) - number(b));
+}
+
+// One item of "Waits for you" in view, with its place and its neighbours, and the others below it; null when none.
+// An item that went away leaves the first in its place.
+function waitView(items, key) {
+  if (!items.length) return null;
+  const n = items.length, at = Math.max(0, items.findIndex(item => item.task === key));
+  return {current: items[at], place: fillIn("wait_place", {at: num(at + 1), of: num(n)}), prev: items[(at - 1 + n) % n].task,
+          next: items[(at + 1) % n].task, rest: items.filter((_, i) => i !== at)};
+}
+
+// Kandu's state at a glance: stopped; at a usage limit, with when it resets (when Kandu checks it again if `/usage`
+// did not say); how many wait for the user and how many are stuck; asleep with the next wake; or all clear. While
+// awake it says how many bees fly. At both limits it names the one that resets later: work waits for that one.
+function todaySentence(s, items) {
+  const usage = s.usage || {}, limits = s.limits || {};
+  const wakes = !s.timer_on ? t("chip_timer_off") : s.next_wake ? fillIn("chip_wakes", {at: clock(s.next_wake)}) : "";
+  if (s.stop_requested) return [{text: t("chip_stopped"), tone: "red"}, {text: t("today_stopped")}];
+  const over = ["session", "week"].filter(name => usage[name] >= limits[name]);
+  if (over.length) {
+    const resets = name => usage[`${name}_resets`] || "";
+    const limit = over.reduce((a, b) => resets(b) && new Date(resets(b)) > new Date(resets(a) || 0) ? b : a);
+    const again = resets(limit) ? [{text: fillIn("today_resets", {at: when(resets(limit))})}]
+      : s.timer_on && s.next_wake ? [{text: fillIn("today_checks_again", {at: clock(s.next_wake)})}] : [];
+    return [{text: t(`today_${limit}_limit`), tone: "amber"}, ...again];
+  }
+  const stuck = items.filter(item => item.stuck).length, waiting = items.length - stuck, bees = (s.workers || []).length;
+  const lead = [...(waiting ? [{text: fillIn(waiting === 1 ? "lane_wait_one" : "lane_wait", {n: num(waiting)}), tone: "amber"}] : []),
+                ...(stuck ? [{text: fillIn("lane_stuck", {n: num(stuck)}), tone: "red"}] : [])];
+  const asleep = [{text: t("chip_asleep"), tone: lead.length ? undefined : "ink"}, ...(wakes ? [{text: wakes}] : [])];
+  const flying = {text: fillIn(bees === 1 ? "today_bee_flying" : "today_bees_flying", {n: num(bees)})};
+  if (s.supervisor !== "awake") return [...lead, ...asleep];
+  return lead.length ? [...lead, flying] : [{text: t("today_all_clear"), tone: "ink"}, flying];
+}
+
+function sentenceHtml(parts) {
+  return parts.map(p => p.tone ? `<b class="tone-${p.tone}">${esc(p.text)}</b>` : `<span>${esc(p.text)}</span>`).join('<span class="sep"> · </span>');
+}
+
+// The phone's health line: the state, each usage against its limit, the bees at work of the most, and each machine
+// that does not answer. Each opens the page that explains it.
+function healthItems(s) {
+  const chip = stateChip(s), most = s.parallel?.total;
+  return [
+    {kind: "state", tone: {awake: "green", holding: "amber", refused: "amber", stopped: "red"}[chip.kind] || "muted", text: chip.long, tab: "activity"},
+    {kind: "bar", name: t("session"), value: s.usage?.session ?? null, limit: s.limits.session, tab: "days"},
+    {kind: "bar", name: t("week"), value: s.usage?.week ?? null, limit: s.limits.week, tab: "days"},
+    {kind: "bees", tone: "muted", text: fillIn("health_bees", {n: num((s.workers || []).length), most: most ? num(most) : "—"}), tab: "tasks"},
+    ...(s.unreachable_machines || []).map(m => ({kind: "machine", tone: "red", text: fillIn("health_machine", {machine: m.machine, since: when(m.since)}), tab: "tasks"})),
+  ];
+}
+
+function healthHtml(items) {
+  return items.map(i => `<button class="hitem ${i.kind}" data-tab="${i.tab}">${i.kind === "bar" ? gauge(i.name, i.value, i.limit)
+    : `<i class="hex tone-${i.tone}"></i><span dir="auto">${esc(i.text)}</span>`}</button>`).join("");
+}
+
+// What a task's dot says: stuck with no worker on it, it needs the user, a worker is on it, or it waits its turn.
+function dotKind(item, working, waiting) {
+  if (item.mark?.status?.state === "stuck" && !working.has(item.task)) return "stuck";
+  if (waiting.has(item.task)) return "you";
+  return working.has(item.task) ? "bee" : "turn";
+}
+
+// One lane per project, those that need attention first and paused ones last, faded. Each stage shows its most
+// urgent tasks as dots, then how many more; Live shows how many are done.
+function flightPaths(s, queue, items) {
+  const working = new Set((s.workers || []).map(w => w.task));
+  const waiting = new Set(items.filter(item => !item.stuck).map(item => item.task));
+  const order = name => { const at = (s.project_order || []).indexOf(name); return at < 0 ? 1e9 : at; };
+  return fields(s, queue).map(patch => {
+    const dots = patch.tasks.map(item => ({task: item.task, title: item.title, stage: item.stage, kind: dotKind(item, working, waiting)}))
+      .sort((a, b) => DOT_ORDER.indexOf(a.kind) - DOT_ORDER.indexOf(b.kind));
+    const open = dots.filter(d => d.stage !== 5), count = kind => open.filter(d => d.kind === kind).length;
+    const stages = STAGES.map((_, at) => {
+      const here = dots.filter(d => d.stage === at);
+      return at === 5 ? {dots: [], more: 0, done: here.length} : {dots: here.slice(0, DOTS_SHOWN), more: Math.max(0, here.length - DOTS_SHOWN), done: 0};
+    });
+    const stuck = count("stuck"), you = count("you"), bees = count("bee");
+    const [tone, line] = patch.paused ? ["muted", t("project_on_pause")] : stuck ? ["red", fillIn("lane_stuck", {n: num(stuck)})]
+      : patch.over ? ["red", t("over_limit")] : you ? ["amber", fillIn(you === 1 ? "lane_wait_one" : "lane_wait", {n: num(you)})]
+      : bees ? ["ink", fillIn(bees === 1 ? "lane_bee_one" : "lane_bees", {n: num(bees)})]
+      : ["muted", open.length ? fillIn("lane_quiet", {n: num(open.length)}) : t("lane_all_done")];
+    return {name: patch.name, paused: patch.paused, tone, line, stages, attention: !patch.paused && Boolean(stuck || you || patch.over), order: order(patch.name)};
+  }).sort((a, b) => a.paused - b.paused || b.attention - a.attention || a.order - b.order);
+}
+
+function pathsHtml(lanes, queue) {
+  const head = `<div class="today-head"><b>${t("flight_paths")}</b><span class="muted">${esc(fillIn(lanes.length === 1 ? "projects_one" : "projects_many", {n: num(lanes.length)}))}</span></div>`;
+  if (!queue) return `${head}<div class="muted">${t("reading_board")}</div>`;
+  if (!lanes.length) return `${head}<div class="muted">${t("paths_empty")}</div>`;
+  const dot = d => `<button class="pdot ${d.kind}" data-review="${esc(d.task)}" title="${esc(`${numberOf(d.task)} ${d.title}`)}" aria-label="${esc(`${numberOf(d.task)} ${d.title} · ${t("dot_" + d.kind)}`)}"></button>`;
+  const stage = (st, at) => `<div class="stage">${at === 5 ? (st.done ? `<span class="pdone" title="${esc(fillIn("live_done", {n: num(st.done)}))}">${num(st.done)}</span>` : "")
+    : st.dots.map(dot).join("") + (st.more ? `<span class="pmore">+${num(st.more)}</span>` : "")}</div>`;
+  const lane = l => `<div class="lane${l.paused ? " off" : ""}"><div class="lane-head"><b>${bdi(l.name)}</b><span class="lane-line tone-${l.tone}">${esc(l.line)}</span></div>
+    <div class="lane-track">${l.stages.map(stage).join("")}</div></div>`;
+  const legend = ["you", "stuck", "bee", "turn"].map(kind => `<span><i class="pdot ${kind}"></i>${esc(t("dot_" + kind))}</span>`).join("");
+  return `${head}<div class="stage-names">${STAGES.map(key => `<span>${t(key)}</span>`).join("")}</div>
+    <div class="lanes">${lanes.map(lane).join("")}</div><div class="plegend">${legend}</div>`;
+}
+
+// The hive: the tasks done in the last days the queue keeps, each in a honey cell that names it on hover.
+function hiveCells(queue) {
+  return Object.entries(queue?.projects || {}).flatMap(([project, columns]) => (columns.Done || []).map(item => ({task: item.task, project, title: item.title})));
+}
+
+function hiveHtml(cells, days) {
+  const full = cells.map(c => `<button class="cell full" data-review="${esc(c.task)}" title="${esc(`${c.project} · ${c.title}`)}">${numberOf(c.task)}</button>`);
+  const free = '<span class="cell"></span>'.repeat(Math.max(0, HIVE_CELLS - cells.length));
+  const count = days ? `<span class="muted">${esc(fillIn("done_in_hive", {count: num(cells.length), days: num(days)}))}</span>` : "";
+  return `<div class="today-head"><b>${t("hive")}</b>${count}</div><div class="cells">${full.join("")}${free}</div>`;
+}
+
+// The queen's latest brief, with when she wrote it and the tokens that look cost.
+function briefMeta(queen) {
+  return `${when(queen.ts)} · ${fillIn("brief_tokens", {n: short(queen.tokens)})}`;
+}
+
+function briefHtml(queen) {
+  if (!queen) return "";
+  return `<div class="today-head"><b>${t("queen")}</b><span class="muted">${esc(briefMeta(queen))}</span></div><div class="brief" dir="auto">${esc(queen.brief)}</div>`;
+}
+
+// An event's colour says its kind: red a failure or a stop, amber what waits for the user, green what went well,
+// blue work moving on, muted the rest.
+function eventTone(e) {
+  if (e.type === "task_finished") return e.outcome === "needs_info" ? "amber" : ["blocked", "sizing_failed", "failed", "deploy_failed", "live_check_failed"].includes(e.outcome) ? "red" : "green";
+  if (e.type === "decision") return ["internal_error", "failed", "sizing_failed", "round_no_commit"].includes(e.decision) ? "red"
+    : e.decision === "merge_waits" || (e.reason || "").startsWith("the user decides next") ? "amber" : "muted";
+  if (e.type === "queen_decided") return e.action === "ask_user" ? "amber" : "muted";
+  return Object.keys(EVENT_TONES).find(tone => EVENT_TONES[tone].includes(e.type)) || "muted";
+}
+
+function eventLine(e) {
+  const name = lang === "en" ? e.type.replace(/_/g, " ").replace(/^./, c => c.toUpperCase()) : tr(e.type);
+  const detail = [e.phase, e.decision, e.reason, e.outcome].filter(Boolean).map(tr).join(" · ");
+  return [name, e.task ? `${repoOf(e.task)} ${numberOf(e.task)}` : "", detail].filter(Boolean).join(" · ");
+}
+
+// Today's events, newest first, by the browser's own day.
+function todayEvents(events, now) {
+  const day = now.toDateString();
+  return events.filter(e => new Date(e.ts).toDateString() === day).sort((a, b) => new Date(b.ts) - new Date(a.ts));
+}
+
+function eventsHtml(events) {
+  const rows = events.map(e => `<div class="event"${e.task ? ` data-review="${esc(e.task)}"` : ""}><time>${esc(clock(e.ts))}</time><i class="tone-${eventTone(e)}"></i><span dir="auto">${esc(eventLine(e))}</span></div>`).join("");
+  return `<div class="today-head"><b>${t("today_events")}</b></div>${rows || `<div class="muted">${t("today_none")}</div>`}`;
+}
+
+// The arrows are mirrored by the browser in right-to-left text, so each points the way it goes in either language.
+function waitsHtml(view) {
+  const c = view.current;
+  const where = item => `${bdi(item.project)} ${numberOf(item.task)}`;
+  const head = `<div class="today-head"><b>${t("waits_for_you_count")}</b><span class="muted">${esc(view.place)}</span><span class="spacer"></span>
+    <button class="btn step" data-wait-to="${esc(view.prev)}" aria-label="${esc(t("previous"))}">‹</button><button class="btn step" data-wait-to="${esc(view.next)}" aria-label="${esc(t("next"))}">›</button></div>`;
+  const card = `<div class="wait-card"><div class="wait-kind"><i class="hex tone-${c.tone}"></i><b class="tone-${c.tone}">${esc(c.kind)}</b><span class="muted">${where(c)}</span></div>
+    <div class="wait-title" dir="auto">${esc(c.title || repoOf(c.task))}</div><div class="wait-why" dir="auto">${esc(c.line)}</div>
+    <div class="actions">${c.actions.map(a => `<button class="btn${a.primary ? " primary" : ""}" ${a.attrs}>${esc(a.label)}</button>`).join("")}</div></div>`;
+  const rest = view.rest.map(i => `<button class="wait-row" data-wait-to="${esc(i.task)}"><i class="hex tone-${i.tone}"></i><span><b dir="auto">${esc(i.title || repoOf(i.task))}</b><small>${esc(i.kind)} · ${where(i)}</small></span><span aria-hidden="true">›</span></button>`).join("");
+  return head + card + (rest ? `<div class="wait-rest">${rest}</div>` : "");
+}
+
+function renderToday() {
+  if (!lastState) return;
+  const s = lastState, items = waitItems(s, lastQueue), view = waitView(items, waitKey);
+  waitKey = view ? view.current.task : null;
+  $("health").innerHTML = healthHtml(healthItems(s));
+  $("waits").hidden = !view;
+  $("waits").innerHTML = view ? waitsHtml(view) : "";
+  $("hivebox").innerHTML = hiveHtml(hiveCells(lastQueue), lastQueue?.done_days);
+  $("sentence").innerHTML = sentenceHtml(todaySentence(s, items));
+  $("paths").innerHTML = pathsHtml(flightPaths(s, lastQueue, items), lastQueue);
+  $("briefbox").hidden = !s.queen;
+  $("briefbox").innerHTML = briefHtml(s.queen);
+  $("todayevents").innerHTML = eventsHtml(todayEvents(live, new Date()));
+}
+
 // The frame: the header's chip and usage bars, Didban beside them, the count on Today, More, and Stop.
 
 // The header's chip: stopped, holding at a usage limit, awake or asleep, with the next wake; on a phone only awake
@@ -2256,6 +2655,7 @@ async function refreshState() {
   renderBees(s);
   renderQueen(s);
   renderScene(s, lastQueue);
+  renderToday();
   renderProjects();
   renderSettings(s);
   refreshRequests().catch(() => {});
@@ -2440,6 +2840,7 @@ async function refreshQueue(state, fresh) {
     renderStats(state);
     renderProjects();
     renderScene(state, lastQueue);
+    renderToday();
     if (lastQueue.stale) toast(t("github_unreadable"));
   } catch { toast(t("github_unreadable")); }
 }
@@ -2557,6 +2958,7 @@ async function loadLive() {
   }
   live = [...seen.reverse(), ...live].slice(0, LIVE_LINES);
   renderLive();
+  renderToday();
 }
 
 function openModal(title) {
@@ -2634,15 +3036,20 @@ function sendBack(task, item) {
 function statusLine(task) {
   const status = lastState?.flowers?.[task]?.status;
   if (!status) return "";
-  const detail = !status.detail ? null : status.why === "review_blockers" ? num(Number(status.detail))
-    : status.detail.split("; ").map(tr).join(lang === "fa" ? "؛ " : "; ");
-  const sentence = t(`status_${status.why || status.state}`);
-  let text = sentence.includes("{detail}") ? sentence.replace("{detail}", detail || t("status_no_detail")) : detail ? `${sentence} (${detail})` : sentence;
+  let text = statusText(status);
   if (status.tries) text += " " + fillIn("status_tries", {this: num(status.tries.this), of: num(status.tries.of)});
   const toQueen = status.why === "internal_error" ? `<button class="btn small" data-to-queen="${esc(task)}" title="${esc(t("to_queen_hint"))}">${t("to_queen")}</button>` : "";
   const cleaned = status.cleaned ? `<p class="muted" dir="auto">${esc(t("cleaned_folder"))}: ${esc(tr(status.cleaned))}</p>` : "";
   const waiting = waitLines(status.wait).map(line => `<div class="wait-line" dir="auto">${line}</div>`).join("");
   return `<div class="status-line ${esc(status.state)}"><span class="badge">${esc(t(`state_${status.state}`))}</span><span dir="auto">${esc(text)}</span>${toQueen}</div>${waiting}${cleaned}`;
+}
+
+// A task's status in one plain sentence, with its reason.
+function statusText(status) {
+  const detail = !status.detail ? null : status.why === "review_blockers" ? num(Number(status.detail))
+    : status.detail.split("; ").map(tr).join(lang === "fa" ? "؛ " : "; ");
+  const sentence = t(`status_${status.why || status.state}`);
+  return sentence.includes("{detail}") ? sentence.replace("{detail}", detail || t("status_no_detail")) : detail ? `${sentence} (${detail})` : sentence;
 }
 
 // What a waiting task waits on, where the problem is and the next step, from the wait the server worked out. Links
@@ -2761,6 +3168,9 @@ document.addEventListener("click", e => {
   if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); sendingBack = false; showReviews(shownTask); return; }
   if (hit("back-sure")) { sendingBack = true; confirming = false; showReviews(shownTask); return; }
   if (hit("back")) { doSendBack(hit("back")); return; }
+  if (hit("wait-to")) { waitKey = hit("wait-to").dataset.waitTo; renderToday(); return; }
+  if (hit("approve-open")) { confirming = true; sendingBack = false; showReviews(hit("approve-open").dataset.approveOpen); return; }
+  if (hit("back-open")) { sendingBack = true; confirming = false; showReviews(hit("back-open").dataset.backOpen); return; }
   if (hit("to-queen")) { toQueen(hit("to-queen")); return; }
   if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
   if (pause) {  // It sits in the project's summary, which would fold.
@@ -2782,6 +3192,7 @@ document.addEventListener("change", e => {
   if (e.target.matches?.("[data-clean-merged]")) changeCleanMerged(e.target);
 });
 document.addEventListener("toggle", e => {
+  if (e.target.id === "meadowbox") { sceneKey = null; if (lastState) renderScene(lastState, lastQueue); return; }
   const asked = e.target.dataset?.request;
   if (asked !== undefined) { if (e.target.open) openRequests.add(asked); else openRequests.delete(asked); return; }
   const name = e.target.dataset?.project;
