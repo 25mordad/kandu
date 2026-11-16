@@ -189,8 +189,8 @@ class ClassicPageTest(unittest.TestCase):
     def test_it_shows_every_warning(self):
         for part in ('<div id="machines" class="list" hidden></div>', '<div id="asks" class="list" hidden></div>',
                      "const refused = githubRefused(s);", "${limitBadge(overLimit(lastState, project.name))}",
-                     '<ellipse class="soil${patch.paused ? " off" : ""}${patch.over ? " over" : ""}"', "statusLine(task)",
-                     "waitLines(status.wait)", "heldLines("):
+                     '<ellipse class="soil${patch.paused ? " off" : ""}${patch.over ? " over" : ""}"', "statusText(v.status)",
+                     "waitLines(v.status.wait)", "heldLines("):
             self.assertTrue(part in self.page, part)
 
     def test_every_task_state_has_its_flower_and_its_badge(self):

@@ -247,6 +247,38 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 #projectsettings { overflow-x:auto; }
+/* A task's sheet, the Kandu Clean look's: its colours named as there, from the Classic look's own. */
+#sheet { --amber:#b4500a; --red:var(--bad); --green:var(--good); --blue:#2f62b0; --surface2:var(--sunken); --ink2:var(--muted); --ink3:var(--muted); --honey-ink:var(--on-honey); }
+@media (prefers-color-scheme: dark) { #sheet { --amber:#f2a05c; --blue:#86a9ee; } }
+#sheet .sheet-foot .actions > .btn, #sheet .sheet-foot .flightbox > .btn { flex:1 1 auto; min-height:48px; border-radius:12px; font-size:15px; white-space:normal; }
+.sheet-hex { flex:none; width:56px; height:64px; display:grid; place-items:center; font-size:16px; font-weight:800; clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); background:var(--honey); color:var(--honey-ink); }
+.sheet-hex.amber { background:var(--amber); color:var(--surface); } .sheet-hex.red { background:var(--red); color:var(--surface); }
+.phases { display:grid; grid-template-columns:repeat(var(--n), minmax(0, 1fr)); gap:2px; }
+.phase { display:flex; flex-direction:column; align-items:center; gap:6px; min-width:0; }
+.phase .hex { width:30px; height:34px; background:var(--line); }
+.phase span { font-size:11px; line-height:1.2; text-align:center; font-weight:600; color:var(--ink3); overflow-wrap:anywhere; }
+.phase.done .hex { background:var(--honey); } .phase.done span { color:var(--ink); }
+.phase.now .hex { background:var(--amber); } .phase.now span { color:var(--amber); font-weight:700; }
+.sheet-state { display:flex; align-items:center; flex-wrap:wrap; gap:6px 16px; font-size:13px; color:var(--ink2); }
+.sheet-state .textlink { text-decoration:underline; text-underline-offset:3px; }
+.sheet-what { font-size:14px; color:var(--ink2); }
+.sheet-box { padding:14px 16px; border-radius:14px; background:var(--surface); border:1px solid var(--line); display:flex; flex-direction:column; gap:8px; min-width:0; }
+.sheet-box-head { font-size:12px; font-weight:700; color:var(--ink2); }
+.sheet-question { font-size:15px; font-weight:600; overflow-wrap:anywhere; }
+.sheet-section { display:flex; flex-direction:column; gap:10px; }
+.steps { display:flex; flex-direction:column; }
+.step { display:flex; gap:14px; }
+.step > .hex { width:16px; height:18px; margin-top:3px; background:var(--honey); }
+.step.last > .hex { background:var(--amber); }
+.step > div { flex:1; min-width:0; padding-bottom:14px; }
+.step-head { display:flex; align-items:baseline; gap:8px; }
+.step-head b { flex:1; min-width:0; font-size:14px; overflow-wrap:anywhere; }
+.step-head time { flex:none; font-size:12px; color:var(--ink3); }
+.step-text { font-size:13px; color:var(--ink2); overflow-wrap:anywhere; }
+.sheet-foot .flightbox { flex:1 1 auto; }
+.tone-amber { color:var(--amber); } .tone-red { color:var(--red); } .tone-green { color:var(--green); } .tone-blue { color:var(--blue); } .tone-muted { color:var(--ink3); } .tone-ink { color:var(--ink); }
+.hex { flex:none; width:9px; height:10px; clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); }
+.spacer { flex:1; }
 /* A project's settings: a pop-up over the page, centred on a wide screen and from the bottom on a phone. Nothing
    changes until Save. */
 dialog.sheet { width:min(600px, calc(100vw - 24px)); max-height:calc(100dvh - 80px); background:var(--bg); overflow:hidden; }
@@ -260,7 +292,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
 .sheet-close { all:unset; box-sizing:border-box; cursor:pointer; flex:none; align-self:flex-start; width:44px; height:44px; display:grid; place-items:center; border-radius:50%; background:var(--sunken); font-size:15px; font-weight:700; }
 .sheet-close:focus-visible, .flip:focus-visible, .seg button:focus-visible { outline:2px solid var(--honey); outline-offset:2px; }
 .sheet-foot { flex:none; padding:14px 20px calc(18px + env(safe-area-inset-bottom)); background:var(--surface); border-top:1px solid var(--line); display:flex; flex-direction:column; gap:8px; }
-.sheet-note { font-size:13px; font-weight:600; overflow-wrap:anywhere; color:var(--accent); }
+.sheet-note { font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+#setfoot .sheet-note { color:var(--accent); }
 .sheet-foot .actions > .btn { flex:1 1 auto; min-height:48px; border-radius:12px; font-size:15px; white-space:normal; }
 .set-group { display:flex; flex-direction:column; }
 .set-group h3 { margin:0; font-size:12px; font-weight:700; color:var(--muted); padding-bottom:4px; }
@@ -350,6 +383,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   <section data-panel="activity" class="card" hidden><div id="live" class="feed-scroll"></div></section>
 </main>
 <dialog id="modal"><div class="dialog-head"><h2 id="modaltitle"></h2><button class="btn plain small" data-close data-t-attr="aria-label" data-t="close">×</button></div><div id="modalbody" class="dialog-body"></div></dialog>
+<dialog id="sheet" class="sheet" data-t-attr="aria-label" data-t="task_sheet"><div id="sheetbody" class="sheet-body"></div><div id="sheetfoot" class="sheet-foot"></div></dialog>
 <dialog id="setsheet" class="sheet" data-t-attr="aria-label" data-t="tab_settings"><div id="setbody" class="sheet-body"></div><div id="setfoot" class="sheet-foot"></div></dialog>
 <dialog id="tokenbox" class="small"><form method="dialog" class="dialog-body" id="tokenform">
   <h2 data-t="control_token"></h2><p class="muted" data-t="token_why"></p>
@@ -696,6 +730,26 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "bee_inspector": "Bazras, the inspector bee",
   "tab_bazras": "Bazras",
   "tab_settings": "Settings",
+  "task_sheet": "Task",
+  "ask_didban": "Ask Didban",
+  "kind_queen": "The queen asks",
+  "kind_check": "A check fails",
+  "kind_blocker": "Waits for another task",
+  "mark_sent_back": "sent back",
+  "mark_question": "{n} question",
+  "no_steps": "Nothing has happened yet.",
+  "proposed_slices": "Proposed slices · one PR each",
+  "so_far_min": "{n} min",
+  "split_waits": "The splitter proposes slices: accept them here, or change them in Didban.",
+  "step_blockers": "{n} blockers",
+  "step_round": "round {n}",
+  "stop_bee": "Stop this bee",
+  "task_issue": "Issue",
+  "task_pr": "PR",
+  "task_run_log": "Run log",
+  "task_steps": "Steps so far",
+  "waiting_machine": "Waiting for a machine",
+  "task_full_issue": "The whole issue and its cost",
   "set_open": "Settings",
   "set_group_work": "Work",
   "set_group_merge": "Merge",
@@ -1073,6 +1127,26 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "bee_inspector": "بازرس، زنبور بازرسی",
   "tab_bazras": "بازرس",
   "tab_settings": "تنظیمات",
+  "task_sheet": "تسک",
+  "ask_didban": "از دیدبان بپرس",
+  "kind_queen": "ملکه می‌پرسد",
+  "kind_check": "یک بررسی ناموفق است",
+  "kind_blocker": "منتظر تسکی دیگر",
+  "mark_sent_back": "برگشت داده شده",
+  "mark_question": "{n} پرسش",
+  "no_steps": "هنوز اتفاقی نیفتاده.",
+  "proposed_slices": "تکه‌های پیشنهادی · هر کدام یک PR",
+  "so_far_min": "{n} دقیقه",
+  "split_waits": "زنبور اندازه‌گیر پیشنهاد داده این تسک تکه شود: همین‌جا قبولش کن، یا در دیدبان تغییرش بده.",
+  "step_blockers": "{n} مانع",
+  "step_round": "دور {n}",
+  "stop_bee": "توقف این زنبور",
+  "task_issue": "issue",
+  "task_pr": "PR",
+  "task_run_log": "گزارش اجرا",
+  "task_steps": "گام‌ها تا اینجا",
+  "waiting_machine": "در انتظار ماشین",
+  "task_full_issue": "متن کامل issue و هزینه‌اش",
   "set_open": "تنظیمات",
   "set_group_work": "کار",
   "set_group_merge": "ادغام",
@@ -1172,6 +1246,13 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "sent_back_done": "برگشت به ستون Ready. یک چرخه سراغش می‌رود."
  },
  "values_fa": {
+  "review": "بازبینی",
+  "project_renamed": "نام پروژه عوض شد",
+  "a project's name uses only lowercase letters, digits and dashes, and does not start with a dash": "نام پروژه فقط حروف کوچک انگلیسی، رقم و خط تیره دارد و با خط تیره شروع نمی‌شود",
+  "another project already has this name": "پروژهٔ دیگری همین نام را دارد",
+  "stop or wait for the running work first": "اول کار در حال اجرا را متوقف کن یا منتظر بمان تا تمام شود",
+  "Kandu still keeps a memory, brief or Bazras report under this name": "کندو هنوز حافظه، خلاصه یا گزارش بازرسی با این نام نگه می‌دارد",
+  "change the name in a call of its own": "نام را در درخواستی جدا تغییر بده",
   "give the project a name": "برای پروژه نامی بنویس",
   "awake": "بیدار",
   "waiting for machine": "در انتظار ماشین",
@@ -1400,6 +1481,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "flight": "پرواز آزاد"
  },
  "patterns_fa": [
+  ["^(\\S+) could not be renamed: (.*); it keeps its name and everything stays as it was$", "نام $1 عوض نشد: $2؛ نامش همان ماند و همه‌چیز همان‌طور که بود ماند"],
   [
    "^review round (\\d+)$",
    "دور بازبینی $1"
@@ -1525,7 +1607,7 @@ function setLanguage(chosen) {
   applyLanguage();
   renderLive();
   if (shownRun) showRun(shownRun);
-  if (shownTask) showReviews(shownTask);
+  if (shownTask) showTask(shownTask);
   refresh();
 }
 
@@ -1602,14 +1684,14 @@ async function doSendBack(button) {
   const done = await act(button, `/tasks/${repo}/${number}/send-back`);
   sendingBack = false;
   if (done) { toast(t("sent_back_done")); await refreshQueue(lastState, true).catch(() => {}); }
-  showReviews(task);
+  showTask(task);
 }
 
 async function approve(button) {
   const [repo, number] = button.dataset.approve.split("#");
   await act(button, `/reviews/${repo}/${number}/approve?head=${encodeURIComponent(button.dataset.head)}`);
   confirming = false;
-  showReviews(button.dataset.approve);
+  showTask(button.dataset.approve);
 }
 
 // The meadow. Everything on it comes from real state: a bee flies only while a real agent runs.
@@ -2579,9 +2661,8 @@ function openModal(title) {
   if (!$("modal").open) $("modal").showModal();
 }
 
-async function showRun(runId) {
+async function showRun(runId) {  // over the task's sheet, when opened from it
   shownRun = runId;
-  shownTask = null;
   const {actions} = await get("/runs/" + encodeURIComponent(runId));
   if (shownRun !== runId) return;
   openModal(`${t("run")} ${bdi(runId)}`);
@@ -2644,22 +2725,6 @@ function sendBack(task, item) {
   return `<div class="confirm"><div>${t("send_back_sure")}</div><div class="actions"><button class="btn primary" data-back="${esc(task)}">${t("send_back")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`;
 }
 
-// Whether the task is fine, has a problem, hit an error or is stuck, in one plain sentence with its reason. In
-// Kandu's own error it says which try failed, and offers to stop the tries so the queen looks now.
-function statusLine(task) {
-  const status = lastState?.flowers?.[task]?.status;
-  if (!status) return "";
-  const detail = !status.detail ? null : status.why === "review_blockers" ? num(Number(status.detail))
-    : status.detail.split("; ").map(tr).join(lang === "fa" ? "؛ " : "; ");
-  const sentence = t(`status_${status.why || status.state}`);
-  let text = sentence.includes("{detail}") ? sentence.replace("{detail}", detail || t("status_no_detail")) : detail ? `${sentence} (${detail})` : sentence;
-  if (status.tries) text += " " + fillIn("status_tries", {this: num(status.tries.this), of: num(status.tries.of)});
-  const toQueen = status.why === "internal_error" ? `<button class="btn small" data-to-queen="${esc(task)}" title="${esc(t("to_queen_hint"))}">${t("to_queen")}</button>` : "";
-  const cleaned = status.cleaned ? `<p class="muted" dir="auto">${esc(t("cleaned_folder"))}: ${esc(tr(status.cleaned))}</p>` : "";
-  const waiting = waitLines(status.wait).map(line => `<div class="wait-line" dir="auto">${line}</div>`).join("");
-  return `<div class="status-line ${esc(status.state)}"><span class="badge">${esc(t(`state_${status.state}`))}</span><span dir="auto">${esc(text)}</span>${toQueen}</div>${waiting}${cleaned}`;
-}
-
 // What a waiting task waits on, where the problem is and the next step, from the wait the server worked out. Links
 // are drawn only for GitHub and the checks' https pages, as the server keeps them.
 function waitLines(wait) {
@@ -2690,7 +2755,7 @@ function waitLines(wait) {
 async function toQueen(button) {
   const [repo, number] = button.dataset.toQueen.split("#");
   if (await act(button, `/tasks/${repo}/${number}/to-queen`)) { toast(t("to_queen_done")); await refreshQueue(lastState, true).catch(() => {}); }
-  showReviews(button.dataset.toQueen);
+  showTask(button.dataset.toQueen);
 }
 
 const yoursChip = (task, item) => item?.yours || lastState?.flowers?.[task]?.yours ? `<span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : "";
@@ -2703,18 +2768,10 @@ function byHandBox(item) {
     ${part(t("issue_goal"), item.goal)}${part(t("issue_criteria"), item.criteria)}`;
 }
 
-function splitBox(task, proposal) {
-  // The user's language, also one the page has no text for. The English is what reaches the issue.
-  const own = lang === "en" && TEXT[lastState.language] ? null : proposal.user_text;
-  const original = slice => own ? `<details><summary class="muted">${t("english_text")}</summary><div class="slice-body" dir="auto">${esc(slice.body)}</div></details>` : "";
-  const slices = proposal.slices.map((slice, i) => `<details class="round"${i === 0 ? " open" : ""}><summary>${num(i + 1)}. <span dir="auto">${esc(own?.slices[i].title || slice.title)}</span></summary><div class="round-body">
-    <div class="chips"><span class="chip">${esc(tr(slice.size))}</span><span class="chip">${num(slice.files)} ${t("files_touched")}</span><span class="chip">${esc(tr(slice.door))}</span></div>
-    <div class="slice-body" dir="auto">${esc(own?.slices[i].body || slice.body)}</div>${original(slice)}
-  </div></details>`).join("");
-  const accept = confirming
+function splitAccept(task, proposal) {
+  return confirming
     ? `<div class="confirm"><div>${t("approve_split_sure")}</div><div class="actions"><button class="btn primary" data-split="${esc(task)}" data-fingerprint="${esc(proposal.fingerprint)}">${t("approve_split")}</button><button class="btn" data-unsure>${t("cancel")}</button></div></div>`
     : `<button class="btn primary" data-sure>${t("approve_split")}</button>`;
-  return `<div dir="auto">${esc(own?.reason || proposal.reason)}</div>${slices}<div class="actions">${accept}</div><p class="muted">${t("split_decline_hint")}</p>`;
 }
 
 async function approveSplit(button) {
@@ -2723,41 +2780,223 @@ async function approveSplit(button) {
   const path = `/splits/${repo}/${number}/approve?proposal=${encodeURIComponent(button.dataset.fingerprint)}`;
   if (await act(button, path, t("split_creating"))) toast(t("split_approved"));
   confirming = false;
-  showReviews(task);
+  showTask(task);
 }
 
-async function showReviews(task) {
+const WAIT_ORDER = ["approval", "queen", "decision", "split", "by_hand", "stuck"];
+
+// What waits for the user, one item per open task, as Today in the Kandu Clean look lists it; the sheet says its kind and line.
+function waitItems(s, queue) {
+  const open = {};
+  for (const [project, columns] of Object.entries(queue?.projects || {}))
+    for (const [column, tasks] of Object.entries(columns)) for (const entry of tasks) open[entry.task] = {...entry, project, column};
+  const done = task => open[task]?.column === "Done";
+  const working = new Set((s.workers || []).map(w => w.task));
+  const order = name => { const at = (s.project_order || []).indexOf(name); return at < 0 ? 1e9 : at; };
+  const splitsMine = name => ((s.project_settings || []).find(p => p.name === name)?.split_approval || "user") === "user";
+  const button = (label, attrs, primary = false) => ({label, attrs, primary});
+  const items = new Map();
+  const add = (task, kind, label, tone, line, actions) => {
+    if (items.has(task)) return;
+    const project = open[task]?.project || repoOf(task);
+    items.set(task, {task, project, title: open[task]?.title || "", kind: label, tone, line, stuck: kind === "stuck",
+                     order: WAIT_ORDER.indexOf(kind), rank: order(project), actions: [...actions, button(t("open"), `data-review="${esc(task)}"`)]});
+  };
+  const marks = Object.entries(s.flowers || {});
+  for (const d of s.queen?.drops || [])
+    add(d.task, "queen", t("kind_queen"), "amber", `${fillIn("drop_ask", {blocker: d.blocker})}: ${d.reason}`,
+        [button(t("drop_yes"), `data-drop="${esc(d.task)}" data-blocker="${esc(d.blocker)}"`, true)]);
+  for (const [task, mark] of marks) {
+    if (mark.status?.state !== "stuck" || working.has(task) || !open[task] || done(task)) continue;
+    const back = ["Blocked", "Needs info"].includes(open[task].column) && !open[task].by_hand;
+    add(task, "stuck", t("state_stuck"), "red", statusText(mark.status), back ? [button(t("send_back"), `data-back-open="${esc(task)}"`, true)] : []);
+  }
+  for (const q of s.queen?.questions || []) {
+    if (done(q.task)) continue;
+    add(q.task, "queen", t("kind_queen"), "amber", q.question, [button(t("ask_didban"), `data-fly="didban" data-focus="${esc(open[q.task]?.project || repoOf(q.task))}"`, true)]);
+  }
+  for (const [task, mark] of marks) {
+    if (!mark.yours || done(task)) continue;
+    const on = mark.status?.wait?.on;
+    const line = mark.status?.why ? statusText(mark.status) : fillIn("wait_on", {what: t(on === "yes" ? "wait_yes" : on === "unknown" ? "wait_unknown" : "wait_decision")});
+    if (on === "yes") add(task, "approval", tr("Your approval"), "amber", line, [button(t("approve"), `data-approve-open="${esc(task)}"`, true)]);
+    else if (on === "check" || on === "blocker") add(task, "decision", t(`kind_${on}`), "amber", line, []);
+    else add(task, "decision", t("waits_for_you"), "amber", line, [button(t("ask_didban"), `data-fly="didban" data-focus="${esc(open[task]?.project || repoOf(task))}"`)]);
+  }
+  for (const [task, entry] of Object.entries(open)) {
+    if (entry.column === "Needs split" && splitsMine(entry.project))
+      add(task, "split", tr("Needs split"), "amber", t("split_waits"), [button(t("approve_split"), `data-approve-open="${esc(task)}"`, true)]);
+    else if (entry.yours && !done(task))
+      add(task, "by_hand", t("by_hand_yours"), "amber", t("by_hand_hint"), [button(t("open_flight"), `data-fly="${esc(task)}"`, true)]);
+  }
+  const number = item => Number(item.task.split("#")[1]);
+  return [...items.values()].sort((a, b) => a.stuck - b.stuck || a.rank - b.rank || a.order - b.order || number(a) - number(b));
+}
+
+function taskMarks(item) {
+  const {size, door, sent_back: back, slice, questions} = item.mark || {};
+  return [size ? tr(size) : null, door && door !== "two-way" ? tr(door) : null, back ? t("mark_sent_back") : null,
+          slice ? t("mark_slice") : null, questions ? fillIn(questions === 1 ? "mark_question" : "mark_questions", {n: num(questions)}) : null,
+          item.by_hand && !item.yours ? t("by_hand") : null].filter(Boolean);
+}
+
+function statusText(status) {
+  const detail = !status.detail ? null : status.why === "review_blockers" ? num(Number(status.detail))
+    : status.detail.split("; ").map(tr).join(lang === "fa" ? "؛ " : "; ");
+  const sentence = t(`status_${status.why || status.state}`);
+  return sentence.includes("{detail}") ? sentence.replace("{detail}", detail || t("status_no_detail")) : detail ? `${sentence} (${detail})` : sentence;
+}
+
+// A task's sheet: from the bottom on a phone, centred on a wide screen. It tells the task's story, its phases, links,
+// what it does, the queen's question, the proposed slices and its steps so far, and its footer says what waits and
+// offers the actions Kandu has for its state. Every place that opens a task opens this sheet.
+const PHASES = ["sizing", "implement", "review", "merge", "deploy", "live check"];
+const QUIET_STEPS = ["notification_sent", "notification_failed"];  // they tell the user, not the task's story
+
+// The phases a task walked, then those still to come; the one it is in now is marked: a worker's phase, the merge
+// while its PR waits or was approved, its last review while in review. A stuck task stays at the phase it stopped
+// in. A task waiting its turn is in none yet, and a done one has walked them all.
+function taskPhases(item, worker, steps) {
+  const kind = phase => /^(review round|fix round|update$|queen's|sizing notes$)/.test(phase) ? "review" : phase;
+  const walked = [];
+  for (const step of steps) if (step.type === "phase_changed" && step.phase && walked.at(-1) !== step.phase) walked.push(step.phase);
+  const column = item?.column, last = walked.at(-1) || null;
+  if (column === "Done") return (walked.length ? walked : PHASES).map(name => ({name, label: tr(name), at: "done"}));
+  const now = worker?.phase || (["Your approval", "Approved"].includes(column) ? "merge"
+    : column === "In review" ? (kind(last || "") === "review" ? last : "review")
+    : ["In progress", "Blocked", "Stuck"].includes(column) ? last || (column === "In progress" ? "implement" : null) : null);
+  const list = now && walked.at(-1) !== now ? [...walked, now] : walked;
+  const furthest = Math.max(-1, ...list.map(name => PHASES.indexOf(kind(name))));
+  return [...list.map((name, i) => ({name, at: now && i === list.length - 1 ? "now" : "done"})),
+          ...PHASES.slice(furthest + 1).map(name => ({name, at: "next"}))].map(p => ({...p, label: tr(p.name)}));
+}
+
+// One step of the task's story: what happened, when, and its detail.
+function stepOf(e) {
+  const named = text => lang === "en" ? text.replace(/_/g, " ").replace(/^./, c => c.toUpperCase()) : tr(text);
+  const title = e.type === "phase_changed" && e.phase ? (lang === "en" ? named(e.phase) : tr(e.phase)) : named(e.type);
+  const detail = [e.round ? fillIn("step_round", {n: num(e.round)}) : null, typeof e.blockers === "number" ? fillIn("step_blockers", {n: num(e.blockers)}) : null,
+                  e.size ? tr(e.size) : null, e.door ? tr(e.door) : null, e.role ? tr(e.role) : null,
+                  e.duration_ms ? fillIn("so_far_min", {n: num(Math.max(1, Math.round(e.duration_ms / 60000)))}) : null,
+                  ...[e.action, e.decision, e.reason, e.outcome].filter(Boolean).map(tr)].filter(Boolean);
+  return {title, time: when(e.ts), text: detail.join(" · ")};
+}
+
+// What the sheet shows of a task, from the state, the queue and what the API says of it: its PR and reviews, its
+// issue and steps, and the split proposed for it.
+function sheetView(task, s, queue, {review, info, proposal}) {
+  const item = fields(s, queue).flatMap(patch => patch.tasks.map(entry => ({...entry, project: patch.name}))).find(entry => entry.task === task);
+  const wait = waitItems(s, queue).find(entry => entry.task === task);
+  const worker = (s.workers || []).find(w => w.task === task) || null;
+  const steps = (info?.steps || []).filter(e => !QUIET_STEPS.includes(e.type));
+  const body = info?.issue?.body || "";
+  const goal = body.match(/^##\s*Goal\s*\n([\s\S]*?)(?=\n##\s|$)/m)?.[1].trim() || body.split(/\n\s*\n/)[0].trim();
+  const status = s.flowers?.[task]?.status || null;
+  const stuck = item && (["Stuck", "Blocked"].includes(item.column) || status?.state === "stuck") && !worker;
+  const [repo, number] = task.split("#");
+  return {task, item: item || null, worker, status, review: review || null, proposal: proposal || null, info: info || null,
+          number: numberOf(task), project: item?.project || repoOf(task), title: item?.title || review?.pr?.title || repoOf(task),
+          meta: [item?.project || repoOf(task), ...(item ? taskMarks(item) : [])].join(" · "),
+          state: wait && !wait.stuck ? wait.kind : item ? (item.column === "waiting" ? t("waiting_machine") : stateText(item)) : "",
+          tone: stuck ? "red" : wait ? "amber" : "honey",
+          phases: taskPhases(item, worker, steps),
+          links: {pr: review?.pr?.url || null, issue: item?.url || `https://github.com/${repo}/issues/${number}`,
+                  run: worker?.run_id || steps.filter(e => e.run_id).at(-1)?.run_id || null},
+          what: goal, question: (s.queen?.questions || []).find(q => q.task === task)?.question || null,
+          drop: (s.queen?.drops || []).find(d => d.task === task) || null,
+          steps: steps.map(stepOf), wait: wait || null, language: s.language};
+}
+
+function sheetBody(v) {
+  const link = (url, label) => url ? `<a class="textlink" href="${esc(url)}" target="_blank" rel="noopener">${label} ↗</a>` : "";
+  const phases = v.phases.map(p => `<div class="phase ${p.at}"><i class="hex"></i><span>${esc(p.label)}</span></div>`).join("");
+  const status = v.status ? `<div class="status-line ${esc(v.status.state)}"><span class="badge">${esc(t(`state_${v.status.state}`))}</span><span dir="auto">${esc(statusText(v.status)
+    + (v.status.tries ? " " + fillIn("status_tries", {this: num(v.status.tries.this), of: num(v.status.tries.of)}) : ""))}</span></div>
+    ${v.status.cleaned ? `<p class="muted" dir="auto">${esc(t("cleaned_folder"))}: ${esc(tr(v.status.cleaned))}</p>` : ""}` : "";
+  // The user's language, also one the page has no text for. The English is what reaches the issue.
+  const own = v.proposal && (lang === "en" && TEXT[v.language] ? null : v.proposal.user_text);
+  const slices = v.proposal ? `<div class="sheet-box"><div class="sheet-box-head">${t("proposed_slices")}</div><div dir="auto">${esc(own?.reason || v.proposal.reason)}</div>
+    ${v.proposal.slices.map((slice, i) => `<details class="round"><summary>${num(i + 1)}. <span dir="auto">${esc(own?.slices[i].title || slice.title)}</span></summary><div class="round-body">
+    <div class="chips"><span class="chip">${esc(tr(slice.size))}</span><span class="chip">${num(slice.files)} ${t("files_touched")}</span><span class="chip">${esc(tr(slice.door))}</span></div>
+    <div class="slice-body" dir="auto">${esc(own?.slices[i].body || slice.body)}</div></div></details>`).join("")}<p class="muted">${t("split_decline_hint")}</p></div>` : "";
+  const counted = tokens => tokens.total - tokens.cache_read;  // as the daily limit counts them
+  const cost = v.item?.column === "Done" && v.info?.cost ? `<div class="chips">${v.info.outcome ? `<span class="chip">${esc(tr(v.info.outcome))}</span>` : ""}<span class="chip">${t("cost_tokens")}: ${num(counted(v.info.cost.total))}</span></div>` : "";
+  const r = v.review;
+  const lines = [...(r ? heldLines({waited: r.waited}, r.blockers) : heldLines(v.item?.mark, v.item?.blockers)), ...keptLines(r?.kept)];
+  const steps = v.steps.map((step, i) => `<div class="step${i === v.steps.length - 1 ? " last" : ""}"><i class="hex"></i><div><div class="step-head"><b dir="auto">${esc(step.title)}</b><time>${esc(step.time)}</time></div>
+    ${step.text ? `<div class="step-text" dir="auto">${esc(step.text)}</div>` : ""}</div></div>`).join("");
+  return `<div class="sheet-grip" aria-hidden="true"></div>
+    <div class="sheet-head"><div class="sheet-hex ${v.tone}">${v.number}</div><div class="sheet-who"><div class="muted" dir="auto">${esc(v.meta)}</div><h2 dir="auto">${esc(v.title)}</h2></div>
+    <button class="sheet-close" data-close-sheet aria-label="${esc(t("close"))}">✕</button></div>
+    <div class="phases" style="--n:${v.phases.length}">${phases}</div>
+    <div class="sheet-state"><b class="tone-${v.tone === "honey" ? "ink" : v.tone}">${esc(v.state)}</b><span class="spacer"></span>${link(v.links.pr, t("task_pr"))}${link(v.links.issue, t("task_issue"))}
+    ${v.links.run ? `<button class="textlink" data-run="${esc(v.links.run)}">${t("task_run_log")}</button>` : ""}</div>
+    ${status}${v.what ? `<div class="sheet-what slice-body" dir="auto">${esc(v.what)}</div>` : ""}
+    ${v.question ? `<div class="sheet-box"><div class="sheet-box-head tone-amber">${t("kind_queen")}</div><div class="sheet-question" dir="auto">${esc(v.question)}</div></div>` : ""}
+    ${slices}${byHandBox(v.item)}${cost}${lines.map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
+    <div class="sheet-section"><b>${t("task_steps")}</b><div class="steps">${steps || `<div class="muted">${t("no_steps")}</div>`}</div></div>
+    ${r?.rounds?.length ? `<div class="sheet-section">${r.rounds.slice().reverse().map((round, i) => roundBox(round, i === 0)).join("")}</div>` : ""}`;
+}
+
+// The footer: what waits, if anything, and the actions Kandu has for the task's state; with none, its page on GitHub.
+function sheetFoot(v) {
+  const notes = v.status?.wait ? waitLines(v.status.wait) : v.wait ? [esc(v.wait.line)] : [];
+  const tone = v.tone === "honey" ? "amber" : v.tone;
+  const project = v.item?.project || repoOf(v.task);
+  const actions = [
+    v.review?.pr ? approval(v.task, v.review.pr, v.review.holds) : "",
+    v.proposal ? splitAccept(v.task, v.proposal) : "",
+    sendBack(v.task, v.item),
+    v.status?.why === "internal_error" ? `<button class="btn" data-to-queen="${esc(v.task)}" title="${esc(t("to_queen_hint"))}">${t("to_queen")}</button>` : "",
+    v.drop ? `<button class="btn primary" data-drop="${esc(v.task)}" data-blocker="${esc(v.drop.blocker)}">${t("drop_yes")}</button>` : "",
+    v.question ? `<button class="btn" data-fly="didban" data-focus="${esc(project)}">${t("ask_didban")}</button>` : "",
+    v.item?.by_hand ? `<span id="taskflight" class="flightbox">${flightControls(flights.open.find(f => f.task === v.task), v.task, t("open_flight"))}</span>` : "",
+    v.worker?.run_id ? `<button class="btn danger" data-stop="${esc(v.worker.run_id)}">${t("stop_bee")}</button>` : "",
+  ].filter(Boolean);
+  const github = v.links.pr || v.links.issue;
+  if (!actions.length || actions.every(a => a.startsWith("<p"))) actions.push(`<a class="btn" href="${esc(github)}" target="_blank" rel="noopener">${t("open_github")} ↗</a>`);
+  return `${notes.length ? `<div class="sheet-note tone-${tone}">${notes.map(line => `<div dir="auto">${line}</div>`).join("")}</div>` : ""}<div class="actions">${actions.join("")}</div>`;
+}
+
+// What the Classic look showed of a task that the Kandu Clean sheet does not show yet; it is parked as technical
+// debt, to go into the Kandu Clean sheet: the PR's state, or that there is none; whether the task waits for the user;
+// each slice's English text when the proposal is in the user's language; the whole issue of a done task with its cost
+// by role; and a free flight on any task, not only one done by hand.
+function classicSheetExtras(v) {
+  const r = v.review;
+  const state = (r?.pr ? `<span class="chip">${esc(tr(r.pr.state))}</span>` : `<span class="muted">${t("no_pr")}</span>`) + yoursChip(v.task, v.item);
+  const own = v.proposal && (lang === "en" && TEXT[v.language] ? null : v.proposal.user_text);
+  const english = own ? `<details class="round"><summary>${t("english_text")}</summary><div class="round-body">${v.proposal.slices.map((slice, i) =>
+    `<div><b dir="ltr">${num(i + 1)}. ${esc(slice.title)}</b><div class="slice-body" dir="ltr">${esc(slice.body)}</div></div>`).join("")}</div></details>` : "";
+  const done = v.item?.column === "Done" && v.info?.cost ? `<details class="round"><summary>${t("task_full_issue")}</summary><div class="round-body">${doneBox(v.info)}</div></details>` : "";
+  const flight = `<span id="taskflight" class="flightbox">${flightControls(flights.open.find(f => f.task === v.task), v.task, t("open_flight"))}</span>`;
+  return {state, body: english + done, flight};
+}
+
+// The sheet as Kandu Clean draws it, with what the Classic look showed besides.
+async function showTask(task) {
   shownTask = task;
-  shownRun = null;
   const [repo, number] = task.split("#");
   const item = queued(task);
-  const [r, proposal, info] = await Promise.all([get(`/reviews/${repo}/${number}`),
-    item?.column === "Needs split" ? get(`/splits/${repo}/${number}`).then(s => s.split) : null,
-    item?.column === "Done" ? get(`/tasks/${repo}/${number}`) : null]);
+  const [review, proposal, info] = await Promise.all([get(`/reviews/${repo}/${number}`).catch(() => null),
+    item?.column === "Needs split" ? get(`/splits/${repo}/${number}`).then(s => s.split).catch(() => null) : null,
+    get(`/tasks/${repo}/${number}`).catch(() => null)]);
   if (shownTask !== task) return;
-  const link = (url, label) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${label} ↗</a>`;
-  if (!r.pr) {
-    openModal(`${numberOf(task)} ${bdi(item?.title || repoOf(task))}`);
-    $("modalbody").innerHTML = `<div class="actions">${item ? stateBadge(item) : ""}${yoursChip(task, item)}<span class="muted">${t("no_pr")}</span></div>${statusLine(task)}${byHandBox(item)}${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}<div class="actions">${sendBack(task, item)}</div>${item ? `<div class="actions">${link(item.url, t("open_github"))}</div>` : ""}<div id="taskflight" class="actions"></div>`;
-    renderFlights();
-    return;
-  }
-  openModal(`${numberOf(task)} ${bdi(item?.title || r.pr.title)}`);
-  $("modalbody").innerHTML = `<div class="actions"><span class="chip">${esc(tr(r.pr.state))}</span>${item ? stateBadge(item) : ""}${yoursChip(task, item)}</div>
-    ${statusLine(task)}${byHandBox(item)}${info ? doneBox(info) : ""}${proposal ? splitBox(task, proposal) : ""}
-    <div class="actions">${sendBack(task, item)}</div>
-    ${heldLines({waited: r.waited}, r.blockers).map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
-    ${keptLines(r.kept).map(line => `<p class="muted" dir="auto">${esc(line)}</p>`).join("")}
-    <div class="actions">${approval(task, r.pr, r.holds)}${link(r.pr.url, t("open_github"))}</div>
-    <div id="taskflight" class="actions"></div>
-    ${r.rounds.slice().reverse().map((round, i) => roundBox(round, i === 0)).join("")}`;
-  renderFlights();
+  const view = sheetView(task, lastState || {}, lastQueue, {review, info, proposal});
+  const extra = classicSheetExtras(view);
+  $("sheetbody").innerHTML = sheetBody(view);
+  $("sheetfoot").innerHTML = sheetFoot(view);
+  $("sheetbody").querySelector(".sheet-state").insertAdjacentHTML("afterbegin", extra.state);
+  $("sheetbody").querySelector(".sheet-section").insertAdjacentHTML("beforebegin", extra.body);
+  if (!$("taskflight")) $("sheetfoot").querySelector(".actions").insertAdjacentHTML("beforeend", extra.flight);
+  if (!$("sheet").open) { $("sheet").showModal(); $("sheetbody").scrollTop = 0; }
 }
 
 document.addEventListener("click", e => {
   const hit = name => e.target.closest(`[data-${name}]`);
   const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
   if (hit("close")) { $("modal").close(); return; }
+  if (hit("close-sheet")) { $("sheet").close(); return; }
   if (hit("settings-open")) { e.preventDefault(); openSettings(hit("settings-open").dataset.settingsOpen); return; }  // A name in a summary would fold it.
   if (hit("draft") && hit("draft").tagName === "BUTTON") { changeDraft(hit("draft")); return; }
   if (hit("set-save") || hit("set-yes")) { saveSettings(hit("set-save") || hit("set-yes")); return; }
@@ -2776,8 +3015,8 @@ document.addEventListener("click", e => {
   if (hit("requests")) { act(hit("requests"), `/requests?enabled=${hit("requests").dataset.requests}`).then(() => refreshState()).catch(() => {}); return; }
   if (hit("drops")) { act(hit("drops"), `/drop-blockers?enabled=${hit("drops").dataset.drops}`).then(() => refreshState()).catch(() => {}); return; }
   if (hit("drop")) { dropBlocker(hit("drop")); return; }
-  if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); sendingBack = false; showReviews(shownTask); return; }
-  if (hit("back-sure")) { sendingBack = true; confirming = false; showReviews(shownTask); return; }
+  if (hit("sure") || hit("unsure")) { confirming = Boolean(hit("sure")); sendingBack = false; showTask(shownTask); return; }
+  if (hit("back-sure")) { sendingBack = true; confirming = false; showTask(shownTask); return; }
   if (hit("back")) { doSendBack(hit("back")); return; }
   if (hit("to-queen")) { toQueen(hit("to-queen")); return; }
   if (hit("brief")) { briefOpen = !briefOpen; renderQueen(lastState); return; }
@@ -2792,8 +3031,9 @@ document.addEventListener("click", e => {
   if (stop) { act(stop, `/workers/${encodeURIComponent(stop.dataset.stop)}/stop`); return; }
   if (run) { showRun(run.dataset.run); return; }
   const review = hit("review");
-  if (review) { confirming = false; sendingBack = false; showReviews(review.dataset.review); }
+  if (review) { confirming = false; sendingBack = false; showTask(review.dataset.review); }
   if (e.target === $("modal")) $("modal").close();
+  if (e.target === $("sheet")) $("sheet").close();
   if (e.target === $("setsheet")) $("setsheet").close();
 });
 document.addEventListener("input", e => {
@@ -2812,7 +3052,8 @@ document.addEventListener("toggle", e => {
   if (e.target.open) closed.delete(name); else closed.add(name);
   save(CLOSED_KEY, JSON.stringify([...closed]));
 }, true);
-$("modal").addEventListener("close", () => { shownRun = shownTask = null; confirming = false; });
+$("modal").addEventListener("close", () => { shownRun = null; });
+$("sheet").addEventListener("close", () => { shownTask = null; confirming = sendingBack = false; });
 $("setsheet").addEventListener("close", () => { setEdit = null; });
 $("stop").onclick = e => act(e.currentTarget, "/stop");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
