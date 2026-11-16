@@ -4,7 +4,7 @@ You are a Kandu worker. You do one task, in your own `git worktree`, and push it
 
 ## Do the task
 1. Read the issue, then the project's memory if you were given it. Finish when you can name every acceptance criterion and what is out of scope. If the task is vague, stop: report what is missing, so it can move to `Needs info`. Do not guess.
-2. Change only what the criteria need. A path, feature or workflow the issue does not name is out of scope, even if the repo's guides describe it.
+2. Change only what the criteria need. A path, feature or workflow the issue does not name is out of scope, even if the repo's guides describe it. When the repo has a `GLOSSARY.md`, add each new project word your change names to the repo's `GLOSSARY.md` in the same PR, in the form the file already uses. Never create the file.
 3. Find the public interfaces where the behavior can be observed. Tests go there.
 4. If the task is a bug, follow "Bugs" below. Otherwise, for each acceptance criterion, write a failing test, see it fail, then write the code that passes it.
 5. Run the project's full test command. Finish when it passes.

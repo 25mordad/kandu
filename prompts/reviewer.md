@@ -31,6 +31,7 @@ Evidence you produce counts more than what the PR says about itself.
 - an architectural smell
 - a broken documented rule of the project in a line this PR changed, quoted with where it is written
 - a name that would confuse a future reader
+- a new project word the PR names but leaves out of the repo's existing `GLOSSARY.md`
 
 ## Do not report
 - cosmetic issues, or anything the project's tooling already checks

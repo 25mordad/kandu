@@ -173,5 +173,36 @@ class TwoStepDefiningTest(unittest.TestCase):
             self.assertIn(column, last)
 
 
+class GlossaryInTheTaskTest(unittest.TestCase):
+    def read(self, path):
+        return (ROOT / path).read_text(encoding="utf-8")
+
+    def test_to_issue_writes_the_words_and_decisions_into_the_task_that_first_uses_them(self):
+        ticket = self.read("prompts/to-ticket.md")
+        for words in ("one acceptance criterion", "the task whose change first uses", "`GLOSSARY.md`",
+                      "`docs/adr/`", "in the form the file already uses",
+                      "When the repo has no `GLOSSARY.md`, write no word criterion", "never one that creates it"):
+            self.assertIn(words, ticket)
+
+    def test_to_issue_adds_no_separate_task_to_record_them(self):
+        for name in ("to-spec.md", "to-ticket.md"):
+            self.assertNotIn("Record the glossary and decisions", self.read("prompts/" + name), name)
+
+    def test_the_worker_adds_a_new_word_to_an_existing_glossary_and_never_creates_one(self):
+        text = self.read("prompts/worker.md")
+        self.assertIn("add each new project word your change names to the repo's `GLOSSARY.md` in the same PR", text)
+        self.assertIn("Never create the file", text)
+
+    def test_the_reviewer_reports_a_missing_word_as_a_note(self):
+        notes = re.search(r"^## Notes, which do not block\n(.+?)(?=^## )",
+                          self.read("prompts/reviewer.md"), re.MULTILINE | re.DOTALL).group(1)
+        self.assertIn("a new project word the PR names but leaves out of the repo's existing `GLOSSARY.md`", notes)
+
+    def test_the_design_says_where_a_tasks_words_and_decisions_are_written(self):
+        design = self.read("DESIGN.md")
+        self.assertNotIn("one more task of the spec records", design)
+        self.assertIn("in the same PR as the change that first uses them", design)
+
+
 if __name__ == "__main__":
     unittest.main()
