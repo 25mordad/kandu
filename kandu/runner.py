@@ -31,6 +31,7 @@ STOP_GRACE_SECONDS = 10
 SCOPE_PROBE = "command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1"
 COMMAND_TIMEOUT_SECONDS = 30 * 60
 SECRET_PREFIX = "KANDU_"
+SETUP_MARK = "kandu-setup"  # in a checkout's git folder: what its last setup was for (`Runner.run_test`)
 # What `Runner.clean_task` says of each folder and branch it finds: removed, or why it stays.
 REMOVED = "removed"
 KEPT_UNCOMMITTED = "it has changes that are not committed"
@@ -383,6 +384,37 @@ class Runner:
             finally:
                 if unit:
                     host.stop_scope(unit)
+
+    def run_test(self, project, cwd, log_name):
+        """Runs the project's `test` in `cwd` and returns its exit code, after its `setup` when the checkout needs it.
+
+        The setup runs in a checkout that never had it, and again when its `inputs` changed since, or, with no
+        `inputs`, when the head did. A mark in the checkout's own git folder says what it last set up, so the
+        project's files never show it. A setup that fails is the test's exit code, and its output is in the same log.
+        """
+        if project.setup is not None:
+            code = self._set_up(project, cwd, log_name)
+            if code != 0:
+                return code
+        return self.run_command(project, cwd, project.test, log_name)
+
+    def _set_up(self, project, cwd, log_name):
+        host = self.hosts[project.machine]
+        mark = posixpath.join(host.check(["git", "rev-parse", "--absolute-git-dir"], cwd=cwd).strip(), SETUP_MARK)
+        wanted = [project.setup.command]
+        for path in project.setup.inputs or ["HEAD"]:
+            ref = path if path == "HEAD" else f"HEAD:{path}"
+            found = host.run(["git", "rev-parse", "--verify", "--quiet", ref], cwd=cwd)
+            wanted.append(f"{path} {found.stdout.strip() if found.returncode == 0 else '-'}")
+        wanted = "\n".join(wanted) + "\n"
+        done = host.run(["cat", mark], cwd=cwd)
+        if done.returncode == 0 and done.stdout == wanted:
+            return 0
+        host.run(["rm", "-f", mark], cwd=cwd)  # a setup cut off halfway is not a setup done
+        code = self.run_command(project, cwd, project.setup.command, log_name)
+        if code == 0:
+            host.check(["sh", "-c", 'printf %s "$1" > "$2"', "sh", wanted, mark], cwd=cwd)
+        return code
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
                   schema=None, resume=None):

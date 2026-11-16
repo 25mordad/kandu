@@ -16,6 +16,9 @@ projects:
     machine: server
     path: ~/kandu-work/website
     test: npm test
+    setup:                             # optional: what a fresh checkout needs before Kandu runs `test` in it
+      command: npm ci
+      inputs: [package-lock.json]      # it runs again when one of these changes; leave out to run it on each new head
     allowed_tools: ["Bash(npm install)"]   # extra tools for this project's workers, when kandu.yaml limits them (permissions)
     # To let workers check a page or a demo in a headless browser (kandu/look.py, it changes nothing),
     # add a Python that has Playwright, for example:

@@ -299,7 +299,7 @@ def look_at_repo(runner, project, repo, now, logs_dir, run_id):
     label = f" in {repo}" if len(project.repos) > 1 else ""
     if project.inspect.tests:
         name = f"{run_id}-tests-{repo.split('/')[1]}"
-        code = runner.run_command(project, cwd, project.test, name)
+        code = runner.run_test(project, cwd, name)
         if code != 0:
             findings.append(Finding("tests", f"The tests fail on {base}{label} (exit {code}).",
                                     _tail(Path(logs_dir) / f"{name}.log")))

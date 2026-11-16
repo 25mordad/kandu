@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from kandu import agents
-from kandu.config import Deploy, Project, Rules
+from kandu.config import Deploy, Project, Rules, Setup
 
 GH_READS = ("gh issue view", "gh pr view", "gh pr diff")
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -56,6 +56,13 @@ class ToolsTest(unittest.TestCase):
             self.assertIn(tool, allowed)
         allowed, _ = agents.live_check_tools(project(allowed_tools=["Bash(npm install)"]), RULES)
         self.assertIn("Bash(npm install)", allowed)
+
+    def test_a_limited_worker_and_reviewer_may_run_the_setup_and_are_told_of_it(self):
+        site = project(setup=Setup("npm ci", ["package-lock.json"]))
+        for allowed, _ in (agents.worker_tools(site, "kandu/1-a", RULES), agents.reviewer_tools(site, RULES)):
+            self.assertIn("Bash(npm ci)", allowed)
+        self.assertTrue(any("Setup command: `npm ci`" in fact for fact in agents._project_facts(site)))
+        self.assertFalse(any("Setup" in fact for fact in agents._project_facts(project())))
 
     def test_a_reviewer_runs_the_projects_tests_and_commands(self):
         self.assertEqual(agents.reviewer_tools(project(allowed_tools=["Bash(npm run check)"])), (None, []))

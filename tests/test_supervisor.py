@@ -259,6 +259,9 @@ class FakeRunner:
         self.cleaned = getattr(self, "cleaned", []) + [(repo, branch, tuple(folders))]
         return [("folder", name, "removed") for name in folders[:1]]
 
+    def run_test(self, project, cwd, log_name):
+        return self.run_command(project, cwd, project.test, log_name)
+
     def run_command(self, project, cwd, command, log_name, secrets=False, scoped=True):
         self.commands.append((command, secrets))
         return 1 if command in self.failing else 0

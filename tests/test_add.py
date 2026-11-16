@@ -87,6 +87,13 @@ class DetectTest(Base):
         self.assertEqual((found["proposal"]["description"], found["proposal"]["forbidden"]), ("A shop", "data/"))
         self.assertTrue(any("SHOP_KEY" in w for w in found["warnings"]))
 
+    def test_a_node_project_is_set_up_from_its_lock_file(self):
+        self.assertEqual([add.detect(self.config(), "laptop", "~/code/shop")["proposal"][k] for k in ("setup", "setup_inputs")],
+                         ["npm install", "package.json"])
+        self.host.looked = LOOKED + "file package-lock.json\n"
+        p = add.detect(self.config(), "laptop", "~/code/shop")["proposal"]
+        self.assertEqual((p["setup"], p["setup_inputs"]), ("npm ci", "package-lock.json"))
+
     def test_a_python_project_without_working_tests_gets_a_checks_task(self):
         self.host.looked = "git\nremote https://github.com/acme-org/shop\nfile pyproject.toml\npy python3\n"
         found = add.detect(self.config(), "laptop", "~/code/shop")
@@ -154,6 +161,16 @@ class AddProjectTest(Base):
                          ("laptop", "~/code/shop", ["acme-org/shop"], "in-place", False))
         self.assertEqual((project.board.number, project.max_parallel_workers), (7, 1))
         self.assertIn("# Kandu project registry", (self.local / "projects.yaml").read_text())
+
+    def test_writes_the_setup_and_leaves_it_out_when_there_is_none(self):
+        add.add_project(self.fields(setup="npm ci", setup_inputs="package-lock.json, .nvmrc", deploy_task=False),
+                        self.github, self.local)
+        setup = self.project().setup
+        self.assertEqual((setup.command, setup.inputs), ("npm ci", ["package-lock.json", ".nvmrc"]))
+
+    def test_no_setup_is_written_when_it_is_empty(self):
+        add.add_project(self.fields(setup="", deploy_task=False), self.github, self.local)
+        self.assertIsNone(self.project().setup)
 
     def test_where_it_runs_is_always_the_users_choice(self):
         before = (self.local / "projects.yaml").read_text()

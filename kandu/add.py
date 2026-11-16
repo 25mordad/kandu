@@ -38,7 +38,7 @@ LOOK = r'''
 cd "$1" 2>/dev/null || { echo "missing"; exit 0; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 && echo "git"
 echo "remote $(git remote get-url origin 2>/dev/null)"
-for f in scripts/checks.sh package.json pyproject.toml pytest.ini setup.py requirements.txt Makefile tests \
+for f in scripts/checks.sh package.json package-lock.json pyproject.toml pytest.ini setup.py requirements.txt Makefile tests \
          deploy/deploy.sh scripts/deploy.sh deploy.sh .env AGENTS.md CLAUDE.md; do
   [ -e "$f" ] && echo "file $f"
 done
@@ -216,6 +216,10 @@ def _guess(path, facts, files, lines):
                             "A first task can write that script.")
     elif "make-test" in facts:
         found["test"] = "make test"
+    if "package-lock.json" in files:  # a fresh checkout has no node_modules: Kandu installs them before its tests
+        found["setup"], found["setup_inputs"] = "npm ci", "package-lock.json"
+    elif "package.json" in files:
+        found["setup"], found["setup_inputs"] = "npm install", "package.json"
     if "npm-dev" in facts:
         found["run_local"] = "npm run dev"
     for script in ("deploy/deploy.sh", "scripts/deploy.sh", "deploy.sh"):
@@ -293,7 +297,7 @@ def detect(config, machine, path, repo="", runner=None):
     name = re.sub(r"[^a-z0-9-]+", "-", repo.split("/")[1].lower()).strip("-")
     family_board = next((p.board for p in config.projects if p.family == name and p.board), None)
     proposal = {"machine": machine, "path": path, "repo": repo, "name": name, "family": name, "run": "",
-                "description": "", "test": "", "run_local": "", "deploy": "", "live_url": "", "secrets_from": "",
+                "description": "", "test": "", "setup": "", "setup_inputs": "", "run_local": "", "deploy": "", "live_url": "", "secrets_from": "",
                 "repo_rules": "", "forbidden": "", "test_task": False, **DEFAULTS}
     guessed = _guess(path, facts, files, lines) if present else {"warnings": []}
     warnings = guessed.pop("warnings")
@@ -303,12 +307,21 @@ def detect(config, machine, path, repo="", runner=None):
             "board": f"{family_board.owner} #{family_board.number}" if family_board else "a new board"}
 
 
+def _items(value):
+    """A list given as a list, or as text with commas between its items."""
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return list(value or [])
+
+
 def _entry(fields, board):
     """The project entry, in the order of config.example/projects.example.yaml."""
     entry = {"name": fields["name"], "description": fields.get("description", ""), "family": fields["family"],
              "repos": [fields["repo"]], "board": {"owner": board.owner, "number": board.number,
                                                   **({"columns": dict(board.columns)} if board.columns else {})},
              "run": fields["run"], "machine": fields["machine"], "path": fields["path"], "test": fields["test"]}
+    if fields.get("setup"):
+        entry["setup"] = {"command": fields["setup"], "inputs": _items(fields.get("setup_inputs"))}
     if fields.get("run_local"):
         entry["run_local"] = fields["run_local"]
     if fields.get("deploy") or fields.get("deploy_task"):
@@ -317,9 +330,7 @@ def _entry(fields, board):
             entry["deploy"]["live_url"] = fields["live_url"]
     if fields.get("secrets_from"):
         entry["secrets_from"] = fields["secrets_from"]
-    forbidden = fields.get("forbidden") or []
-    if isinstance(forbidden, str):
-        forbidden = [item.strip() for item in forbidden.split(",") if item.strip()]
+    forbidden = _items(fields.get("forbidden"))
     try:
         numbers = {key: int(fields.get(key, DEFAULTS[key]))
                    for key in ("priority", "max_parallel_workers", "daily_token_limit")}

@@ -57,6 +57,16 @@ class ConfigTest(unittest.TestCase):
                         encoding="utf-8")
         self.assertIn("permissions.painter: unknown key", self.problems())
 
+    def test_an_empty_setup_command_is_refused(self):
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(setup={"command": " ", "inputs": [""]}))
+        problems = self.problems()
+        self.assertIn("setup.command: must not be empty", problems)
+        self.assertIn("setup.inputs: an entry must not be empty", problems)
+
+    def test_the_example_setup_is_read(self):
+        setup = load_config(self.local).projects[0].setup
+        self.assertEqual((setup.command, setup.inputs), ("npm ci", ["package-lock.json"]))
+
     def test_examples_are_valid(self):
         config = load_config(self.local)
         self.assertEqual(config.settings.brain.machine, "server")

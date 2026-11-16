@@ -624,6 +624,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
       <label><span data-t="project_name"></span><input data-f="name" dir="ltr"></label>
       <label><span data-t="description"></span><input data-f="description" dir="auto"></label>
       <label><span data-t="test_command"></span><input data-f="test" dir="ltr"></label>
+      <label><span data-t="setup_command"></span><input data-f="setup" dir="ltr"></label>
+      <label><span data-t="setup_inputs"></span><input data-f="setup_inputs" dir="ltr"></label>
       <label><span data-t="run_local"></span><input data-f="run_local" dir="ltr"></label>
       <label><span data-t="deploy_command"></span><input data-f="deploy" dir="ltr"></label>
       <label><span data-t="live_url"></span><input data-f="live_url" dir="ltr" placeholder="https://"></label>
@@ -850,6 +852,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "project_name": "Project name",
   "description": "One line on what it is",
   "test_command": "Test command",
+  "setup_command": "Setup before Kandu runs the tests (optional)",
+  "setup_inputs": "Files whose change runs the setup again (comma-separated)",
   "run_local": "Local run command (optional)",
   "deploy_command": "Deploy command (optional)",
   "live_url": "Live URL (optional; empty if behind a login)",
@@ -1311,6 +1315,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "project_name": "نام پروژه",
   "description": "یک خط درباره‌ی اینکه چیست",
   "test_command": "دستور تست",
+  "setup_command": "آماده‌سازی پیش از اجرای تست به دست Kandu (اختیاری)",
+  "setup_inputs": "فایل‌هایی که تغییرشان آماده‌سازی را دوباره اجرا می‌کند (با ویرگول)",
   "run_local": "دستور اجرای محلی (اختیاری)",
   "deploy_command": "دستور deploy (اختیاری)",
   "live_url": "آدرس نسخه‌ی زنده (اختیاری؛ اگر پشت لاگین است خالی)",

@@ -100,6 +100,12 @@ def _limits(rules, extra_allowed=(), extra_denied=(), branch="", remote=False):
     return allowed, denied
 
 
+def _test_tools(project):
+    """The project's test and, if it has one, its setup: a worker or reviewer may run both in its checkout."""
+    commands = [project.test] + ([project.setup.command] if project.setup else [])
+    return [rule for command in commands for rule in (f"Bash({command})", f"Bash({command} *)")]
+
+
 def _forbidden(project):
     # Edit rules cover every tool that changes a file; Claude Code ignores Write(path).
     return [f"Edit(./{area.rstrip('/')}/**)" if area.endswith("/") else f"Edit(./{area})"
@@ -110,7 +116,7 @@ def worker_tools(project, branch, rules=None, remote=False):
     """Returns (allowed, denied) for a worker on `branch`."""
     if rules is None:
         return _limits(None, extra_denied=_forbidden(project) + KANDU_ONLY)
-    allowed = [f"Bash({project.test})", f"Bash({project.test} *)"] + project.allowed_tools
+    allowed = _test_tools(project) + project.allowed_tools
     denied = []
     if project.secrets_from:
         path = project.secrets_from
@@ -123,8 +129,7 @@ def reviewer_tools(project, rules=None, remote=False):
     diff with git in its checkout."""
     if rules is None:
         return _limits(None)
-    return _limits(rules, [f"Bash({project.test})", f"Bash({project.test} *)", "Bash(git diff *)"]
-                   + project.allowed_tools, remote=remote)
+    return _limits(rules, _test_tools(project) + ["Bash(git diff *)"] + project.allowed_tools, remote=remote)
 
 
 def live_check_tools(project, rules=None, remote=False):
@@ -177,9 +182,12 @@ def _memory(project, local_dir):
 
 
 def _project_facts(project):
-    facts = [f"- Test command: `{project.test}`",
-             "- Repo guides: `CLAUDE.md` and `AGENTS.md` are not loaded for you. If the repo has them, search them "
-             "for what concerns this task and read those parts."]
+    facts = [f"- Test command: `{project.test}`"]
+    if project.setup:
+        facts.append(f"- Setup command: `{project.setup.command}`. Run it before the tests in a checkout that has not "
+                     "had it yet, or after its dependencies change.")
+    facts.append("- Repo guides: `CLAUDE.md` and `AGENTS.md` are not loaded for you. If the repo has them, search them "
+                 "for what concerns this task and read those parts.")
     commands = [rule[len("Bash("):-1] for rule in project.allowed_tools if rule.startswith("Bash(")]
     if commands:
         facts.append(f"- The project's own commands: {', '.join(f'`{c}`' for c in commands)}")

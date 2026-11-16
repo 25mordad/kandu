@@ -849,7 +849,7 @@ class Supervisor:
         if reasons:
             return reasons
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
-        code = self.runner.run_command(task.project, cwd, task.project.test, new_run_id(self.now()))
+        code = self.runner.run_test(task.project, cwd, new_run_id(self.now()))
         return [] if code == 0 else ["the tests fail on this head"]
 
     def _holds(self, task, pr):
@@ -1300,7 +1300,7 @@ class Supervisor:
         for repo in project.repos:
             base = self.github.default_branch(repo)
             cwd = self.runner.prepare_review(project, repo, "kandu/end-check", f"origin/{base}")
-            if self.runner.run_command(project, cwd, project.test, new_run_id(self.now())) != 0:
+            if self.runner.run_test(project, cwd, new_run_id(self.now())) != 0:
                 problems.append(f"tests fail in {repo}")
             if project.deploy is not None and project.deploy.live_url:
                 url = shlex.quote(project.deploy.live_url)

@@ -191,6 +191,13 @@ class Deploy:
 
 
 @dataclass
+class Setup:
+    """What a fresh checkout needs before the project's `test` runs there, such as `npm ci` (DESIGN §4)."""
+    command: str
+    inputs: list[str] = field(default_factory=list)  # files whose change runs it again; none: each new head
+
+
+@dataclass
 class Inspect:
     """What Bazras looks at each day (DESIGN §5). It only reads; a check that exits non-zero is a finding.
 
@@ -222,6 +229,7 @@ class Project:
     description: str = ""
     board: Board | None = None
     run_local: str | None = None
+    setup: Setup | None = None       # run before Kandu runs `test` in a checkout of its own, when that needs it
     deploy: Deploy | None = None
     inspect: Inspect | None = None   # Bazras's daily look; without it, or with it off, Bazras leaves the project alone
     secrets_from: str | None = None
@@ -478,6 +486,11 @@ def _check_projects(projects, s, problems):
         for report in p.reports:
             if not report.strip():
                 problems.append(f"{where}.reports: a path must not be empty")
+        if p.setup is not None:
+            if not p.setup.command.strip():
+                problems.append(f"{where}.setup.command: must not be empty")
+            if any(not entry.strip() for entry in p.setup.inputs):
+                problems.append(f"{where}.setup.inputs: an entry must not be empty")
         if p.deploy is not None:
             _check_one_of(p.deploy.mode, ("direct", "preview"), f"{where}.deploy.mode", problems)
         _check_one_of(p.split_approval, SPLIT_APPROVALS, f"{where}.split_approval", problems)

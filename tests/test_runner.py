@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from kandu import ghmeter
-from kandu.config import Config, Machine, Project
+from kandu.config import Config, Machine, Project, Setup
 from kandu.runner import (KEPT_CHECKED_OUT, KEPT_NOT_WORKTREE, KEPT_UNCOMMITTED, KEPT_UNPUSHED, REMOVED, Host, LocalWork, Runner,
                           RunnerError, SCOPE_PROBE, child_env, repo_path)
 
@@ -567,3 +567,56 @@ class CleanTaskTest(GitCase):
         project = self.project()
         project.path = "~/work/elsewhere"
         self.assertEqual(self.runner.clean_task(project, "o/site", "kandu/1-a", ["1-a"], self.head), [])
+
+
+class SetupTest(GitCase):
+    """A project's `setup` runs before Kandu's own test runs, only when the checkout needs it."""
+
+    def setUp(self):
+        super().setUp()
+        self.runs = self.root / "setup-runs"
+        self.project_ = self.project()
+        self.project_.setup = Setup(f"echo ran >> {self.runs}", ["deps.lock"])
+        self.push_commit("main", "deps.lock", "v1")
+
+    def checked(self, head="origin/main"):
+        cwd = self.runner.prepare_review(self.project_, "o/site", "kandu/end-check", head)
+        return self.runner.run_test(self.project_, cwd, "run-test"), cwd
+
+    def setups(self):
+        return len(self.runs.read_text().splitlines()) if self.runs.exists() else 0
+
+    def test_a_fresh_checkout_is_set_up_before_its_tests_and_the_mark_stays_out_of_its_files(self):
+        self.project_.test = f"test -f {self.runs}"  # passes only if the setup ran first
+        code, cwd = self.checked()
+        self.assertEqual((code, self.setups()), (0, 1))
+        self.assertEqual(git("status", "--porcelain", cwd=cwd), "")
+
+    def test_it_runs_again_only_when_an_input_changes(self):
+        self.checked()
+        self.push_commit("main", "other.txt")
+        self.checked()
+        self.assertEqual(self.setups(), 1)
+        self.push_commit("main", "deps.lock", "v2")
+        self.checked()
+        self.assertEqual(self.setups(), 2)
+
+    def test_with_no_inputs_it_runs_on_each_new_head(self):
+        self.project_.setup.inputs = []
+        self.checked()
+        self.checked()
+        self.assertEqual(self.setups(), 1)
+        self.push_commit("main", "other.txt")
+        self.checked()
+        self.assertEqual(self.setups(), 2)
+
+    def test_a_failed_setup_fails_the_tests_and_runs_again_next_time(self):
+        self.project_.test = f"echo tested >> {self.root / 'tested'}"
+        self.project_.setup.command = f"echo ran >> {self.runs}; echo broken; false"
+        code, _ = self.checked()
+        self.assertNotEqual(code, 0)
+        self.assertFalse((self.root / "tested").exists())
+        self.assertIn("broken", (self.root / "logs" / "run-test.log").read_text())
+        self.project_.setup.command = f"echo ran >> {self.runs}"
+        self.assertEqual(self.checked()[0], 0)
+        self.assertEqual(self.setups(), 2)
