@@ -102,6 +102,8 @@ tr:last-child td { border-bottom:0; }
 .number { color:var(--muted); font-variant-numeric:tabular-nums; }
 .textlink { all:unset; cursor:pointer; overflow-wrap:anywhere; }
 .textlink:focus-visible { outline:2px solid var(--honey); outline-offset:2px; }
+.textlink.project-name { font-weight:600; min-width:0; }
+.textlink.project-name:hover, #projectsettings .textlink:hover { text-decoration:underline; }
 .limit-edit { margin-inline-start:6px; text-decoration:underline; }
 .limit-field { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-block:8px; }
 .usage .toolbar { margin-bottom:8px; }
@@ -245,7 +247,45 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 #projectsettings { overflow-x:auto; }
+/* A project's settings: a pop-up over the page, centred on a wide screen and from the bottom on a phone. Nothing
+   changes until Save. */
+dialog.sheet { width:min(600px, calc(100vw - 24px)); max-height:calc(100dvh - 80px); background:var(--bg); overflow:hidden; }
+dialog.sheet[open] { display:flex; flex-direction:column; }
+.sheet-body { flex:1; min-height:0; overflow:auto; padding:16px 20px 20px; display:flex; flex-direction:column; gap:14px; }
+.sheet-grip { display:none; align-self:center; width:40px; height:5px; border-radius:3px; background:var(--line); }
+.sheet-head { display:flex; align-items:center; gap:14px; }
+.sheet-who { flex:1; min-width:0; }
+.sheet-who .muted { font-size:14px; overflow-wrap:anywhere; }
+.sheet-who h2 { margin:0; font-size:21px; font-weight:700; line-height:1.25; overflow-wrap:anywhere; }
+.sheet-close { all:unset; box-sizing:border-box; cursor:pointer; flex:none; align-self:flex-start; width:44px; height:44px; display:grid; place-items:center; border-radius:50%; background:var(--sunken); font-size:15px; font-weight:700; }
+.sheet-close:focus-visible, .flip:focus-visible, .seg button:focus-visible { outline:2px solid var(--honey); outline-offset:2px; }
+.sheet-foot { flex:none; padding:14px 20px calc(18px + env(safe-area-inset-bottom)); background:var(--surface); border-top:1px solid var(--line); display:flex; flex-direction:column; gap:8px; }
+.sheet-note { font-size:13px; font-weight:600; overflow-wrap:anywhere; color:var(--accent); }
+.sheet-foot .actions > .btn { flex:1 1 auto; min-height:48px; border-radius:12px; font-size:15px; white-space:normal; }
+.set-group { display:flex; flex-direction:column; }
+.set-group h3 { margin:0; font-size:12px; font-weight:700; color:var(--muted); padding-bottom:4px; }
+.set-field { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:10px 0; border-top:1px solid var(--line); min-width:0; }
+.set-field.stack { flex-direction:column; align-items:stretch; }
+.set-field.stack .set-label { flex:none; }
+.set-label { flex:1 1 180px; min-width:0; display:flex; flex-direction:column; gap:2px; font-size:14px; }
+.set-label small { font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+.seg { display:grid; grid-template-columns:1fr 1fr; gap:2px; padding:3px; border-radius:12px; background:var(--sunken); }
+.seg button { all:unset; box-sizing:border-box; cursor:pointer; min-height:38px; padding:0 8px; display:flex; align-items:center; justify-content:center; text-align:center; border-radius:9px; font-size:14px; }
+.seg button[aria-pressed="true"] { background:var(--surface); font-weight:700; box-shadow:0 1px 3px #0000001f; }
+.seg button:disabled { cursor:not-allowed; opacity:.6; }
+.flip { flex:none; width:44px; height:26px; padding:3px; border:0; border-radius:13px; background:var(--line); display:flex; justify-content:flex-start; cursor:pointer; }
+.flip i { width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 2px #0003; }
+.flip[aria-checked="true"] { background:var(--honey); justify-content:flex-end; }
+.set-refused { padding:10px 14px; border-radius:12px; background:color-mix(in srgb, #f2a65a 14%, var(--surface)); color:var(--accent); font-size:13px; overflow-wrap:anywhere; }
+.set-refused ul { margin:4px 0 0; padding-inline-start:18px; }
+.set-danger { margin-top:6px; padding:14px 16px; border-radius:14px; border:1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); background:color-mix(in srgb, var(--bad) 8%, var(--surface)); display:flex; flex-direction:column; gap:8px; }
+.set-danger h3 { margin:0; font-size:13px; font-weight:700; color:var(--bad); }
+.set-danger p { margin:0; font-size:13px; overflow-wrap:anywhere; }
+.name-field { width:100%; }
+.patch-name.clickable:hover { text-decoration:underline; }
 @media (max-width: 640px) {
+  dialog.sheet { width:100%; max-width:100%; height:94dvh; max-height:94dvh; margin:auto 0 0; border-radius:22px 22px 0 0; border-bottom:0; }
+  .sheet-grip { display:block; }
   #projectsettings th, #projectsettings .fit { white-space:normal; }
   th, td { padding-inline:12px; }
   .hide-narrow { display:none; }
@@ -310,6 +350,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   <section data-panel="activity" class="card" hidden><div id="live" class="feed-scroll"></div></section>
 </main>
 <dialog id="modal"><div class="dialog-head"><h2 id="modaltitle"></h2><button class="btn plain small" data-close data-t-attr="aria-label" data-t="close">×</button></div><div id="modalbody" class="dialog-body"></div></dialog>
+<dialog id="setsheet" class="sheet" data-t-attr="aria-label" data-t="tab_settings"><div id="setbody" class="sheet-body"></div><div id="setfoot" class="sheet-foot"></div></dialog>
 <dialog id="tokenbox" class="small"><form method="dialog" class="dialog-body" id="tokenform">
   <h2 data-t="control_token"></h2><p class="muted" data-t="token_why"></p>
   <input id="token" type="password" autocomplete="off" dir="ltr" data-t-attr="aria-label" data-t="control_token">
@@ -655,6 +696,25 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bee_inspector": "Bazras, the inspector bee",
   "tab_bazras": "Bazras",
   "tab_settings": "Settings",
+  "set_open": "Settings",
+  "set_group_work": "Work",
+  "set_group_merge": "Merge",
+  "set_group_queen": "The queen",
+  "set_name": "Name",
+  "set_name_hint": "Lowercase letters, digits and dashes. Kandu then knows it only by this name; its folder, repo and board stay as they are.",
+  "set_run_label": "Bees work on it",
+  "set_running": "Running",
+  "set_me": "Me",
+  "set_the_queen": "The queen",
+  "set_split_by": "When a task is too big, the split is accepted by",
+  "set_one_way_by": "A hard-to-undo merge is answered by",
+  "set_refused": "Not saved:",
+  "set_danger": "Danger zone",
+  "set_merge_ask": "Turn on «merges by itself»? Kandu then merges this project's PRs once their review passes, without waiting for your yes.",
+  "set_merge_no": "No",
+  "set_merge_yes": "Yes, save",
+  "set_saved": "{name}: saved",
+  "set_open_hint": "Open this project's settings",
   "settings_about": "One row per project, in the order of its registry. Each control changes the setting at once, and the next cycle uses it. Pause, splits and one-way answers are kept by Kandu and win over the registry; the other values are written in the config.",
   "pace_title": "Kandu's pace",
   "pace_workers": "Workers at once, in all of Kandu",
@@ -1013,6 +1073,25 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "bee_inspector": "بازرس، زنبور بازرسی",
   "tab_bazras": "بازرس",
   "tab_settings": "تنظیمات",
+  "set_open": "تنظیمات",
+  "set_group_work": "کار",
+  "set_group_merge": "ادغام",
+  "set_group_queen": "ملکه",
+  "set_name": "نام",
+  "set_name_hint": "حروف کوچک انگلیسی، رقم و خط تیره. کندو بعد از آن پروژه را فقط با این نام می‌شناسد؛ پوشه، مخزن و برد آن همان می‌مانند.",
+  "set_run_label": "زنبورها رویش کار می‌کنند",
+  "set_running": "در کار",
+  "set_me": "من",
+  "set_the_queen": "ملکه",
+  "set_split_by": "وقتی تسکی بزرگ است، شکستنش را می‌پذیرد",
+  "set_one_way_by": "به ادغامی که برگشتش سخت است جواب می‌دهد",
+  "set_refused": "ذخیره نشد:",
+  "set_danger": "منطقهٔ خطر",
+  "set_merge_ask": "«ادغام خودکار» روشن شود؟ آن‌وقت کندو PRهای این پروژه را بعد از قبول شدن بازبینی ادغام می‌کند و منتظر بلهٔ تو نمی‌ماند.",
+  "set_merge_no": "نه",
+  "set_merge_yes": "بله، ذخیره کن",
+  "set_saved": "{name}: ذخیره شد",
+  "set_open_hint": "باز کردن تنظیمات این پروژه",
   "settings_about": "برای هر پروژه یک ردیف، به ترتیب رجیستری. هر کنترل تنظیم را همان لحظه عوض می‌کند و چرخهٔ بعدی از آن استفاده می‌کند. توقف، تقسیم‌ها و پاسخ‌های یک‌طرفه را کندو نگه می‌دارد و بر رجیستری مقدم‌اند؛ بقیهٔ مقدارها در تنظیمات نوشته می‌شوند.",
   "pace_title": "آهنگ کار کندو",
   "pace_workers": "کارگرهای هم‌زمان در کل کندو",
@@ -1093,6 +1172,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "sent_back_done": "برگشت به ستون Ready. یک چرخه سراغش می‌رود."
  },
  "values_fa": {
+  "give the project a name": "برای پروژه نامی بنویس",
   "awake": "بیدار",
   "waiting for machine": "در انتظار ماشین",
   "asleep": "خواب",
@@ -1753,10 +1833,10 @@ function mergeMode(state, name) {
   return row.frozen ? "frozen" : row.auto_merge ? "auto" : "waits";
 }
 
-// The mark beside a project's name; it opens the settings, where the mode is changed.
+// The mark beside a project's name; like the name, it opens the project's settings, where the mode is changed.
 function mergeMark(patch) {
   if (!patch.merge) return "";
-  return ` · <tspan class="merge-mark clickable" data-tab="settings"><title>${esc(t(`mode_${patch.merge}_hint`))}</title><tspan class="merge-dot ${patch.merge}">●</tspan>\u00a0${esc(t(`mode_${patch.merge}`))}</tspan>`;
+  return ` · <tspan class="merge-mark clickable" data-settings-open="${esc(patch.name)}"><title>${esc(t(`mode_${patch.merge}_hint`))}</title><tspan class="merge-dot ${patch.merge}">●</tspan>\u00a0${esc(t(`mode_${patch.merge}`))}</tspan>`;
 }
 
 // Patches keep the config's order, row by row, the first one where reading starts.
@@ -1817,7 +1897,7 @@ function renderScene(state, queue) {
     const middle = patch.x + patch.width / 2;
     const limit = patch.over ? `<title>${esc(`${t("over_limit")} · ${limitText(patch.over)}`)}</title>` : "";
     return `<ellipse class="soil${patch.paused ? " off" : ""}${patch.over ? " over" : ""}" cx="${middle}" cy="${patch.y + patch.height / 2 + 8}" rx="${patch.width / 2}" ry="${patch.height / 2}">${limit}</ellipse>
-      <g class="${patch.paused ? "patch-off" : ""}"><text class="patch-name" data-name="${esc(patch.name)}" x="${middle}" y="${patch.y + patch.height - 8}">\u2066${esc(patch.name)}\u2069${patch.paused ? ` · <tspan class="patch-paused">${t("project_on_pause")}</tspan>` : ""}${mergeMark(patch)}</text>${flowers}</g>${patchSwitch(patch)}`;
+      <g class="${patch.paused ? "patch-off" : ""}"><text class="patch-name clickable" data-name="${esc(patch.name)}" data-settings-open="${esc(patch.name)}" x="${middle}" y="${patch.y + patch.height - 8}">\u2066${esc(patch.name)}\u2069${patch.paused ? ` · <tspan class="patch-paused">${t("project_on_pause")}</tspan>` : ""}${mergeMark(patch)}</text>${flowers}</g>${patchSwitch(patch)}`;
   }).join("");
   const bees = (state.workers || []).map((worker, i) => spots[worker.task] ? flight(worker, beeKind(worker.phase), spots[worker.task], {x: home.x, y: home.y + 20}, i) : "").join("")
     + inspectorBee(looking, projects);
@@ -2067,7 +2147,7 @@ function projectCard(project, shown, total, searching) {
   const paused = lastState.paused_projects.includes(project.name);
   const inConfig = lastState.paused_in_config.includes(project.name);  // Only a change of config resumes this one.
   const pause = `${paused ? `<span class="badge" style="--c:#d9604f">${t("project_on_pause")}</span>` : ""}${inConfig ? "" : `<button class="btn small project-pause" data-pause="${esc(project.name)}" data-paused="${paused}">${t(paused ? "resume_project" : "pause_project")}</button>`}`;
-  return `<details class="card project" data-project="${esc(project.name)}"${open ? " open" : ""}><summary><span class="project-name">${bdi(project.name)}</span>${limitBadge(overLimit(lastState, project.name))}<span class="number">${num(total)}</span>
+  return `<details class="card project" data-project="${esc(project.name)}"${open ? " open" : ""}><summary><button type="button" class="textlink project-name" data-settings-open="${esc(project.name)}" title="${esc(t("set_open_hint"))}">${bdi(project.name)}</button>${limitBadge(overLimit(lastState, project.name))}<span class="number">${num(total)}</span>
     <span class="counts">${counts.map(([column, count]) => `<span class="badge" style="--c:${FLOWERS[column].swatch}" title="${esc(tr(column === "waiting" ? "waiting for machine" : column))}">${num(count)}</span>`).join("")}</span>${pause}</summary>${bazrasLine(project.name)}${table}</details>`;
 }
 
@@ -2137,7 +2217,7 @@ function renderSettings(s) {
   if (key === renderSettings.key) return;
   renderSettings.key = key;
   const name = p => encodeURIComponent(p.name);
-  const body = rows.map(p => `<tr><td>${bdi(p.name)}</td>
+  const body = rows.map(p => `<tr><td><button type="button" class="textlink" data-settings-open="${esc(p.name)}" title="${esc(t("set_open_hint"))}">${bdi(p.name)}</button></td>
     <td class="fit"><label title="${esc(p.paused_in_config ? t("paused_in_config_hint") : "")}"><input type="checkbox" data-setting-pause="${esc(p.name)}"${p.paused ? " checked" : ""}${p.paused_in_config ? " disabled" : ""}> ${t("setting_pause")}</label></td>
     <td class="fit" title="${esc(t("setting_workers_hint"))}">${stepper(p.max_parallel_workers, `/parallel?project=${encodeURIComponent(p.name + ":")}{n}`, `${p.name} · ${t("setting_workers")}`)}</td>
     <td class="fit" title="${esc(t("setting_priority_hint"))}">${stepper(p.priority, `/projects/${name(p)}/settings?priority={n}`, `${p.name} · ${t("setting_priority")}`)}</td>
@@ -2157,6 +2237,141 @@ function renderSettings(s) {
   $("defaultlook").innerHTML = defaultLookHtml(s.default_look);
   const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "queen_accepts_splits", "queen_answers_one_way"];
   $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th>${heads.map(h => `<th class="fit">${t(h)}</th>`).join("")}<th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+// A project's pop-up shows every setting it has, in its groups. Nothing changes until Save, and then each change
+// goes through the call it always had, so it is checked and logged as before.
+const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]]];
+
+function settingsDraft(row) {
+  return {name: row.name, ...Object.fromEntries(SETTING_GROUPS.flatMap(([, keys]) => keys).map(key => [key, row[key]]))};
+}
+
+// One call for each setting that changed, the same call the dashboard always made for it. A new name goes last, so
+// every other call still names the project as the server knows it.
+function settingsCalls(name, was, now) {
+  const project = encodeURIComponent(name);
+  const path = (key, value) => key === "paused" ? `/projects/${project}/${value ? "pause" : "resume"}`
+    : key === "max_parallel_workers" ? `/parallel?project=${encodeURIComponent(`${name}:${value}`)}`
+    : `/projects/${project}/settings?${key}=${encodeURIComponent(value)}`;
+  return [...SETTING_GROUPS.flatMap(([, keys]) => keys), "name"].filter(key => now[key] !== was[key]).map(key => ({setting: key, path: path(key, now[key])}));
+}
+
+// Turning "merges by itself" on asks first; turning it off asks nothing.
+function mergeOnAsked(was, now) {
+  return !was.auto_merge && Boolean(now.auto_merge);
+}
+
+// What Save does: close when nothing changed, ask before merging by itself, or save.
+function saveStep(edit) {
+  if (!settingsCalls("", edit.was, edit.now).length) return "close";
+  return mergeOnAsked(edit.was, edit.now) && !edit.asking ? "ask" : "save";
+}
+
+// Sends each change in turn. One the server takes becomes what the pop-up starts from, so it is not sent again; one
+// it refuses is listed with why. `send` answers {ok} or {ok: false, why, stop}. An empty name is refused here, and
+// once a new name is taken the pop-up goes on under it.
+async function applySettings(name, edit, send) {
+  edit.refused = [];
+  for (const call of settingsCalls(name, edit.was, edit.now)) {
+    if (call.setting === "name" && !edit.now.name) { edit.refused.push({setting: "name", why: tr("give the project a name")}); continue; }
+    const answer = await send(call.path);
+    if (answer.ok) {
+      edit.was = {...edit.was, [call.setting]: edit.now[call.setting]};
+      if (call.setting === "name") edit.name = edit.now.name;
+      continue;
+    }
+    edit.refused.push({setting: call.setting, why: answer.why});
+    if (answer.stop) break;
+  }
+  return edit.refused;
+}
+
+const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by"};
+const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint"};
+
+// One setting's control, drawn from the draft. A pause set in the config shows and cannot move.
+function settingControl(key, row, now) {
+  const label = t(SETTING_LABELS[key]), value = now[key];
+  const hint = row.paused_in_config && key === "paused" ? t("paused_in_config_hint") : SETTING_HINTS[key] ? t(SETTING_HINTS[key]) : "";
+  const head = `<div class="set-label"><span>${label}</span>${hint ? `<small>${esc(hint)}</small>` : ""}</div>`;
+  const seg = (options, off = false) => `<div class="set-field stack">${head}<div class="seg" role="group" aria-label="${esc(label)}">${options.map(([v, text]) =>
+    `<button type="button" data-draft="${key}" data-value="${v}" aria-pressed="${String(value) === v}"${off ? " disabled" : ""}>${t(text)}</button>`).join("")}</div></div>`;
+  const step = () => `<div class="set-field">${head}<span class="stepper"><button type="button" class="btn small" data-draft="${key}" data-by="-1" aria-label="${esc(`${t("less")}: ${label}`)}"${value <= 1 ? " disabled" : ""}>−</button><b class="number">${num(value)}</b><button type="button" class="btn small" data-draft="${key}" data-by="1" aria-label="${esc(`${t("more")}: ${label}`)}">+</button></span></div>`;
+  const flip = () => `<div class="set-field">${head}<button type="button" class="flip" role="switch" aria-checked="${Boolean(value)}" data-draft="${key}" aria-label="${esc(label)}"><i></i></button></div>`;
+  if (key === "paused") return seg([["false", "set_running"], ["true", "project_on_pause"]], row.paused_in_config);
+  if (key === "split_approval") return seg([["user", "set_me"], ["queen", "set_the_queen"]]);
+  if (key === "queen_answers_one_way") return seg([["false", "set_me"], ["true", "set_the_queen"]]);
+  if (key === "name") return `<div class="set-field stack">${head}<input type="text" class="name-field" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" data-draft="${key}" value="${esc(value)}" aria-label="${esc(label)}"></div>`;
+  if (key === "daily_token_limit") return `<div class="set-field">${head}<input type="number" class="tokens-field" min="1" step="100000" dir="ltr" inputmode="numeric" data-draft="${key}" value="${esc(value)}" aria-label="${esc(label)}"></div>`;
+  return key === "max_parallel_workers" || key === "priority" ? step() : flip();
+}
+
+function settingsBody(row, edit) {
+  const groups = SETTING_GROUPS.map(([head, keys]) => `<section class="set-group"><h3>${t(head)}</h3>${keys.map(key => settingControl(key, row, edit.now)).join("")}</section>`).join("");
+  const refused = edit.refused.length ? `<div class="set-refused" role="alert"><b>${t("set_refused")}</b><ul>${edit.refused.map(r =>
+    `<li>${esc(t(SETTING_LABELS[r.setting]))}: <span dir="auto">${esc(r.why)}</span></li>`).join("")}</ul></div>` : "";
+  return `<div class="sheet-grip"></div><div class="sheet-head"><div class="sheet-who"><div class="muted">${t("tab_settings")}</div><h2>${bdi(row.name)}</h2></div>
+    <button type="button" class="sheet-close" data-set-cancel aria-label="${esc(t("close"))}">✕</button></div>${refused}<section class="set-group">${settingControl("name", row, edit.now)}</section>${groups}
+    <section class="set-danger"><h3>${t("set_danger")}</h3><p class="muted">${t("remove_project_hint")}</p><div class="actions"><button type="button" class="btn danger" data-remove="${esc(row.name)}">${t("remove_project")}</button></div></section>`;
+}
+
+function settingsFoot(edit) {
+  if (edit.asking) return `<div class="sheet-note tone-amber">${t("set_merge_ask")}</div>
+    <div class="actions"><button type="button" class="btn" data-set-no>${t("set_merge_no")}</button><button type="button" class="btn primary" data-set-yes>${t("set_merge_yes")}</button></div>`;
+  return `<div class="actions"><button type="button" class="btn" data-set-cancel>${t("cancel")}</button><button type="button" class="btn primary" data-set-save>${t("save")}</button></div>`;
+}
+
+let setEdit = null;  // The open pop-up: its project, what the server had, the draft, what was refused, and whether it asks.
+
+function openSettings(name) {
+  const row = (lastState?.project_settings || []).find(p => p.name === name);
+  if (!row) return;
+  setEdit = {name, was: settingsDraft(row), now: settingsDraft(row), refused: [], asking: false};
+  drawSettings();
+  $("setsheet").showModal();
+  $("setbody").scrollTop = 0;
+}
+
+function drawSettings() {
+  const row = (lastState?.project_settings || []).find(p => p.name === setEdit.name) || {name: setEdit.name};
+  $("setbody").innerHTML = settingsBody(row, setEdit);
+  $("setfoot").innerHTML = settingsFoot(setEdit);
+}
+
+// A change in the pop-up changes only its draft.
+function changeDraft(control) {
+  const key = control.dataset.draft, now = setEdit.now;
+  if (control.dataset.by) now[key] = Math.max(1, now[key] + Number(control.dataset.by));
+  else if (control.dataset.value !== undefined) now[key] = {true: true, false: false}[control.dataset.value] ?? control.dataset.value;
+  else if (control.getAttribute("role") === "switch") now[key] = !now[key];
+  else { now[key] = key === "name" ? control.value.trim() : control.value.trim() === "" ? "" : Number(control.value); setEdit.asking = false; $("setfoot").innerHTML = settingsFoot(setEdit); return; }
+  setEdit.asking = false;
+  drawSettings();
+}
+
+async function saveSettings(button) {
+  const edit = setEdit, step = saveStep(edit);
+  if (step === "close") { $("setsheet").close(); return; }
+  if (step === "ask") { edit.asking = true; drawSettings(); return; }
+  if (!token && !await askToken()) return;
+  const send = async path => {
+    post.failed = null;
+    if (await act(button, path)) return {ok: true};
+    return {ok: false, why: post.failed?.error ? tr(post.failed.error) : t("request_failed"), stop: !token};
+  };
+  const refused = await applySettings(edit.name, edit, send);
+  renderSettings.key = null;  // Whatever the answers, the next state draws what the server kept.
+  if (edit !== setEdit) return;
+  edit.asking = false;
+  if (refused.length) { drawSettings(); $("setbody").scrollTop = 0; return; }
+  $("setsheet").close();
+  toast(fillIn("set_saved", {name: edit.name}));
+}
+
+// The pop-up of a project that was removed closes.
+function closeSettings(name) {
+  if (setEdit?.name === name) $("setsheet").close();
 }
 
 // Taking a project out of Kandu: the first click asks on the button itself, the second acts. Nothing is typed.
@@ -2179,6 +2394,7 @@ async function removeProject(button) {
   }
   const memory = removed.memory || {};
   toast([fillIn("removed_msg", {name}), memory.why ? fillIn(`memory_${memory.why}`, {pr: memory.pr || ""}) : ""].filter(Boolean).join(" "));
+  closeSettings(name);
   renderSettings.key = null;
   refreshState().catch(() => {});
 }
@@ -2542,6 +2758,11 @@ document.addEventListener("click", e => {
   const hit = name => e.target.closest(`[data-${name}]`);
   const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
   if (hit("close")) { $("modal").close(); return; }
+  if (hit("settings-open")) { e.preventDefault(); openSettings(hit("settings-open").dataset.settingsOpen); return; }  // A name in a summary would fold it.
+  if (hit("draft") && hit("draft").tagName === "BUTTON") { changeDraft(hit("draft")); return; }
+  if (hit("set-save") || hit("set-yes")) { saveSettings(hit("set-save") || hit("set-yes")); return; }
+  if (hit("set-no")) { setEdit.asking = false; drawSettings(); return; }
+  if (hit("set-cancel")) { $("setsheet").close(); return; }
   if (hit("fly")) { openFlight(hit("fly")); return; }
   if (hit("inspect")) { saveInspect(hit("inspect")); return; }
   if (hit("remove")) { removeProject(hit("remove")); return; }
@@ -2573,6 +2794,10 @@ document.addEventListener("click", e => {
   const review = hit("review");
   if (review) { confirming = false; sendingBack = false; showReviews(review.dataset.review); }
   if (e.target === $("modal")) $("modal").close();
+  if (e.target === $("setsheet")) $("setsheet").close();
+});
+document.addEventListener("input", e => {
+  if (setEdit && e.target.matches?.("input[data-draft]")) changeDraft(e.target);
 });
 document.addEventListener("change", e => {
   if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way], [data-setting-auto-merge], [data-setting-frozen], [data-setting-tokens]")) changeSetting(e.target);
@@ -2588,6 +2813,7 @@ document.addEventListener("toggle", e => {
   save(CLOSED_KEY, JSON.stringify([...closed]));
 }, true);
 $("modal").addEventListener("close", () => { shownRun = shownTask = null; confirming = false; });
+$("setsheet").addEventListener("close", () => { setEdit = null; });
 $("stop").onclick = e => act(e.currentTarget, "/stop");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
 $("restart").onclick = e => act(e.currentTarget, "/restart");
