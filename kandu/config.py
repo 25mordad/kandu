@@ -94,6 +94,7 @@ class GitHub:
 class Telegram:
     bot_token_env: str
     chat_id_env: str
+    buttons: bool = False  # an approve button under a PR that waits for the user's yes (telegram_bot.py)
 
 
 @dataclass
@@ -705,6 +706,32 @@ def set_notify_events(events, local_dir=DEFAULT_LOCAL_DIR):
         raise ConfigError(["notify.events: could not be written; change it in kandu.yaml by hand"])
     _replace_file(path, text)
     return events
+
+
+def set_telegram_buttons(enabled, local_dir=DEFAULT_LOCAL_DIR):
+    """Turns the approve button in Telegram on or off: `notify.telegram.buttons` in `kandu.yaml`, line by line."""
+    path = Path(local_dir) / "kandu.yaml"
+    lines = path.read_text(encoding="utf-8").split("\n")
+    head = next((i for i, l in enumerate(lines) if re.fullmatch(r"notify:[ \t]*(#.*)?", l)), None)
+    sub = next((i for i in range((head or 0) + 1, len(lines)) if head is not None and re.fullmatch(r"( +)telegram:[ \t]*(#.*)?", lines[i])), None)
+    if sub is None:
+        raise ConfigError(["notify.telegram: not in kandu.yaml as a block; change it there by hand"])
+    pad = re.match(r" +", lines[sub]).group(0)
+    inner = next((re.match(r" +", lines[i]).group(0) for i in range(sub + 1, len(lines))
+                  if lines[i].strip() and not lines[i].lstrip().startswith("#")), pad + "  ")
+    end = sub + 1
+    while end < len(lines) and (not lines[end].strip() or lines[end].startswith(inner)):
+        end += 1
+    value = "true" if enabled else "false"
+    hit = next((i for i in range(sub + 1, end) if re.match(rf"^{inner}buttons:", lines[i])), None)
+    if hit is None:
+        lines.insert(sub + 1, f"{inner}buttons: {value}")
+    else:
+        lines[hit] = f"{inner}buttons: {value}"
+    text = "\n".join(lines)
+    if (((yaml.safe_load(text) or {}).get("notify") or {}).get("telegram") or {}).get("buttons") is not enabled:
+        raise ConfigError(["notify.telegram.buttons: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
 
 
 def set_drop_blockers(enabled, local_dir=DEFAULT_LOCAL_DIR):

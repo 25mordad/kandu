@@ -88,6 +88,8 @@ state/
 | `limits_changed` | `session`, `week` |
 | `drop_blockers_changed` | `enabled`: the user let the queen ask to drop a blocker, or stopped her, from the dashboard |
 | `notify_changed` | `events`: the kinds of news Kandu sends, as the user chose them from the dashboard |
+| `telegram_changed` | `what`: `token`, `chat` or `buttons`, which the user set from the dashboard; never the value |
+| `telegram_pressed` | `action` (`a` approve, `y` sure, `n` cancel), `task` and `result` (`asked`, `approved`, `changed`, `refused`, `cancelled`, `no_pr`, `off`, `not_your_chat`, `too_long`, `unknown`): a button pressed in Telegram |
 | `requests_shown_changed` | `enabled`: the user showed the open requests on the dashboard, or hid them |
 | `clean_merged_changed` | `enabled`: the user turned the cleanup after a merge on or off from the dashboard |
 | `parallel_changed` | `total` (or null), `projects`: name → number, for those changed |

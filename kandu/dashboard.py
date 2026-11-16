@@ -21,8 +21,10 @@ from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, que
                tasks, timer, tries, upstream, waits)
 from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, REGISTRY_SETTINGS, TECHNICAL_DEBT, ConfigError, Inspect,
                      load_config, set_backup, set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_pace,
-                     set_default_look, set_notify_events, set_parallel, set_project_values, set_show_requests)
+                     set_default_look, set_notify_events, set_parallel, set_project_values, set_show_requests,
+                     set_telegram_buttons)
 from .github import AGENT_LABEL, GitHubError, task_blockers
+from . import telegram_bot
 from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
 from .state import PROJECT_SETTINGS, StateStore, is_project_setting
@@ -35,6 +37,8 @@ LOOK_COOKIE = "kandu-look"  # the look each browser chose; the page sets it
 LOOKS = {"classic": CLASSIC_PAGE, "classic-new": CLASSIC_NEW_PAGE, "clean": PAGE}  # in the order the Look menu lists them
 FONT = Path(__file__).with_name("vazirmatn.woff2")
 TOKEN_ENV = "KANDU_DASHBOARD_TOKEN"
+MAX_BODY = 4096  # a POST's form body: a bot's token or a chat, never more
+BODY_ONLY = ("token", "chat_id")  # secrets a POST takes only from its body, so no URL or log ever holds one
 API = "/api/v1"
 QUEUE_CACHE_SECONDS = 900  # GitHub's hourly limit is shared with all else on the account, however many pages are open.
 QUEUE_FRESH_SECONDS = 60
@@ -290,6 +294,7 @@ class Api:
         self.restart_kandu = restart
         self.backup_timer = backup_timer
         self.upstream = upstream.Upstream(install_dir)
+        self.bot = telegram_bot.Bot(self, self._approve_from_telegram)  # it takes presses only once main() starts it
         self._config_stamp = config_stamp(local_dir)
         self._config_lock = threading.Lock()
         self._add_lock = threading.Lock()  # one change to the config files at a time
@@ -983,7 +988,57 @@ class Api:
         """What Kandu tells the user and where: never the bot's token or the chat, which stay in local/.env."""
         notify = self.config.settings.notify
         return {"adapter": notify.adapter, "events": list(notify.events), "kinds": list(NOTIFY_EVENTS),
-                "language": notify.language or self.config.settings.language}
+                "language": notify.language or self.config.settings.language, "telegram": self.bot.status()}
+
+    def _approve_from_telegram(self, task, head):
+        """The dashboard's approval, for a press in Telegram that names the head it approves."""
+        repo, number = task.split("#")
+        owner, name = repo.split("/")
+        try:
+            self.approve({"head": [head]}, owner, name, number)
+        except ApiError as e:
+            raise telegram_bot.Refused(e.message) from None
+
+    def _telegram(self, step):
+        try:
+            return step()
+        except telegram_bot.TelegramError as e:
+            raise ApiError(400, str(e)) from None
+
+    def telegram_token(self, query):
+        """The bot's token, sent in the request's body, checked with Telegram and kept in local/.env only."""
+        self._telegram(lambda: self.bot.set_token(query.get("token", [""])[0]))
+        self.store.record("telegram_changed", what="token")
+        return {"notify": self._notify()}
+
+    def telegram_chat(self, query):
+        """The chat Kandu writes to and takes presses from, kept in local/.env only."""
+        self._telegram(lambda: self.bot.set_chat(query.get("chat_id", [""])[0]))
+        self.store.record("telegram_changed", what="chat")
+        return {"notify": self._notify()}
+
+    def telegram_chats(self, query):
+        """The chats that wrote to the bot lately, so the user picks theirs."""
+        return {"chats": self.bot.found_chats(), "bot": self.bot.username}
+
+    def telegram_test(self, query):
+        self._telegram(self.bot.test)
+        return {"sent": True}
+
+    def telegram_buttons(self, query):
+        """Turns the approve button in Telegram on or off, through the config. The next cycle's messages carry it."""
+        enabled = query.get("enabled", [""])[0]
+        if enabled not in ("true", "false"):
+            raise ApiError(400, "give enabled=true or enabled=false")
+        if self.config.settings.notify.telegram is None:
+            raise ApiError(400, "notify.telegram is not in the config")
+        try:
+            set_telegram_buttons(enabled == "true", self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        self.config.settings.notify.telegram.buttons = enabled == "true"
+        self.store.record("telegram_changed", what="buttons")
+        return {"notify": self._notify()}
 
     def change_notify(self, query):
         """Sets what Kandu tells the user, as a comma list of NOTIFY_EVENTS or `none`, through the config. The next
@@ -1328,6 +1383,11 @@ ROUTES = [
     ("POST", "/splits/{owner}/{repo}/{number}/approve", Api.approve_split),
     ("POST", "/drop-blockers", Api.change_drop_blockers),
     ("POST", "/notify", Api.change_notify),
+    ("POST", "/telegram/token", Api.telegram_token),
+    ("POST", "/telegram/chat", Api.telegram_chat),
+    ("POST", "/telegram/chats", Api.telegram_chats),
+    ("POST", "/telegram/test", Api.telegram_test),
+    ("POST", "/telegram/buttons", Api.telegram_buttons),
     ("POST", "/clean-merged", Api.change_clean_merged),
     ("POST", "/drop-blockers/{owner}/{repo}/{number}", Api.drop_blocker),
     ("POST", "/stop", Api.stop),
@@ -1370,8 +1430,9 @@ def config_stamp(local_dir):
     return tuple(stamp)
 
 
-def dispatch(api, method, target, supplied_token=None):
-    """Answers one request; returns (status, payload)."""
+def dispatch(api, method, target, supplied_token=None, body=""):
+    """Answers one request; returns (status, payload). A POST's form body adds to its query: a secret goes there, so
+    it is in no URL and no log."""
     api.refresh_config()
     url = urlparse(target)
     allowed = False
@@ -1385,7 +1446,13 @@ def dispatch(api, method, target, supplied_token=None):
         if method != "GET" and not _token_ok(api.token, supplied_token):
             return 403, {"error": "a valid token is required"}
         try:
-            return 200, handler(api, parse_qs(url.query), *map(unquote, match.groups()))
+            query = parse_qs(url.query)
+            leaked = [name for name in BODY_ONLY if name in query]
+            if leaked:
+                return 400, {"error": f"send {leaked[0]} in the request's body, not in the URL"}
+            for key, values in parse_qs(body or "").items():
+                query.setdefault(key, values)
+            return 200, handler(api, query, *map(unquote, match.groups()))
         except ApiError as e:
             return e.status, {"error": e.message, **e.extra}
         except GitHubError:
@@ -1434,7 +1501,9 @@ def make_handler(api):
 
         def _answer(self, method):
             auth = self.headers.get("Authorization", "")
-            status, payload = dispatch(api, method, self.path, auth.removeprefix("Bearer ") or None)
+            length = min(int(self.headers.get("Content-Length") or 0), MAX_BODY) if method == "POST" else 0
+            body = self.rfile.read(length).decode("utf-8", "replace") if length else ""
+            status, payload = dispatch(api, method, self.path, auth.removeprefix("Bearer ") or None, body)
             self._send(status, json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                        "application/json; charset=utf-8")
 
@@ -1499,6 +1568,7 @@ def main():
     bind, port = config.settings.dashboard.bind, config.settings.dashboard.port
     ghmeter.sample_forever()  # the limit as GitHub sees it, beside the calls the meter counts
     upstream.tick_forever(api.upstream_tick)  # does nothing while `upstream.enabled` is off
+    threading.Thread(target=api.bot.run_forever, daemon=True).start()  # Telegram's buttons; idle without a token
     server = ThreadingHTTPServer((bind, port), make_handler(api))
     print(f"dashboard: http://{bind}:{port}")
     server.serve_forever()

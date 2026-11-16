@@ -73,7 +73,7 @@ class NotifyApiTest(Base):
         notify = self.get("/api/v1/state")[1]["notify"]
         self.assertEqual(notify["kinds"], list(NOTIFY_EVENTS))
         self.assertEqual(notify["events"], load_config(self.root / "local").settings.notify.events)
-        self.assertEqual(set(notify), {"adapter", "events", "kinds", "language"})
+        self.assertEqual(set(notify), {"adapter", "events", "kinds", "language", "telegram"})
         self.assertNotIn("TELEGRAM", json.dumps(notify))
 
     def test_it_is_changed_with_the_token_and_the_next_cycle_reads_it(self):
@@ -87,6 +87,12 @@ class NotifyApiTest(Base):
         self.assertEqual(dispatch(self.api, "POST", "/api/v1/notify?events=none", TOKEN)[1]["notify"]["events"], [])
         self.assertEqual(dispatch(self.api, "POST", "/api/v1/notify?events=gossip", TOKEN)[0], 400)
         self.assertEqual(dispatch(self.api, "POST", "/api/v1/notify", TOKEN)[0], 400)
+
+
+def TG_FUNCTIONS(page):
+    """What every look shares for Telegram's connection, with a document that has nothing in focus."""
+    return ("const document = {activeElement: null};\n" + "".join(line(page, "let tgDraft = ") if "let tgDraft = " in page else "") + line(page, "let tgChats = ")
+            + function(page, "tgKeep") + function(page, "tgConnectHtml"))
 
 
 class NotifyPagesTest(unittest.TestCase):
@@ -115,8 +121,8 @@ class NotifyPagesTest(unittest.TestCase):
                       + "const shown = {}; const $ = id => (shown[id] ??= {innerHTML: '', showModal() { this.open = true; }, close() { this.open = false; }});\n"
                       + "const calls = []; const act = async (b, path) => { calls.push(path); return {}; }; const toast = () => {}; const refreshState = async () => {};\n"
                       + line(page, "const NOTIFY_ORDER = ") + line(page, "const notifyKinds = ") + line(page, "const notifyPath = ")
-                      + line(page, "const TG_ICON = ") + "let tgDraft = null;\n"
-                      + function(page, "openTelegram") + function(page, "drawTelegram") + function(page, "saveTelegram")
+                      + line(page, "const TG_ICON = ") + TG_FUNCTIONS(page)
+                      + function(page, "openTelegram") + function(page, "drawTelegram") + function(page, "drawTelegramNow") + function(page, "saveTelegram")
                       + """let lastState = {notify: {adapter: "telegram", events: ["pr_ready", "failure"], kinds: ["supervisor_stopped", "failure", "pr_ready", "brand_new"], language: "fa"}};
 (async () => {
   openTelegram();
@@ -134,6 +140,74 @@ class NotifyPagesTest(unittest.TestCase):
         self.assertFalse(seen["open"])
 
     @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_the_pop_up_connects_telegram_and_turns_on_the_approve_button_on_save(self):
+        page = read(dashboard.CLASSIC_NEW_PAGE)
+        seen = run_js(f"const TEXT = {json.dumps(some_words(page))};\nlet lang = \"en\";\n" + line(page, "const esc = ") + line(page, "const t = ")
+                      + "const shown = {}; const $ = id => (shown[id] ??= {innerHTML: '', value: '', showModal() { this.open = true; }, close() { this.open = false; }});\n"
+                      + "const calls = []; const act = async (b, path) => { calls.push(path); return {}; }; const toast = () => {}; const refreshState = async () => {};\n"
+                      + line(page, "const NOTIFY_ORDER = ") + line(page, "const notifyKinds = ") + line(page, "const notifyPath = ")
+                      + line(page, "const TG_ICON = ") + TG_FUNCTIONS(page)
+                      + function(page, "openTelegram") + function(page, "drawTelegram") + function(page, "drawTelegramNow") + function(page, "saveTelegram")
+                      + """let lastState = {notify: {adapter: "telegram", events: ["pr_ready"], kinds: ["pr_ready"], language: "en",
+  telegram: {token_set: true, chat_set: false, bot: "kandu_bot", buttons: false, listening: true, error: null}}};
+(async () => {
+  openTelegram();
+  shown["tg-token"].value = "typed";
+  const first = shown.tgbody.innerHTML, foot = shown.tgfoot.innerHTML;
+  tgButtonsDraft = true; drawTelegram();
+  const kept = shown["tg-token"].value;
+  await saveTelegram({});
+  console.log(JSON.stringify({first, foot, after: shown.tgbody.innerHTML, kept, calls}));
+})();""")
+        self.assertIn('aria-checked="false" data-tg-buttons', seen["first"])
+        self.assertIn('aria-checked="true" data-tg-buttons', seen["after"])
+        self.assertIn("@kandu_bot", seen["first"])
+        self.assertIn("✓ set", seen["first"])
+        self.assertIn("not set", seen["first"])
+        self.assertIn("data-tg-find", seen["first"])
+        self.assertIn("disabled>Send a test", seen["first"])  # no chat yet
+        self.assertIn("data-tg-save disabled", seen["foot"])
+        self.assertEqual(seen["kept"], "typed")  # a redraw keeps what is typed
+        self.assertEqual(seen["calls"], ["/telegram/buttons?enabled=true"])
+
+    def test_every_look_shares_the_same_connection_code(self):
+        pages = {look: read(path) for look, path in PAGES.items()}
+        for name in ("sendForm", "tgKeep", "tgConnectHtml", "tgConnect"):
+            self.assertEqual(len({function(page, name) for page in pages.values()}), 1, name)
+        for look, page in pages.items():
+            self.assertIn('tgConnect(tg); return;', page, look)
+            self.assertIn("const tgRedraw = ", page, look)
+            self.assertIn('"Content-Type": "application/x-www-form-urlencoded"', function(page, "sendForm"), look)
+            self.assertNotIn("?token=", page, look)
+            text = words(page)
+            for key in ("tg_connection", "tg_token", "tg_chat", "tg_buttons", "tg_buttons_hint", "tg_secret_note", "tg_find_chat"):
+                self.assertTrue(text["en"].get(key) and text["fa"].get(key) and text["en"][key] != text["fa"][key], f"{look}: {key}")
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_find_my_chat_lists_the_chats_and_a_press_uses_one(self):
+        page = read(dashboard.PAGE)
+        seen = run_js(f"const TEXT = {json.dumps(some_words(page))};\nlet lang = \"en\";\n" + line(page, "const esc = ") + line(page, "const t = ")
+                      + "const shown = {}; const $ = id => (shown[id] ??= {innerHTML: '', value: '', focus() {}});\n"
+                      + "const sent = []; const sendForm = async (b, path, fields) => { sent.push([path, fields]); return path.endsWith('chats') ? {chats: [{id: '42', name: 'Ana'}]} : {notify: {telegram: {token_set: true, chat_set: true}}}; };\n"
+                      + "const toast = () => {}; let lastState = {notify: {}}; let drawn = 0; const tgRedraw = () => { drawn++; };\n"
+                      + TG_FUNCTIONS(page) + function(page, "tgConnect")
+                      + """(async () => {
+  await tgConnect({dataset: {tgFind: ""}});
+  const listed = tgConnectHtml({token_set: true, chat_set: false, bot: "b"});
+  await tgConnect({dataset: {tgUse: "42"}});
+  $("tg-chat").value = " 7 ";
+  await tgConnect({dataset: {tgSend: "chat"}});
+  await tgConnect({dataset: {tgSend: "token"}});
+  console.log(JSON.stringify({listed, sent, drawn, chats: tgChats, chat: lastState.notify.telegram.chat_set, field: shown["tg-chat"].value}));
+})();""")
+        self.assertIn('data-tg-use="42"', seen["listed"])
+        self.assertEqual(seen["sent"], [["/telegram/chats", {}], ["/telegram/chat", {"chat_id": "42"}], ["/telegram/chat", {"chat_id": "7"}]])
+        self.assertIsNone(seen["chats"])
+        self.assertTrue(seen["chat"])
+        self.assertEqual(seen["field"], "")
+        self.assertEqual(seen["drawn"], 3)  # an empty token field sends nothing and draws nothing
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
     def test_classic_and_kandu_clean_flip_one_kind_at_a_time(self):
         clean = read(dashboard.PAGE)
         seen = run_js(f"const TEXT = {json.dumps(some_words(clean))};\nlet lang = \"en\";\n" + line(clean, "const esc = ") + line(clean, "const t = ")
@@ -142,9 +216,18 @@ class NotifyPagesTest(unittest.TestCase):
                       + 'console.log(JSON.stringify(notifyHtml({adapter: "telegram", events: ["pr_ready", "failure"], kinds: ["failure", "pr_ready", "task_done"], language: "en"})));')
         self.assertEqual(re.findall(r'aria-checked="(\w+)" data-switch="([^"]+)"', seen),
                          [("true", "/notify?events=failure"), ("false", "/notify?events=pr_ready%2Cfailure%2Ctask_done"), ("true", "/notify?events=pr_ready")])
+        with_bot = run_js(f"const TEXT = {json.dumps(some_words(clean))};\nlet lang = \"en\";\n" + line(clean, "const esc = ") + line(clean, "const t = ")
+                          + line(clean, "const NOTIFY_ORDER = ") + line(clean, "const notifyKinds = ") + line(clean, "const notifyPath = ")
+                          + TG_FUNCTIONS(clean) + function(clean, "switchRow") + function(clean, "notifyHtml")
+                          + 'console.log(JSON.stringify(notifyHtml({adapter: "telegram", events: [], kinds: ["pr_ready"], language: "en", telegram: {token_set: false, chat_set: false, bot: null, buttons: false, listening: false, error: "Telegram answered 401"}})));')
+        self.assertIn('aria-checked="false" data-switch="/telegram/buttons?enabled=true"', with_bot)
+        self.assertIn('id="tg-token" type="password"', with_bot)
+        self.assertIn("Telegram answered 401", with_bot)
         classic = read(dashboard.CLASSIC_PAGE)
         self.assertIn('<div id="notifysettings" class="card pad"></div>', classic)
         self.assertIn('if (e.target.matches?.("[data-notify-kind]")) changeNotify(e.target);', classic)
+        self.assertIn('if (e.target.matches?.("[data-tg-buttons]")) changeTgButtons(e.target);', classic)
+        self.assertIn("data-tg-buttons", function(classic, "notifyCard"))
         self.assertIn("s.notify", function(classic, "renderSettings").split("const key = ")[1].split("\n")[0])
 
 

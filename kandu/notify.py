@@ -75,6 +75,17 @@ MESSAGES = {
         "blocker_rewritten": "The new task {task} named {old} as a blocker. {old} was split, so it waits for its "
                              "last slice {new} instead.",
         "backup_failed": "Kandu's daily backup failed. The previous copies are untouched. The details are on the dashboard.",
+        "tg_approve": "✅ Approve the merge",
+        "tg_sure": "✅ Yes, merge {head}",
+        "tg_cancel": "Cancel",
+        "tg_approved": "Approved from Telegram. Kandu merges it in the cycle that starts now.",
+        "tg_changed": "The PR changed since this message, so nothing was approved. Look at it again first.",
+        "tg_no_pr": "This task has no open PR now.",
+        "tg_refused": "Not approved: {reason}",
+        "tg_buttons_off": "Approving from Telegram is turned off on the dashboard.",
+        "tg_not_yours": "This bot takes presses only from its own chat.",
+        "tg_on_dashboard": "Approve this one on the dashboard.",
+        "tg_test": "Kandu here: Telegram is connected. ✓",
         STUCK: "Stuck: Kandu cannot go on without you",
         YOUR_TURN: "Your turn: it waits for your yes",
         DONE: "Done",
@@ -114,6 +125,17 @@ MESSAGES = {
         "blocker_rewritten": "تسک تازه‌ی {task} منتظر {old} بود. {old} شکسته شده، پس به جایش منتظر آخرین تکه‌اش، "
                              "{new}، می‌ماند.",
         "backup_failed": "پشتیبان روزانه‌ی کندو شکست خورد. نسخه‌های قبلی دست نخورده‌اند. جزئیات در داشبورد است.",
+        "tg_approve": "✅ تأیید ادغام",
+        "tg_sure": "✅ بله، {head} ادغام شود",
+        "tg_cancel": "انصراف",
+        "tg_approved": "از تلگرام تأیید شد. کندو در چرخه‌ای که همین حالا شروع می‌شود ادغامش می‌کند.",
+        "tg_changed": "PR بعد از این پیام عوض شده، پس چیزی تأیید نشد. اول دوباره نگاهش کن.",
+        "tg_no_pr": "این تسک الان PR بازی ندارد.",
+        "tg_refused": "تأیید نشد: {reason}",
+        "tg_buttons_off": "تأیید از تلگرام در داشبورد خاموش است.",
+        "tg_not_yours": "این بات فقط از چت خودش دکمه می‌پذیرد.",
+        "tg_on_dashboard": "این یکی را در داشبورد تأیید کن.",
+        "tg_test": "کندو این‌جاست: تلگرام وصل است. ✓",
         STUCK: "گیر کرده: کندو بدون تو جلو نمی‌رود",
         YOUR_TURN: "نوبت توست: منتظر تأیید تو است",
         DONE: "انجام شد",
@@ -236,11 +258,12 @@ class Telegram:
     def __init__(self, bot_token_env, chat_id_env):
         self.token_env, self.chat_env = bot_token_env, chat_id_env
 
-    def send(self, text):
+    def send(self, text, buttons=None):
         token, chat = os.environ.get(self.token_env), os.environ.get(self.chat_env)
         if not token or not chat:
             raise NotifyError(f"{self.token_env} or {self.chat_env} is not set")
-        body = urllib.parse.urlencode({"chat_id": chat, "text": text}).encode("utf-8")
+        fields = {"chat_id": chat, "text": text} | ({"reply_markup": json.dumps(buttons)} if buttons else {})
+        body = urllib.parse.urlencode(fields).encode("utf-8")
         request = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=body)
         try:
             with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as reply:
@@ -253,8 +276,9 @@ class Telegram:
 
 
 class Notifier:
-    def __init__(self, store, adapter, events, language, queen=False):
+    def __init__(self, store, adapter, events, language, queen=False, buttons=False):
         self.queen = queen
+        self.buttons = buttons  # an approve button under a PR that waits for the yes (telegram_bot.py)
         self.store = store
         self.adapter = adapter
         self.events = events
@@ -282,6 +306,12 @@ class Notifier:
                         return False
         return False
 
+    def _buttons(self, message):
+        if not self.buttons or message.text != "pr_ready":
+            return None
+        from .telegram_bot import approve_markup  # here, as telegram_bot reads this module's words
+        return approve_markup(message.values["task"], self.language)
+
     def tell(self, message):
         if message.kind not in self.events:
             return
@@ -289,7 +319,9 @@ class Notifier:
             try:
                 if message.key is not None and self._told(message):
                     return
-                self.adapter.send(_render(message, self.language))
+                markup = self._buttons(message)
+                text = _render(message, self.language)
+                self.adapter.send(text, markup) if markup else self.adapter.send(text)
             except Exception as e:
                 reason = str(e) if isinstance(e, NotifyError) else type(e).__name__
                 self.store.record("notification_failed", kind=message.kind, key=message.key, reason=reason)
@@ -303,4 +335,5 @@ def notifier_for(settings, store):
     if notify.adapter == "none":
         return None
     adapter = Telegram(notify.telegram.bot_token_env, notify.telegram.chat_id_env)
-    return Notifier(store, adapter, notify.events, notify.language or settings.language, settings.supervisor.queen)
+    return Notifier(store, adapter, notify.events, notify.language or settings.language, settings.supervisor.queen,
+                    getattr(notify.telegram, "buttons", False))

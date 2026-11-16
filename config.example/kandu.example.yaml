@@ -43,6 +43,7 @@ notify:
   telegram:
     bot_token_env: KANDU_TELEGRAM_BOT_TOKEN   # names of variables in local/.env, not the values
     chat_id_env: KANDU_TELEGRAM_CHAT_ID
+    buttons: false               # optional; an Approve merge button under a PR that waits for your yes. Default: false
   language: en                 # optional; the language of notifications only, en | fa. Default: top-level language
   events:                      # optional; what is important enough to send. Default: all of these
     - supervisor_stopped

@@ -65,6 +65,8 @@ EVENT_FIELDS = {
     "parallel_changed": ("total", "projects"),
     "drop_blockers_changed": ("enabled",),
     "notify_changed": ("events",),
+    "telegram_pressed": ("action", "task", "result"),
+    "telegram_changed": ("what",),
     "requests_shown_changed": ("enabled",),
     "kandu_restarted": (),
     "wake_requested": (),

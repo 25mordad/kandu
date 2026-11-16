@@ -339,6 +339,14 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   .counts { margin-inline-start:0; width:100%; }
   .stat-value { font-size:21px; }
 }
+.tg-ok { color:var(--good); }
+.tg-bad { color:var(--bad); }
+.tg-connect { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.tg-line { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; min-width:0; font-size:13px; }
+.tg-line label { font-weight:600; }
+.tg-line input { flex:1 1 12em; min-width:0; }
+.tg-chats { display:flex; flex-wrap:wrap; gap:6px; }
+.tg-note { font-size:12px; }
 </style>
 </head>
 <body>
@@ -843,6 +851,29 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "tg_lang_fa": "Persian",
   "tg_lang_en": "English",
   "tg_saved": "Saved. The next cycle uses it.",
+  "tg_connection": "Connection",
+  "tg_token": "Bot token",
+  "tg_token_hint": "The token BotFather gave you when you made the bot. It is checked with Telegram before it is kept.",
+  "tg_chat": "Chat ID",
+  "tg_chat_id_hint": "The chat Kandu writes to and takes button presses from. Find my chat gives it.",
+  "tg_set": "set",
+  "tg_not_set": "not set",
+  "tg_save_token": "Save token",
+  "tg_save_chat": "Save chat",
+  "tg_find_chat": "Find my chat",
+  "tg_chat_hint": "Write any message to your bot in Telegram, then press this: the chats that wrote to it show here, and a press on one uses it.",
+  "tg_use_hint": "Use this chat: Kandu writes here and takes button presses only from here.",
+  "tg_no_chats": "No chat has written to {bot} yet. Send it a message in Telegram, then press Find my chat again.",
+  "tg_your_bot": "your bot",
+  "tg_test": "Send a test",
+  "tg_test_hint": "Sends a short message to the chat, to show the token and the chat work.",
+  "tg_test_sent": "Sent. Look in Telegram.",
+  "tg_listening": "The bot is listening for button presses.",
+  "tg_secret_note": "The token and the chat are kept in local/.env on this machine only, and the page never shows them again.",
+  "tg_buttons": "Approve from Telegram",
+  "tg_buttons_hint": "On: the message about a PR that waits for your yes carries an Approve merge button. A press asks once more and approves only the head it showed; only presses from your chat count.",
+  "tg_connect_saved": "Saved in local/.env.",
+  "tg_kinds": "What Kandu sends",
   "notify_pr_ready": "A PR waits for your approval",
   "notify_pr_ready_hint": "A task passed review and its merge waits for your yes, or something holds it.",
   "notify_task_done": "Merged and done",
@@ -1270,6 +1301,29 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "tg_lang_fa": "فارسی",
   "tg_lang_en": "انگلیسی",
   "tg_saved": "ذخیره شد. چرخهٔ بعدی از آن استفاده می‌کند.",
+  "tg_connection": "اتصال",
+  "tg_token": "توکن ربات",
+  "tg_token_hint": "توکنی که BotFather موقع ساختن ربات به تو داد. پیش از ذخیره با تلگرام بررسی می‌شود.",
+  "tg_chat": "شناسهٔ چت",
+  "tg_chat_id_hint": "چتی که کندو در آن پیام می‌فرستد و فشار دکمه‌ها را از آن می‌پذیرد. «پیدا کردن چت من» آن را می‌دهد.",
+  "tg_set": "تنظیم شده",
+  "tg_not_set": "تنظیم نشده",
+  "tg_save_token": "ذخیرهٔ توکن",
+  "tg_save_chat": "ذخیرهٔ چت",
+  "tg_find_chat": "پیدا کردن چت من",
+  "tg_chat_hint": "در تلگرام یک پیام به رباتت بفرست، بعد این را بزن: چت‌هایی که به آن پیام داده‌اند این‌جا می‌آیند و با زدن هر کدام همان انتخاب می‌شود.",
+  "tg_use_hint": "همین چت: کندو این‌جا پیام می‌فرستد و فقط فشار دکمه‌های همین‌جا را می‌پذیرد.",
+  "tg_no_chats": "هنوز هیچ چتی به {bot} پیام نداده. در تلگرام به آن پیام بده و دوباره «پیدا کردن چت من» را بزن.",
+  "tg_your_bot": "رباتت",
+  "tg_test": "پیام آزمایشی",
+  "tg_test_hint": "پیامی کوتاه به چت می‌فرستد تا ببینی توکن و چت کار می‌کنند.",
+  "tg_test_sent": "فرستاده شد. تلگرام را نگاه کن.",
+  "tg_listening": "ربات منتظر فشار دکمه‌هاست.",
+  "tg_secret_note": "توکن و چت فقط در فایل ‎local/.env‎ روی همین ماشین می‌مانند و صفحه دیگر نشانشان نمی‌دهد.",
+  "tg_buttons": "تأیید از تلگرام",
+  "tg_buttons_hint": "روشن: پیام PRی که منتظر بلهٔ توست دکمهٔ «تأیید ادغام» دارد. با زدنش یک بار دیگر می‌پرسد و فقط همان نسخه‌ای را که نشان داد تأیید می‌کند؛ فقط فشار دکمه از چت خودت حساب می‌شود.",
+  "tg_connect_saved": "در ‎local/.env‎ ذخیره شد.",
+  "tg_kinds": "چه خبرهایی فرستاده شود",
   "notify_pr_ready": "PR منتظر تأیید توست",
   "notify_pr_ready_hint": "تسکی از بازبینی گذشته و ادغامش منتظر بلهٔ توست، یا چیزی جلویش را گرفته.",
   "notify_task_done": "ادغام شد و تمام شد",
@@ -1437,6 +1491,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "blocker_dropped": "مانع با تأیید تو برداشته شد",
   "drop_blockers_changed": "پرسیدن ملکه درباره‌ی مانع‌ها روشن یا خاموش شد",
   "notify_changed": "اعلان‌های تلگرام عوض شد",
+  "telegram_pressed": "دکمه‌ای در تلگرام زده شد",
+  "telegram_changed": "اتصال تلگرام عوض شد",
   "requests_shown_changed": "نمایش درخواست‌های باز روشن یا خاموش شد",
   "queen_step_done": "قدم ملکه انجام شد",
   "queen_opened": "ملکه تسک تازه باز کرد",
@@ -2377,10 +2433,74 @@ async function changeStep(button) {
 const NOTIFY_ORDER = ["pr_ready", "task_done", "needs_decision", "failure", "supervisor_stopped", "usage_limit", "claude_login", "machine_unreachable"];
 const notifyKinds = n => [...NOTIFY_ORDER.filter(k => n.kinds.includes(k)), ...n.kinds.filter(k => !NOTIFY_ORDER.includes(k))];
 const notifyPath = events => `/notify?events=${encodeURIComponent([...events].join(",") || "none")}`;  // none: send nothing
+// Telegram's connection: the bot's token and the chat go in a POST's body to local/.env, so they are in no URL and no
+// log, and the page only learns whether each is set. A field is never filled back in.
+async function sendForm(button, path, fields) {
+  if (!token && !await askToken()) return false;
+  return busy(button, async () => {
+    const r = await fetch("/api/v1" + path, {method: "POST", body: new URLSearchParams(fields),
+      headers: {Authorization: "Bearer " + token, "Content-Type": "application/x-www-form-urlencoded"}});
+    if (r.status === 403) token = "";
+    const answer = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(r.status === 403 ? t("token_required") : tr(answer.error) || t("request_failed")); return false; }
+    return answer;
+  });
+}
+let tgChats = null;  // the chats that wrote to the bot, once Find my chat asked; a press on one uses it
+// A redraw keeps what is typed in the two fields, and the field being typed in.
+function tgKeep(draw) {
+  const kept = ["tg-token", "tg-chat"].map(id => [id, $(id)?.value || ""]), focused = document.activeElement?.id;
+  draw();
+  for (const [id, value] of kept) if ($(id)) $(id).value = value;
+  if (focused?.startsWith("tg-") && $(focused)) $(focused).focus();
+}
+function tgConnectHtml(tg) {
+  if (!tg) return "";
+  const mark = set => `<span class="${set ? "tg-ok" : "tg-bad"}">${set ? "✓ " + esc(t("tg_set")) : esc(t("tg_not_set"))}</span>`;
+  const bot = tg.bot ? `<bdi dir="ltr" class="muted">@${esc(tg.bot)}</bdi>` : "";
+  const status = tg.error ? `<span class="tg-bad">${esc(tg.error)}</span>` : tg.listening ? `<span class="tg-ok">${esc(t("tg_listening"))}</span>` : "";
+  const chats = tgChats === null ? "" : tgChats.length
+    ? `<div class="tg-chats">${tgChats.map(c => `<button type="button" class="btn small" data-tg-use="${esc(c.id)}" title="${esc(t("tg_use_hint"))}"><bdi>${esc(c.name)}</bdi> <bdi dir="ltr" class="muted">${esc(c.id)}</bdi></button>`).join("")}</div>`
+    : `<div class="muted">${esc(t("tg_no_chats").replace("{bot}", tg.bot ? "@" + tg.bot : t("tg_your_bot")))}</div>`;
+  return `<div class="tg-connect">
+    <div class="tg-line" title="${esc(t("tg_token_hint"))}"><label for="tg-token">${esc(t("tg_token"))}</label>${mark(tg.token_set)}${bot}<input id="tg-token" type="password" autocomplete="off" spellcheck="false" dir="ltr" placeholder="123456789:AA…" aria-label="${esc(t("tg_token"))}"><button type="button" class="btn small" data-tg-send="token">${esc(t("tg_save_token"))}</button></div>
+    <div class="tg-line" title="${esc(t("tg_chat_id_hint"))}"><label for="tg-chat">${esc(t("tg_chat"))}</label>${mark(tg.chat_set)}<input id="tg-chat" inputmode="numeric" autocomplete="off" dir="ltr" placeholder="123456789" aria-label="${esc(t("tg_chat"))}"><button type="button" class="btn small" data-tg-send="chat">${esc(t("tg_save_chat"))}</button><button type="button" class="btn small" data-tg-find title="${esc(t("tg_chat_hint"))}"${tg.token_set ? "" : " disabled"}>${esc(t("tg_find_chat"))}</button></div>
+    ${chats}
+    <div class="tg-line">${status}<button type="button" class="btn small" data-tg-test title="${esc(t("tg_test_hint"))}"${tg.token_set && tg.chat_set ? "" : " disabled"}>${esc(t("tg_test"))}</button></div>
+    <div class="muted tg-note">${esc(t("tg_secret_note"))}</div></div>`;
+}
+async function tgConnect(button) {
+  const d = button.dataset;
+  let answer = null;
+  if (d.tgSend) {
+    const field = $(d.tgSend === "token" ? "tg-token" : "tg-chat"), value = field.value.trim();
+    if (!value) { field.focus(); return; }
+    answer = await sendForm(button, `/telegram/${d.tgSend}`, d.tgSend === "token" ? {token: value} : {chat_id: value});
+    if (answer) { field.value = ""; if (d.tgSend === "token") tgChats = null; toast(t("tg_connect_saved")); }
+  } else if (d.tgUse) {
+    answer = await sendForm(button, "/telegram/chat", {chat_id: d.tgUse});
+    if (answer) { tgChats = null; toast(t("tg_connect_saved")); }
+  } else if ("tgFind" in d) {
+    const found = await sendForm(button, "/telegram/chats", {});
+    if (found) tgChats = found.chats || [];
+  } else if ("tgTest" in d) {
+    if (await sendForm(button, "/telegram/test", {})) toast(t("tg_test_sent"));
+  }
+  if (answer?.notify && lastState) lastState.notify = answer.notify;
+  tgRedraw();
+}
 function notifyCard(n) {
   if (!n) return "";
   const row = kind => `<label class="limit-field" title="${esc(t(`notify_${kind}_hint`) || "")}"><span>${esc(t(`notify_${kind}`) || kind)}</span><input type="checkbox" data-notify-kind="${esc(kind)}"${n.events.includes(kind) ? " checked" : ""}></label>`;
-  return `<h2 class="card-title">${t("tg_title")}</h2><div class="muted">${esc(t("tg_about"))}</div>${n.adapter === "none" ? `<div class="muted">${esc(t("tg_off"))}</div>` : ""}${notifyKinds(n).map(row).join("")}`;
+  const buttons = n.telegram ? `<label class="limit-field" title="${esc(t("tg_buttons_hint"))}"><span>${esc(t("tg_buttons"))}</span><input type="checkbox" data-tg-buttons${n.telegram.buttons ? " checked" : ""}></label>` : "";
+  const connect = n.telegram ? `<h3 class="card-title">${esc(t("tg_connection"))}</h3>${tgConnectHtml(n.telegram)}` : "";
+  return `<h2 class="card-title">${t("tg_title")}</h2><div class="muted">${esc(t("tg_about"))}</div>${n.adapter === "none" ? `<div class="muted">${esc(t("tg_off"))}</div>` : ""}${connect}${buttons}<h3 class="card-title">${esc(t("tg_kinds"))}</h3>${notifyKinds(n).map(row).join("")}`;
+}
+const tgRedraw = () => { renderSettings.key = null; if (lastState) renderSettings(lastState); };
+async function changeTgButtons(box) {
+  renderSettings.key = null;
+  await act(box, `/telegram/buttons?enabled=${box.checked}`);
+  await refreshState().catch(() => {});
 }
 
 async function changeNotify(box) {
@@ -2415,7 +2535,7 @@ function renderSettings(s) {
     <div class="muted">${t("pace_hint")}</div>`;
   $("cleanmerged").innerHTML = `<label title="${esc(t("clean_merged_hint"))}"><input type="checkbox" data-clean-merged${s.clean_merged ? " checked" : ""}> ${t("clean_merged")}</label><div class="muted">${t("clean_merged_hint")}</div>`;
   $("defaultlook").innerHTML = defaultLookHtml(s.default_look);
-  $("notifysettings").innerHTML = notifyCard(s.notify);
+  tgKeep(() => { $("notifysettings").innerHTML = notifyCard(s.notify); });
   $("notifysettings").hidden = !s.notify;
   const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "queen_accepts_splits", "queen_answers_one_way"];
   $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th>${heads.map(h => `<th class="fit">${t(h)}</th>`).join("")}<th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
@@ -3094,6 +3214,7 @@ async function showTask(task) {
 
 document.addEventListener("click", e => {
   const hit = name => e.target.closest(`[data-${name}]`);
+  { const tg = hit("tg-send") || hit("tg-use") || hit("tg-find") || hit("tg-test"); if (tg) { tgConnect(tg); return; } }
   const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
   if (hit("close")) { $("modal").close(); return; }
   if (hit("choose-look")) { pickLook(hit("choose-look")); return; }
@@ -3146,6 +3267,7 @@ document.addEventListener("change", e => {
   if (e.target.matches?.("[data-clean-merged]")) changeCleanMerged(e.target);
   if (e.target.matches?.("[data-default-look]")) changeDefaultLook(e.target);
   if (e.target.matches?.("[data-notify-kind]")) changeNotify(e.target);
+  if (e.target.matches?.("[data-tg-buttons]")) changeTgButtons(e.target);
 });
 document.addEventListener("toggle", e => {
   const asked = e.target.dataset?.request;
