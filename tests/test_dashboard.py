@@ -232,6 +232,14 @@ class ReadTest(Base):
         self.assertEqual([t["task"] for t in answer["projects"]["website"]["Done"]], [f"{REPO}#1"])
         self.assertEqual(answer["done_days"], 5)
 
+    def test_a_done_task_says_when_it_closed(self):
+        when = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "Done", ["agent"], "", closed_at=when),
+                                                BoardItem(REPO, 2, "t", "u", "Ready", ["agent"], "")]
+        website = self.get("/api/v1/queue")[1]["projects"]["website"]
+        self.assertEqual(website["Done"][0]["closed_at"], when)
+        self.assertNotIn("closed_at", website["Ready"][0])
+
     def test_a_task_says_what_it_was_and_what_it_cost(self):
         self.github.issue_text.return_value = {"title": "Big", "body": "Why", "url": "u"}
         usage = {"opus": {"input": 10, "output": 20, "cache_read": 100, "cache_creation": 5}}

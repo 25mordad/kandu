@@ -832,6 +832,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "default_look_hint": "The look a browser opens in until it chooses its own; a browser's own choice always wins.",
   "default_look_classic": "Classic",
   "default_look_clean": "Kandu Clean",
+  "default_look_classic-new": "Classic new",
   "kept_after_merge": "Stayed after the merge",
   "bazras_all_well": "All was well",
   "bazras_findings": "{count} finding(s)",
@@ -1231,6 +1232,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "default_look_hint": "نمایی که مرورگر تا وقتی نمای خودش را انتخاب نکرده با آن باز می‌شود؛ انتخاب خود مرورگر همیشه مقدم است.",
   "default_look_classic": "کلاسیک",
   "default_look_clean": "کندو کلین",
+  "default_look_classic-new": "کلاسیک نو",
   "kept_after_merge": "بعد از ادغام ماند",
   "bazras_all_well": "همه درست بود",
   "bazras_findings": "{count} یافته",
@@ -2505,7 +2507,7 @@ async function removeProject(button) {
 // The install's default look: a browser opens in it until it chooses its own. A change is saved in the config at once.
 function defaultLookHtml(look) {
   const option = value => `<option value="${value}"${look === value ? " selected" : ""}>${t(`default_look_${value}`)}</option>`;
-  return `<label title="${esc(t("default_look_hint"))}">${t("default_look")} <select data-default-look aria-label="${esc(t("default_look"))}">${option("classic")}${option("clean")}</select></label><div class="muted">${t("default_look_hint")}</div>`;
+  return `<label title="${esc(t("default_look_hint"))}">${t("default_look")} <select data-default-look aria-label="${esc(t("default_look"))}">${option("classic")}${option("classic-new")}${option("clean")}</select></label><div class="muted">${t("default_look_hint")}</div>`;
 }
 
 async function changeDefaultLook(select) {
@@ -3084,7 +3086,7 @@ $("restart").onclick = e => act(e.currentTarget, "/restart");
 
 // The Look menu lists every look the dashboard has, from the state, and marks the one this page is. A page that has
 // not read the state yet knows the two it came with. A choice is kept in this browser's cookie.
-const LOOK_NAMES = ["classic", "clean"];
+const LOOK_NAMES = ["classic", "classic-new", "clean"];
 const LOOK_HERE = "classic";  // the look this page is
 function lookItems(looks, current) {
   return (looks?.length ? looks : LOOK_NAMES).map(look => `<button class="menu-item" data-choose-look="${esc(look)}" aria-current="${look === current}"><span>${esc(TEXT[lang][`default_look_${look}`] || look)}</span>${look === current ? '<small aria-hidden="true">✓</small>' : ""}</button>`).join("");

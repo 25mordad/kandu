@@ -34,7 +34,7 @@ DEADLINE_FIELD = "Deadline"
 NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "task_done", "usage_limit", "claude_login",
                  "machine_unreachable")
 NOTIFY_LANGUAGES = ("en", "fa")
-LOOKS = ("classic", "clean")  # the dashboard's two looks: Classic and Kandu Clean
+LOOKS = ("classic", "classic-new", "clean")  # the dashboard's looks: Classic, Classic new and Kandu Clean
 
 
 class ConfigError(Exception):

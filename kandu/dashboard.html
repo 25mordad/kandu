@@ -967,6 +967,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "default_look_hint": "The look a browser opens in until it chooses its own; a browser's own choice always wins.",
   "default_look_classic": "Classic",
   "default_look_clean": "Kandu Clean",
+  "default_look_classic-new": "Classic new",
   "pace_title": "Kandu's pace",
   "pace_workers": "Workers at once, in all of Kandu",
   "pace_wake": "Wakes every (minutes)",
@@ -1430,6 +1431,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "default_look_hint": "نمایی که مرورگر تا وقتی نمای خودش را انتخاب نکرده با آن باز می‌شود؛ انتخاب خود مرورگر همیشه مقدم است.",
   "default_look_classic": "کلاسیک",
   "default_look_clean": "کندو کلین",
+  "default_look_classic-new": "کلاسیک نو",
   "pace_title": "آهنگ کار کندو",
   "pace_workers": "کارگرهای هم‌زمان در کل کندو",
   "pace_wake": "بیدار شدن هر (دقیقه)",
@@ -2816,7 +2818,7 @@ function chooseLook(chosen) {
 
 // The Look menu lists every look the dashboard has, from the state, and marks the one this page is. A page that has
 // not read the state yet knows the two it came with. A choice is kept in this browser's cookie.
-const LOOK_NAMES = ["classic", "clean"];
+const LOOK_NAMES = ["classic", "classic-new", "clean"];
 const LOOK_HERE = "clean";  // the look this page is
 function lookItems(looks, current) {
   return (looks?.length ? looks : LOOK_NAMES).map(look => `<button class="menu-item" data-choose-look="${esc(look)}" aria-current="${look === current}"><span>${esc(TEXT[lang][`default_look_${look}`] || look)}</span>${look === current ? '<small aria-hidden="true">✓</small>' : ""}</button>`).join("");

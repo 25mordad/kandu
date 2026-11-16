@@ -30,8 +30,9 @@ from .tasks import TaskError
 
 PAGE = Path(__file__).with_name("dashboard.html")  # the Kandu Clean look
 CLASSIC_PAGE = Path(__file__).with_name("classic.html")
+CLASSIC_NEW_PAGE = Path(__file__).with_name("classic-new.html")
 LOOK_COOKIE = "kandu-look"  # the look each browser chose; the page sets it
-LOOKS = {"classic": CLASSIC_PAGE, "clean": PAGE}  # in the order the Look menu lists them
+LOOKS = {"classic": CLASSIC_PAGE, "classic-new": CLASSIC_NEW_PAGE, "clean": PAGE}  # in the order the Look menu lists them
 FONT = Path(__file__).with_name("vazirmatn.woff2")
 TOKEN_ENV = "KANDU_DASHBOARD_TOKEN"
 API = "/api/v1"
@@ -599,6 +600,8 @@ class Api:
                           "criteria": (tasks.section_text(item.body or "", "Acceptance criteria") or "").strip()}
             if item.status in MERGEABLE_COLUMNS:
                 entry["blockers"] = self._blockers(item, columns)
+            if item.status == DONE:
+                entry["closed_at"] = item.closed_at  # when it closed, mostly by its PR's merge
             projects[name][item.status].append(entry)
         return {"projects": projects, "done_days": DONE_KEEP_DAYS}
 

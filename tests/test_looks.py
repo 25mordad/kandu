@@ -1,4 +1,4 @@
-"""The dashboard's two looks, Kandu Clean and Classic, and the switch between them (#53)."""
+"""The dashboard's looks, Kandu Clean, Classic and Classic new, and the switch between them (#53)."""
 import json
 import os
 import re
@@ -240,8 +240,8 @@ const refreshState = async () => {}; const renderSettings = {};
 })();""")
         self.assertIn(self.text["en"]["default_look"], seen["classic"])
         self.assertIn('<select data-default-look', seen["classic"])
-        self.assertIn('<option value="classic" selected>Classic</option><option value="clean">Kandu Clean</option>', seen["classic"])
-        self.assertIn('<option value="classic">Classic</option><option value="clean" selected>Kandu Clean</option>', seen["clean"])
+        self.assertIn('<option value="classic" selected>Classic</option><option value="classic-new">Classic new</option><option value="clean">Kandu Clean</option>', seen["classic"])
+        self.assertIn('<option value="classic">Classic</option><option value="classic-new">Classic new</option><option value="clean" selected>Kandu Clean</option>', seen["clean"])
         self.assertEqual(seen["calls"], ["/default-look?look=clean"])  # act sends the dashboard's token
         self.assertIn("defaultLookHtml(s.default_look)", function(self.page, "renderSettings"))
         self.assertIn("s.default_look", function(self.page, "renderSettings").split("const key = ")[1].split("\n")[0])
@@ -326,26 +326,27 @@ class CleanSwitchTest(unittest.TestCase):
 
 
 class LookMenuTest(unittest.TestCase):
-    """The Look menu, the same in both looks: every look the dashboard has, the one this page is marked."""
-    PAGES = {"classic": dashboard.CLASSIC_PAGE, "clean": dashboard.PAGE}
+    """The Look menu, the same in every look: every look the dashboard has, the one this page is marked."""
+    PAGES = {"classic": dashboard.CLASSIC_PAGE, "classic-new": dashboard.CLASSIC_NEW_PAGE, "clean": dashboard.PAGE}
 
-    def test_both_looks_have_the_same_menu(self):
+    def test_every_look_has_the_same_menu(self):
         classic, clean = read(dashboard.CLASSIC_PAGE), read(dashboard.PAGE)
-        for name in ("lookItems", "openLooks", "pickLook", "chooseLook"):
-            self.assertEqual(function(classic, name), function(clean, name), name)
-        self.assertEqual(line(classic, "const LOOK_NAMES = "), line(clean, "const LOOK_NAMES = "))
-        for page in (classic, clean):
+        for other in (clean, read(dashboard.CLASSIC_NEW_PAGE)):
+            for name in ("lookItems", "openLooks", "pickLook", "chooseLook"):
+                self.assertEqual(function(classic, name), function(other, name), name)
+            self.assertEqual(line(classic, "const LOOK_NAMES = "), line(other, "const LOOK_NAMES = "))
+        for page in (read(path) for path in self.PAGES.values()):
             self.assertIn('<dialog id="lookmenu" class="menu" data-t-attr="aria-label" data-t="look"><div class="menu-head" data-t="look"></div>'
                           '<div id="lookitems"></div><p class="menu-hint" data-t="look_hint"></p></dialog>', page)
             self.assertIn('if (hit("choose-look")) { pickLook(hit("choose-look")); return; }', page)
             self.assertIn('if (e.target === $("lookmenu")) { $("lookmenu").close(); return; }', page)
             for lang in ("en", "fa"):
-                for key in ("look", "look_hint", "default_look_classic", "default_look_clean"):
+                for key in ("look", "look_hint", "default_look_classic", "default_look_classic-new", "default_look_clean"):
                     self.assertIn(key, words(page)[lang], f"{lang}: {key}")
             self.assertNotEqual(words(page)["fa"]["look"], words(page)["en"]["look"])
 
     def test_the_state_names_every_look_in_the_menus_order(self):
-        self.assertEqual(list(dashboard.LOOKS), ["classic", "clean"])
+        self.assertEqual(list(dashboard.LOOKS), ["classic", "classic-new", "clean"])
         self.assertIn('"looks": list(LOOKS),', (ROOT / "kandu" / "dashboard.py").read_text(encoding="utf-8"))
         api = read(ROOT / "docs" / "API.md")
         self.assertIn("`looks`", next(each for each in api.splitlines() if each.startswith("| GET | `/api/v1/state`")))
@@ -358,12 +359,12 @@ class LookMenuTest(unittest.TestCase):
                           + line(page, "const LOOK_NAMES = ") + function(page, "lookItems")
                           + 'console.log(JSON.stringify([lookItems(["classic", "clean", "sunny"], "clean"), lookItems(undefined, "classic")]));')
             three, fallback = seen
-            self.assertEqual(re.findall(r'data-choose-look="(\w+)" aria-current="(\w+)"', three),
+            self.assertEqual(re.findall(r'data-choose-look="([\w-]+)" aria-current="(\w+)"', three),
                              [("classic", "false"), ("clean", "true"), ("sunny", "false")], here)
             self.assertIn("<span>sunny</span>", three)  # a look this page has no name for shows as it is called
             self.assertIn(f"<span>{words(page)['fa']['default_look_clean']}</span>", three)
             self.assertEqual(three.count("✓"), 1)
-            self.assertEqual(re.findall(r'data-choose-look="(\w+)"', fallback), ["classic", "clean"], here)
+            self.assertEqual(re.findall(r'data-choose-look="([\w-]+)"', fallback), ["classic", "classic-new", "clean"], here)
 
     @unittest.skipUnless(NODE, "needs node to run the page's script")
     def test_choosing_another_look_keeps_it_in_the_browser_and_this_one_only_closes(self):
@@ -378,33 +379,33 @@ class LookMenuTest(unittest.TestCase):
 
 
 class DesignTest(unittest.TestCase):
-    def test_design_describes_the_two_looks_the_switch_and_where_new_things_go(self):
+    def test_design_describes_the_looks_the_switch_and_where_new_things_go(self):
         section = read(ROOT / "DESIGN.md").split("## 7. Dashboard")[1].split("\n## 8.")[0]
-        looks = next(each for each in section.splitlines() if each.startswith("- **Two looks:**"))
-        for part in ("Kandu Clean", "Classic", "More", "language switch", "each browser remembers", "chosen nothing",
-                     "honeycomb", "both looks", "only into the Kandu Clean look", "warning", "task state", "action"):
+        looks = next(each for each in section.splitlines() if each.startswith("- **Looks:**"))
+        for part in ("Kandu Clean", "Classic", "Classic new", "More", "language switch", "each browser remembers", "chosen nothing",
+                     "honeycomb", "every look", "only into the Kandu Clean look", "warning", "task state", "action"):
             self.assertIn(part.lower(), looks.lower(), part)
 
     def test_design_and_the_api_docs_describe_the_default_look(self):
         design = read(ROOT / "DESIGN.md")
-        looks = next(each for each in design.split("## 7. Dashboard")[1].splitlines() if each.startswith("- **Two looks:**"))
-        for part in ("default look", "`dashboard.look`", "Classic by default", "own choice always wins", "Settings tab of both looks"):
+        looks = next(each for each in design.split("## 7. Dashboard")[1].splitlines() if each.startswith("- **Looks:**"))
+        for part in ("default look", "`dashboard.look`", "Classic by default", "own choice always wins", "Settings tab of every look"):
             self.assertIn(part, looks, part)
         setup = design.split("### A. Initial setup")[1].split("### B.")[0]
         self.assertIn("`dashboard.look`", setup)
         api = read(ROOT / "docs" / "API.md")
         self.assertIn("`default_look`", next(each for each in api.splitlines() if each.startswith("| GET | `/api/v1/state`")))
-        self.assertIn("`look=classic` or `clean`", next(each for each in api.splitlines() if each.startswith("| POST | `/api/v1/default-look`")))
+        self.assertIn("`look=classic`, `classic-new` or `clean`", next(each for each in api.splitlines() if each.startswith("| POST | `/api/v1/default-look`")))
 
     def test_setup_and_config_ask_for_the_default_look(self):
         commands = ROOT / ".claude" / "commands"
         setup, config = read(commands / "kandu-setup.md"), read(commands / "kandu-config.md")
         question = next(each for each in setup.splitlines() if "`dashboard.look`" in each)
         self.assertRegex(question, r"^   \d+\. ")
-        for part in ("Classic", "Kandu Clean", "default"):
+        for part in ("Classic", "Classic new", "Kandu Clean", "default"):
             self.assertIn(part, question, part)
         self.assertIn("`dashboard.look`", config)
-        self.assertIn("Classic or Kandu Clean", config)
+        self.assertIn("Classic, Classic new or Kandu Clean", config)
 
 
 @unittest.skipUnless(NODE and browser(), "needs node and a Chromium to open the pages")
@@ -425,7 +426,7 @@ class BrowserTest(Served):
             steps = case["steps"]
             menus = {step: steps.pop(step) for step in ("menu", "clean_menu")}
             for step, current in (("menu", "classic"), ("clean_menu", "clean")):
-                self.assertEqual(menus[step], {"open": True, "looks": ["classic", "clean"], "current": [current], "sideways": False}, f"{name}, {step}")
+                self.assertEqual(menus[step], {"open": True, "looks": ["classic", "classic-new", "clean"], "current": [current], "sideways": False}, f"{name}, {step}")
             looks = {step: seen["look"] for step, seen in steps.items() if step != "more_open"}
             self.assertEqual(looks, {"first": "classic", "switched": "clean", "reloaded": "clean", "back": "classic",
                                      "back_reloaded": "classic"}, name)

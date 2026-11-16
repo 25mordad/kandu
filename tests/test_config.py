@@ -92,7 +92,7 @@ class ConfigTest(unittest.TestCase):
     def test_any_other_default_look_is_a_config_problem(self):
         for wrong in ("honeycomb", "Clean", ""):
             self.edit("kandu.yaml", lambda d: d["dashboard"].update(look=wrong))
-            self.assertIn(f"dashboard.look: must be one of classic, clean, got {wrong!r}", self.problems())
+            self.assertIn(f"dashboard.look: must be one of classic, classic-new, clean, got {wrong!r}", self.problems())
 
     def test_the_example_config_shows_the_default_look(self):
         text = (EXAMPLES / "kandu.example.yaml").read_text(encoding="utf-8")
