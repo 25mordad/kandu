@@ -1370,7 +1370,7 @@ class FrameTest(unittest.TestCase):
                        "const esc = ", "const locale = ", "const t = ", "const num = ", "const when = ", "const clock = ",
                        "const githubRefused = ", "const bdi = ", "const pct = "))
                    + "".join(self.function(name) for name in ("tr", "stateChip", "stopText", "moreItems", "gauge", "chooseMore")))
-        done = subprocess.run([NODE, "-e", prelude + script], capture_output=True, text=True, timeout=30,
+        done = subprocess.run([NODE, "-"], input=prelude + script, capture_output=True, text=True, timeout=30,
                               env={**os.environ, "TZ": "UTC"})
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)

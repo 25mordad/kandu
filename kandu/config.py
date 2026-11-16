@@ -664,6 +664,49 @@ def _set_top_block(text, block, values):
     return "\n".join(lines)
 
 
+def _set_list_in_block(text, block, key, items):
+    """Sets `key:` under the top-level `block:` to a list, one `- item` line each, in place of the list it had."""
+    lines = text.split("\n")
+    head = next((i for i, l in enumerate(lines) if re.fullmatch(rf"{block}:[ \t]*(#.*)?", l)), None)
+    if head is None:
+        raise ConfigError([f"{block}: not in kandu.yaml as a block; change it there by hand"])
+    end = head + 1
+    while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t#"):
+        end += 1
+    children = [i for i in range(head + 1, end) if lines[i].strip() and not lines[i].lstrip().startswith("#")]
+    pad = " " * (len(lines[children[0]]) - len(lines[children[0]].lstrip())) if children else "  "
+    new = [f"{pad}{key}:" + ("" if items else " []")] + [f"{pad}  - {item}" for item in items]
+    hit = next((i for i in children if re.match(rf"^{pad}{key}:", lines[i])), None)
+    if hit is None:
+        lines[head + 1:head + 1] = new
+        return "\n".join(lines)
+    stop = hit + 1  # its old list: the lines under it, deeper than the key or `- ` at its depth
+    while stop < end and (not lines[stop].strip() or lines[stop].startswith(pad + " ") or lines[stop].startswith(pad + "- ")
+                          or lines[stop].lstrip().startswith("#") and len(lines[stop]) - len(lines[stop].lstrip()) > len(pad)):
+        stop += 1
+    while stop > hit + 1 and not lines[stop - 1].strip():  # a blank line before the next block stays
+        stop -= 1
+    lines[hit:stop] = new  # its old comment goes: it spoke of the old list
+    return "\n".join(lines)
+
+
+def set_notify_events(events, local_dir=DEFAULT_LOCAL_DIR):
+    """Sets what Kandu tells the user, `notify.events` in `kandu.yaml`, in NOTIFY_EVENTS's order. Nothing is written
+    if one is not in NOTIFY_EVENTS. The next cycle uses it."""
+    problems = []
+    for event in events:
+        _check_one_of(event, NOTIFY_EVENTS, "notify.events", problems)
+    if problems:
+        raise ConfigError(problems)
+    events = [event for event in NOTIFY_EVENTS if event in events]
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_list_in_block(path.read_text(encoding="utf-8"), "notify", "events", events)
+    if ((yaml.safe_load(text) or {}).get("notify") or {}).get("events") != events:
+        raise ConfigError(["notify.events: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+    return events
+
+
 def set_drop_blockers(enabled, local_dir=DEFAULT_LOCAL_DIR):
     """Lets the queen ask to drop a blocker, or stops her, in `kandu.yaml`'s `supervisor` block, line by line."""
     path = Path(local_dir) / "kandu.yaml"

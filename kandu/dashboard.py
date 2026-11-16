@@ -19,9 +19,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, rename, review, sessions, split,
                tasks, timer, tries, upstream, waits)
-from .config import (DEFAULT_LOCAL_DIR, PACE_SETTINGS, REGISTRY_SETTINGS, TECHNICAL_DEBT, ConfigError, Inspect,
+from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, REGISTRY_SETTINGS, TECHNICAL_DEBT, ConfigError, Inspect,
                      load_config, set_backup, set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_pace,
-                     set_default_look, set_parallel, set_project_values, set_show_requests)
+                     set_default_look, set_notify_events, set_parallel, set_project_values, set_show_requests)
 from .github import AGENT_LABEL, GitHubError, task_blockers
 from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
@@ -341,6 +341,7 @@ class Api:
                        "last": {p.name: bazras.last_look(p.name, self.local_dir) for p in bazras.inspected(self.config)}},
             "backup": self._backup(),
             "drop_blockers": self.config.settings.supervisor.queen_drop_blockers,
+            "notify": self._notify(),
             "show_requests": self.config.settings.dashboard.show_requests,
             "default_look": self.config.settings.dashboard.look,
             "looks": list(LOOKS),
@@ -976,6 +977,27 @@ class Api:
         self._queue_time = None
         return {"task": task, "dropped": blocker, "cycle_started": self.start_cycle()}
 
+    def _notify(self):
+        """What Kandu tells the user and where: never the bot's token or the chat, which stay in local/.env."""
+        notify = self.config.settings.notify
+        return {"adapter": notify.adapter, "events": list(notify.events), "kinds": list(NOTIFY_EVENTS),
+                "language": notify.language or self.config.settings.language}
+
+    def change_notify(self, query):
+        """Sets what Kandu tells the user, as a comma list of NOTIFY_EVENTS or `none`, through the config. The next
+        cycle uses it."""
+        given = query.get("events")
+        if given is None:
+            raise ApiError(400, "give events=, a comma list of " + ", ".join(NOTIFY_EVENTS) + ", or none")
+        events = [] if given[0] == "none" else [each for each in given[0].split(",") if each]
+        try:
+            events = set_notify_events(events, self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        self.config.settings.notify.events = events
+        self.store.record("notify_changed", events=events)
+        return {"notify": self._notify()}
+
     def change_drop_blockers(self, query):
         """Lets the queen ask to drop a blocker, or stops her. Her next look uses it, through the config."""
         enabled = query.get("enabled", [""])[0]
@@ -1304,6 +1326,7 @@ ROUTES = [
     ("GET", "/splits/{owner}/{repo}/{number}", Api.split),
     ("POST", "/splits/{owner}/{repo}/{number}/approve", Api.approve_split),
     ("POST", "/drop-blockers", Api.change_drop_blockers),
+    ("POST", "/notify", Api.change_notify),
     ("POST", "/clean-merged", Api.change_clean_merged),
     ("POST", "/drop-blockers/{owner}/{repo}/{number}", Api.drop_blocker),
     ("POST", "/stop", Api.stop),

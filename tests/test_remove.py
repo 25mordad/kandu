@@ -278,7 +278,7 @@ async function refreshState() {}
         page = self.page()
         begin = page.index("async function removeProject(")
         script = page[begin:page.index("\n}\n", begin) + 3]
-        done = subprocess.run([NODE, "-e", self.STUBS + script + """
+        done = subprocess.run([NODE, "-"], input=self.STUBS + script + """
 (async () => {
   const button = {dataset: {remove: "site"}, textContent: "remove_project"};
   answers = [{ok: false, body: {error: "no", memory_pr_failed: true}},
@@ -291,7 +291,7 @@ async function refreshState() {}
   await removeProject(button);
   console.log(JSON.stringify({first, failed, calls, toasts}));
 })();
-"""], capture_output=True, text=True, timeout=30)
+""", capture_output=True, text=True, timeout=30)
         self.assertEqual(done.returncode, 0, done.stderr)
         result = json.loads(done.stdout)
         self.assertEqual(result["first"], [0, "remove_sure"])  # the first click only asks

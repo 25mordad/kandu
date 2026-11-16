@@ -219,7 +219,7 @@ class PageTest(unittest.TestCase):
         script = "const t = k => k, num = String, esc = s => String(s);\n" + self.function("stepper") + """
 console.log(JSON.stringify([stepper(1, "/parallel?total={n}", "all"), stepper(60, "/pace?wake_every_minutes={n}", "wake", 5)]));
 """
-        done = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
+        done = subprocess.run([NODE, "-"], input=script, capture_output=True, text=True, timeout=30)
         self.assertEqual(done.returncode, 0, done.stderr)
         one, wake = json.loads(done.stdout)
         self.assertIn('data-step="-1" data-step-path="/parallel?total={n}" data-step-from="1"', one)

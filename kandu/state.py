@@ -64,6 +64,7 @@ EVENT_FIELDS = {
     "limits_changed": ("session", "week"),
     "parallel_changed": ("total", "projects"),
     "drop_blockers_changed": ("enabled",),
+    "notify_changed": ("events",),
     "requests_shown_changed": ("enabled",),
     "kandu_restarted": (),
     "wake_requested": (),

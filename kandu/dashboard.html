@@ -542,7 +542,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
       <div class="side-head"><b data-t="projects_title"></b><span class="spacer"></span><button id="addopen" type="button" class="textbtn" data-t="add_a_project"></button></div>
       <div id="projectsettings" class="set-projects"></div>
     </div>
-    <div class="settings-side"><div id="limitsettings"></div><div id="machinesettings"></div><div id="kandusettings"></div></div>
+    <div class="settings-side"><div id="limitsettings"></div><div id="machinesettings"></div><div id="kandusettings"></div><div id="notifysettings"></div></div>
   </section>
   <section data-panel="days" class="list" hidden>
     <div class="card pad usage"><div class="toolbar"><h2 class="card-title" data-t="usage_title"></h2>
@@ -967,6 +967,33 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "default_look_hint": "The look a browser opens in until it chooses its own; a browser's own choice always wins.",
   "default_look_classic": "Classic",
   "default_look_clean": "Kandu Clean",
+  "telegram": "Telegram",
+  "hint_telegram": "Telegram notifications: choose which news Kandu sends you.",
+  "tg_title": "Telegram notifications",
+  "tg_about": "Kandu sends a message for each kind that is on. The next cycle uses your choice.",
+  "tg_off": "Telegram is off in the config (notify.adapter: none), so nothing is sent whatever is on here.",
+  "tg_all_on": "All on",
+  "tg_all_off": "All off",
+  "tg_language": "Messages in {lang}",
+  "tg_lang_fa": "Persian",
+  "tg_lang_en": "English",
+  "tg_saved": "Saved. The next cycle uses it.",
+  "notify_pr_ready": "A PR waits for your approval",
+  "notify_pr_ready_hint": "A task passed review and its merge waits for your yes, or something holds it.",
+  "notify_task_done": "Merged and done",
+  "notify_task_done_hint": "A task was merged, or done by another PR; also a split Kandu or the queen made.",
+  "notify_needs_decision": "Needs your decision",
+  "notify_needs_decision_hint": "A task is blocked, needs information, lost its PR or issue, or went round in a loop; the queen asks you something; a split waits for your yes.",
+  "notify_failure": "Something failed",
+  "notify_failure_hint": "A task, deploy, live check or sizing failed; a project's check after its merges failed; a cycle, the queen or the daily backup ran into trouble.",
+  "notify_supervisor_stopped": "Kandu stopped",
+  "notify_supervisor_stopped_hint": "The supervisor stopped and no task starts until it is resumed, or a cycle crashed.",
+  "notify_usage_limit": "Usage limit",
+  "notify_usage_limit_hint": "Kandu reached the 5-hour or weekly limit, or a project its daily token limit.",
+  "notify_claude_login": "Claude login",
+  "notify_claude_login_hint": "Claude's login expires soon or has stopped working, so no agent starts.",
+  "notify_machine_unreachable": "Machine not answering",
+  "notify_machine_unreachable_hint": "A machine has not answered for hours while tasks wait for it, and again when it is back.",
   "default_look_classic-new": "Classic new",
   "pace_title": "Kandu's pace",
   "pace_workers": "Workers at once, in all of Kandu",
@@ -1431,6 +1458,33 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "default_look_hint": "نمایی که مرورگر تا وقتی نمای خودش را انتخاب نکرده با آن باز می‌شود؛ انتخاب خود مرورگر همیشه مقدم است.",
   "default_look_classic": "کلاسیک",
   "default_look_clean": "کندو کلین",
+  "telegram": "تلگرام",
+  "hint_telegram": "اعلان‌های تلگرام: انتخاب کن کندو چه خبرهایی برایت بفرستد.",
+  "tg_title": "اعلان‌های تلگرام",
+  "tg_about": "کندو برای هر نوعی که روشن است پیام می‌فرستد. چرخهٔ بعدی از انتخاب تو استفاده می‌کند.",
+  "tg_off": "تلگرام در تنظیمات خاموش است (notify.adapter: none)، پس هر چه این‌جا روشن باشد چیزی فرستاده نمی‌شود.",
+  "tg_all_on": "همه روشن",
+  "tg_all_off": "همه خاموش",
+  "tg_language": "زبان پیام‌ها: {lang}",
+  "tg_lang_fa": "فارسی",
+  "tg_lang_en": "انگلیسی",
+  "tg_saved": "ذخیره شد. چرخهٔ بعدی از آن استفاده می‌کند.",
+  "notify_pr_ready": "PR منتظر تأیید توست",
+  "notify_pr_ready_hint": "تسکی از بازبینی گذشته و ادغامش منتظر بلهٔ توست، یا چیزی جلویش را گرفته.",
+  "notify_task_done": "ادغام شد و تمام شد",
+  "notify_task_done_hint": "تسکی ادغام شد یا با PR دیگری انجام شد؛ همچنین شکستنی که کندو یا ملکه انجام داد.",
+  "notify_needs_decision": "تصمیم تو لازم است",
+  "notify_needs_decision_hint": "تسکی مسدود شده، اطلاعات می‌خواهد، PR یا ایشویش بسته شده یا دور خودش چرخیده؛ ملکه چیزی از تو می‌پرسد؛ پیشنهاد شکستنی منتظر بلهٔ توست.",
+  "notify_failure": "مشکل یا خطا",
+  "notify_failure_hint": "تسک، دیپلوی، بررسی زنده یا اندازه‌گیری شکست خورد؛ بررسی پروژه بعد از ادغام‌ها رد شد؛ چرخه، ملکه یا پشتیبان روزانه به مشکل خورد.",
+  "notify_supervisor_stopped": "کندو متوقف شد",
+  "notify_supervisor_stopped_hint": "ناظر متوقف شده و تا ادامه ندهی هیچ تسکی شروع نمی‌شود، یا چرخه‌ای از کار افتاد.",
+  "notify_usage_limit": "سقف مصرف",
+  "notify_usage_limit_hint": "کندو به سقف پنج‌ساعته یا هفتگی رسید، یا پروژه‌ای به سقف توکن روزانه‌اش.",
+  "notify_claude_login": "ورود Claude",
+  "notify_claude_login_hint": "ورود Claude به‌زودی منقضی می‌شود یا از کار افتاده، پس هیچ عاملی شروع نمی‌شود.",
+  "notify_machine_unreachable": "ماشین جواب نمی‌دهد",
+  "notify_machine_unreachable_hint": "ماشینی ساعت‌ها جواب نداده در حالی که تسک‌هایی منتظرش هستند، و دوباره وقتی برمی‌گردد.",
   "default_look_classic-new": "کلاسیک نو",
   "pace_title": "آهنگ کار کندو",
   "pace_workers": "کارگرهای هم‌زمان در کل کندو",
@@ -1678,6 +1732,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "blocker_drop_asked": "ملکه پرسید که مانع برداشته شود",
   "blocker_dropped": "مانع با تأیید تو برداشته شد",
   "drop_blockers_changed": "پرسیدن ملکه درباره‌ی مانع‌ها روشن یا خاموش شد",
+  "notify_changed": "اعلان‌های تلگرام عوض شد",
   "requests_shown_changed": "نمایش درخواست‌های باز روشن یا خاموش شد",
   "queen_step_done": "قدم ملکه انجام شد",
   "queen_opened": "ملکه تسک تازه باز کرد",
@@ -3044,13 +3099,14 @@ async function changeStep(button) {
 function renderSettings(s) {
   const projects = settingsProjects(s, lastQueue);
   const key = JSON.stringify([lang, projects, s.project_settings, s.limits, s.machines, s.clean_merged, s.drop_blockers,
-                              s.show_requests, s.default_look, s.backup, s.pace, s.parallel?.total]);
+                              s.show_requests, s.default_look, s.backup, s.pace, s.parallel?.total, s.notify]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
   $("projectsettings").innerHTML = settingsProjectsHtml(projects);
   $("limitsettings").innerHTML = limitsHtml(s);
   $("machinesettings").innerHTML = machinesHtml(s);
   $("kandusettings").innerHTML = kanduHtml(s);
+  $("notifysettings").innerHTML = notifyHtml(s.notify);
 }
 
 // Each project with its state line, the same as its lane on Today, and a short summary of its settings.
@@ -3258,6 +3314,19 @@ function switchRow(label, on, path, hint = "") {
 function defaultLookHtml(look) {
   const choice = value => `<button type="button" data-switch="/default-look?look=${value}" aria-pressed="${look === value}">${t(`default_look_${value}`)}</button>`;
   return `<div class="side-row" title="${esc(t("default_look_hint"))}"><span class="side-label">${t("default_look")}</span><div class="seg" role="group" aria-label="${esc(t("default_look"))}">${choice("classic")}${choice("clean")}</div></div>`;
+}
+
+// Telegram: which kinds of news Kandu sends, as `notify.events` in the config; the bot's token and the chat stay in
+// local/.env and never reach the page. The kinds go in the order a user meets them; one the page does not know yet
+// comes last, by its name.
+const NOTIFY_ORDER = ["pr_ready", "task_done", "needs_decision", "failure", "supervisor_stopped", "usage_limit", "claude_login", "machine_unreachable"];
+const notifyKinds = n => [...NOTIFY_ORDER.filter(k => n.kinds.includes(k)), ...n.kinds.filter(k => !NOTIFY_ORDER.includes(k))];
+const notifyPath = events => `/notify?events=${encodeURIComponent([...events].join(",") || "none")}`;  // none: send nothing
+function notifyHtml(n) {
+  if (!n) return "";
+  const toggled = kind => { const events = new Set(n.events); if (events.has(kind)) events.delete(kind); else events.add(kind); return notifyPath(events); };
+  return `<div class="side-head"><b>${t("tg_title")}</b></div><div class="side-note">${esc(t(n.adapter === "none" ? "tg_off" : "tg_about"))}</div>
+    ${notifyKinds(n).map(kind => switchRow(t(`notify_${kind}`) || kind, n.events.includes(kind), toggled(kind), t(`notify_${kind}_hint`) || "")).join("")}`;
 }
 
 // Kandu's own switches, its default look, its backup and its pace, each working as it always did.

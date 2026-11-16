@@ -44,7 +44,7 @@ def line(page, start):
 
 
 def run_js(script):
-    done = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
+    done = subprocess.run([NODE, "-"], input=script, capture_output=True, text=True, timeout=30)
     if done.returncode:
         raise AssertionError(done.stderr)
     return json.loads(done.stdout)

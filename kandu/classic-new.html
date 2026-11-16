@@ -301,6 +301,11 @@ dialog.menu { margin-top:44px; }
 #projectsettings .stepper { gap:3px; }
 #projectsettings input[type=checkbox], .setgrid input[type=checkbox] { min-height:auto; padding:0; }
 #projectsettings .tokens-field { width:7.5em; min-height:28px; padding:2px 8px; font-size:13px; }
+/* Telegram: its sign in its own blue, and its pop-up's quick buttons. */
+.tg-ico { width:19px; height:19px; } .tg-ico circle { fill:#2aabee; } .tg-ico path { fill:#fff; }
+.tg-badge .tg-ico { width:40px; height:40px; }
+.tg-quick { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; font-size:13px; }
+.tg-quick .muted { margin-inline-start:auto; }
 /* The explanation: shown at once beside what the pointer is on, in place of the browser's slow one. */
 .tip { position:fixed; z-index:40; max-width:min(340px, calc(100vw - 16px)); padding:6px 10px; border-radius:8px; background:var(--ink); color:var(--bg); font:400 12.5px/1.5 var(--sans); white-space:pre-line; overflow-wrap:anywhere; pointer-events:none; box-shadow:0 6px 20px #0000004d; }
 /* Classic new: the numbers on one thin strip with the hive at its start, three field tabs and a small legend. */
@@ -461,6 +466,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
     <button id="restart" class="btn plain" data-hint="hint_restart"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg><span class="lbl" data-t="restart_kandu"></span></button>
     <span id="didbanbox" class="flightbox"></span>
     <span id="zanbourdarbox" class="flightbox"></span>
+    <button id="telegram" class="btn plain icon" aria-haspopup="dialog" data-hint="hint_telegram" data-t-attr="aria-label" data-t="telegram" hidden><svg class="tg-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11"/><path d="M5.4 11.6 17.3 7c.6-.2 1 .1.9.9l-2 9.5c-.1.7-.6.9-1.2.5l-3.1-2.3-1.5 1.5c-.2.2-.4.3-.7.3l.2-3.2 5.8-5.2c.3-.2-.1-.4-.4-.2l-7.2 4.5-3.1-1c-.7-.2-.7-.7.1-1z"/></svg></button>
     <button id="look" class="btn plain" aria-haspopup="dialog" data-hint="look_hint"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-1 2-2 0-1.3-1-1.6-1-2.8 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10" cy="7" r="1.2" fill="currentColor"/><circle cx="14.5" cy="7" r="1.2" fill="currentColor"/></svg><span class="lbl" data-t="look"></span> ▾</button>
     <button id="lang" class="btn plain" lang="" data-hint="hint_lang" data-t="other_language_short"></button>
   </div>
@@ -498,6 +504,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
 <dialog id="lookmenu" class="menu" data-t-attr="aria-label" data-t="look"><div class="menu-head" data-t="look"></div><div id="lookitems"></div><p class="menu-hint" data-t="look_hint"></p></dialog>
 <dialog id="modal"><div class="dialog-head"><h2 id="modaltitle"></h2><button class="btn plain small" data-close data-t-attr="aria-label" data-t="close">×</button></div><div id="modalbody" class="dialog-body"></div></dialog>
 <dialog id="sheet" class="sheet" data-t-attr="aria-label" data-t="task_sheet"><div id="sheetbody" class="sheet-body"></div><div id="sheetfoot" class="sheet-foot"></div></dialog>
+<dialog id="tgsheet" class="sheet" data-t-attr="aria-label" data-t="tg_title"><div id="tgbody" class="sheet-body"></div><div id="tgfoot" class="sheet-foot"></div></dialog>
 <dialog id="setsheet" class="sheet" data-t-attr="aria-label" data-t="tab_settings"><div id="setbody" class="sheet-body"></div><div id="setfoot" class="sheet-foot"></div></dialog>
 <dialog id="tokenbox" class="small"><form method="dialog" class="dialog-body" id="tokenform">
   <h2 data-t="control_token"></h2><p class="muted" data-t="token_why"></p>
@@ -931,6 +938,33 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "default_look_hint": "The look a browser opens in until it chooses its own; a browser's own choice always wins.",
   "default_look_classic": "Classic",
   "default_look_clean": "Kandu Clean",
+  "telegram": "Telegram",
+  "hint_telegram": "Telegram notifications: choose which news Kandu sends you.",
+  "tg_title": "Telegram notifications",
+  "tg_about": "Kandu sends a message for each kind that is on. The next cycle uses your choice.",
+  "tg_off": "Telegram is off in the config (notify.adapter: none), so nothing is sent whatever is on here.",
+  "tg_all_on": "All on",
+  "tg_all_off": "All off",
+  "tg_language": "Messages in {lang}",
+  "tg_lang_fa": "Persian",
+  "tg_lang_en": "English",
+  "tg_saved": "Saved. The next cycle uses it.",
+  "notify_pr_ready": "A PR waits for your approval",
+  "notify_pr_ready_hint": "A task passed review and its merge waits for your yes, or something holds it.",
+  "notify_task_done": "Merged and done",
+  "notify_task_done_hint": "A task was merged, or done by another PR; also a split Kandu or the queen made.",
+  "notify_needs_decision": "Needs your decision",
+  "notify_needs_decision_hint": "A task is blocked, needs information, lost its PR or issue, or went round in a loop; the queen asks you something; a split waits for your yes.",
+  "notify_failure": "Something failed",
+  "notify_failure_hint": "A task, deploy, live check or sizing failed; a project's check after its merges failed; a cycle, the queen or the daily backup ran into trouble.",
+  "notify_supervisor_stopped": "Kandu stopped",
+  "notify_supervisor_stopped_hint": "The supervisor stopped and no task starts until it is resumed, or a cycle crashed.",
+  "notify_usage_limit": "Usage limit",
+  "notify_usage_limit_hint": "Kandu reached the 5-hour or weekly limit, or a project its daily token limit.",
+  "notify_claude_login": "Claude login",
+  "notify_claude_login_hint": "Claude's login expires soon or has stopped working, so no agent starts.",
+  "notify_machine_unreachable": "Machine not answering",
+  "notify_machine_unreachable_hint": "A machine has not answered for hours while tasks wait for it, and again when it is back.",
   "default_look_classic-new": "Classic new",
   "other_language_short": "فا",
   "h_didban": "Didban",
@@ -1370,6 +1404,33 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "default_look_hint": "نمایی که مرورگر تا وقتی نمای خودش را انتخاب نکرده با آن باز می‌شود؛ انتخاب خود مرورگر همیشه مقدم است.",
   "default_look_classic": "کلاسیک",
   "default_look_clean": "کندو کلین",
+  "telegram": "تلگرام",
+  "hint_telegram": "اعلان‌های تلگرام: انتخاب کن کندو چه خبرهایی برایت بفرستد.",
+  "tg_title": "اعلان‌های تلگرام",
+  "tg_about": "کندو برای هر نوعی که روشن است پیام می‌فرستد. چرخهٔ بعدی از انتخاب تو استفاده می‌کند.",
+  "tg_off": "تلگرام در تنظیمات خاموش است (notify.adapter: none)، پس هر چه این‌جا روشن باشد چیزی فرستاده نمی‌شود.",
+  "tg_all_on": "همه روشن",
+  "tg_all_off": "همه خاموش",
+  "tg_language": "زبان پیام‌ها: {lang}",
+  "tg_lang_fa": "فارسی",
+  "tg_lang_en": "انگلیسی",
+  "tg_saved": "ذخیره شد. چرخهٔ بعدی از آن استفاده می‌کند.",
+  "notify_pr_ready": "PR منتظر تأیید توست",
+  "notify_pr_ready_hint": "تسکی از بازبینی گذشته و ادغامش منتظر بلهٔ توست، یا چیزی جلویش را گرفته.",
+  "notify_task_done": "ادغام شد و تمام شد",
+  "notify_task_done_hint": "تسکی ادغام شد یا با PR دیگری انجام شد؛ همچنین شکستنی که کندو یا ملکه انجام داد.",
+  "notify_needs_decision": "تصمیم تو لازم است",
+  "notify_needs_decision_hint": "تسکی مسدود شده، اطلاعات می‌خواهد، PR یا ایشویش بسته شده یا دور خودش چرخیده؛ ملکه چیزی از تو می‌پرسد؛ پیشنهاد شکستنی منتظر بلهٔ توست.",
+  "notify_failure": "مشکل یا خطا",
+  "notify_failure_hint": "تسک، دیپلوی، بررسی زنده یا اندازه‌گیری شکست خورد؛ بررسی پروژه بعد از ادغام‌ها رد شد؛ چرخه، ملکه یا پشتیبان روزانه به مشکل خورد.",
+  "notify_supervisor_stopped": "کندو متوقف شد",
+  "notify_supervisor_stopped_hint": "ناظر متوقف شده و تا ادامه ندهی هیچ تسکی شروع نمی‌شود، یا چرخه‌ای از کار افتاد.",
+  "notify_usage_limit": "سقف مصرف",
+  "notify_usage_limit_hint": "کندو به سقف پنج‌ساعته یا هفتگی رسید، یا پروژه‌ای به سقف توکن روزانه‌اش.",
+  "notify_claude_login": "ورود Claude",
+  "notify_claude_login_hint": "ورود Claude به‌زودی منقضی می‌شود یا از کار افتاده، پس هیچ عاملی شروع نمی‌شود.",
+  "notify_machine_unreachable": "ماشین جواب نمی‌دهد",
+  "notify_machine_unreachable_hint": "ماشینی ساعت‌ها جواب نداده در حالی که تسک‌هایی منتظرش هستند، و دوباره وقتی برمی‌گردد.",
   "default_look_classic-new": "کلاسیک نو",
   "other_language_short": "EN",
   "h_didban": "دیدبان",
@@ -1559,6 +1620,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "blocker_drop_asked": "ملکه پرسید که مانع برداشته شود",
   "blocker_dropped": "مانع با تأیید تو برداشته شد",
   "drop_blockers_changed": "پرسیدن ملکه درباره‌ی مانع‌ها روشن یا خاموش شد",
+  "notify_changed": "اعلان‌های تلگرام عوض شد",
   "requests_shown_changed": "نمایش درخواست‌های باز روشن یا خاموش شد",
   "queen_step_done": "قدم ملکه انجام شد",
   "queen_opened": "ملکه تسک تازه باز کرد",
@@ -2457,6 +2519,7 @@ async function refreshState() {
   $("wake").dataset.mode = working ? "stop" : "wake";
   $("wakelabel").textContent = t(working ? "stop_queen" : "wake_queen");
   $("wake").title = t(working ? "hint_stop_queen" : "hint_wake");
+  $("telegram").hidden = !s.notify;
   $("stop").hidden = s.stop_requested;
   $("resume").hidden = !s.stop_requested;
   $("machines").innerHTML = unreachableMachines(s);
@@ -2559,6 +2622,40 @@ async function changeStep(button) {
 const HEAD_HINTS = {setting_workers: "setting_workers_hint", setting_priority: "setting_priority_hint", setting_tokens: "setting_tokens_hint",
                     setting_auto_merge: "mode_auto_hint", setting_frozen: "mode_frozen_hint", queen_accepts_splits: "queen_accepts_splits_hint",
                     queen_answers_one_way: "queen_answers_one_way_hint"};
+// Telegram: which kinds of news Kandu sends, as `notify.events` in the config; the bot's token and the chat stay in
+// local/.env and never reach the page. The kinds go in the order a user meets them; one the page does not know yet
+// comes last, by its name.
+const NOTIFY_ORDER = ["pr_ready", "task_done", "needs_decision", "failure", "supervisor_stopped", "usage_limit", "claude_login", "machine_unreachable"];
+const notifyKinds = n => [...NOTIFY_ORDER.filter(k => n.kinds.includes(k)), ...n.kinds.filter(k => !NOTIFY_ORDER.includes(k))];
+const notifyPath = events => `/notify?events=${encodeURIComponent([...events].join(",") || "none")}`;  // none: send nothing
+const TG_ICON = '<svg class="tg-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11"/><path d="M5.4 11.6 17.3 7c.6-.2 1 .1.9.9l-2 9.5c-.1.7-.6.9-1.2.5l-3.1-2.3-1.5 1.5c-.2.2-.4.3-.7.3l.2-3.2 5.8-5.2c.3-.2-.1-.4-.4-.2l-7.2 4.5-3.1-1c-.7-.2-.7-.7.1-1z"/></svg>';
+let tgDraft = null;  // the switches as the pop-up shows them; nothing changes until Save
+function openTelegram() {
+  if (!lastState?.notify) return;
+  tgDraft = new Set(lastState.notify.events);
+  drawTelegram();
+  $("tgsheet").showModal();
+}
+function drawTelegram() {
+  const n = lastState.notify;
+  const row = kind => `<div class="set-field"><div class="set-label"><span>${esc(t(`notify_${kind}`) || kind)}</span><small>${esc(t(`notify_${kind}_hint`) || "")}</small></div>
+    <button type="button" class="flip" role="switch" aria-checked="${tgDraft.has(kind)}" data-tg-flip="${esc(kind)}" aria-label="${esc(t(`notify_${kind}`) || kind)}"><i></i></button></div>`;
+  const language = t("tg_language").replace("{lang}", t(`tg_lang_${n.language}`) || n.language);
+  $("tgbody").innerHTML = `<div class="sheet-head"><span class="tg-badge">${TG_ICON}</span><div class="sheet-who"><h2>${t("tg_title")}</h2><div class="muted">${esc(t("tg_about"))}</div></div>
+    <button type="button" class="sheet-close" data-tg-cancel aria-label="${esc(t("close"))}">✕</button></div>
+    ${n.adapter === "none" ? `<div class="set-refused">${esc(t("tg_off"))}</div>` : ""}
+    <div class="tg-quick"><button type="button" class="btn small" data-tg-all="on">${t("tg_all_on")}</button><button type="button" class="btn small" data-tg-all="off">${t("tg_all_off")}</button><span class="muted">${esc(language)}</span></div>
+    <div class="set-group">${notifyKinds(n).map(row).join("")}</div>`;
+  const changed = [...tgDraft].sort().join() !== [...n.events].sort().join();
+  $("tgfoot").innerHTML = `<div class="actions"><button type="button" class="btn primary" data-tg-save${changed ? "" : " disabled"}>${t("save")}</button><button type="button" class="btn" data-tg-cancel>${t("cancel")}</button></div>`;
+}
+async function saveTelegram(button) {
+  if (!await act(button, notifyPath(tgDraft))) return;
+  $("tgsheet").close();
+  toast(t("tg_saved"));
+  await refreshState().catch(() => {});
+}
+
 function renderSettings(s) {
   const rows = s.project_settings || [];
   const key = JSON.stringify([lang, rows, s.clean_merged, s.default_look, s.pace, s.parallel?.total]);
@@ -3298,6 +3395,10 @@ document.addEventListener("click", () => { tip.hidden = true; }, true);
 document.addEventListener("click", e => {
   const hit = name => e.target.closest(`[data-${name}]`);
   const yes = hit("approve"), run = hit("run"), stop = hit("stop"), tabButton = hit("tab"), pause = hit("pause"), acceptSplit = hit("split");
+  if (hit("tg-flip")) { const kind = hit("tg-flip").dataset.tgFlip; if (tgDraft.has(kind)) tgDraft.delete(kind); else tgDraft.add(kind); drawTelegram(); return; }
+  if (hit("tg-all")) { tgDraft = new Set(hit("tg-all").dataset.tgAll === "on" ? lastState.notify.kinds : []); drawTelegram(); return; }
+  if (hit("tg-save")) { saveTelegram(hit("tg-save")); return; }
+  if (hit("tg-cancel")) { $("tgsheet").close(); return; }
   if (hit("field")) { field = hit("field").dataset.field; save(FIELD_KEY, field); sceneKey = null; renderScene(lastState, lastQueue); return; }
   if (hit("close")) { $("modal").close(); return; }
   if (hit("choose-look")) { pickLook(hit("choose-look")); return; }
@@ -3341,6 +3442,7 @@ document.addEventListener("click", e => {
   if (e.target === $("modal")) $("modal").close();
   if (e.target === $("sheet")) $("sheet").close();
   if (e.target === $("setsheet")) $("setsheet").close();
+  if (e.target === $("tgsheet")) $("tgsheet").close();
 });
 document.addEventListener("input", e => {
   if (setEdit && e.target.matches?.("input[data-draft]")) changeDraft(e.target);
@@ -3364,6 +3466,7 @@ $("setsheet").addEventListener("close", () => { setEdit = null; });
 $("stop").onclick = e => act(e.currentTarget, "/stop");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
 $("restart").onclick = e => act(e.currentTarget, "/restart");
+$("telegram").onclick = openTelegram;
 
 // The Look menu lists every look the dashboard has, from the state, and marks the one this page is. A page that has
 // not read the state yet knows the two it came with. A choice is kept in this browser's cookie.

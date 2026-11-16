@@ -383,7 +383,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   </section>
   <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
-  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div class="card pad add-open"><p class="muted" data-t="add_why"></p><div class="actions"><button id="addopen" class="btn" data-t="add_project"></button></div></div><div id="pacesettings" class="card pad"></div><div id="cleanmerged" class="card pad"></div><div id="defaultlook" class="card pad"></div><div id="projectsettings" class="card"></div></section>
+  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div class="card pad add-open"><p class="muted" data-t="add_why"></p><div class="actions"><button id="addopen" class="btn" data-t="add_project"></button></div></div><div id="pacesettings" class="card pad"></div><div id="cleanmerged" class="card pad"></div><div id="defaultlook" class="card pad"></div><div id="notifysettings" class="card pad"></div><div id="projectsettings" class="card"></div></section>
   <section data-panel="days" class="list" hidden>
     <div class="card pad usage"><div class="toolbar"><h2 class="card-title" data-t="usage_title"></h2>
       <div class="usage-range"><select id="usagerange" data-t-attr="aria-label" data-t="usage_title"><option value="today" data-t="range_today"></option><option value="week" data-t="range_week"></option><option value="last7" data-t="range_last7"></option><option value="month" data-t="range_month"></option><option value="custom" data-t="range_custom"></option></select>
@@ -832,6 +832,33 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "default_look_hint": "The look a browser opens in until it chooses its own; a browser's own choice always wins.",
   "default_look_classic": "Classic",
   "default_look_clean": "Kandu Clean",
+  "telegram": "Telegram",
+  "hint_telegram": "Telegram notifications: choose which news Kandu sends you.",
+  "tg_title": "Telegram notifications",
+  "tg_about": "Kandu sends a message for each kind that is on. The next cycle uses your choice.",
+  "tg_off": "Telegram is off in the config (notify.adapter: none), so nothing is sent whatever is on here.",
+  "tg_all_on": "All on",
+  "tg_all_off": "All off",
+  "tg_language": "Messages in {lang}",
+  "tg_lang_fa": "Persian",
+  "tg_lang_en": "English",
+  "tg_saved": "Saved. The next cycle uses it.",
+  "notify_pr_ready": "A PR waits for your approval",
+  "notify_pr_ready_hint": "A task passed review and its merge waits for your yes, or something holds it.",
+  "notify_task_done": "Merged and done",
+  "notify_task_done_hint": "A task was merged, or done by another PR; also a split Kandu or the queen made.",
+  "notify_needs_decision": "Needs your decision",
+  "notify_needs_decision_hint": "A task is blocked, needs information, lost its PR or issue, or went round in a loop; the queen asks you something; a split waits for your yes.",
+  "notify_failure": "Something failed",
+  "notify_failure_hint": "A task, deploy, live check or sizing failed; a project's check after its merges failed; a cycle, the queen or the daily backup ran into trouble.",
+  "notify_supervisor_stopped": "Kandu stopped",
+  "notify_supervisor_stopped_hint": "The supervisor stopped and no task starts until it is resumed, or a cycle crashed.",
+  "notify_usage_limit": "Usage limit",
+  "notify_usage_limit_hint": "Kandu reached the 5-hour or weekly limit, or a project its daily token limit.",
+  "notify_claude_login": "Claude login",
+  "notify_claude_login_hint": "Claude's login expires soon or has stopped working, so no agent starts.",
+  "notify_machine_unreachable": "Machine not answering",
+  "notify_machine_unreachable_hint": "A machine has not answered for hours while tasks wait for it, and again when it is back.",
   "default_look_classic-new": "Classic new",
   "kept_after_merge": "Stayed after the merge",
   "bazras_all_well": "All was well",
@@ -1232,6 +1259,33 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "default_look_hint": "نمایی که مرورگر تا وقتی نمای خودش را انتخاب نکرده با آن باز می‌شود؛ انتخاب خود مرورگر همیشه مقدم است.",
   "default_look_classic": "کلاسیک",
   "default_look_clean": "کندو کلین",
+  "telegram": "تلگرام",
+  "hint_telegram": "اعلان‌های تلگرام: انتخاب کن کندو چه خبرهایی برایت بفرستد.",
+  "tg_title": "اعلان‌های تلگرام",
+  "tg_about": "کندو برای هر نوعی که روشن است پیام می‌فرستد. چرخهٔ بعدی از انتخاب تو استفاده می‌کند.",
+  "tg_off": "تلگرام در تنظیمات خاموش است (notify.adapter: none)، پس هر چه این‌جا روشن باشد چیزی فرستاده نمی‌شود.",
+  "tg_all_on": "همه روشن",
+  "tg_all_off": "همه خاموش",
+  "tg_language": "زبان پیام‌ها: {lang}",
+  "tg_lang_fa": "فارسی",
+  "tg_lang_en": "انگلیسی",
+  "tg_saved": "ذخیره شد. چرخهٔ بعدی از آن استفاده می‌کند.",
+  "notify_pr_ready": "PR منتظر تأیید توست",
+  "notify_pr_ready_hint": "تسکی از بازبینی گذشته و ادغامش منتظر بلهٔ توست، یا چیزی جلویش را گرفته.",
+  "notify_task_done": "ادغام شد و تمام شد",
+  "notify_task_done_hint": "تسکی ادغام شد یا با PR دیگری انجام شد؛ همچنین شکستنی که کندو یا ملکه انجام داد.",
+  "notify_needs_decision": "تصمیم تو لازم است",
+  "notify_needs_decision_hint": "تسکی مسدود شده، اطلاعات می‌خواهد، PR یا ایشویش بسته شده یا دور خودش چرخیده؛ ملکه چیزی از تو می‌پرسد؛ پیشنهاد شکستنی منتظر بلهٔ توست.",
+  "notify_failure": "مشکل یا خطا",
+  "notify_failure_hint": "تسک، دیپلوی، بررسی زنده یا اندازه‌گیری شکست خورد؛ بررسی پروژه بعد از ادغام‌ها رد شد؛ چرخه، ملکه یا پشتیبان روزانه به مشکل خورد.",
+  "notify_supervisor_stopped": "کندو متوقف شد",
+  "notify_supervisor_stopped_hint": "ناظر متوقف شده و تا ادامه ندهی هیچ تسکی شروع نمی‌شود، یا چرخه‌ای از کار افتاد.",
+  "notify_usage_limit": "سقف مصرف",
+  "notify_usage_limit_hint": "کندو به سقف پنج‌ساعته یا هفتگی رسید، یا پروژه‌ای به سقف توکن روزانه‌اش.",
+  "notify_claude_login": "ورود Claude",
+  "notify_claude_login_hint": "ورود Claude به‌زودی منقضی می‌شود یا از کار افتاده، پس هیچ عاملی شروع نمی‌شود.",
+  "notify_machine_unreachable": "ماشین جواب نمی‌دهد",
+  "notify_machine_unreachable_hint": "ماشینی ساعت‌ها جواب نداده در حالی که تسک‌هایی منتظرش هستند، و دوباره وقتی برمی‌گردد.",
   "default_look_classic-new": "کلاسیک نو",
   "kept_after_merge": "بعد از ادغام ماند",
   "bazras_all_well": "همه درست بود",
@@ -1382,6 +1436,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "blocker_drop_asked": "ملکه پرسید که مانع برداشته شود",
   "blocker_dropped": "مانع با تأیید تو برداشته شد",
   "drop_blockers_changed": "پرسیدن ملکه درباره‌ی مانع‌ها روشن یا خاموش شد",
+  "notify_changed": "اعلان‌های تلگرام عوض شد",
   "requests_shown_changed": "نمایش درخواست‌های باز روشن یا خاموش شد",
   "queen_step_done": "قدم ملکه انجام شد",
   "queen_opened": "ملکه تسک تازه باز کرد",
@@ -2316,9 +2371,29 @@ async function changeStep(button) {
 // The settings section: Kandu's pace, then one row per project, in the registry's order. A project paused in its
 // config shows a switch that cannot move, since only the config resumes it. A change goes to the API at once and
 // the next state redraws.
+// Telegram: which kinds of news Kandu sends, as `notify.events` in the config; the bot's token and the chat stay in
+// local/.env and never reach the page. The kinds go in the order a user meets them; one the page does not know yet
+// comes last, by its name.
+const NOTIFY_ORDER = ["pr_ready", "task_done", "needs_decision", "failure", "supervisor_stopped", "usage_limit", "claude_login", "machine_unreachable"];
+const notifyKinds = n => [...NOTIFY_ORDER.filter(k => n.kinds.includes(k)), ...n.kinds.filter(k => !NOTIFY_ORDER.includes(k))];
+const notifyPath = events => `/notify?events=${encodeURIComponent([...events].join(",") || "none")}`;  // none: send nothing
+function notifyCard(n) {
+  if (!n) return "";
+  const row = kind => `<label class="limit-field" title="${esc(t(`notify_${kind}_hint`) || "")}"><span>${esc(t(`notify_${kind}`) || kind)}</span><input type="checkbox" data-notify-kind="${esc(kind)}"${n.events.includes(kind) ? " checked" : ""}></label>`;
+  return `<h2 class="card-title">${t("tg_title")}</h2><div class="muted">${esc(t("tg_about"))}</div>${n.adapter === "none" ? `<div class="muted">${esc(t("tg_off"))}</div>` : ""}${notifyKinds(n).map(row).join("")}`;
+}
+
+async function changeNotify(box) {
+  renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
+  const events = new Set(lastState.notify.events);
+  if (box.checked) events.add(box.dataset.notifyKind); else events.delete(box.dataset.notifyKind);
+  await act(box, notifyPath(events));
+  await refreshState().catch(() => {});
+}
+
 function renderSettings(s) {
   const rows = s.project_settings || [];
-  const key = JSON.stringify([lang, rows, s.clean_merged, s.default_look, s.pace, s.parallel?.total]);
+  const key = JSON.stringify([lang, rows, s.clean_merged, s.default_look, s.pace, s.parallel?.total, s.notify]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
   const name = p => encodeURIComponent(p.name);
@@ -2340,6 +2415,8 @@ function renderSettings(s) {
     <div class="muted">${t("pace_hint")}</div>`;
   $("cleanmerged").innerHTML = `<label title="${esc(t("clean_merged_hint"))}"><input type="checkbox" data-clean-merged${s.clean_merged ? " checked" : ""}> ${t("clean_merged")}</label><div class="muted">${t("clean_merged_hint")}</div>`;
   $("defaultlook").innerHTML = defaultLookHtml(s.default_look);
+  $("notifysettings").innerHTML = notifyCard(s.notify);
+  $("notifysettings").hidden = !s.notify;
   const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "queen_accepts_splits", "queen_answers_one_way"];
   $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th>${heads.map(h => `<th class="fit">${t(h)}</th>`).join("")}<th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
 }
@@ -3068,6 +3145,7 @@ document.addEventListener("change", e => {
   if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way], [data-setting-auto-merge], [data-setting-frozen], [data-setting-tokens]")) changeSetting(e.target);
   if (e.target.matches?.("[data-clean-merged]")) changeCleanMerged(e.target);
   if (e.target.matches?.("[data-default-look]")) changeDefaultLook(e.target);
+  if (e.target.matches?.("[data-notify-kind]")) changeNotify(e.target);
 });
 document.addEventListener("toggle", e => {
   const asked = e.target.dataset?.request;

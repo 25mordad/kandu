@@ -116,13 +116,13 @@ const tr = v => v;
         begin = self.page.index("function waitLines(")
         script = self.page[begin:self.page.index("\n}\n", begin) + 2]
         fill = "const fillIn = (key, values) => Object.entries(values).reduce((text, [k, v]) => text.replaceAll(`{${k}}`, v), t(key));\n"
-        done = subprocess.run([NODE, "-e", self.STUBS + self.words() + fill + script + """
+        done = subprocess.run([NODE, "-"], input=self.STUBS + self.words() + fill + script + """
 console.log(JSON.stringify([
   waitLines({on: "check", checks: [{name: "lint", url: "https://ci.example.com/x"}], blockers: [], detail: [], held: true}),
   waitLines({on: "blocker", checks: [], blockers: ["acme-org/website#2"], detail: [], held: true}),
   waitLines({on: "yes", checks: [], blockers: [], detail: [], held: false}),
   waitLines(null)]));
-"""], capture_output=True, text=True, timeout=30)
+""", capture_output=True, text=True, timeout=30)
         self.assertEqual(done.returncode, 0, done.stderr)
         check, blocker, yes, none = json.loads(done.stdout)
         self.assertEqual(check[0], "Waits on: the failing check lint.")

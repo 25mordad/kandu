@@ -87,6 +87,7 @@ state/
 | `project_setting_carried` | `project`, `setting`, `value`: the first cycle after a setting came set it in the state, once, for a project the install already had, so it keeps its earlier behaviour (`queen_answers_one_way`, true) |
 | `limits_changed` | `session`, `week` |
 | `drop_blockers_changed` | `enabled`: the user let the queen ask to drop a blocker, or stopped her, from the dashboard |
+| `notify_changed` | `events`: the kinds of news Kandu sends, as the user chose them from the dashboard |
 | `requests_shown_changed` | `enabled`: the user showed the open requests on the dashboard, or hid them |
 | `clean_merged_changed` | `enabled`: the user turned the cleanup after a merge on or off from the dashboard |
 | `parallel_changed` | `total` (or null), `projects`: name → number, for those changed |
