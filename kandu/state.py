@@ -86,6 +86,7 @@ EVENT_FIELDS = {
     "clean_merged_changed": ("enabled",),
     "project_added": ("project",),
     "project_removed": ("project",),
+    "project_renamed": ("old", "new"),
     "pace_changed": ("old", "new"),
     "machine_down": ("machine", "since"),                   # it stopped answering: an outage starts
     "machine_unreachable": ("machine", "since", "waiting"),  # the outage is long and tasks wait: the user hears
@@ -152,6 +153,7 @@ class StateStore:
         self.worker_stops_dir = self.root / "stop-workers"
         self.paused_dir = self.root / "paused"
         self.project_settings_file = self.root / "project-settings.json"
+        self.renames_file = self.root / "renames.json"  # Each rename, so the log reads under the name a project has now.
         self.settings_carried_file = self.root / "settings-carried"  # The one-time carry of CARRIED_SETTINGS ran.
         self.splits_dir = self.root / "splits"
         self.requests_dir = self.root / "requests"
@@ -201,7 +203,8 @@ class StateStore:
     def events(self, day):
         """Returns one day's events; a line cut off by a crash is skipped.
 
-        Lines are split on newlines only: JSON text may hold other line separators.
+        Lines are split on newlines only: JSON text may hold other line separators. The log is never edited, so an
+        event written before a project was renamed is read with the name the project has now.
         """
         path = self.events_dir / f"{day}.jsonl"
         if not path.exists():
@@ -212,6 +215,37 @@ class StateStore:
                 events.append(json.loads(line.decode("utf-8")))
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
+        return self._renamed(events)
+
+    def renames(self):
+        """Each project rename, oldest first: `old`, `new` and `at`, when it was made."""
+        if not self.renames_file.exists():
+            return []
+        return json.loads(self.renames_file.read_text(encoding="utf-8"))
+
+    def write_renames(self, renames):
+        if not renames:
+            self.renames_file.unlink(missing_ok=True)
+            return
+        self._write_private(self.root, self.renames_file.name, json.dumps(renames, ensure_ascii=False))
+
+    def _renamed(self, events):
+        """An event's project as it is named now: each rename made at or after the event, in turn."""
+        renames = [(r["old"], r["new"], datetime.fromisoformat(r["at"])) for r in self.renames()]
+        if not renames:
+            return events
+        for event in events:
+            name = event.get("project")
+            if name is None:
+                continue
+            try:
+                when = datetime.fromisoformat(event["ts"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            for old, new, at in renames:
+                if name == old and when <= at:
+                    name = new
+            event["project"] = name
         return events
 
     def _split_file(self, task):
@@ -367,6 +401,10 @@ class StateStore:
             raise StateError(f"not a project setting: {setting}={value!r}")
         settings = self.project_settings()
         settings.setdefault(name, {})[setting] = value
+        self.write_project_settings(settings)
+
+    def write_project_settings(self, settings):
+        """Replaces every project's settings at once."""
         self._make_dirs()
         tmp = self.project_settings_file.with_suffix(f".{os.getpid()}.tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

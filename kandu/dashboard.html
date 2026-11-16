@@ -450,6 +450,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
 .stepper b { min-width:2.2em; text-align:center; }
 .pace-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 0; }
 .tokens-field { width:9em; }
+.name-field { width:100%; }
 @media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz, .halo, .wait-ring, .btn.busy::before { animation:none; } .btn, .meter i { transition:none; } }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
@@ -942,6 +943,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "set_refused": "Not saved:",
   "set_saved": "{name}: saved",
   "set_danger": "Danger zone",
+  "set_name": "Name",
+  "set_name_hint": "Lowercase letters, digits and dashes. Kandu then knows it only by this name; its folder, repo and board stay as they are.",
   "limit_session": "Hold new work at 5-hour usage",
   "limit_week": "Hold new work at weekly usage",
   "machines_title": "Machines",
@@ -1395,6 +1398,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "set_refused": "ذخیره نشد:",
   "set_saved": "{name}: ذخیره شد",
   "set_danger": "منطقهٔ خطر",
+  "set_name": "نام",
+  "set_name_hint": "حروف کوچک انگلیسی، رقم و خط تیره. کندو بعد از آن پروژه را فقط با این نام می‌شناسد؛ پوشه، مخزن و برد آن همان می‌مانند.",
   "limit_session": "نگه‌داشتن کار تازه در مصرف پنج‌ساعته",
   "limit_week": "نگه‌داشتن کار تازه در مصرف هفتگی",
   "machines_title": "ماشین‌ها",
@@ -1739,6 +1744,13 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "its PR was merged and nothing was written in the session for 120 minutes": "PR آن ادغام شد و ۱۲۰ دقیقه چیزی در جلسه نوشته نشد",
   "project_added": "پروژه اضافه شد",
   "project_removed": "پروژه از کندو حذف شد",
+  "project_renamed": "نام پروژه عوض شد",
+  "give the project a name": "برای پروژه نامی بنویس",
+  "a project's name uses only lowercase letters, digits and dashes, and does not start with a dash": "نام پروژه فقط حروف کوچک انگلیسی، رقم و خط تیره دارد و با خط تیره شروع نمی‌شود",
+  "another project already has this name": "پروژهٔ دیگری همین نام را دارد",
+  "stop or wait for the running work first": "اول کار در حال اجرا را متوقف کن یا منتظر بمان تا تمام شود",
+  "Kandu still keeps a memory, brief or Bazras report under this name": "کندو هنوز حافظه، خلاصه یا گزارش بازرسی با این نام نگه می‌دارد",
+  "change the name in a call of its own": "نام را در درخواستی جدا تغییر بده",
   "machine_added": "ماشین اضافه شد",
   "machine_down": "ماشین جواب نداد",
   "machine_unreachable": "ماشین ساعت‌ها جواب نداده و تسک‌ها منتظرند",
@@ -1771,6 +1783,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "flight": "پرواز آزاد"
  },
  "patterns_fa": [
+  [
+   "^(\\S+) could not be renamed: (.*); it keeps its name and everything stays as it was$",
+   "نام $1 عوض نشد: $2؛ نامش همان ماند و همه‌چیز همان‌طور که بود ماند"
+  ],
   [
    "^review round (\\d+)$",
    "دور بازبینی $1"
@@ -3011,16 +3027,17 @@ function settingsProjectsHtml(projects) {
 const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]]];
 
 function settingsDraft(row) {
-  return Object.fromEntries(SETTING_GROUPS.flatMap(([, keys]) => keys).map(key => [key, row[key]]));
+  return {name: row.name, ...Object.fromEntries(SETTING_GROUPS.flatMap(([, keys]) => keys).map(key => [key, row[key]]))};
 }
 
-// One call for each setting that changed, the same call the dashboard always made for it.
+// One call for each setting that changed, the same call the dashboard always made for it. A new name goes last, so
+// every other call still names the project as the server knows it.
 function settingsCalls(name, was, now) {
   const project = encodeURIComponent(name);
   const path = (key, value) => key === "paused" ? `/projects/${project}/${value ? "pause" : "resume"}`
     : key === "max_parallel_workers" ? `/parallel?project=${encodeURIComponent(`${name}:${value}`)}`
     : `/projects/${project}/settings?${key}=${encodeURIComponent(value)}`;
-  return SETTING_GROUPS.flatMap(([, keys]) => keys).filter(key => now[key] !== was[key]).map(key => ({setting: key, path: path(key, now[key])}));
+  return [...SETTING_GROUPS.flatMap(([, keys]) => keys), "name"].filter(key => now[key] !== was[key]).map(key => ({setting: key, path: path(key, now[key])}));
 }
 
 // Turning "merges by itself" on asks first; turning it off asks nothing.
@@ -3035,20 +3052,26 @@ function saveStep(edit) {
 }
 
 // Sends each change in turn. One the server takes becomes what the pop-up starts from, so it is not sent again; one
-// it refuses is listed with why. `send` answers {ok} or {ok: false, why, stop}.
+// it refuses is listed with why. `send` answers {ok} or {ok: false, why, stop}. An empty name is refused here, and
+// once a new name is taken the pop-up goes on under it.
 async function applySettings(name, edit, send) {
   edit.refused = [];
   for (const call of settingsCalls(name, edit.was, edit.now)) {
+    if (call.setting === "name" && !edit.now.name) { edit.refused.push({setting: "name", why: tr("give the project a name")}); continue; }
     const answer = await send(call.path);
-    if (answer.ok) { edit.was = {...edit.was, [call.setting]: edit.now[call.setting]}; continue; }
+    if (answer.ok) {
+      edit.was = {...edit.was, [call.setting]: edit.now[call.setting]};
+      if (call.setting === "name") edit.name = edit.now.name;
+      continue;
+    }
     edit.refused.push({setting: call.setting, why: answer.why});
     if (answer.stop) break;
   }
   return edit.refused;
 }
 
-const SETTING_LABELS = {paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by"};
-const SETTING_HINTS = {max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint"};
+const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by"};
+const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint"};
 
 // One setting's control, drawn from the draft. A pause set in the config shows and cannot move.
 function settingControl(key, row, now) {
@@ -3062,6 +3085,7 @@ function settingControl(key, row, now) {
   if (key === "paused") return seg([["false", "set_running"], ["true", "project_on_pause"]], row.paused_in_config);
   if (key === "split_approval") return seg([["user", "set_me"], ["queen", "set_the_queen"]]);
   if (key === "queen_answers_one_way") return seg([["false", "set_me"], ["true", "set_the_queen"]]);
+  if (key === "name") return `<div class="set-field stack">${head}<input type="text" class="name-field" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" data-draft="${key}" value="${esc(value)}" aria-label="${esc(label)}"></div>`;
   if (key === "daily_token_limit") return `<div class="set-field">${head}<input type="number" class="tokens-field" min="1" step="100000" dir="ltr" inputmode="numeric" data-draft="${key}" value="${esc(value)}" aria-label="${esc(label)}"></div>`;
   return key === "max_parallel_workers" || key === "priority" ? step() : flip();
 }
@@ -3071,7 +3095,7 @@ function settingsBody(row, edit) {
   const refused = edit.refused.length ? `<div class="set-refused" role="alert"><b>${t("set_refused")}</b><ul>${edit.refused.map(r =>
     `<li>${esc(t(SETTING_LABELS[r.setting]))}: <span dir="auto">${esc(r.why)}</span></li>`).join("")}</ul></div>` : "";
   return `<div class="sheet-grip"></div><div class="sheet-head"><div class="sheet-who"><div class="muted">${t("tab_settings")}</div><h2>${bdi(row.name)}</h2></div>
-    <button type="button" class="sheet-close" data-set-cancel aria-label="${esc(t("close"))}">✕</button></div>${refused}${groups}
+    <button type="button" class="sheet-close" data-set-cancel aria-label="${esc(t("close"))}">✕</button></div>${refused}<section class="set-group">${settingControl("name", row, edit.now)}</section>${groups}
     <section class="set-danger"><h3>${t("set_danger")}</h3><p class="muted">${t("remove_project_hint")}</p><div class="actions"><button type="button" class="btn danger" data-remove="${esc(row.name)}">${t("remove_project")}</button></div></section>`;
 }
 
@@ -3104,7 +3128,7 @@ function changeDraft(control) {
   if (control.dataset.by) now[key] = Math.max(1, now[key] + Number(control.dataset.by));
   else if (control.dataset.value !== undefined) now[key] = {true: true, false: false}[control.dataset.value] ?? control.dataset.value;
   else if (control.getAttribute("role") === "switch") now[key] = !now[key];
-  else { now[key] = control.value.trim() === "" ? "" : Number(control.value); setEdit.asking = false; $("setfoot").innerHTML = settingsFoot(setEdit); return; }
+  else { now[key] = key === "name" ? control.value.trim() : control.value.trim() === "" ? "" : Number(control.value); setEdit.asking = false; $("setfoot").innerHTML = settingsFoot(setEdit); return; }
   setEdit.asking = false;
   drawSettings();
 }

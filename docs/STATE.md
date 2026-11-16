@@ -12,10 +12,12 @@ state/
   flights/<key>.json      a session opened from the dashboard: its link, with its tmux socket and prompt beside it
   flown/<session>.json    what one free flight or Zanbourdar session spent and did, after it ended
   gh/2026-11-03.jsonl     each gh call Kandu and its agents made that day, and samples of GitHub's limit
+  renames.json            each project rename, oldest first: `old`, `new` and `at`
 ```
 
 ## Rules
 - The event log is append-only, and nothing is ever edited. Reports such as tokens by day are computed from it.
+- A renamed project keeps its history: an event whose `project` is a rename's `old`, written at or before its `at`, is read with its `new` name, each rename in turn. The file in `events/` keeps the name it was written with.
 - Each event type has a fixed set of fields, enforced in `kandu/state.py`. The values are not inspected, so a caller must never pass a task's text, command output, a prompt or a secret.
 - Timestamps are ISO 8601 with the machine's offset. A day's file is that machine's local date.
 - A reader splits lines on `\n` only, and skips any line that does not parse: a crash can cut one off. The next event starts on a new line.
@@ -78,6 +80,7 @@ state/
 | `machine_up` | `machine`, `since`, `told`: it answers again and the outage that began at `since` ends; `told` says whether the user heard of it, and then hears of its end |
 | `project_added` | `project`: the user added a project from the dashboard's form |
 | `project_removed` | `project`: the user took a project out of Kandu, from the dashboard or with `kandu.remove` |
+| `project_renamed` | `old`, `new`: the user gave a project a new name in its settings pop-up; earlier events are read under `new` (see Rules) |
 | `machine_added` | `machine`: the user added a machine from the dashboard's form |
 | `project_setting_changed` | `project`, `setting`, `old`, `new`: the user changed a project's setting in the dashboard's settings section; `old` is what it was, from the state or else the registry. `priority`, `daily_token_limit`, `auto_merge` and `frozen` are written in the registry |
 | `pace_changed` | `old`, `new`: the user changed `wake_every_minutes` or `max_cycle_minutes` in the dashboard; each holds both values |

@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from kandu import rename
 from kandu.config import load_config
 from kandu.dashboard import Api, dispatch
 from kandu.state import StateStore
@@ -144,7 +145,7 @@ class SettingsPageTest(unittest.TestCase, Page):
         return self.run_js(f"return settingsCalls({json.dumps(was['name'])}, settingsDraft({json.dumps(was)}), {json.dumps(now)});")
 
     def draft(self, r):
-        return {k: v for k, v in r.items() if k not in ("name", "paused_in_config")}
+        return {k: v for k, v in r.items() if k != "paused_in_config"}
 
     def test_nothing_changed_sends_nothing(self):
         self.assertEqual(self.calls(ROWS[0], self.draft(ROWS[0])), [])
@@ -248,6 +249,7 @@ const press = (key, value) => {{
   changeDraft(hit);
 }};
 const type = value => {{ const field = controls().find(c => c.dataset.draft === "daily_token_limit"); field.value = value; changeDraft(field); }};
+const typeName = value => {{ const field = controls().find(c => c.dataset.draft === "name"); field.value = value; changeDraft(field); }};
 const sheet = () => ({{open: els.setsheet.open, editing: setEdit !== null, sent: [...sent], toasts: [...toasts], body: els.setbody.innerHTML, foot: els.setfoot.innerHTML}});
 openSettings("website");
 {script}""", lang)
@@ -371,6 +373,87 @@ return {...sheet(), same: els.setbody.innerHTML === body};""")
         self.assertTrue(result["same"])
         self.assertEqual(result["toasts"], [])
 
+    # The project's name.
+
+    def test_the_pop_up_shows_the_projects_name_in_an_editable_field_above_its_settings(self):
+        html = self.body(ROWS[0])
+        field = re.search(r'<input type="text"[^>]*data-draft="name"[^>]*>', html)
+        self.assertIsNotNone(field)
+        self.assertIn('value="website"', field.group(0))
+        self.assertIn('dir="ltr"', field.group(0))
+        self.assertIn(f'aria-label="{self.text["en"]["set_name"]}"', field.group(0))
+        self.assertLess(html.index('data-draft="name"'), html.index(f'>{self.text["en"]["set_group_work"]}<'))
+        self.assertIn(self.text["en"]["set_name_hint"], html)
+
+    def test_the_name_field_draws_the_draft(self):
+        html = self.body(ROWS[0], edit='{now: {...settingsDraft(r), name: "site"}}')
+        self.assertRegex(html, r'data-draft="name" value="site"')
+
+    def test_a_changed_name_is_sent_last_through_the_settings_call(self):
+        now = self.draft(ROWS[0]) | {"name": "my-site", "priority": 2, "frozen": True}
+        self.assertEqual(self.calls(ROWS[0], now), [
+            {"setting": "priority", "path": "/projects/website/settings?priority=2"},
+            {"setting": "frozen", "path": "/projects/website/settings?frozen=true"},
+            {"setting": "name", "path": "/projects/website/settings?name=my-site"}])
+
+    def test_typing_a_name_changes_only_the_draft_and_save_renames_with_the_other_settings(self):
+        result = self.popup("""
+const body = els.setbody.innerHTML;
+typeName(" site "); const typed = setEdit.now.name, same = els.setbody.innerHTML === body, before = [...sent];
+press("frozen"); await saveSettings({}); return {typed, same, before, ...sheet()};""")
+        self.assertEqual(result["typed"], "site")
+        self.assertTrue(result["same"])  # the field is not drawn again under the cursor
+        self.assertEqual(result["before"], [])  # nothing is sent before Save
+        self.assertEqual(result["sent"], ["/projects/website/settings?frozen=true", "/projects/website/settings?name=site"])
+        self.assertFalse(result["open"])
+        self.assertEqual(result["toasts"], ["site: saved"])
+
+    def test_a_name_set_back_as_it_was_sends_nothing(self):
+        result = self.popup('typeName("site"); typeName("website"); await saveSettings({}); return sheet();')
+        self.assertEqual(result["sent"], [])
+        self.assertFalse(result["open"])
+
+    def test_an_empty_name_is_refused_in_the_pop_up_and_sends_nothing(self):
+        result = self.popup('typeName("  "); await saveSettings({}); return sheet();')
+        self.assertEqual(result["sent"], [])
+        self.assertTrue(result["open"])
+        alert = result["body"].split('role="alert">')[1].split("</div>")[0]
+        self.assertEqual(" ".join(re.sub(r"<[^>]+>", " ", alert).split()), "Not saved: Name: give the project a name")
+
+    def test_a_refused_name_keeps_the_pop_up_open_with_the_servers_reason_in_both_languages(self):
+        script = """
+server = path => path.includes("name=") ? {error: "stop or wait for the running work first"} : true;
+typeName("site"); press("frozen"); await saveSettings({}); return {...sheet(), name: setEdit.name, was: setEdit.was};"""
+        for lang, words in (("en", "Name: stop or wait for the running work first"),
+                            ("fa", f'{self.text["fa"]["set_name"]}: {self.text["values_fa"]["stop or wait for the running work first"]}')):
+            result = self.popup(script, lang)
+            self.assertTrue(result["open"])
+            self.assertEqual(result["name"], "website")  # it keeps its name
+            self.assertIs(result["was"]["frozen"], True)  # the other setting was saved
+            alert = result["body"].split('role="alert">')[1].split("</div>")[0]
+            self.assertIn(words, " ".join(re.sub(r"<[^>]+>", " ", alert).split()))
+
+    def test_after_a_rename_the_pop_up_goes_on_under_the_new_name(self):
+        result = self.popup("""
+server = path => path.includes("priority") ? {error: "no"} : true;
+typeName("site"); press("priority", "1"); await saveSettings({}); const first = {...sheet(), name: setEdit.name};
+sent.length = 0; server = () => true; await saveSettings({}); return {first, again: sheet()};""")
+        self.assertEqual(result["first"]["name"], "site")
+        self.assertTrue(result["first"]["open"])
+        self.assertEqual(result["again"]["sent"], ["/projects/site/settings?priority=2"])
+        self.assertEqual(result["again"]["toasts"], ["site: saved"])
+
+    def test_the_name_field_reads_in_persian_and_fits_a_phone(self):
+        html = self.body(ROWS[0], "fa")
+        for key in ("set_name", "set_name_hint"):
+            self.assertIn(self.text["fa"][key], html, key)
+        self.assertRegex(html, r'<input type="text" class="name-field"[^>]*dir="ltr"')
+        self.assertRegex(self.style, r"\.name-field \{[^}]*width:100%")
+        for message in ("give the project a name", "another project already has this name",
+                        "stop or wait for the running work first", rename.NOT_A_NAME, rename.KEPT,
+                        "change the name in a call of its own", "project_renamed"):
+            self.assertIn(message, self.text["values_fa"], message)
+
     # Beside the projects.
 
     def test_the_usage_limits_hold_new_work_with_a_minus_and_a_plus(self):
@@ -428,7 +511,7 @@ return {...sheet(), same: els.setbody.innerHTML === body};""")
                     "set_merge_yes", "set_merge_no", "set_refused", "set_saved", "set_open", "set_danger",
                     "projects_title", "add_a_project", "limit_session", "limit_week", "machines_title", "machine_answers",
                     "machine_silent", "add_machine_short", "kandu_itself", "backup", "switch_drop_blockers",
-                    "switch_requests"):
+                    "switch_requests", "set_name", "set_name_hint"):
             self.assertIn(key, self.text["en"], key)
             self.assertIn(key, self.text["fa"], key)
 
@@ -453,7 +536,7 @@ class SaveThroughTheApiTest(unittest.TestCase):
     @unittest.skipUnless(NODE, "needs node to run the page's script")
     def test_every_call_a_save_makes_is_taken_and_logged(self):
         was = self.row()
-        now = {k: v for k, v in was.items() if k not in ("name", "paused_in_config")} | {
+        now = {k: v for k, v in was.items() if k != "paused_in_config"} | {
             "paused": True, "max_parallel_workers": was["max_parallel_workers"] + 1, "priority": was["priority"] + 1,
             "daily_token_limit": 300000, "auto_merge": not was["auto_merge"], "frozen": not was["frozen"],
             "split_approval": "queen", "queen_answers_one_way": not was["queen_answers_one_way"]}

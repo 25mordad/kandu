@@ -17,8 +17,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, review, sessions, split, tasks,
-               timer, tries, upstream, waits)
+from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, rename, review, sessions, split,
+               tasks, timer, tries, upstream, waits)
 from .config import (DEFAULT_LOCAL_DIR, PACE_SETTINGS, REGISTRY_SETTINGS, TECHNICAL_DEBT, ConfigError, Inspect,
                      load_config, set_backup, set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_pace,
                      set_parallel, set_project_values, set_show_requests)
@@ -1168,11 +1168,15 @@ class Api:
         proposals already accepted and splits already made stay as they are. `priority`, `daily_token_limit`,
         `auto_merge` and `frozen` are written in its entry in `projects.yaml`, and the next cycle uses them. Nothing
         is changed if any value is wrong.
+
+        `name` renames the project, in a call of its own (`kandu.rename`): Kandu then knows it only by the new name.
         """
         project = self._project(name)
         given = {setting: values[0] for setting, values in query.items()}
         if not given:
             raise ApiError(400, "give a setting, such as split_approval=user")
+        if "name" in given:
+            return self._rename(project, given)
         changes, registry = {}, {}
         for setting, text in given.items():
             if setting in REGISTRY_SETTINGS:
@@ -1198,6 +1202,20 @@ class Api:
             self.store.set_project_setting(project.name, setting, value)
             self.store.record("project_setting_changed", project=project.name, setting=setting, old=old, new=value)
         return changes | registry
+
+    def _rename(self, project, given):
+        if len(given) > 1:
+            raise ApiError(400, "change the name in a call of its own")
+        try:
+            with self._add_lock:
+                result = rename.rename_project(project.name, given["name"], self.store, self.local_dir)
+        except rename.RenameError as e:
+            raise ApiError(409 if str(e) == rename.RUNNING else 400, str(e)) from None
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        finally:
+            self.refresh_config()
+        return {"name": result["name"]}
 
     def _machines(self):
         """Each machine, and since when it has not answered, as the supervisor last saw it, or null while it does."""
