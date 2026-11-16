@@ -12,9 +12,9 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from kandu import dashboard
-from kandu.dashboard import make_handler
+from kandu.dashboard import dispatch, make_handler
 from kandu.github import BoardItem
-from tests.test_dashboard import Base, REPO
+from tests.test_dashboard import Base, REPO, TOKEN
 
 ROOT = Path(__file__).resolve().parent.parent
 NODE = shutil.which("node")
@@ -106,6 +106,35 @@ class ServedLookTest(Served):
         for cookie in ("kandu-look=honeycomb", "kandu-look=cards", "kandu-look=", "kandu-look", "=;;", "other=clean"):
             self.assertEqual(self.open(cookie)[1], dashboard.CLASSIC_PAGE.read_bytes(), cookie)
 
+    def set_default_look(self, look):
+        status, body = dispatch(self.api, "POST", f"/api/v1/default-look?look={look}", TOKEN)
+        self.assertEqual((status, body), (200, {"default_look": look}))
+
+    def test_a_browser_that_chose_nothing_opens_in_the_default_look(self):
+        self.set_default_look("clean")
+        self.assertEqual(self.open()[1], dashboard.PAGE.read_bytes())
+        self.assertEqual(self.open("kandu-language=fa")[1], dashboard.PAGE.read_bytes())
+        self.set_default_look("classic")
+        self.assertEqual(self.open()[1], dashboard.CLASSIC_PAGE.read_bytes())
+
+    def test_a_browsers_own_choice_always_wins_over_the_default_look(self):
+        self.set_default_look("clean")
+        self.assertEqual(self.open("kandu-look=classic")[1], dashboard.CLASSIC_PAGE.read_bytes())
+        self.set_default_look("classic")
+        self.assertEqual(self.open("kandu-look=clean")[1], dashboard.PAGE.read_bytes())
+
+    def test_a_look_that_is_gone_or_unknown_opens_in_the_default_look(self):
+        self.set_default_look("clean")
+        for cookie in ("kandu-look=honeycomb", "kandu-look=", "kandu-look", "other=classic"):
+            self.assertEqual(self.open(cookie)[1], dashboard.PAGE.read_bytes(), cookie)
+
+    def test_a_default_look_changed_in_the_config_by_hand_is_used_without_a_restart(self):
+        path = self.root / "local" / "kandu.yaml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(re.sub(r"(?m)^  look: \w+", "  look: clean", text), encoding="utf-8")
+        os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 10**9))  # a new stamp, however fast
+        self.assertEqual(self.open()[1], dashboard.PAGE.read_bytes())
+
     def test_both_looks_use_only_the_public_api_and_load_nothing_from_outside(self):
         for page in (read(dashboard.PAGE), read(dashboard.CLASSIC_PAGE)):
             self.assertFalse("state/" in page)
@@ -188,6 +217,30 @@ class ClassicPageTest(unittest.TestCase):
         self.assertTrue('if (hit("step")) { changeStep(hit("step")); return; }' in self.page)
         self.assertNotIn("Save", render)
 
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_its_settings_tab_shows_the_default_look_and_changes_it_with_the_token(self):
+        self.assertTrue('<div id="defaultlook" class="card pad"></div>' in self.page.split('<section data-panel="settings"')[1].split("</section>")[0])
+        prelude = (f"const TEXT = {json.dumps(self.text)};\nlet lang = \"en\";\nconst shown = {{}}; const $ = id => (shown[id] ??= {{}});\n"
+                   + "".join(line(self.page, start) for start in ("const esc = ", "const t = "))
+                   + function(self.page, "defaultLookHtml") + function(self.page, "changeDefaultLook"))
+        seen = run_js(prelude + """const calls = []; const act = async (el, path) => { calls.push(path); return {}; };
+const refreshState = async () => {}; const renderSettings = {};
+(async () => {
+  const classic = defaultLookHtml("classic"), clean = defaultLookHtml("clean");
+  await changeDefaultLook({value: "clean"});
+  console.log(JSON.stringify({classic, clean, calls}));
+})();""")
+        self.assertIn(self.text["en"]["default_look"], seen["classic"])
+        self.assertIn('<select data-default-look', seen["classic"])
+        self.assertIn('<option value="classic" selected>Classic</option><option value="clean">Kandu Clean</option>', seen["classic"])
+        self.assertIn('<option value="classic">Classic</option><option value="clean" selected>Kandu Clean</option>', seen["clean"])
+        self.assertEqual(seen["calls"], ["/default-look?look=clean"])  # act sends the dashboard's token
+        self.assertIn("defaultLookHtml(s.default_look)", function(self.page, "renderSettings"))
+        self.assertIn("s.default_look", function(self.page, "renderSettings").split("const key = ")[1].split("\n")[0])
+        self.assertTrue('if (e.target.matches?.("[data-default-look]")) changeDefaultLook(e.target);' in self.page)
+        for key in ("default_look", "default_look_hint", "default_look_classic", "default_look_clean"):
+            self.assertNotEqual(self.text["fa"][key], self.text["en"][key], key)
+
     def test_every_call_it_makes_is_in_todays_api(self):
         script = self.page.split("<script>")[1]
         quoted = r'(`[^`]*`|"[^"]*"(?: \+)?)'
@@ -265,6 +318,27 @@ class DesignTest(unittest.TestCase):
         for part in ("Kandu Clean", "Classic", "More", "language switch", "each browser remembers", "chosen nothing",
                      "honeycomb", "both looks", "only into the Kandu Clean look", "warning", "task state", "action"):
             self.assertIn(part.lower(), looks.lower(), part)
+
+    def test_design_and_the_api_docs_describe_the_default_look(self):
+        design = read(ROOT / "DESIGN.md")
+        looks = next(each for each in design.split("## 7. Dashboard")[1].splitlines() if each.startswith("- **Two looks:**"))
+        for part in ("default look", "`dashboard.look`", "Classic by default", "own choice always wins", "Settings tab of both looks"):
+            self.assertIn(part, looks, part)
+        setup = design.split("### A. Initial setup")[1].split("### B.")[0]
+        self.assertIn("`dashboard.look`", setup)
+        api = read(ROOT / "docs" / "API.md")
+        self.assertIn("`default_look`", next(each for each in api.splitlines() if each.startswith("| GET | `/api/v1/state`")))
+        self.assertIn("`look=classic` or `clean`", next(each for each in api.splitlines() if each.startswith("| POST | `/api/v1/default-look`")))
+
+    def test_setup_and_config_ask_for_the_default_look(self):
+        commands = ROOT / ".claude" / "commands"
+        setup, config = read(commands / "kandu-setup.md"), read(commands / "kandu-config.md")
+        question = next(each for each in setup.splitlines() if "`dashboard.look`" in each)
+        self.assertRegex(question, r"^   \d+\. ")
+        for part in ("Classic", "Kandu Clean", "default"):
+            self.assertIn(part, question, part)
+        self.assertIn("`dashboard.look`", config)
+        self.assertIn("Classic or Kandu Clean", config)
 
 
 @unittest.skipUnless(NODE and browser(), "needs node and a Chromium to open the pages")

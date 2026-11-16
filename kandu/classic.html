@@ -296,7 +296,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   </section>
   <section data-panel="meadow" class="card meadow" hidden><div id="scene"></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
-  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div class="card pad add-open"><p class="muted" data-t="add_why"></p><div class="actions"><button id="addopen" class="btn" data-t="add_project"></button></div></div><div id="pacesettings" class="card pad"></div><div id="cleanmerged" class="card pad"></div><div id="projectsettings" class="card"></div></section>
+  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div class="card pad add-open"><p class="muted" data-t="add_why"></p><div class="actions"><button id="addopen" class="btn" data-t="add_project"></button></div></div><div id="pacesettings" class="card pad"></div><div id="cleanmerged" class="card pad"></div><div id="defaultlook" class="card pad"></div><div id="projectsettings" class="card"></div></section>
   <section data-panel="days" class="list" hidden>
     <div class="card pad usage"><div class="toolbar"><h2 class="card-title" data-t="usage_title"></h2>
       <div class="usage-range"><select id="usagerange" data-t-attr="aria-label" data-t="usage_title"><option value="today" data-t="range_today"></option><option value="week" data-t="range_week"></option><option value="last7" data-t="range_last7"></option><option value="month" data-t="range_month"></option><option value="custom" data-t="range_custom"></option></select>
@@ -695,6 +695,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "memory_none": "Kandu had no memory of it.",
   "clean_merged": "Clean up after a merge",
   "clean_merged_hint": "On: once a task's PR is merged, its folders beside the repo and its kandu/ branches, here and on GitHub, are removed. A folder with work that is not in the PR stays, and its task says why.",
+  "default_look": "Default look",
+  "default_look_hint": "The look a browser opens in until it chooses its own; a browser's own choice always wins.",
+  "default_look_classic": "Classic",
+  "default_look_clean": "Kandu Clean",
   "kept_after_merge": "Stayed after the merge",
   "bazras_all_well": "All was well",
   "bazras_findings": "{count} finding(s)",
@@ -1049,6 +1053,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
   "memory_none": "کندو حافظه‌ای از آن نداشت.",
   "clean_merged": "پاک‌سازی بعد از ادغام",
   "clean_merged_hint": "روشن: وقتی PR یک تسک ادغام شد، پوشه‌هایش کنار ریپو و شاخه‌های kandu/ آن، این‌جا و در گیت‌هاب، پاک می‌شوند. پوشه‌ای که کاری بیرون از PR دارد می‌ماند و تسکش می‌گوید چرا.",
+  "default_look": "نمای پیش‌فرض",
+  "default_look_hint": "نمایی که مرورگر تا وقتی نمای خودش را انتخاب نکرده با آن باز می‌شود؛ انتخاب خود مرورگر همیشه مقدم است.",
+  "default_look_classic": "کلاسیک",
+  "default_look_clean": "کندو کلین",
   "kept_after_merge": "بعد از ادغام ماند",
   "bazras_all_well": "همه درست بود",
   "bazras_findings": "{count} یافته",
@@ -2125,7 +2133,7 @@ async function changeStep(button) {
 // the next state redraws.
 function renderSettings(s) {
   const rows = s.project_settings || [];
-  const key = JSON.stringify([lang, rows, s.clean_merged, s.pace, s.parallel?.total]);
+  const key = JSON.stringify([lang, rows, s.clean_merged, s.default_look, s.pace, s.parallel?.total]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
   const name = p => encodeURIComponent(p.name);
@@ -2146,6 +2154,7 @@ function renderSettings(s) {
     ${pace.max_cycle_minutes ? `<div class="pace-row"><span>${t("pace_cycle")}</span>${stepper(pace.max_cycle_minutes, "/pace?max_cycle_minutes={n}", t("pace_cycle"), 5)}</div>` : ""}
     <div class="muted">${t("pace_hint")}</div>`;
   $("cleanmerged").innerHTML = `<label title="${esc(t("clean_merged_hint"))}"><input type="checkbox" data-clean-merged${s.clean_merged ? " checked" : ""}> ${t("clean_merged")}</label><div class="muted">${t("clean_merged_hint")}</div>`;
+  $("defaultlook").innerHTML = defaultLookHtml(s.default_look);
   const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "queen_accepts_splits", "queen_answers_one_way"];
   $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th>${heads.map(h => `<th class="fit">${t(h)}</th>`).join("")}<th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
 }
@@ -2172,6 +2181,17 @@ async function removeProject(button) {
   toast([fillIn("removed_msg", {name}), memory.why ? fillIn(`memory_${memory.why}`, {pr: memory.pr || ""}) : ""].filter(Boolean).join(" "));
   renderSettings.key = null;
   refreshState().catch(() => {});
+}
+
+// The install's default look: a browser opens in it until it chooses its own. A change is saved in the config at once.
+function defaultLookHtml(look) {
+  const option = value => `<option value="${value}"${look === value ? " selected" : ""}>${t(`default_look_${value}`)}</option>`;
+  return `<label title="${esc(t("default_look_hint"))}">${t("default_look")} <select data-default-look aria-label="${esc(t("default_look"))}">${option("classic")}${option("clean")}</select></label><div class="muted">${t("default_look_hint")}</div>`;
+}
+
+async function changeDefaultLook(select) {
+  renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
+  if (!await act(select, `/default-look?look=${encodeURIComponent(select.value)}`)) refreshState().catch(() => {});
 }
 
 async function changeCleanMerged(box) {
@@ -2557,6 +2577,7 @@ document.addEventListener("click", e => {
 document.addEventListener("change", e => {
   if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way], [data-setting-auto-merge], [data-setting-frozen], [data-setting-tokens]")) changeSetting(e.target);
   if (e.target.matches?.("[data-clean-merged]")) changeCleanMerged(e.target);
+  if (e.target.matches?.("[data-default-look]")) changeDefaultLook(e.target);
 });
 document.addEventListener("toggle", e => {
   const asked = e.target.dataset?.request;

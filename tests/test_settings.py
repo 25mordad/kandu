@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kandu.config import ConfigError, load_config, set_pace, set_project_values
+from kandu.config import ConfigError, load_config, set_default_look, set_pace, set_project_values
 from kandu.dashboard import Api, dispatch
 from kandu.state import StateStore
 
@@ -144,6 +144,66 @@ class ApiTest(Base):
         for query in ("wake_every_minutes=0", "max_cycle_minutes=soon", "colour=1", ""):
             self.assertEqual(self.post(f"/api/v1/pace?{query}")[0], 400, query)
         self.assertEqual(self.post("/api/v1/pace?max_cycle_minutes=20", "")[0], 403)
+
+    def state(self):
+        return dispatch(self.api, "GET", "/api/v1/state")[1]
+
+    def test_the_default_look_is_read_from_the_config(self):
+        self.assertEqual(self.state()["default_look"], "classic")
+        set_default_look("clean", self.local)
+        self.api.refresh_config()
+        self.assertEqual(self.state()["default_look"], "clean")
+
+    def test_the_default_look_is_saved_in_the_config_with_the_dashboards_token(self):
+        status, body = self.post("/api/v1/default-look?look=clean")
+        self.assertEqual((status, body), (200, {"default_look": "clean"}))
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "clean")
+        self.assertEqual(self.state()["default_look"], "clean")
+        self.assertIn("# stay on this machine", self.settings())
+        status, body = self.post("/api/v1/default-look?look=classic")
+        self.assertEqual((status, body), (200, {"default_look": "classic"}))
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "classic")
+        self.assertEqual(self.state()["default_look"], "classic")
+
+    def test_a_wrong_default_look_or_no_token_changes_nothing(self):
+        before = self.settings()
+        for query in ("look=honeycomb", "look=", "", "look=Clean"):
+            self.assertEqual(self.post(f"/api/v1/default-look?{query}")[0], 400, query)
+        self.assertEqual(self.post("/api/v1/default-look?look=clean", "")[0], 403)
+        self.assertEqual(self.post("/api/v1/default-look?look=clean", "wrong")[0], 403)
+        self.assertEqual(self.settings(), before)
+        self.assertEqual(self.state()["default_look"], "classic")
+
+
+class DefaultLookTest(Base):
+    """The install's default look in `kandu.yaml`'s `dashboard` block, changed line by line."""
+
+    def test_it_is_written_in_the_dashboard_block_and_the_rest_stays(self):
+        before = self.settings()
+        set_default_look("clean", self.local)
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "clean")
+        after = self.settings()
+        self.assertIn("# stay on this machine", after)
+        self.assertEqual([(a, b) for a, b in zip(before.splitlines(), after.splitlines()) if a != b],
+                         [(line, "  look: clean") for line in before.splitlines() if line.startswith("  look:")])
+        set_default_look("classic", self.local)
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "classic")
+
+    def test_a_config_without_it_gets_the_line(self):
+        path = self.local / "kandu.yaml"
+        path.write_text("\n".join(l for l in self.settings().splitlines() if not l.startswith("  look:")) + "\n",
+                        encoding="utf-8")
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "classic")
+        set_default_look("clean", self.local)
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "clean")
+        self.assertIn("  port: 8790", self.settings())
+
+    def test_a_look_that_is_not_one_of_the_two_writes_nothing(self):
+        before = self.settings()
+        for look in ("honeycomb", "", "Clean", None, True):
+            with self.assertRaises(ConfigError, msg=look):
+                set_default_look(look, self.local)
+        self.assertEqual(self.settings(), before)
 
 
 class PageTest(unittest.TestCase):

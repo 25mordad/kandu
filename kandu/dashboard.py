@@ -21,7 +21,7 @@ from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, que
                tasks, timer, tries, upstream, waits)
 from .config import (DEFAULT_LOCAL_DIR, PACE_SETTINGS, REGISTRY_SETTINGS, TECHNICAL_DEBT, ConfigError, Inspect,
                      load_config, set_backup, set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_pace,
-                     set_parallel, set_project_values, set_show_requests)
+                     set_default_look, set_parallel, set_project_values, set_show_requests)
 from .github import AGENT_LABEL, GitHubError, task_blockers
 from .mirror import FRESH_SECONDS, open_github
 from .runner import DEFAULT_LOGS_DIR
@@ -341,6 +341,7 @@ class Api:
             "backup": self._backup(),
             "drop_blockers": self.config.settings.supervisor.queen_drop_blockers,
             "show_requests": self.config.settings.dashboard.show_requests,
+            "default_look": self.config.settings.dashboard.look,
             "clean_merged": self.config.settings.supervisor.clean_merged,
             "upstream": self._upstream(),
             "github_refused": self._github_refused(),
@@ -654,6 +655,16 @@ class Api:
         self.config.settings.dashboard.show_requests = enabled == "true"
         self.store.record("requests_shown_changed", enabled=enabled == "true")
         return {"show_requests": enabled == "true"}
+
+    def change_default_look(self, query):
+        """The look a browser opens in until it chooses its own, in the config."""
+        look = query.get("look", [""])[0]
+        try:
+            set_default_look(look, self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        self.config.settings.dashboard.look = look
+        return {"default_look": look}
 
     def list_flights(self, query):
         return self.flights.list()
@@ -1271,6 +1282,7 @@ ROUTES = [
     ("GET", "/didban", Api.didban),
     ("GET", "/requests", Api.requests),
     ("POST", "/requests", Api.change_show_requests),
+    ("POST", "/default-look", Api.change_default_look),
     ("GET", "/bazras", Api.bazras_reports),
     ("GET", "/flights", Api.list_flights),
     ("POST", "/flights/didban", Api.open_didban),
@@ -1418,7 +1430,9 @@ def make_handler(api):
         def do_GET(self):
             path = urlparse(self.path).path
             if path == "/":
-                self._send(200, page_for(self.headers.get("Cookie")).read_bytes(), "text/html; charset=utf-8", cache=False)
+                api.refresh_config()  # a default look changed by hand counts at once
+                page = page_for(self.headers.get("Cookie"), api.config.settings.dashboard.look)
+                self._send(200, page.read_bytes(), "text/html; charset=utf-8", cache=False)
             elif path == f"/{FONT.name}":
                 self._send(200, FONT.read_bytes(), "font/woff2")
             elif path == f"{API}/stream":
@@ -1432,15 +1446,16 @@ def make_handler(api):
     return Handler
 
 
-def page_for(cookie_header):
+def page_for(cookie_header, default_look="classic"):
     """The page of the look a browser chose, from its Cookie header. A browser that chose nothing, or a look that is
-    gone such as the honeycomb, opens in the Classic look. The header is split by hand: the cookies of 127.0.0.1 are
-    shared by every local app, and one malformed cookie would stop a strict parser before it reaches ours."""
+    gone such as the honeycomb, opens in the install's default look. The header is split by hand: the cookies of
+    127.0.0.1 are shared by every local app, and one malformed cookie would stop a strict parser before it reaches ours."""
+    default = LOOKS.get(default_look, CLASSIC_PAGE)
     for pair in (cookie_header or "").split(";"):
         name, _, value = pair.partition("=")
         if name.strip() == LOOK_COOKIE:
-            return LOOKS.get(value.strip(), CLASSIC_PAGE)
-    return CLASSIC_PAGE
+            return LOOKS.get(value.strip(), default)
+    return default
 
 
 def main():

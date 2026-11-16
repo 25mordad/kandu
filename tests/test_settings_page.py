@@ -21,7 +21,7 @@ from tests.test_today import NODE, QUEUE, ROOT, Page, state
 LINES = ("const SETTING_GROUPS = ", "const SETTING_LABELS = ", "const SETTING_HINTS = ", "const LIMIT_STEP = ")
 FUNCTIONS = ("settingsProjects", "settingsProjectsHtml", "settingsDraft", "settingsCalls", "mergeOnAsked", "saveStep",
              "applySettings", "settingsBody", "settingsFoot", "settingControl", "stepper", "limitsHtml", "machinesHtml",
-             "kanduHtml", "switchRow")
+             "kanduHtml", "switchRow", "defaultLookHtml")
 TOKEN = "secret-token"
 
 
@@ -489,6 +489,26 @@ sent.length = 0; server = () => true; await saveSettings({}); return {first, aga
         for path in ("/parallel?total={n}", "/pace?wake_every_minutes={n}", "/pace?max_cycle_minutes={n}"):
             self.assertIn(f'data-step-path="{path}"', html)
         self.assertIn('if (hit("switch")) { flipSwitch(hit("switch")); return; }', self.page)
+
+    def test_the_default_look_shows_and_each_choice_saves_it_with_the_token(self):
+        html = self.run_js(self.given(settings_state(default_look="classic")) + "return kanduHtml(s);")
+        self.assertIn(self.text["en"]["default_look"], html)
+        self.assertIn(f'<button type="button" data-switch="/default-look?look=classic" aria-pressed="true">'
+                      f'{self.text["en"]["default_look_classic"]}</button>', html)
+        self.assertIn(f'<button type="button" data-switch="/default-look?look=clean" aria-pressed="false">'
+                      f'{self.text["en"]["default_look_clean"]}</button>', html)
+        clean = self.run_js(self.given(settings_state(default_look="clean")) + "return kanduHtml(s);")
+        self.assertIn('data-switch="/default-look?look=clean" aria-pressed="true"', clean)
+        self.assertIn('data-switch="/default-look?look=classic" aria-pressed="false"', clean)
+        self.assertIn("act(button, button.dataset.switch)", self.function("flipSwitch"))  # act sends the token
+        self.assertIn("s.default_look", self.function("renderSettings"))
+        self.assertEqual((self.text["en"]["default_look_classic"], self.text["en"]["default_look_clean"]),
+                         ("Classic", "Kandu Clean"))
+        fa = self.run_js(self.given(settings_state(default_look="clean")) + "return kanduHtml(s);", "fa")
+        for key in ("default_look", "default_look_hint", "default_look_classic", "default_look_clean"):
+            self.assertIn(key, self.text["fa"], key)
+            self.assertNotEqual(self.text["fa"][key], self.text["en"][key], key)
+        self.assertIn(self.text["fa"]["default_look"], fa)
 
     def test_the_side_reads_in_persian(self):
         html = self.run_js(self.given() + "return limitsHtml(s) + machinesHtml(s) + kanduHtml(s);", "fa")

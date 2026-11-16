@@ -34,6 +34,7 @@ DEADLINE_FIELD = "Deadline"
 NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "task_done", "usage_limit", "claude_login",
                  "machine_unreachable")
 NOTIFY_LANGUAGES = ("en", "fa")
+LOOKS = ("classic", "clean")  # the dashboard's two looks: Classic and Kandu Clean
 
 
 class ConfigError(Exception):
@@ -172,6 +173,7 @@ class Dashboard:
     bind: str
     port: int
     show_requests: bool = False    # list open requests with their decision maps; off until the user turns it on
+    look: str = "classic"          # the look a browser opens in until it chooses its own (LOOKS)
 
 
 @dataclass
@@ -409,6 +411,7 @@ def _check_settings(s, problems):
     _check_backup(s.backup.enabled, s.backup.at, s.backup.destination, s.backup.keep, problems)
     if not 1 <= s.dashboard.port <= 65535:
         problems.append(f"dashboard.port: must be between 1 and 65535, got {s.dashboard.port}")
+    _check_one_of(s.dashboard.look, LOOKS, "dashboard.look", problems)
 
 
 def _check_backup(enabled, at, destination, keep, problems):
@@ -675,6 +678,20 @@ def set_show_requests(enabled, local_dir=DEFAULT_LOCAL_DIR):
                           {"show_requests": "true" if enabled else "false"})
     if ((yaml.safe_load(text) or {}).get("dashboard") or {}).get("show_requests") is not enabled:
         raise ConfigError(["dashboard.show_requests: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
+def set_default_look(look, local_dir=DEFAULT_LOCAL_DIR):
+    """Sets the install's default look in `kandu.yaml`'s `dashboard` block, line by line. Nothing is written if it is
+    not one of LOOKS."""
+    problems = []
+    _check_one_of(look, LOOKS, "dashboard.look", problems)
+    if problems:
+        raise ConfigError(problems)
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_top_block(path.read_text(encoding="utf-8"), "dashboard", {"look": look})
+    if ((yaml.safe_load(text) or {}).get("dashboard") or {}).get("look") != look:
+        raise ConfigError(["dashboard.look: could not be written; change it in kandu.yaml by hand"])
     _replace_file(path, text)
 
 

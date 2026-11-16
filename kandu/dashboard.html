@@ -955,6 +955,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "add_machine_short": "+ Add",
   "switch_drop_blockers": "Let the queen ask to drop blockers",
   "switch_requests": "Show open requests",
+  "default_look": "Default look",
+  "default_look_hint": "The look a browser opens in until it chooses its own; a browser's own choice always wins.",
+  "default_look_classic": "Classic",
+  "default_look_clean": "Kandu Clean",
   "pace_title": "Kandu's pace",
   "pace_workers": "Workers at once, in all of Kandu",
   "pace_wake": "Wakes every (minutes)",
@@ -1412,6 +1416,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "add_machine_short": "+ افزودن",
   "switch_drop_blockers": "ملکه بتواند برداشتن مانع‌ها را بپرسد",
   "switch_requests": "نشان دادن درخواست‌های باز",
+  "default_look": "نمای پیش‌فرض",
+  "default_look_hint": "نمایی که مرورگر تا وقتی نمای خودش را انتخاب نکرده با آن باز می‌شود؛ انتخاب خود مرورگر همیشه مقدم است.",
+  "default_look_classic": "کلاسیک",
+  "default_look_clean": "کندو کلین",
   "pace_title": "آهنگ کار کندو",
   "pace_workers": "کارگرهای هم‌زمان در کل کندو",
   "pace_wake": "بیدار شدن هر (دقیقه)",
@@ -3006,7 +3014,7 @@ async function changeStep(button) {
 function renderSettings(s) {
   const projects = settingsProjects(s, lastQueue);
   const key = JSON.stringify([lang, projects, s.project_settings, s.limits, s.machines, s.clean_merged, s.drop_blockers,
-                              s.show_requests, s.backup, s.pace, s.parallel?.total]);
+                              s.show_requests, s.default_look, s.backup, s.pace, s.parallel?.total]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
   $("projectsettings").innerHTML = settingsProjectsHtml(projects);
@@ -3216,7 +3224,13 @@ function switchRow(label, on, path, hint = "") {
   return `<button type="button" class="switch-row" role="switch" aria-checked="${on}" data-switch="${esc(path)}"${hint ? ` title="${esc(hint)}"` : ""}><span>${esc(label)}</span><span class="switch" aria-hidden="true"><i></i></span></button>`;
 }
 
-// Kandu's own switches, its backup and its pace, each working as it always did.
+// The install's default look: a press on the other look saves it in the config at once.
+function defaultLookHtml(look) {
+  const choice = value => `<button type="button" data-switch="/default-look?look=${value}" aria-pressed="${look === value}">${t(`default_look_${value}`)}</button>`;
+  return `<div class="side-row" title="${esc(t("default_look_hint"))}"><span class="side-label">${t("default_look")}</span><div class="seg" role="group" aria-label="${esc(t("default_look"))}">${choice("classic")}${choice("clean")}</div></div>`;
+}
+
+// Kandu's own switches, its default look, its backup and its pace, each working as it always did.
 function kanduHtml(s) {
   const pace = s.pace || {}, b = s.backup;
   const flag = (on, label, path, hint) => on === undefined ? "" : switchRow(t(label), Boolean(on), `${path}?enabled=${!on}`, hint ? t(hint) : "");
@@ -3225,7 +3239,7 @@ function kanduHtml(s) {
     <button type="button" class="textbtn" data-backup>${t("change")}</button></div>` : "";
   const paceRow = (label, value, path, step) => value ? `<div class="side-row"><span class="side-label">${t(label)}</span>${stepper(value, path, t(label), step)}</div>` : "";
   return `<div class="side-head"><b>${t("kandu_itself")}</b></div>
-    ${flag(s.clean_merged, "clean_merged", "/clean-merged", "clean_merged_hint")}${flag(s.drop_blockers, "switch_drop_blockers", "/drop-blockers")}${flag(s.show_requests, "switch_requests", "/requests")}${backup}
+    ${flag(s.clean_merged, "clean_merged", "/clean-merged", "clean_merged_hint")}${flag(s.drop_blockers, "switch_drop_blockers", "/drop-blockers")}${flag(s.show_requests, "switch_requests", "/requests")}${s.default_look ? defaultLookHtml(s.default_look) : ""}${backup}
     ${paceRow("pace_workers", s.parallel?.total, "/parallel?total={n}", 1)}${paceRow("pace_wake", pace.wake_every_minutes, "/pace?wake_every_minutes={n}", 5)}${paceRow("pace_cycle", pace.max_cycle_minutes, "/pace?max_cycle_minutes={n}", 5)}
     <div class="side-note">${t("pace_hint")}</div>`;
 }

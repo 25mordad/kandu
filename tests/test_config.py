@@ -71,6 +71,24 @@ class ConfigTest(unittest.TestCase):
         self.edit("kandu.yaml", lambda d: d["supervisor"].update(clean_merged=False))
         self.assertFalse(load_config(self.local).settings.supervisor.clean_merged)
 
+    def test_the_default_look_is_classic_unless_the_config_names_kandu_clean(self):
+        self.edit("kandu.yaml", lambda d: d["dashboard"].pop("look", None))
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "classic")
+        self.edit("kandu.yaml", lambda d: d["dashboard"].update(look="clean"))
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "clean")
+        self.edit("kandu.yaml", lambda d: d["dashboard"].update(look="classic"))
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "classic")
+
+    def test_any_other_default_look_is_a_config_problem(self):
+        for wrong in ("honeycomb", "Clean", ""):
+            self.edit("kandu.yaml", lambda d: d["dashboard"].update(look=wrong))
+            self.assertIn(f"dashboard.look: must be one of classic, clean, got {wrong!r}", self.problems())
+
+    def test_the_example_config_shows_the_default_look(self):
+        text = (EXAMPLES / "kandu.example.yaml").read_text(encoding="utf-8")
+        dashboard = text.split("\ndashboard:\n")[1].split("\n\n")[0]
+        self.assertRegex(dashboard, r"\n  look: classic +# optional; ")
+
     def test_empty_registry_is_valid(self):
         self.edit("projects.yaml", lambda d: d.update(projects=[]))
         self.assertEqual(load_config(self.local).projects, [])
