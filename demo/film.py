@@ -264,6 +264,7 @@ def main():
                       f"--force-device-scale-factor={SCALE}", "--disable-infobars", "--no-first-run",
                       "--hide-scrollbars", f"--lang={args.lang}"])
             context.add_init_script(OVERLAY)
+            context.add_cookies([{"name": "kandu-look", "value": "clean", "url": url}])  # the look the film was made in
             context.route("**/didban-demo*", lambda route: route.fulfill(body=terminal, content_type="text/html"))
             page = context.pages[0] if context.pages else context.new_page()
             recorder = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-framerate", "30",

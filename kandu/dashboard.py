@@ -1,7 +1,7 @@
 """Kandu's dashboard and its public HTTP API (DESIGN §7). Documented in docs/API.md.
 
-The page in dashboard.html uses only this API, so all it shows is open to any
-other system. Reads are open on the bound address; controls need a token.
+The page has two looks, Kandu Clean in dashboard.html and Classic in classic.html; each uses only this API, so
+all it shows is open to any other system. Reads are open on the bound address; controls need a token.
 """
 import argparse
 import hmac
@@ -28,7 +28,10 @@ from .runner import DEFAULT_LOGS_DIR
 from .state import PROJECT_SETTINGS, StateStore, is_project_setting
 from .tasks import TaskError
 
-PAGE = Path(__file__).with_name("dashboard.html")
+PAGE = Path(__file__).with_name("dashboard.html")  # the Kandu Clean look
+CLASSIC_PAGE = Path(__file__).with_name("classic.html")
+LOOK_COOKIE = "kandu-look"  # the look each browser chose; the page sets it
+LOOKS = {"clean": PAGE, "classic": CLASSIC_PAGE}
 FONT = Path(__file__).with_name("vazirmatn.woff2")
 TOKEN_ENV = "KANDU_DASHBOARD_TOKEN"
 API = "/api/v1"
@@ -1415,7 +1418,7 @@ def make_handler(api):
         def do_GET(self):
             path = urlparse(self.path).path
             if path == "/":
-                self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8", cache=False)
+                self._send(200, page_for(self.headers.get("Cookie")).read_bytes(), "text/html; charset=utf-8", cache=False)
             elif path == f"/{FONT.name}":
                 self._send(200, FONT.read_bytes(), "font/woff2")
             elif path == f"{API}/stream":
@@ -1427,6 +1430,17 @@ def make_handler(api):
             self._answer("POST")
 
     return Handler
+
+
+def page_for(cookie_header):
+    """The page of the look a browser chose, from its Cookie header. A browser that chose nothing, or a look that is
+    gone such as the honeycomb, opens in the Classic look. The header is split by hand: the cookies of 127.0.0.1 are
+    shared by every local app, and one malformed cookie would stop a strict parser before it reaches ours."""
+    for pair in (cookie_header or "").split(";"):
+        name, _, value = pair.partition("=")
+        if name.strip() == LOOK_COOKIE:
+            return LOOKS.get(value.strip(), CLASSIC_PAGE)
+    return CLASSIC_PAGE
 
 
 def main():

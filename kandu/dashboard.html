@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-look="clean">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -666,6 +666,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "hint_usage": "tokens",
   "hint_live": "events",
   "hint_language": "language",
+  "hint_look": "look",
+  "look_classic": "Classic look",
   "hive": "The hive",
   "empty_meadow": "The meadow is empty: no task is on a board yet.",
   "bee_worker": "Worker bee",
@@ -1121,6 +1123,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "hint_usage": "توکن‌ها",
   "hint_live": "رویدادها",
   "hint_language": "زبان",
+  "hint_look": "نما",
+  "look_classic": "نمای کلاسیک",
   "hive": "کندو",
   "empty_meadow": "مرغزار خالی است: هنوز تسکی روی هیچ بوردی نیست.",
   "bee_worker": "زنبور کارگر",
@@ -1846,9 +1850,6 @@ let lang = "en", tab = "today", shownRun = null, shownTask = null, confirming = 
 let lastState = null, lastQueue = null, sceneKey = null, listKey = null, folded = {};  // each project the user folded (true) or opened (false)
 const saved = key => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
-const forget = key => { try { localStorage.removeItem(key); } catch {} };
-// The dashboard has one look now: a browser that chose another one opens this look, and forgets its choice.
-forget("kandu-look");
 // The tabs' names before the frame, so a browser that saved one opens the same page.
 const OLD_TABS = {meadow: "today", work: "tasks"};
 if (saved(LANGUAGE_KEY) === "fa") lang = "fa";
@@ -2770,6 +2771,7 @@ function moreItems(open, wide) {
     item(t("tab_bazras"), t("hint_bazras"), 'data-tab="bazras"'),
     item(t("by_day"), t("hint_usage"), 'data-tab="days"'),
     item(t("live_stream"), t("hint_live"), 'data-tab="activity"'),
+    item(t("look_classic"), t("hint_look"), 'data-menu="look"'),
     item(t("other_language"), t("hint_language"), 'data-menu="lang"'),
   ];
 }
@@ -2786,9 +2788,18 @@ function openMore() {
   $("moremenu").showModal();
 }
 
+// The look: each browser keeps the one it chose in a cookie, so the dashboard sends that look's page. More goes to
+// the Classic look.
+const LOOK_COOKIE = "kandu-look", LOOK_DAYS = 400;
+function chooseLook(chosen) {
+  document.cookie = `${LOOK_COOKIE}=${chosen}; path=/; max-age=${LOOK_DAYS * 86400}; samesite=strict`;
+  location.reload();
+}
+
 // An action from More: the menu stays open while it works, then closes. Restart asks first.
 async function chooseMore(button) {
   const what = button.dataset.menu;
+  if (what === "look") { $("moremenu").close(); chooseLook("classic"); return; }
   if (what === "restart") { $("moremenu").close(); $("restartbox").showModal(); return; }
   if (what === "lang") { $("moremenu").close(); setLanguage(lang === "fa" ? "en" : "fa"); return; }
   if (what === "wake") await act(button, "/wake");
