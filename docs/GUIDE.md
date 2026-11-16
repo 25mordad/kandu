@@ -120,7 +120,7 @@ If the project has no board, Kandu creates one only when you say so, with the st
 
 Check: `.venv/bin/python -m kandu.doctor` shows the project's copy, its test tool and its board columns as `OK`.
 
-To take a project out of Kandu later, press **Remove from Kandu** on its row in the dashboard's settings tab, twice, or ask Didban. Its running work stops, and Kandu's worktrees for it and its entry in `projects.yaml` go. What Kandu learned about it is offered as a PR to its own repo, unless the repo is public, and kept on the brain, so it comes back if you add the project again. Its copy, repo, board and issues stay.
+To take a project out of Kandu later, open its settings in the dashboard's settings tab and press **Remove from Kandu** at the bottom, twice, or ask Didban. Its running work stops, and Kandu's worktrees for it and its entry in `projects.yaml` go. What Kandu learned about it is offered as a PR to its own repo, unless the repo is public, and kept on the brain, so it comes back if you add the project again. Its copy, repo, board and issues stay.
 
 ## 7. Define your first task
 

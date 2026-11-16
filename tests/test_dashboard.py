@@ -1479,9 +1479,7 @@ class FrameTest(unittest.TestCase):
         self.assertRegex(self.style, r"\.bar \{[^}]*flex-wrap:wrap")
         self.assertRegex(self.style, r"\.gauges \{[^}]*min-width:0;[^}]*overflow:hidden")
         self.assertRegex(self.style, r"\.tabs \{[^}]*overflow-x:auto")
-        phone = self.style.split("@media (max-width: 640px) {")[1].split("\n}\n")[0]
-        self.assertIn("#projectsettings th, #projectsettings .fit { white-space:normal; }", phone)
-        self.assertRegex(self.style, r"#projectsettings \{[^}]*overflow-x:auto")
+        self.assertRegex(self.style, r"\.settings \{[^}]*flex-wrap:wrap")
 
     # The state chip.
 
@@ -1808,8 +1806,8 @@ class CleanMergedTest(Base):
 
     def test_the_settings_section_has_its_switch(self):
         page = (ROOT / "kandu" / "dashboard.html").read_text(encoding="utf-8")
-        self.assertIn("data-clean-merged", page)
-        self.assertIn("/clean-merged?enabled=", page)
+        self.assertIn('flag(s.clean_merged, "clean_merged", "/clean-merged"', page)
+        self.assertIn('data-switch="${esc(path)}"', page)
 
 
 class RequestsTest(Base):

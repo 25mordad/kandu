@@ -167,12 +167,14 @@ console.log(JSON.stringify([stepper(1, "/parallel?total={n}", "all"), stepper(60
         self.assertNotRegex(one, r'data-step="1"[^>]*disabled')
         self.assertIn('data-step="5"', wake)
 
-    def test_each_row_has_every_control(self):
-        render = self.function("renderSettings")
-        for control in ("data-setting-pause", "data-setting-tokens", "data-setting-auto-merge", "data-setting-frozen",
-                        "data-setting-splits", "data-setting-one-way", "data-remove", "?priority={n}",
-                        "/parallel?project=", "/pace?wake_every_minutes={n}", "/pace?max_cycle_minutes={n}"):
-            self.assertIn(control, render)
+    def test_each_project_setting_is_in_its_pop_up_and_kandus_pace_beside_it(self):
+        groups = self.page.split("const SETTING_GROUPS = ", 1)[1].split("\n", 1)[0]
+        for setting in ("paused", "max_parallel_workers", "priority", "daily_token_limit", "auto_merge", "frozen",
+                        "split_approval", "queen_answers_one_way"):
+            self.assertIn(f'"{setting}"', groups)
+        pace = self.function("kanduHtml")
+        for path in ("/parallel?total={n}", "/pace?wake_every_minutes={n}", "/pace?max_cycle_minutes={n}"):
+            self.assertIn(path, pace)
         self.assertIn('if (hit("step")) { changeStep(hit("step")); return; }', self.page)
 
     def test_the_meadow_shows_the_merge_mode_and_frozen_wins(self):

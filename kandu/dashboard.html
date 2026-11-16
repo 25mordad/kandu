@@ -280,6 +280,47 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
 body[data-page="today"] #stats, body[data-page="today"] #asks { display:none; }
 /* Tasks shows what waits for the user in its groups and sheets, as Today does: the tiles and the asks stay off it too. */
 body[data-page="tasks"] #stats, body[data-page="tasks"] #asks { display:none; }
+/* Settings: the projects, each opening its pop-up, beside the usage limits, the machines and Kandu's own switches. */
+body[data-page="settings"] #stats, body[data-page="settings"] #asks { display:none; }
+.settings { display:flex; flex-wrap:wrap; gap:28px; align-items:flex-start; min-width:0; }
+.settings-main { flex:999 1 480px; min-width:0; display:flex; flex-direction:column; gap:12px; }
+.settings-side { flex:1 1 320px; min-width:0; display:flex; flex-direction:column; gap:24px; }
+.set-projects { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.set-project { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:12px 16px; min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:16px; }
+.set-project-who { flex:1 1 220px; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.set-project-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; min-width:0; }
+.set-project-head b { font-size:15px; font-weight:700; overflow-wrap:anywhere; }
+.set-project-head span { font-size:13px; font-weight:600; }
+.set-project-summary { font-size:13px; color:var(--ink3); overflow-wrap:anywhere; }
+.side-head { display:flex; align-items:center; gap:10px; padding-bottom:6px; min-width:0; }
+.side-head b { font-size:16px; font-weight:700; }
+.side-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; min-height:50px; padding:4px 0; border-top:1px solid var(--line); font-size:14px; min-width:0; }
+.side-row > .side-label { flex:1 1 160px; min-width:0; overflow-wrap:anywhere; }
+.side-note { font-size:13px; color:var(--ink3); padding-top:6px; }
+.textbtn { all:unset; box-sizing:border-box; cursor:pointer; min-height:36px; display:inline-flex; align-items:center; font-size:13px; font-weight:600; color:var(--ink2); }
+.textbtn:focus-visible, .switch-row:focus-visible, .seg button:focus-visible { outline:2px solid var(--honey); outline-offset:2px; }
+.mdot { flex:none; width:8px; height:8px; border-radius:50%; }
+.switch-row { all:unset; box-sizing:border-box; cursor:pointer; width:100%; display:flex; align-items:center; gap:10px; min-height:50px; border-top:1px solid var(--line); font-size:14px; }
+.switch-row > span:first-child { flex:1; min-width:0; }
+.switch { flex:none; width:44px; height:26px; padding:3px; border:0; border-radius:13px; background:var(--line); display:flex; justify-content:flex-start; cursor:pointer; }
+.switch i { width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 2px #0003; }
+.switch[aria-checked="true"], [aria-checked="true"] > .switch { background:var(--honey); justify-content:flex-end; }
+.set-group { display:flex; flex-direction:column; }
+.set-group h3 { font-size:12px; font-weight:700; color:var(--ink2); padding-bottom:4px; }
+.set-field { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:10px 0; border-top:1px solid var(--line); min-width:0; }
+.set-field.stack { flex-direction:column; align-items:stretch; }
+.set-field.stack .set-label { flex:none; }
+.set-label { flex:1 1 180px; min-width:0; display:flex; flex-direction:column; gap:2px; font-size:14px; }
+.set-label small { font-size:12px; color:var(--ink3); overflow-wrap:anywhere; }
+.seg { display:grid; grid-template-columns:1fr 1fr; gap:2px; padding:3px; border-radius:12px; background:var(--surface2); }
+.seg button { all:unset; box-sizing:border-box; cursor:pointer; min-height:38px; padding:0 8px; display:flex; align-items:center; justify-content:center; text-align:center; border-radius:9px; font-size:14px; }
+.seg button[aria-pressed="true"] { background:var(--surface); font-weight:700; box-shadow:0 1px 3px #0000001f; }
+.seg button:disabled { cursor:not-allowed; opacity:.6; }
+.set-refused { padding:10px 14px; border-radius:12px; background:var(--amber-soft); color:var(--amber); font-size:13px; overflow-wrap:anywhere; }
+.set-refused ul { margin:4px 0 0; padding-inline-start:18px; }
+.set-danger { margin-top:6px; padding:14px 16px; border-radius:14px; border:1px solid color-mix(in srgb, var(--red) 45%, var(--line)); background:var(--red-soft); display:flex; flex-direction:column; gap:8px; }
+.set-danger h3 { font-size:13px; font-weight:700; color:var(--red); }
+.set-danger p { font-size:13px; overflow-wrap:anywhere; }
 .today { display:flex; flex-direction:column; gap:24px; min-width:0; }
 .today-grid { display:flex; flex-wrap:wrap; gap:28px; align-items:flex-start; }
 .today-grid > * { min-width:0; display:flex; flex-direction:column; gap:24px; }
@@ -412,7 +453,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
 @media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz, .halo, .wait-ring, .btn.busy::before { animation:none; } .btn, .meter i { transition:none; } }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-#projectsettings { overflow-x:auto; }
 /* A phone: the header keeps the mark, awake or asleep, Stop and More; the tabs move to the bar at the bottom. */
 @media (max-width: 760px) {
   .head-wide, .tabs { display:none !important; }
@@ -439,7 +479,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   dialog.menu, [dir="rtl"] dialog.menu { width:100%; max-width:100%; margin:auto 0 0; border-radius:20px 20px 0 0; padding:8px 8px calc(14px + env(safe-area-inset-bottom)); }
 }
 @media (max-width: 640px) {
-  #projectsettings th, #projectsettings .fit { white-space:normal; }
   th, td { padding-inline:12px; }
   .hide-narrow { display:none; }
   .stat-value { font-size:21px; }
@@ -494,7 +533,13 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
     <details id="meadowbox" class="card"><summary data-t="meadow"></summary><div class="meadow"><div id="scene"></div><div id="legend" class="legend"></div></div></details>
   </section>
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
-  <section data-panel="settings" class="list" hidden><div class="card pad muted" data-t="settings_about"></div><div class="card pad add-open"><p class="muted" data-t="add_why"></p><div class="actions"><button id="addopen" class="btn" data-t="add_project"></button></div></div><div id="pacesettings" class="card pad"></div><div id="cleanmerged" class="card pad"></div><div id="projectsettings" class="card"></div></section>
+  <section data-panel="settings" class="settings" hidden>
+    <div class="settings-main">
+      <div class="side-head"><b data-t="projects_title"></b><span class="spacer"></span><button id="addopen" type="button" class="textbtn" data-t="add_a_project"></button></div>
+      <div id="projectsettings" class="set-projects"></div>
+    </div>
+    <div class="settings-side"><div id="limitsettings"></div><div id="machinesettings"></div><div id="kandusettings"></div></div>
+  </section>
   <section data-panel="days" class="list" hidden>
     <div class="card pad usage"><div class="toolbar"><h2 class="card-title" data-t="usage_title"></h2>
       <div class="usage-range"><select id="usagerange" data-t-attr="aria-label" data-t="usage_title"><option value="today" data-t="range_today"></option><option value="week" data-t="range_week"></option><option value="last7" data-t="range_last7"></option><option value="month" data-t="range_month"></option><option value="custom" data-t="range_custom"></option></select>
@@ -522,6 +567,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   <h2 data-t="restart_ask"></h2><p class="muted" data-t="restart_why"></p>
   <div class="actions confirm-actions"><button class="btn" value="no" data-t="cancel"></button><button type="button" id="restartnow" class="btn primary" data-t="restart_now"></button></div>
 </form></dialog>
+<dialog id="setsheet" class="sheet" data-t-attr="aria-label" data-t="tab_settings"><div id="setbody" class="sheet-body"></div><div id="setfoot" class="sheet-foot"></div></dialog>
 <dialog id="sheet" class="sheet" data-t-attr="aria-label" data-t="task_sheet"><div id="sheetbody" class="sheet-body"></div><div id="sheetfoot" class="sheet-foot"></div></dialog>
 <dialog id="modal"><div class="dialog-head"><h2 id="modaltitle"></h2><button class="btn plain small" data-close data-t-attr="aria-label" data-t="close">×</button></div><div id="modalbody" class="dialog-body"></div></dialog>
 <dialog id="tokenbox" class="small"><form method="dialog" class="dialog-body" id="tokenform">
@@ -876,7 +922,34 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "bee_inspector": "Bazras, the inspector bee",
   "tab_bazras": "Bazras",
   "tab_settings": "Settings",
-  "settings_about": "One row per project, in the order of its registry. Each control changes the setting at once, and the next cycle uses it. Pause, splits and one-way answers are kept by Kandu and win over the registry; the other values are written in the config.",
+  "projects_title": "Projects",
+  "add_a_project": "+ Add a project",
+  "set_open": "Settings",
+  "set_running": "Running",
+  "set_bees": "{n} bees at most",
+  "set_bees_one": "{n} bee at most",
+  "set_group_work": "Work",
+  "set_group_merge": "Merge",
+  "set_group_queen": "The queen",
+  "set_run_label": "Bees work on it",
+  "set_split_by": "When a task is too big, the split is accepted by",
+  "set_one_way_by": "A hard-to-undo merge is answered by",
+  "set_me": "Me",
+  "set_the_queen": "The queen",
+  "set_merge_ask": "Turn on «merges by itself»? Kandu then merges this project's PRs once their review passes, without waiting for your yes.",
+  "set_merge_yes": "Yes, save",
+  "set_merge_no": "No",
+  "set_refused": "Not saved:",
+  "set_saved": "{name}: saved",
+  "set_danger": "Danger zone",
+  "limit_session": "Hold new work at 5-hour usage",
+  "limit_week": "Hold new work at weekly usage",
+  "machines_title": "Machines",
+  "machine_answers": "answers",
+  "machine_silent": "Not answering since {since}",
+  "add_machine_short": "+ Add",
+  "switch_drop_blockers": "Let the queen ask to drop blockers",
+  "switch_requests": "Show open requests",
   "pace_title": "Kandu's pace",
   "pace_workers": "Workers at once, in all of Kandu",
   "pace_wake": "Wakes every (minutes)",
@@ -898,11 +971,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "mode_auto_hint": "Kandu merges a PR it judges right by itself; a change that is hard to undo still waits for you",
   "mode_waits_hint": "Every PR waits for your approval before it merges",
   "mode_frozen_hint": "Frozen: nothing merges by itself, for example before a release",
-  "setting_pause": "Pause",
-  "queen_accepts_splits": "The queen accepts splits",
-  "queen_accepts_splits_hint": "Off: every split proposal waits for your yes. On: a proposal still waits for your yes until the queen can accept one.",
-  "queen_answers_one_way": "The queen answers one-way merges",
-  "queen_answers_one_way_hint": "Off: a merge with a one-way door or a question for you waits for your yes. On: the queen's yes answers them too.",
   "paused_in_config_hint": "Paused in its config; only a change of config resumes it.",
   "remove_project": "Remove from Kandu",
   "remove_project_hint": "Stops its running work and removes Kandu's worktrees for it and its entry in projects.yaml. Its memory is first offered as a PR to its own repo (not to a public one), then archived here, and comes back if you add it again. Its copy, repo, board and issues stay.",
@@ -1307,7 +1375,34 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "bee_inspector": "بازرس، زنبور بازرسی",
   "tab_bazras": "بازرس",
   "tab_settings": "تنظیمات",
-  "settings_about": "برای هر پروژه یک ردیف، به ترتیب رجیستری. هر کنترل تنظیم را همان لحظه عوض می‌کند و چرخهٔ بعدی از آن استفاده می‌کند. توقف، تقسیم‌ها و پاسخ‌های یک‌طرفه را کندو نگه می‌دارد و بر رجیستری مقدم‌اند؛ بقیهٔ مقدارها در تنظیمات نوشته می‌شوند.",
+  "projects_title": "پروژه‌ها",
+  "add_a_project": "+ افزودن پروژه",
+  "set_open": "تنظیمات",
+  "set_running": "در کار",
+  "set_bees": "حداکثر {n} زنبور",
+  "set_bees_one": "حداکثر {n} زنبور",
+  "set_group_work": "کار",
+  "set_group_merge": "ادغام",
+  "set_group_queen": "ملکه",
+  "set_run_label": "زنبورها رویش کار می‌کنند",
+  "set_split_by": "وقتی تسکی بزرگ است، شکستنش را می‌پذیرد",
+  "set_one_way_by": "به ادغامی که برگشتش سخت است جواب می‌دهد",
+  "set_me": "من",
+  "set_the_queen": "ملکه",
+  "set_merge_ask": "«ادغام خودکار» روشن شود؟ آن‌وقت کندو PRهای این پروژه را بعد از قبول شدن بازبینی ادغام می‌کند و منتظر بلهٔ تو نمی‌ماند.",
+  "set_merge_yes": "بله، ذخیره کن",
+  "set_merge_no": "نه",
+  "set_refused": "ذخیره نشد:",
+  "set_saved": "{name}: ذخیره شد",
+  "set_danger": "منطقهٔ خطر",
+  "limit_session": "نگه‌داشتن کار تازه در مصرف پنج‌ساعته",
+  "limit_week": "نگه‌داشتن کار تازه در مصرف هفتگی",
+  "machines_title": "ماشین‌ها",
+  "machine_answers": "جواب می‌دهد",
+  "machine_silent": "از {since} جواب نمی‌دهد",
+  "add_machine_short": "+ افزودن",
+  "switch_drop_blockers": "ملکه بتواند برداشتن مانع‌ها را بپرسد",
+  "switch_requests": "نشان دادن درخواست‌های باز",
   "pace_title": "آهنگ کار کندو",
   "pace_workers": "کارگرهای هم‌زمان در کل کندو",
   "pace_wake": "بیدار شدن هر (دقیقه)",
@@ -1329,11 +1424,6 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "mode_auto_hint": "کندو PRی را که درست بداند خودش ادغام می‌کند؛ تغییری که برگشتش سخت است باز منتظر تو می‌ماند",
   "mode_waits_hint": "هر PR پیش از ادغام منتظر تأیید تو می‌ماند",
   "mode_frozen_hint": "یخ‌زده: هیچ چیزی خودکار ادغام نمی‌شود، مثلاً پیش از انتشار",
-  "setting_pause": "توقف",
-  "queen_accepts_splits": "ملکه شکستن‌ها را می‌پذیرد",
-  "queen_accepts_splits_hint": "خاموش: هر پیشنهاد شکستن منتظر بلهٔ تو می‌ماند. روشن: تا وقتی ملکه نتواند پیشنهادی را بپذیرد، باز هم منتظر بلهٔ تو می‌ماند.",
-  "queen_answers_one_way": "ملکه به ادغام‌های یک‌طرفه جواب می‌دهد",
-  "queen_answers_one_way_hint": "خاموش: ادغامی که در یک‌طرفه یا پرسشی برای تو دارد منتظر بلهٔ تو می‌ماند. روشن: بلهٔ ملکه هم به آن‌ها جواب می‌دهد.",
   "paused_in_config_hint": "در تنظیماتش متوقف است؛ فقط تغییر تنظیمات از توقف درش می‌آورد.",
   "remove_project": "حذف از کندو",
   "remove_project_hint": "کار در جریانش متوقف می‌شود و worktreeهای کندو برای آن و ورودی‌اش در projects.yaml حذف می‌شوند. حافظه‌اش اول به‌صورت PR به مخزن خودش پیشنهاد می‌شود (نه به مخزن عمومی)، بعد این‌جا بایگانی می‌شود و اگر دوباره اضافه‌اش کنی برمی‌گردد. نسخهٔ پروژه، مخزن، برد و issueهایش می‌مانند.",
@@ -2871,46 +2961,171 @@ async function saveInspect(button) {
   }
 }
 
-// A number with a minus and a plus; each press sends the new number at once. `path` holds {n} for it.
-function stepper(value, path, label, step = 1) {
-  const button = (by, sign) => `<button type="button" class="btn small" data-step="${by}" data-step-path="${esc(path)}" data-step-from="${value}" aria-label="${esc(`${t(by < 0 ? "less" : "more")}: ${label}`)}"${value + by < 1 ? " disabled" : ""}>${sign}</button>`;
-  return `<span class="stepper">${button(-step, "−")}<b class="number">${num(value)}</b>${button(step, "+")}</span>`;
+// A number with a minus and a plus; each press sends the new number at once. `path` holds {n} for it. It never goes
+// below one, nor above `most`.
+function stepper(value, path, label, step = 1, most = Infinity, show = num) {
+  const button = (by, sign) => `<button type="button" class="btn small" data-step="${by}" data-step-path="${esc(path)}" data-step-from="${value}"${most < Infinity ? ` data-step-most="${most}"` : ""} aria-label="${esc(`${t(by < 0 ? "less" : "more")}: ${label}`)}"${value + by < 1 || Math.min(most, value + by) === value ? " disabled" : ""}>${sign}</button>`;
+  return `<span class="stepper">${button(-step, "−")}<b class="number">${show(value)}</b>${button(step, "+")}</span>`;
 }
 
 async function changeStep(button) {
-  const value = Number(button.dataset.stepFrom) + Number(button.dataset.step);
+  const value = Math.min(Number(button.dataset.stepMost || Infinity), Number(button.dataset.stepFrom) + Number(button.dataset.step));
   renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
   if (!await act(button, button.dataset.stepPath.replace("{n}", value))) refreshState().catch(() => {});
 }
 
-// The settings section: Kandu's pace, then one row per project, in the registry's order. A project paused in its
-// config shows a switch that cannot move, since only the config resumes it. A change goes to the API at once and
-// the next state redraws.
+// The Settings page: the projects, in the registry's order, each opening its settings in a pop-up; beside them the
+// usage limits, the machines, and Kandu's own switches and pace, which change at once as before.
 function renderSettings(s) {
-  const rows = s.project_settings || [];
-  const key = JSON.stringify([lang, rows, s.clean_merged, s.pace, s.parallel?.total]);
+  const projects = settingsProjects(s, lastQueue);
+  const key = JSON.stringify([lang, projects, s.project_settings, s.limits, s.machines, s.clean_merged, s.drop_blockers,
+                              s.show_requests, s.backup, s.pace, s.parallel?.total]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
-  const name = p => encodeURIComponent(p.name);
-  const body = rows.map(p => `<tr><td>${bdi(p.name)}</td>
-    <td class="fit"><label title="${esc(p.paused_in_config ? t("paused_in_config_hint") : "")}"><input type="checkbox" data-setting-pause="${esc(p.name)}"${p.paused ? " checked" : ""}${p.paused_in_config ? " disabled" : ""}> ${t("setting_pause")}</label></td>
-    <td class="fit" title="${esc(t("setting_workers_hint"))}">${stepper(p.max_parallel_workers, `/parallel?project=${encodeURIComponent(p.name + ":")}{n}`, `${p.name} · ${t("setting_workers")}`)}</td>
-    <td class="fit" title="${esc(t("setting_priority_hint"))}">${stepper(p.priority, `/projects/${name(p)}/settings?priority={n}`, `${p.name} · ${t("setting_priority")}`)}</td>
-    <td class="fit"><input type="number" class="tokens-field" min="1" step="100000" dir="ltr" value="${p.daily_token_limit}" data-setting-tokens="${esc(p.name)}" title="${esc(t("setting_tokens_hint"))}" aria-label="${esc(`${p.name} · ${t("setting_tokens")}`)}"></td>
-    <td class="fit"><label title="${esc(t("mode_auto_hint"))}"><input type="checkbox" data-setting-auto-merge="${esc(p.name)}"${p.auto_merge ? " checked" : ""}> ${t("setting_auto_merge")}</label></td>
-    <td class="fit"><label title="${esc(t("mode_frozen_hint"))}"><input type="checkbox" data-setting-frozen="${esc(p.name)}"${p.frozen ? " checked" : ""}> ${t("setting_frozen")}</label></td>
-    <td class="fit"><label title="${esc(t("queen_accepts_splits_hint"))}"><input type="checkbox" data-setting-splits="${esc(p.name)}"${p.split_approval === "queen" ? " checked" : ""}> ${t("queen_accepts_splits")}</label></td>
-    <td class="fit"><label title="${esc(t("queen_answers_one_way_hint"))}"><input type="checkbox" data-setting-one-way="${esc(p.name)}"${p.queen_answers_one_way ? " checked" : ""}> ${t("queen_answers_one_way")}</label></td>
-    <td class="fit"><button class="btn small danger" data-remove="${esc(p.name)}" title="${esc(t("remove_project_hint"))}">${t("remove_project")}</button></td></tr>`).join("");
-  const pace = s.pace || {};
-  $("pacesettings").innerHTML = `<h2 class="card-title">${t("pace_title")}</h2>
-    ${s.parallel ? `<div class="pace-row"><span>${t("pace_workers")}</span>${stepper(s.parallel.total, "/parallel?total={n}", t("pace_workers"))}</div>` : ""}
-    ${pace.wake_every_minutes ? `<div class="pace-row"><span>${t("pace_wake")}</span>${stepper(pace.wake_every_minutes, "/pace?wake_every_minutes={n}", t("pace_wake"), 5)}</div>` : ""}
-    ${pace.max_cycle_minutes ? `<div class="pace-row"><span>${t("pace_cycle")}</span>${stepper(pace.max_cycle_minutes, "/pace?max_cycle_minutes={n}", t("pace_cycle"), 5)}</div>` : ""}
-    <div class="muted">${t("pace_hint")}</div>`;
-  $("cleanmerged").innerHTML = `<label title="${esc(t("clean_merged_hint"))}"><input type="checkbox" data-clean-merged${s.clean_merged ? " checked" : ""}> ${t("clean_merged")}</label><div class="muted">${t("clean_merged_hint")}</div>`;
-  const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "queen_accepts_splits", "queen_answers_one_way"];
-  $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th>${heads.map(h => `<th class="fit">${t(h)}</th>`).join("")}<th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
+  $("projectsettings").innerHTML = settingsProjectsHtml(projects);
+  $("limitsettings").innerHTML = limitsHtml(s);
+  $("machinesettings").innerHTML = machinesHtml(s);
+  $("kandusettings").innerHTML = kanduHtml(s);
+}
+
+// Each project with its state line, the same as its lane on Today, and a short summary of its settings.
+function settingsProjects(s, queue) {
+  const lanes = new Map(flightPaths(s, queue, waitItems(s, queue)).map(lane => [lane.name, lane]));
+  return (s.project_settings || []).map(p => {
+    const lane = lanes.get(p.name), most = p.max_parallel_workers;
+    const [tone, line] = p.paused ? ["muted", t("project_on_pause")] : lane ? [lane.tone, lane.line] : ["muted", ""];
+    const summary = [t(p.paused ? "project_on_pause" : "set_running"), fillIn(most === 1 ? "set_bees_one" : "set_bees", {n: num(most)}),
+                     t(`mode_${mergeMode(s, p.name)}`)].join(" · ");
+    return {name: p.name, tone, line, summary};
+  });
+}
+
+function settingsProjectsHtml(projects) {
+  return projects.map(p => `<div class="set-project"><div class="set-project-who"><div class="set-project-head"><b>${bdi(p.name)}</b>${p.line ? `<span class="tone-${p.tone}">${esc(p.line)}</span>` : ""}</div>
+    <div class="set-project-summary">${esc(p.summary)}</div></div>
+    <button type="button" class="btn" data-settings-open="${esc(p.name)}" aria-label="${esc(`${p.name} · ${t("set_open")}`)}">${t("set_open")}</button></div>`).join("");
+}
+
+// A project's pop-up shows every setting it has, in its groups. Nothing changes until Save, and then each change
+// goes through the call it always had, so it is checked and logged as before.
+const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]]];
+
+function settingsDraft(row) {
+  return Object.fromEntries(SETTING_GROUPS.flatMap(([, keys]) => keys).map(key => [key, row[key]]));
+}
+
+// One call for each setting that changed, the same call the dashboard always made for it.
+function settingsCalls(name, was, now) {
+  const project = encodeURIComponent(name);
+  const path = (key, value) => key === "paused" ? `/projects/${project}/${value ? "pause" : "resume"}`
+    : key === "max_parallel_workers" ? `/parallel?project=${encodeURIComponent(`${name}:${value}`)}`
+    : `/projects/${project}/settings?${key}=${encodeURIComponent(value)}`;
+  return SETTING_GROUPS.flatMap(([, keys]) => keys).filter(key => now[key] !== was[key]).map(key => ({setting: key, path: path(key, now[key])}));
+}
+
+// Turning "merges by itself" on asks first; turning it off asks nothing.
+function mergeOnAsked(was, now) {
+  return !was.auto_merge && Boolean(now.auto_merge);
+}
+
+// What Save does: close when nothing changed, ask before merging by itself, or save.
+function saveStep(edit) {
+  if (!settingsCalls("", edit.was, edit.now).length) return "close";
+  return mergeOnAsked(edit.was, edit.now) && !edit.asking ? "ask" : "save";
+}
+
+// Sends each change in turn. One the server takes becomes what the pop-up starts from, so it is not sent again; one
+// it refuses is listed with why. `send` answers {ok} or {ok: false, why, stop}.
+async function applySettings(name, edit, send) {
+  edit.refused = [];
+  for (const call of settingsCalls(name, edit.was, edit.now)) {
+    const answer = await send(call.path);
+    if (answer.ok) { edit.was = {...edit.was, [call.setting]: edit.now[call.setting]}; continue; }
+    edit.refused.push({setting: call.setting, why: answer.why});
+    if (answer.stop) break;
+  }
+  return edit.refused;
+}
+
+const SETTING_LABELS = {paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by"};
+const SETTING_HINTS = {max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint"};
+
+// One setting's control, drawn from the draft. A pause set in the config shows and cannot move.
+function settingControl(key, row, now) {
+  const label = t(SETTING_LABELS[key]), value = now[key];
+  const hint = row.paused_in_config && key === "paused" ? t("paused_in_config_hint") : SETTING_HINTS[key] ? t(SETTING_HINTS[key]) : "";
+  const head = `<div class="set-label"><span>${label}</span>${hint ? `<small>${esc(hint)}</small>` : ""}</div>`;
+  const seg = (options, off = false) => `<div class="set-field stack">${head}<div class="seg" role="group" aria-label="${esc(label)}">${options.map(([v, text]) =>
+    `<button type="button" data-draft="${key}" data-value="${v}" aria-pressed="${String(value) === v}"${off ? " disabled" : ""}>${t(text)}</button>`).join("")}</div></div>`;
+  const step = () => `<div class="set-field">${head}<span class="stepper"><button type="button" class="btn small" data-draft="${key}" data-by="-1" aria-label="${esc(`${t("less")}: ${label}`)}"${value <= 1 ? " disabled" : ""}>−</button><b class="number">${num(value)}</b><button type="button" class="btn small" data-draft="${key}" data-by="1" aria-label="${esc(`${t("more")}: ${label}`)}">+</button></span></div>`;
+  const flip = () => `<div class="set-field">${head}<button type="button" class="switch" role="switch" aria-checked="${Boolean(value)}" data-draft="${key}" aria-label="${esc(label)}"><i></i></button></div>`;
+  if (key === "paused") return seg([["false", "set_running"], ["true", "project_on_pause"]], row.paused_in_config);
+  if (key === "split_approval") return seg([["user", "set_me"], ["queen", "set_the_queen"]]);
+  if (key === "queen_answers_one_way") return seg([["false", "set_me"], ["true", "set_the_queen"]]);
+  if (key === "daily_token_limit") return `<div class="set-field">${head}<input type="number" class="tokens-field" min="1" step="100000" dir="ltr" inputmode="numeric" data-draft="${key}" value="${esc(value)}" aria-label="${esc(label)}"></div>`;
+  return key === "max_parallel_workers" || key === "priority" ? step() : flip();
+}
+
+function settingsBody(row, edit) {
+  const groups = SETTING_GROUPS.map(([head, keys]) => `<section class="set-group"><h3>${t(head)}</h3>${keys.map(key => settingControl(key, row, edit.now)).join("")}</section>`).join("");
+  const refused = edit.refused.length ? `<div class="set-refused" role="alert"><b>${t("set_refused")}</b><ul>${edit.refused.map(r =>
+    `<li>${esc(t(SETTING_LABELS[r.setting]))}: <span dir="auto">${esc(r.why)}</span></li>`).join("")}</ul></div>` : "";
+  return `<div class="sheet-grip"></div><div class="sheet-head"><div class="sheet-who"><div class="muted">${t("tab_settings")}</div><h2>${bdi(row.name)}</h2></div>
+    <button type="button" class="sheet-close" data-set-cancel aria-label="${esc(t("close"))}">✕</button></div>${refused}${groups}
+    <section class="set-danger"><h3>${t("set_danger")}</h3><p class="muted">${t("remove_project_hint")}</p><div class="actions"><button type="button" class="btn danger" data-remove="${esc(row.name)}">${t("remove_project")}</button></div></section>`;
+}
+
+function settingsFoot(edit) {
+  if (edit.asking) return `<div class="sheet-note tone-amber">${t("set_merge_ask")}</div>
+    <div class="actions"><button type="button" class="btn" data-set-no>${t("set_merge_no")}</button><button type="button" class="btn primary" data-set-yes>${t("set_merge_yes")}</button></div>`;
+  return `<div class="actions"><button type="button" class="btn" data-set-cancel>${t("cancel")}</button><button type="button" class="btn primary" data-set-save>${t("save")}</button></div>`;
+}
+
+let setEdit = null;  // The open pop-up: its project, what the server had, the draft, what was refused, and whether it asks.
+
+function openSettings(name) {
+  const row = (lastState?.project_settings || []).find(p => p.name === name);
+  if (!row) return;
+  setEdit = {name, was: settingsDraft(row), now: settingsDraft(row), refused: [], asking: false};
+  drawSettings();
+  $("setsheet").showModal();
+  $("setbody").scrollTop = 0;
+}
+
+function drawSettings() {
+  const row = (lastState?.project_settings || []).find(p => p.name === setEdit.name) || {name: setEdit.name};
+  $("setbody").innerHTML = settingsBody(row, setEdit);
+  $("setfoot").innerHTML = settingsFoot(setEdit);
+}
+
+// A change in the pop-up changes only its draft.
+function changeDraft(control) {
+  const key = control.dataset.draft, now = setEdit.now;
+  if (control.dataset.by) now[key] = Math.max(1, now[key] + Number(control.dataset.by));
+  else if (control.dataset.value !== undefined) now[key] = {true: true, false: false}[control.dataset.value] ?? control.dataset.value;
+  else if (control.getAttribute("role") === "switch") now[key] = !now[key];
+  else { now[key] = control.value.trim() === "" ? "" : Number(control.value); setEdit.asking = false; $("setfoot").innerHTML = settingsFoot(setEdit); return; }
+  setEdit.asking = false;
+  drawSettings();
+}
+
+async function saveSettings(button) {
+  const edit = setEdit, step = saveStep(edit);
+  if (step === "close") { $("setsheet").close(); return; }
+  if (step === "ask") { edit.asking = true; drawSettings(); return; }
+  if (!token && !await askToken()) return;
+  const send = async path => {
+    post.failed = null;
+    if (await act(button, path)) return {ok: true};
+    return {ok: false, why: post.failed?.error ? tr(post.failed.error) : t("request_failed"), stop: !token};
+  };
+  const refused = await applySettings(edit.name, edit, send);
+  renderSettings.key = null;  // Whatever the answers, the next state draws what the server kept.
+  if (edit !== setEdit) return;
+  edit.asking = false;
+  if (refused.length) { drawSettings(); $("setbody").scrollTop = 0; return; }
+  $("setsheet").close();
+  toast(fillIn("set_saved", {name: edit.name}));
 }
 
 // Taking a project out of Kandu: the first click asks on the button itself, the second acts. Nothing is typed.
@@ -2933,27 +3148,56 @@ async function removeProject(button) {
   }
   const memory = removed.memory || {};
   toast([fillIn("removed_msg", {name}), memory.why ? fillIn(`memory_${memory.why}`, {pr: memory.pr || ""}) : ""].filter(Boolean).join(" "));
+  closeSettings(name);
   renderSettings.key = null;
   refreshState().catch(() => {});
 }
 
-async function changeCleanMerged(box) {
-  renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
-  if (!await act(box, `/clean-merged?enabled=${box.checked}`)) refreshState().catch(() => {});
+// The pop-up of a project that was removed closes.
+function closeSettings(name) {
+  if (setEdit?.name === name) $("setsheet").close();
 }
 
-async function changeSetting(box) {
-  const d = box.dataset;
-  const name = d.settingPause ?? d.settingSplits ?? d.settingOneWay ?? d.settingAutoMerge ?? d.settingFrozen ?? d.settingTokens;
-  const settings = `/projects/${encodeURIComponent(name)}/settings?`;
-  const path = d.settingPause !== undefined ? `/projects/${encodeURIComponent(name)}/${box.checked ? "pause" : "resume"}`
-    : d.settingSplits !== undefined ? `${settings}split_approval=${box.checked ? "queen" : "user"}`
-    : d.settingAutoMerge !== undefined ? `${settings}auto_merge=${box.checked}`
-    : d.settingFrozen !== undefined ? `${settings}frozen=${box.checked}`
-    : d.settingTokens !== undefined ? `${settings}daily_token_limit=${encodeURIComponent(box.value)}`
-    : `${settings}queen_answers_one_way=${box.checked}`;
+// The usage limits at which new work holds, each with a minus and a plus; both go in one call, as before.
+const LIMIT_STEP = 5;
+
+function limitsHtml(s) {
+  const {session, week} = s.limits;
+  const line = (key, value, path) => `<div class="side-row"><span class="side-label">${t(key)}</span>${stepper(value, path, t(key), LIMIT_STEP, 100, pct)}</div>`;
+  return `<div class="side-head"><b>${t("limits_title")}</b></div>${line("limit_session", session, `/limits?session={n}&week=${week}`)}${line("limit_week", week, `/limits?session=${session}&week={n}`)}`;
+}
+
+// The machines, each answering or not since when, as the supervisor last saw it; Add opens the add flow at a new one.
+function machinesHtml(s) {
+  const rows = (s.machines || []).map(m => {
+    const tone = m.down_since ? "red" : "green";
+    return `<div class="side-row"><i class="mdot tone-${tone}"></i><span class="side-label"><b>${bdi(m.name)}</b></span><span class="tone-${tone}">${esc(m.down_since ? fillIn("machine_silent", {since: when(m.down_since)}) : t("machine_answers"))}</span></div>`;
+  });
+  return `<div class="side-head"><b>${t("machines_title")}</b><span class="spacer"></span><button type="button" class="textbtn" data-add-machine>${t("add_machine_short")}</button></div>${rows.join("")}`;
+}
+
+// A switch for all of Kandu: a press sends the other value at once.
+function switchRow(label, on, path, hint = "") {
+  return `<button type="button" class="switch-row" role="switch" aria-checked="${on}" data-switch="${esc(path)}"${hint ? ` title="${esc(hint)}"` : ""}><span>${esc(label)}</span><span class="switch" aria-hidden="true"><i></i></span></button>`;
+}
+
+// Kandu's own switches, its backup and its pace, each working as it always did.
+function kanduHtml(s) {
+  const pace = s.pace || {}, b = s.backup;
+  const flag = (on, label, path, hint) => on === undefined ? "" : switchRow(t(label), Boolean(on), `${path}?enabled=${!on}`, hint ? t(hint) : "");
+  const failed = b?.last?.type === "backup_failed";
+  const backup = b ? `<div class="side-row"><span class="side-label">${t("backup")}</span><span class="${failed ? "tone-red" : "muted"}">${esc(failed ? t("backup_last_failed") : b.enabled ? fillIn("backup_daily_at", {at: num(b.at)}) : t("backup_off"))}</span>
+    <button type="button" class="textbtn" data-backup>${t("change")}</button></div>` : "";
+  const paceRow = (label, value, path, step) => value ? `<div class="side-row"><span class="side-label">${t(label)}</span>${stepper(value, path, t(label), step)}</div>` : "";
+  return `<div class="side-head"><b>${t("kandu_itself")}</b></div>
+    ${flag(s.clean_merged, "clean_merged", "/clean-merged", "clean_merged_hint")}${flag(s.drop_blockers, "switch_drop_blockers", "/drop-blockers")}${flag(s.show_requests, "switch_requests", "/requests")}${backup}
+    ${paceRow("pace_workers", s.parallel?.total, "/parallel?total={n}", 1)}${paceRow("pace_wake", pace.wake_every_minutes, "/pace?wake_every_minutes={n}", 5)}${paceRow("pace_cycle", pace.max_cycle_minutes, "/pace?max_cycle_minutes={n}", 5)}
+    <div class="side-note">${t("pace_hint")}</div>`;
+}
+
+async function flipSwitch(button) {
   renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
-  if (!await act(box, path)) refreshState().catch(() => {});
+  if (!await act(button, button.dataset.switch)) refreshState().catch(() => {});
 }
 
 // The config's priority, 1 first; a project the config does not name goes last.
@@ -2977,6 +3221,7 @@ async function refreshQueue(state, fresh) {
     lastQueue = await get(fresh ? "/queue?fresh=1" : "/queue");
     renderStats(state);
     renderProjects();
+    renderSettings(state);  // its state lines come from the queue
     renderBees(state);  // its tasks' titles come from the queue
     renderScene(state, lastQueue);
     renderToday();
@@ -3361,6 +3606,13 @@ document.addEventListener("click", e => {
   if (hit("fly")) { openFlight(hit("fly")); return; }
   if (hit("inspect")) { saveInspect(hit("inspect")); return; }
   if (hit("remove")) { removeProject(hit("remove")); return; }
+  if (hit("settings-open")) { openSettings(hit("settings-open").dataset.settingsOpen); return; }
+  if (hit("draft") && hit("draft").tagName === "BUTTON") { changeDraft(hit("draft")); return; }
+  if (hit("set-save") || hit("set-yes")) { saveSettings(hit("set-save") || hit("set-yes")); return; }
+  if (hit("set-no")) { setEdit.asking = false; drawSettings(); return; }
+  if (hit("set-cancel")) { $("setsheet").close(); return; }
+  if (hit("switch")) { flipSwitch(hit("switch")); return; }
+  if (hit("add-machine")) { openAdd(""); return; }
   if (hit("step")) { changeStep(hit("step")); return; }
   if (hit("land")) { act(hit("land"), `/flights/${encodeURIComponent(hit("land").dataset.land)}/close`).then(() => refreshFlights()).catch(() => {}); return; }
   if (hit("limits")) { changeLimits(hit("limits")); return; }
@@ -3392,10 +3644,10 @@ document.addEventListener("click", e => {
   if (review) { confirming = false; sendingBack = false; showTask(review.dataset.review); }
   if (e.target === $("modal")) $("modal").close();
   if (e.target === $("sheet")) $("sheet").close();
+  if (e.target === $("setsheet")) $("setsheet").close();
 });
-document.addEventListener("change", e => {
-  if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way], [data-setting-auto-merge], [data-setting-frozen], [data-setting-tokens]")) changeSetting(e.target);
-  if (e.target.matches?.("[data-clean-merged]")) changeCleanMerged(e.target);
+document.addEventListener("input", e => {
+  if (setEdit && e.target.matches?.("input[data-draft]")) changeDraft(e.target);
 });
 document.addEventListener("toggle", e => {
   if (e.target.id === "meadowbox") { sceneKey = null; if (lastState) renderScene(lastState, lastQueue); return; }
@@ -3410,6 +3662,7 @@ document.addEventListener("toggle", e => {
 }, true);
 $("modal").addEventListener("close", () => { shownRun = null; });
 $("sheet").addEventListener("close", () => { shownTask = null; confirming = sendingBack = false; });
+$("setsheet").addEventListener("close", () => { setEdit = null; });
 $("stop").onclick = askStop;
 $("stopnow").onclick = e => confirmed(e.currentTarget, "/stop", "stopbox");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
@@ -3427,8 +3680,9 @@ function machineOptions(chosen) {
   $("newmachine").hidden = $("addmachine").value !== "";
 }
 
-function openAdd() {
-  machineOptions();
+// `machine` chooses the machine; "" opens it at a new one.
+function openAdd(machine) {
+  machineOptions(machine);
   $("proposal").hidden = true;
   $("addresult").innerHTML = "";
   $("addbox").showModal();
@@ -3474,7 +3728,7 @@ async function addProject(button) {
     + `<ul class="add-checks">${result.checks.map(c => `<li class="${esc(c.level)}" dir="ltr">${esc(c.level)} · ${esc(c.text)}</li>`).join("")}</ul>`;
 }
 
-$("addopen").onclick = openAdd;
+$("addopen").onclick = () => openAdd();
 $("addmachine").onchange = () => machineOptions($("addmachine").value);
 $("maddbtn").onclick = e => addMachine(e.currentTarget);
 $("detectbtn").onclick = e => detectProject(e.currentTarget);

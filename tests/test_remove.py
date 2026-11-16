@@ -266,6 +266,7 @@ const post = {failed: null};
 async function act(button, path) { calls.push(path); const answer = answers.shift(); post.failed = answer.ok ? null : answer.body; return answer.ok && answer.body; }
 function toast(text) { toasts.push(text); }
 function renderSettings() {}
+function closeSettings() {}
 async function refreshState() {}
 """
 
@@ -276,7 +277,7 @@ async function refreshState() {}
     def test_the_button_asks_first_and_acts_on_the_second_click(self):
         page = self.page()
         begin = page.index("async function removeProject(")
-        script = page[begin:page.index("async function changeCleanMerged(", begin)]
+        script = page[begin:page.index("\n}\n", begin) + 3]
         done = subprocess.run([NODE, "-e", self.STUBS + script + """
 (async () => {
   const button = {dataset: {remove: "site"}, textContent: "remove_project"};
@@ -298,11 +299,12 @@ async function refreshState() {}
         self.assertEqual(result["calls"], ["/projects/site/remove", "/projects/site/remove?without_memory_pr=true"])
         self.assertEqual(result["toasts"], ["removed_msg memory_declined"])
 
-    def test_each_project_row_in_settings_has_the_button_and_nothing_is_typed(self):
+    def test_each_projects_settings_pop_up_has_the_button_and_nothing_is_typed(self):
         page = self.page()
-        render = page.split("function renderSettings(", 1)[1].split("\n}\n", 1)[0]
-        self.assertIn('data-remove="${esc(p.name)}"', render)
+        render = page.split("function settingsBody(", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn('data-remove="${esc(row.name)}"', render)
         self.assertNotIn("<input type=\"text", render)
+        self.assertIn("closeSettings(name);", page.split("async function removeProject(", 1)[1].split("\n}\n", 1)[0])
         self.assertIn('if (hit("remove")) { removeProject(hit("remove")); return; }', page)
 
     def test_the_words_are_there_in_both_languages(self):
