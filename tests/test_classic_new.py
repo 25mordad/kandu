@@ -97,6 +97,42 @@ const wake = {handler};
         self.assertIn('after: `<bdi class="of">${pct(limit)}</bdi>`', function(PAGE, "renderStats"))
 
     @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_token_numbers_are_short_with_a_letter_and_persian_digits_in_persian(self):
+        values = [0, 950, 1500, 400000, 999999, 1000000, 1234567, 4000000, 12500000]
+        seen = run_js(js(line(PAGE, "const num = "), line(PAGE, "const tokenShort = "),
+                         f"const values = {json.dumps(values)};\n",
+                         'const en = values.map(tokenShort); lang = "fa"; console.log(JSON.stringify({en, fa: values.map(tokenShort)}));'))
+        self.assertEqual(seen["en"], ["0", "950", "1.5K", "400K", "1M", "1M", "1.2M", "4M", "12.5M"])
+        self.assertEqual(seen["fa"], ["۰", "۹۵۰", "۱٫۵ه", "۴۰۰ه", "۱م", "۱م", "۱٫۲م", "۴م", "۱۲٫۵م"])
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_a_token_gauge_shows_the_use_in_bold_its_bar_and_the_limit_at_its_end(self):
+        seen = run_js(js(line(PAGE, "const esc = "), line(PAGE, "const t = "), line(PAGE, "const num = "), line(PAGE, "const tokenShort = "),
+                         line(PAGE, "const limitText = "), line(PAGE, "const fillIn = "), function(PAGE, "schip"), function(PAGE, "tokenGauge"),
+                         """const cases = [{today: 1234567, limit: 4000000}, {today: 0, limit: 400000}, {today: 4100000, limit: 4000000}];
+const en = cases.map(tokenGauge); lang = "fa"; console.log(JSON.stringify({en, fa: cases.map(tokenGauge)}));"""))
+        some, none, over = seen["en"]
+        self.assertRegex(some, r'^<span class="schip tgauge" title="[^"]*"><b>1\.2M</b><span class="mini"><i style="width:30\.8\d*%"></i></span><bdi class="of">4M</bdi></span>$')
+        self.assertIn('title="Tokens today: \u20661,234,567 / 4,000,000\u2069\n' + TEXT["en"]["tokens_today_again"] + '"', some)
+        self.assertIn('<b>0</b><span class="mini"><i style="width:0%"></i></span><bdi class="of">400K</bdi>', none)
+        self.assertNotIn("over", none)
+        self.assertIn('<span class="schip tgauge over" ', over)  # the used amount in red
+        self.assertIn('<span class="mini over"><i style="width:100%"></i></span>', over)  # the bar in red, never past its end
+        self.assertIn("<b>۱٫۲م</b>", seen["fa"][0])
+        self.assertIn('<bdi class="of">۴م</bdi>', seen["fa"][0])
+        self.assertIn("\u2066۱٬۲۳۴٬۵۶۷ / ۴٬۰۰۰٬۰۰۰\u2069", seen["fa"][0])
+        for lang in ("en", "fa"):
+            self.assertIn("{used}", TEXT[lang]["tokens_today"])
+            self.assertTrue(TEXT[lang]["tokens_today_again"])
+        self.assertNotEqual(TEXT["fa"]["tokens_today_again"], TEXT["en"]["tokens_today_again"])
+
+    def test_every_patch_on_the_meadow_has_its_gauge_under_its_name_paused_ones_too(self):
+        scene = function(PAGE, "renderScene")
+        self.assertIn("patch.tokens = state.project_tokens?.[patch.name] || null;", function(PAGE, "fields"))
+        self.assertIn("${gaugeUnder(patch)}", scene)
+        self.assertNotIn("paused", function(PAGE, "gaugeUnder"))
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
     def test_the_header_flights_say_only_the_sessions_name(self):
         seen = run_js(js(line(PAGE, "const esc = "), line(PAGE, "const t = "), function(PAGE, "headerFlight"),
                          """console.log(JSON.stringify([headerFlight(null, "didban"), headerFlight({status: "open", url: "https://x", key: "k"}, "zanbourdar")]));"""))
@@ -113,6 +149,13 @@ class ClassicNewBrowserTest(Served):
     """The page in a real browser: one header row from a wide screen to a tablet, nothing past the page's edge, and the
     explanation under the pointer, in English and Persian."""
     WIDTHS = [(1920, 1080), (1440, 900), (1280, 800), (1024, 768), (1080, 1920), (768, 1024)]
+
+    def setUp(self):
+        super().setUp()
+        self.store.pause_project("internal-tool")  # a paused patch has its gauge too
+        for project, tokens in (("website", 2000000), ("internal-tool", 0)):  # one at its limit, one with none used
+            self.store.record("run_finished", task=f"acme-org/{project}#1", project=project, run_id="r-9", role="worker",
+                              models={"m": {"input": tokens, "output": 0, "cache_read": 0, "cache_creation": 0}}, duration_ms=1, is_error=False)
 
     def test_the_header_is_one_row_at_every_width_and_explains_its_buttons(self):
         cases = [{"lang": lang, "width": w, "height": h, "mobile": False} for w, h in self.WIDTHS for lang in ("en", "fa")]
@@ -136,6 +179,12 @@ class ClassicNewBrowserTest(Served):
             self.assertEqual(seen["wake"], "stop", name)  # the fixture's supervisor is awake
             self.assertEqual(seen["wakeTip"], TEXT[case["lang"]]["hint_stop_queen"], name)
             self.assertEqual(seen["restartTip"], TEXT[case["lang"]]["hint_restart"], name)
+            gauges = seen["gauges"]
+            self.assertEqual((gauges["count"], gauges["names"]), (2, 2), name)  # every patch, the paused one too
+            self.assertEqual(gauges["bad"], [], name)  # under its own name, covering no name, switch or flower
+            self.assertEqual(gauges["used"], ["2M", "0"] if case["lang"] == "en" else ["۲م", "۰"], name)
+            self.assertEqual(gauges["over"], [True, False], name)
+            self.assertIn(TEXT[case["lang"]]["tokens_today_again"], gauges["tip"], name)
 
 
 class ServedClassicNewTest(Served):

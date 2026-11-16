@@ -321,6 +321,7 @@ class Api:
     def state(self, query):
         limits = self.config.settings.claude.limits
         marks = self._open_marks(flower_marks(self.store))
+        tokens = self._project_tokens()
         return self.store.read_current() | {
             "timer_on": self.timer_on(),
             "stop_requested": self.store.stop_file.exists(),
@@ -333,7 +334,8 @@ class Api:
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
             "parallel": self._parallel(),
             "pace": self._pace(),
-            "over_limit": self._over_limit(),
+            "over_limit": {name: spent for name, spent in tokens.items() if spent["today"] >= spent["limit"]},
+            "project_tokens": tokens,
             "queen": self._queen_report(),
             "flowers": marks,
             "waits_for_you": self._waits_for_you(marks),
@@ -1263,13 +1265,12 @@ class Api:
         return [{"name": m.name, "always_on": m.always_on, "down_since": down.get(m.name)}
                 for m in self.config.settings.machines]
 
-    def _over_limit(self):
-        """The projects whose tokens today reached their daily limit, as the supervisor counts them to start nothing
-        new there. A new day counts from zero, so the mark goes by itself."""
+    def _project_tokens(self):
+        """Each configured project's tokens today and its daily limit, counted as the supervisor counts them to start
+        nothing new there; at or past its limit a project is over it. A new day counts from zero, from the local log."""
         today = self.store.today()
-        spent = {p.name: (self.store.tokens_counted(today, project=p.name), p.daily_token_limit)
-                 for p in self.config.projects}
-        return {name: {"today": used, "limit": limit} for name, (used, limit) in spent.items() if used >= limit}
+        return {p.name: {"today": self.store.tokens_counted(today, project=p.name), "limit": p.daily_token_limit}
+                for p in self.config.projects}
 
     def _pace(self):
         supervisor = self.config.settings.supervisor

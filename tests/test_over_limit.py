@@ -11,7 +11,7 @@ from kandu.state import StateStore
 ROOT = Path(__file__).resolve().parent.parent
 
 
-class OverLimitTest(unittest.TestCase):
+class Spending(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -33,6 +33,8 @@ class OverLimitTest(unittest.TestCase):
     def over(self):
         return dispatch(self.api, "GET", "/api/v1/state")[1]["over_limit"]
 
+
+class OverLimitTest(Spending):
     def test_a_project_shows_once_today_reaches_its_limit(self):
         self.spend(99, cache_read=1000)  # a cache read does not count, as for the supervisor
         self.assertEqual(self.over(), {})
@@ -46,6 +48,26 @@ class OverLimitTest(unittest.TestCase):
         self.assertIn("website", self.over())
         self.api.config.projects[0].daily_token_limit = 200
         self.assertEqual(self.over(), {})
+
+
+class ProjectTokensTest(Spending):
+    """Every configured project's tokens today and its daily limit, for the gauge under its patch (#70)."""
+    def tokens(self):
+        return dispatch(self.api, "GET", "/api/v1/state")[1]["project_tokens"]
+
+    def test_every_project_has_its_tokens_today_and_its_limit_even_with_none_used(self):
+        self.assertEqual(self.tokens(), {"website": {"today": 0, "limit": 100}, "internal-tool": {"today": 0, "limit": 1000000}})
+
+    def test_it_counts_as_the_supervisor_does_without_cache_reads_and_only_today(self):
+        self.spend(500, when=datetime(2026, 1, 1, 12, 0).astimezone())
+        self.spend(40, cache_read=1000)
+        self.spend(7, project="internal-tool")
+        self.assertEqual(self.tokens(), {"website": {"today": 40, "limit": 100}, "internal-tool": {"today": 7, "limit": 1000000}})
+
+    def test_a_project_past_its_limit_keeps_its_own_count(self):
+        self.spend(150)
+        self.assertEqual(self.tokens()["website"], {"today": 150, "limit": 100})
+        self.assertEqual(self.over()["website"], {"today": 150, "limit": 100})
 
 
 class PageTest(unittest.TestCase):

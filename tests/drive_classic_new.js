@@ -26,7 +26,22 @@ async function evaluate(expression) {
   if (answer.exceptionDetails) throw new Error(`${expression}: ${answer.exceptionDetails.exception?.description || answer.exceptionDetails.text}`);
   return answer.result.value;
 }
-const MEASURE = `(() => {
+// The token gauge under each patch on the meadow: how many there are, which of them cover a name, a switch or a flower,
+// or sit above their own name or past the meadow's edge, and what the first one says on hover.
+const GAUGES = `const gauges = () => {
+  const box = sel => [...document.querySelectorAll("#scene " + sel)].map(e => e.getBoundingClientRect());
+  const meet = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  const scene = document.querySelector("#scene svg").getBoundingClientRect(), names = box(".patch-name");
+  const others = [...names, ...box(".switch"), ...box("[data-review]")];
+  const all = [...document.querySelectorAll("#scene .tgauge")];
+  const tip = all[0] && (all[0].dispatchEvent(new MouseEvent("mouseover", {bubbles: true})), document.querySelector(".tip").textContent);
+  return {count: all.length, names: names.length, tip, used: all.map(g => g.querySelector("b").textContent), over: all.map(g => g.classList.contains("over")),
+          bad: all.map(g => g.getBoundingClientRect()).flatMap((g, i) => [
+            ...others.filter(o => meet(g, o)).map(o => i + " covers " + [o.left, o.top, o.width, o.height].map(Math.round).join(",")),
+            ...(names.some(n => n.bottom <= g.top + 1 && n.left < g.right && g.left < n.right) ? [] : [i + " is not under a name"]),
+            ...(g.left < scene.left || g.right > scene.right || g.bottom > scene.bottom ? [i + " is past the meadow"] : [])])};
+};`;
+const MEASURE = `(() => { ${GAUGES}
   const W = innerWidth, bar = document.querySelector(".top .bar");
   const past = [...document.querySelectorAll("body *")].filter(e => { const r = e.getBoundingClientRect();
     return r.width && (r.right > W + 1 || r.left < -1) && !e.closest(".tabs, svg, dialog, .tip"); }).map(e => e.tagName + "." + e.className);
@@ -34,7 +49,7 @@ const MEASURE = `(() => {
   return {look: document.documentElement.dataset.look, lang: document.documentElement.lang, header: document.querySelector(".top").offsetHeight,
           barPast: bar.scrollWidth > bar.clientWidth + 1, past: past.slice(0, 5), stats: document.querySelectorAll("#stats .schip").length,
           hive: !!document.querySelector("#stats .hivechip svg"), fields: [...document.querySelectorAll("#fieldtabs button")].map(b => b.dataset.field),
-          wake: document.getElementById("wake").dataset.mode, wakeTip: tipOver("wake"), restartTip: tipOver("restart")};
+          wake: document.getElementById("wake").dataset.mode, wakeTip: tipOver("wake"), restartTip: tipOver("restart"), gauges: gauges()};
 })()`;
 (async () => {
   socket = new WebSocket(await endpoint);
@@ -53,7 +68,7 @@ const MEASURE = `(() => {
   for (const c of cases) {
     await send("Emulation.setDeviceMetricsOverride", {width: c.width, height: c.height, deviceScaleFactor: 1, mobile: c.mobile});
     await send("Page.navigate", {url: base + "/"}); await sleep(600);
-    await evaluate(`localStorage.setItem("kandu-language", "${c.lang}")`);
+    await evaluate(`localStorage.setItem("kandu-language", "${c.lang}"); localStorage.setItem("kandu-field", "all")`);
     await send("Page.navigate", {url: base + "/"});
     let seen = null;
     for (let i = 0; i < 40; i++) {  // until the state and the queue are drawn

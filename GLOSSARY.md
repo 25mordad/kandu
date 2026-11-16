@@ -51,4 +51,5 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Look** | One of the dashboard's appearances each browser chooses between, Classic, Classic new or Kandu Clean. Avoid: template, theme, skin |
 | **Classic look** | The dashboard as this install had it before Kandu Clean. Avoid: old look, original look, cards look |
 | **Classic new look** | Classic made compact: one header row, the numbers as a strip of chips, an explanation on every part. Avoid: new classic, classic 2 |
+| **Token gauge** | In the Classic new look, the small gauge under a project's name on the meadow: its tokens today against its daily token limit, red once it reaches the limit |
 | **Kandu Clean look** | The dashboard built to the Kandu Clean design. Avoid: new look, redesign |
