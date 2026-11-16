@@ -757,6 +757,31 @@ class Supervisor:
             return False
         return True
 
+    def _update_waits(self, task, pr):
+        """A conflicting PR gets no update round while a blocking task is open: it cannot merge before that task,
+        whose merge moves the base again. The wait is recorded as the merge gate records one held only by its
+        blockers, so later cycles skip the task until its head or its open blockers change. The user's yes, a
+        one-way door or a question never hold an update: a yes holds for one head, and an update after it would void
+        it. Returns True if the update waits."""
+        blockers = self._open_blockers(task)
+        if not blockers:
+            return False
+        self._merge_held(task, pr, self._blocker_reasons(blockers), blockers)
+        return True
+
+    @staticmethod
+    def _blocker_reasons(blockers):
+        return [WAITS_FOR_BLOCKER.format(key) for key in blockers]
+
+    def _merge_held(self, task, pr, reasons, blockers):
+        """Records why the merge waits. `blockers` is given when only they hold it, so `_held_as_before` skips it."""
+        self._decide(task, "merge_waits", "; ".join(reasons))
+        if blockers:
+            self.store.record("merge_held", task=task.key, project=task.project.name, head_sha=pr["headRefOid"],
+                              blockers=blockers)
+        with self._lock:
+            self.held[task.key] = pr["headRefOid"]
+
     def _merge_left_markers(self, task, pr, cwd, conflicts):
         """Blocks the task if the pushed branch still holds a conflict marker in a file the merge stopped at."""
         left = self.runner.conflict_markers(task.project, task.repo, cwd, task.branch, conflicts)
@@ -908,13 +933,8 @@ class Supervisor:
         # A merge tried again passed every check on this head in this cycle: only GitHub's answer is missing.
         reasons = [] if retry is not None else self._merge_waits(task, pr)
         if reasons:
-            self._decide(task, "merge_waits", "; ".join(reasons))
             blockers = self._open_blockers(task)
-            if blockers and reasons == [WAITS_FOR_BLOCKER.format(key) for key in blockers]:
-                self.store.record("merge_held", task=task.key, project=task.project.name, head_sha=pr["headRefOid"],
-                                  blockers=blockers)
-            with self._lock:
-                self.held[task.key] = pr["headRefOid"]
+            self._merge_held(task, pr, reasons, blockers if reasons == self._blocker_reasons(blockers) else None)
             return False
         if self._is_paused(task.project):  # The tests take minutes, and a pause may have come in meanwhile.
             return False
@@ -1364,7 +1384,7 @@ class Supervisor:
                 if outcome is None:
                     self._fix(task, pr, reviews)
                 elif self._conflicts(pr, outcome):
-                    if not self._update(task, pr):
+                    if self._update_waits(task, pr) or not self._update(task, pr):
                         return
                 elif (merged := self._merge(task, pr, outcome, worked)) is None and tries < MERGE_TRIES:
                     tries += 1  # read again: it merges now, or its new conflict goes to an update round

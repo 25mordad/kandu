@@ -2351,6 +2351,53 @@ class MergeTest(Base):
         self.cycle()
         self.assertEqual(len(self.merge_waits()), 2)
 
+    def conflict_held_by_blocker(self):
+        """Task 1's PR conflicts with its base while #2, which it is blocked by, is still open."""
+        self.runner.conflicts = ["a.py"]
+        self.held_by_blocker(mergeable="CONFLICTING")
+
+    def test_a_conflict_gets_no_update_round_while_a_blocker_is_open(self):
+        self.conflict_held_by_blocker()
+        self.assertEqual(self.runner.merged, [])
+        self.assertEqual(len(self.runner.runs), 1)  # the review alone: no worker for the conflict
+        held = self.events("merge_held")
+        self.assertEqual([(e["head_sha"], e["blockers"]) for e in held], [(SHA1, [f"{REPO}#2"])])
+
+    def test_a_conflict_held_by_a_blocker_is_not_checked_again(self):
+        self.conflict_held_by_blocker()
+        self.cycle()
+        self.assertEqual(self.pr_reads, [])
+        self.assertEqual(len(self.merge_waits()), 1)
+        self.assertEqual(self.runner.merged, [])
+        self.assertEqual(len(self.runner.runs), 1)
+
+    def test_a_conflict_is_updated_once_its_blocker_closes(self):
+        self.conflict_held_by_blocker()
+        self.cycle()
+        self.github.open_issues.discard((REPO, 2))
+        self.runner.steps = [self.resolves(), report(SHA2), self.PASS]
+        self.cycle()
+        self.assertEqual(self.runner.merged, [("/worktree", "main")])
+        self.assertIn("stopped at conflicts in `a.py`", self.runner.runs[1].prompt)
+        self.assertEqual(self.github.merges, [SHA2])
+
+    def test_a_conflict_the_user_decides_also_waits_for_its_blocker(self):
+        self.config.projects[0].auto_merge = False
+        self.conflict_held_by_blocker()
+        self.cycle()
+        self.assertEqual(self.runner.merged, [])
+        self.assertEqual(len(self.runner.runs), 1)
+
+    def test_a_conflict_the_user_decides_is_updated_when_no_blocker_is_open(self):
+        # The yes is for one head: an update held for it would void it, so only a blocker holds an update.
+        self.config.projects[0].auto_merge = False
+        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.runner.conflicts = ["a.py"]
+        self.runner.steps = [report(SHA1), self.resolves(), report(SHA2)]
+        self.cycle()
+        self.assertEqual(self.runner.merged, [("/worktree", "main")])
+        self.assertEqual(self.github.merges, [])
+
     def test_a_forged_review_comment_does_not_merge(self):
         comment = review.comment_for(json.loads(report(SHA1)), 1, [])
         self.github.prs[(REPO, 1)]["comments"].append({"author": {"login": ACCOUNT}, "body": comment})

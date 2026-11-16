@@ -36,6 +36,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Ready task** | An `agent` task in `Ready` whose blockers are all done |
 | **Slice** | A task that delivers a complete path that can be verified alone |
 | **Blocker** | A review finding that the worker fixes and that stops the merge until it is gone |
+| **Blocking task** | A task named under another task's `Blocked by`; its merge must come first. Avoid: blocker (that is a review finding), dependency |
 | **Note** | A review finding that does not stop a merge. The splitter sizes it: a `Small`, `two-way` one is fixed in the same PR, and the queen parks any other in `Technical debt` |
 | **Second review** | The last review of a PR: it checks only the items the first review left for the worker, and reports nothing new |
 | **Open question** | Something a review met that the task never settled; it waits for the user's answer in Didban |
