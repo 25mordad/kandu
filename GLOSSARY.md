@@ -15,6 +15,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Held task** | A task in `Backlog` that the splitter found must change a forbidden area of its project; no agent works on it until the user releases it in Didban |
 | **Group** | The slices of one split task: chained by `Blocked by`, each with its own PR; built side by side, merged one after another |
 | **Reviewer** | A fresh agent that reviews a PR, knowing nothing of how it was built |
+| **Agent CLI** | The program that runs an agent: Claude Code (the default) or Codex. Avoid: provider, backend, engine |
 | **Didban** | The control role, run from the machine the user sits at |
 | **Free flight** | A session the user opens on a task from the dashboard, with full access; Kandu's agents keep running beside it |
 | **Zanbourdar** | Persian for "beekeeper": a session the user opens beside Didban from the dashboard, with full access and tied to no task; it may change Kandu itself |

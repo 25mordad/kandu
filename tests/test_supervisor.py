@@ -267,13 +267,14 @@ class FakeRunner:
         return 1 if command in self.failing else 0
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
-                  schema=None, resume=None):
+                  schema=None, resume=None, cli="claude"):
         with self.lock:
             self.running += 1
             self.most_running = max(self.most_running, self.running)
             step = self.steps.pop(0)
         self.runs.append(SimpleNamespace(machine=machine, cwd=cwd, prompt=prompt, allowed=allowed, denied=denied,
-                                         model=model, tokens=tokens, schema=schema, resume=resume))
+                                         model=model, tokens=tokens, schema=schema, resume=resume,
+                                         cli=cli))
         result = step() if callable(step) else step
         with self.lock:
             self.running -= 1
@@ -1835,6 +1836,19 @@ class FirstRunTest(Base):
         self.assertIn("worker reply is not JSON", again.prompt)
         self.assertEqual(self.github.status(1), "In review")
         self.assertEqual(self.events("decision")[0]["decision"], "reply_reasked")
+
+    def test_a_broken_codex_reply_is_asked_for_again_in_the_same_codex_session(self):
+        broken = AgentResult(text="All done!", models={}, duration_ms=1, is_error=False, session_id="t-1", cli="codex")
+        self.runner.steps = [broken, self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        again = self.runner.runs[1]
+        self.assertEqual((again.cli, again.resume, again.schema, again.model), ("codex", "t-1", agents.WORKER_SCHEMA, None))
+        self.assertEqual(self.github.status(1), "In review")
+
+    def test_every_role_runs_on_claude_code_unless_one_is_named(self):
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual([run.cli for run in self.runner.runs], ["claude", "claude"])
 
     def test_a_reply_broken_twice_stops_the_task(self):
         self.tried_before()
