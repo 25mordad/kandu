@@ -811,6 +811,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "cli_claude": "Claude Code",
   "cli_codex": "Codex",
   "set_codex_why": "Codex cannot run on {machine}: {why}",
+  "set_review_with": "Review with",
+  "set_review_with_hint": "The program its PRs are reviewed on, from the next review that starts; a second review stays on the program of the first. A Codex review only reads and runs the tests",
   "set_refused": "Not saved:",
   "run_cycle": "Kandu's cycle is running now: try again in a few minutes",
   "run_worker": "A worker on {task}, since {since}: wait until it finishes",
@@ -1287,6 +1289,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "cli_claude": "Claude Code",
   "cli_codex": "Codex",
   "set_codex_why": "Codex روی {machine} اجرا نمی‌شود: {why}",
+  "set_review_with": "بازبینی با",
+  "set_review_with_hint": "برنامه‌ای که PRهایش با آن بازبینی می‌شوند، از بازبینی بعدی که شروع می‌شود؛ بازبینی دوم روی برنامهٔ اولی می‌ماند. بازبینی Codex فقط می‌خواند و تست‌ها را اجرا می‌کند",
   "set_refused": "ذخیره نشد:",
   "run_cycle": "چرخهٔ کندو الان در حال اجراست: چند دقیقهٔ دیگر دوباره امتحان کن",
   "run_worker": "کارگری روی {task}، از {since}: صبر کن تا تمام شود",
@@ -2661,7 +2665,7 @@ function renderSettings(s) {
 
 // A project's pop-up shows every setting it has, in its groups. Nothing changes until Save, and then each change
 // goes through the call it always had, so it is checked and logged as before.
-const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "worker_cli", "priority", "daily_token_limit", "multi_user"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]]];
+const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "worker_cli", "reviewer_cli", "priority", "daily_token_limit", "multi_user"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]]];
 
 function settingsDraft(row) {
   return {name: row.name, ...Object.fromEntries(SETTING_GROUPS.flatMap(([, keys]) => keys).map(key => [key, row[key]]))};
@@ -2730,11 +2734,12 @@ async function landForRename(button) {
   drawSettings();
 }
 
-const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by", worker_cli: "set_run_with", multi_user: "set_multi_user"};
-const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint", worker_cli: "set_run_with_hint", multi_user: "set_multi_user_hint"};
+const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by", worker_cli: "set_run_with", reviewer_cli: "set_review_with", multi_user: "set_multi_user"};
+const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint", worker_cli: "set_run_with_hint", reviewer_cli: "set_review_with_hint", multi_user: "set_multi_user_hint"};
 
-// One setting's control, drawn from the draft. A pause set in the config shows and cannot move. Codex chosen on a
-// machine where it cannot run shows the doctor's reason beside its switch (`codex`, the machine's answer).
+// One setting's control, drawn from the draft. A pause set in the config shows and cannot move. Codex chosen, for the
+// workers or the reviewers, on a machine where it cannot run shows the doctor's reason beside that switch (`codex`,
+// the machine's answer).
 function settingControl(key, row, now, codex = null) {
   const label = t(SETTING_LABELS[key]), value = now[key];
   const hint = row.paused_in_config && key === "paused" ? t("paused_in_config_hint") : SETTING_HINTS[key] ? t(SETTING_HINTS[key]) : "";
@@ -2746,7 +2751,7 @@ function settingControl(key, row, now, codex = null) {
   if (key === "paused") return seg([["false", "set_running"], ["true", "project_on_pause"]], row.paused_in_config);
   if (key === "split_approval") return seg([["user", "set_me"], ["queen", "set_the_queen"]]);
   if (key === "queen_answers_one_way") return seg([["false", "set_me"], ["true", "set_the_queen"]]);
-  if (key === "worker_cli") return seg([["claude", "cli_claude"], ["codex", "cli_codex"]], false, value === "codex" && codex?.why
+  if (key === "worker_cli" || key === "reviewer_cli") return seg([["claude", "cli_claude"], ["codex", "cli_codex"]], false, value === "codex" && codex?.why
     ? `<div class="sheet-note tone-amber" role="status" data-codex-why>${esc(fillIn("set_codex_why", {machine: codex.machine, why: tr(codex.why)}))}</div>` : "");
   if (key === "name") return `<div class="set-field stack">${head}<input type="text" class="name-field" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" data-draft="${key}" value="${esc(value)}" aria-label="${esc(label)}"></div>`;
   if (key === "daily_token_limit") return `<div class="set-field">${head}<input type="number" class="tokens-field" min="1" step="100000" dir="ltr" inputmode="numeric" data-draft="${key}" value="${esc(value)}" aria-label="${esc(label)}"></div>`;
@@ -2778,15 +2783,15 @@ function openSettings(name) {
   drawSettings();
   $("setsheet").showModal();
   $("setbody").scrollTop = 0;
-  if (row.worker_cli === "codex") checkCodex(setEdit);
+  if (row.worker_cli === "codex" || row.reviewer_cli === "codex") checkCodex(setEdit);
 }
 
-// Choosing Codex asks the project's machine, as the doctor does, whether Codex can run there. The answer is drawn
-// only while the same pop-up still has Codex chosen.
+// Choosing Codex, for the workers or the reviewers, asks the project's machine, as the doctor does, whether Codex can
+// run there. The answer is drawn only while the same pop-up still has Codex chosen for one of them.
 async function checkCodex(edit) {
   edit.codex = null;
   const answer = await get(`/projects/${encodeURIComponent(edit.name)}/codex`).catch(() => null);
-  if (edit !== setEdit || edit.now.worker_cli !== "codex") return;
+  if (edit !== setEdit || (edit.now.worker_cli !== "codex" && edit.now.reviewer_cli !== "codex")) return;
   edit.codex = answer;
   drawSettings();
 }
@@ -2806,7 +2811,7 @@ function changeDraft(control) {
   else { now[key] = key === "name" ? control.value.trim() : control.value.trim() === "" ? "" : Number(control.value); setEdit.asking = false; $("setfoot").innerHTML = settingsFoot(setEdit); return; }
   setEdit.asking = false;
   drawSettings();
-  if (key === "worker_cli" && now[key] === "codex") checkCodex(setEdit);
+  if ((key === "worker_cli" || key === "reviewer_cli") && now[key] === "codex") checkCodex(setEdit);
 }
 
 async function saveSettings(button) {

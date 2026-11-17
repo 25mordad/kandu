@@ -111,6 +111,47 @@ class DashboardChoiceTest(Base):
         self.assertEqual(self.row("site")["worker_cli"], "codex")
 
 
+class DashboardReviewerChoiceTest(DashboardChoiceTest):
+    """The agent CLI of a project's reviewers is chosen the same way, apart from its workers' (#82)."""
+    def choose(self, cli, name="website", token=TOKEN):
+        return dispatch(self.api, "POST", f"/api/v1/projects/{name}/settings?reviewer_cli={cli}", token)
+
+    def test_the_settings_show_the_registrys_choice_until_the_dashboard_makes_one(self):
+        self.assertEqual(self.row()["reviewer_cli"], "claude")
+        self.assertEqual(self.row("internal-tool")["reviewer_cli"], "claude")  # its entry names none: Claude Code
+        self.api.config.projects[1].agent_cli = {"reviewer": "codex"}
+        self.assertEqual((self.row("internal-tool")["reviewer_cli"], self.row("internal-tool")["worker_cli"]),
+                         ("codex", "claude"))
+
+    def test_a_change_is_kept_in_kandus_state_logged_and_shown(self):
+        registry = (self.local / "projects.yaml").read_text(encoding="utf-8")
+        self.assertEqual(self.choose("codex"), (200, {"reviewer_cli": "codex"}))
+        self.assertEqual((self.row()["reviewer_cli"], self.row()["worker_cli"]), ("codex", "claude"))
+        self.assertEqual(self.store.project_settings(), {"website": {"reviewer_cli": "codex"}})
+        self.assertEqual((self.local / "projects.yaml").read_text(encoding="utf-8"), registry)
+        event = self.store.last_event("project_setting_changed")
+        self.assertEqual((event["project"], event["setting"], event["old"], event["new"]),
+                         ("website", "reviewer_cli", "claude", "codex"))
+
+    def test_the_dashboards_choice_wins_over_the_registry(self):
+        self.api.config.projects[0].agent_cli = {"reviewer": "codex"}
+        self.assertEqual(self.choose("claude"), (200, {"reviewer_cli": "claude"}))
+        self.assertEqual(self.row()["reviewer_cli"], "claude")
+        self.assertNotIn("codex", self.state())  # no project runs on Codex now
+
+    def test_each_role_keeps_its_own_choice(self):
+        dispatch(self.api, "POST", "/api/v1/projects/website/settings?worker_cli=codex", TOKEN)
+        self.choose("codex")
+        dispatch(self.api, "POST", "/api/v1/projects/website/settings?worker_cli=claude", TOKEN)
+        self.assertEqual((self.row()["worker_cli"], self.row()["reviewer_cli"]), ("claude", "codex"))
+        self.assertEqual(self.api.config.projects[0].agent_cli, {"worker": "claude", "reviewer": "codex"})
+
+    def test_a_renamed_project_keeps_its_choice(self):
+        self.choose("codex")
+        self.assertEqual(dispatch(self.api, "POST", "/api/v1/projects/website/settings?name=site", TOKEN)[0], 200)
+        self.assertEqual(self.row("site")["reviewer_cli"], "codex")
+
+
 class DoctorTest(Base):
     def test_a_project_the_dashboard_put_on_codex_has_its_machine_checked(self):
         checked = {}
@@ -120,6 +161,21 @@ class DoctorTest(Base):
             return []
 
         self.store.set_project_setting("internal-tool", "worker_cli", "codex")
+        with mock.patch.object(doctor, "StateStore", lambda: self.store), \
+                mock.patch.object(doctor, "run_checks", run_checks), \
+                mock.patch.object(doctor, "Runner"), mock.patch.object(doctor, "GitHub"), \
+                mock.patch("sys.argv", ["doctor", "--local", str(self.local)]):
+            self.assertEqual(doctor.main(), 0)
+        self.assertEqual(checked["codex"], ["internal-tool"])
+
+    def test_a_project_whose_reviewers_the_dashboard_put_on_codex_has_its_machine_checked(self):
+        checked = {}
+
+        def run_checks(config, local_dir, runner, github):
+            checked["codex"] = [p.name for p in config.projects if config.uses_codex() and p.reviewer_cli == "codex"]
+            return []
+
+        self.store.set_project_setting("internal-tool", "reviewer_cli", "codex")
         with mock.patch.object(doctor, "StateStore", lambda: self.store), \
                 mock.patch.object(doctor, "run_checks", run_checks), \
                 mock.patch.object(doctor, "Runner"), mock.patch.object(doctor, "GitHub"), \

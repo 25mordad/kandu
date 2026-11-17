@@ -9,8 +9,9 @@ import re
 from pathlib import Path
 
 from . import sizing
-from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR
+from .config import BOARD_FIELDS, CODEX, DEFAULT_LOCAL_DIR
 from .review import CODE_FENCE
+from .runner import EDIT_TOOLS
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 # The one command an agent runs to read an issue or a PR: it prints it from Kandu's copy (DESIGN §3), from any folder.
@@ -124,12 +125,18 @@ def worker_tools(project, branch, rules=None, remote=False):
     return _limits(rules, allowed, denied + _forbidden(project) + KANDU_ONLY, branch, remote)
 
 
-def reviewer_tools(project, rules=None, remote=False):
+def reviewer_tools(project, rules=None, remote=False, cli=None):
     """Returns (allowed, denied) for a reviewer, which runs the project's tests and commands itself and reads the
-    diff with git in its checkout."""
+    diff with git in its checkout. A Codex reviewer (`cli`) changes no file, whatever its rules allow: its allow list
+    keeps no edit rule, even with no rules in the config, so Codex's sandbox is read-only."""
     if rules is None:
-        return _limits(None)
-    return _limits(rules, _test_tools(project) + ["Bash(git diff *)"] + project.allowed_tools, remote=remote)
+        allowed, denied = _limits(None)
+    else:
+        allowed, denied = _limits(rules, _test_tools(project) + ["Bash(git diff *)"] + project.allowed_tools,
+                                  remote=remote)
+    if cli == CODEX:
+        allowed = [rule for rule in allowed or [] if rule.split("(")[0] not in EDIT_TOOLS]
+    return allowed, denied
 
 
 def live_check_tools(project, rules=None, remote=False):

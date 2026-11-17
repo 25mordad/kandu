@@ -156,8 +156,21 @@ async function run() {
     await click("[data-set-save]");
     await waitFor('!document.getElementById("setsheet").open');
     steps.codex.saved = await evaluate(`fetch("/api/v1/state").then(r => r.json()).then(s => s.project_settings.find(p => p.name === ${JSON.stringify(name)}).worker_cli)`);
+    // Review with: the same beside the reviewers' switch, apart from the workers'; nothing scrolls sideways.
+    await waitFor("setEdit === null");
+    await click('#projectsettings [data-settings-open]');
+    await click('[data-draft="reviewer_cli"][data-value="codex"]');
+    const reviewField = `document.querySelector('#setbody [data-draft="reviewer_cli"][data-value="codex"][aria-pressed="true"]')?.closest(".set-field")`;
+    await waitFor(`Boolean(${reviewField}?.querySelector("[data-codex-why]"))`);
+    steps.review = await evaluate(`(() => {
+      const why = ${reviewField}.querySelector("[data-codex-why]"), html = document.documentElement, body = document.getElementById("setbody");
+      return {why: why.textContent, sideways: html.scrollWidth > html.clientWidth || body.scrollWidth > body.clientWidth};
+    })()`);
+    await click("[data-set-save]");
+    await waitFor('!document.getElementById("setsheet").open');
+    steps.review.saved = await evaluate(`fetch("/api/v1/state").then(r => r.json()).then(s => s.project_settings.find(p => p.name === ${JSON.stringify(name)}).reviewer_cli)`);
     // The next case starts from the same priority, on Claude Code.
-    await evaluate(`fetch("/api/v1/projects/${encodeURIComponent(name)}/settings?priority=" + ${before} + "&worker_cli=claude", {method: "POST", headers: {Authorization: "Bearer " + token}})`);
+    await evaluate(`fetch("/api/v1/projects/${encodeURIComponent(name)}/settings?priority=" + ${before} + "&worker_cli=claude&reviewer_cli=claude", {method: "POST", headers: {Authorization: "Bearer " + token}})`);
     results.push({...c, steps});
   }
   console.log(JSON.stringify({results, errors}));

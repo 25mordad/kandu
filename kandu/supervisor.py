@@ -27,7 +27,7 @@ from .flights import Flights
 from .github import TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
 from .mirror import open_github
 from .notify import CHECK_NOT_RUN, LIVE_DOWN, TESTS_FAIL_IN, notifier_for
-from .runner import CLAUDE, CODEX, DEFAULT_LOGS_DIR, LocalWork, Runner, RunnerError, Unreachable
+from .runner import AGENT_CLIS, CLAUDE, CODEX, DEFAULT_LOGS_DIR, LocalWork, Runner, RunnerError, Unreachable
 from .state import StateStore
 from .tasks import TaskError
 from .tries import FAILURE_COMMENT, INTERNAL_TRIES, SIZING_FAILURE_COMMENT, count as count_tries
@@ -680,6 +680,10 @@ class Supervisor:
         language = self.config.settings.language
         run_id = new_run_id(self.now())
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
+        # A second review checks the first one's findings, so it runs on the same agent CLI; a first one on the choice.
+        cli = reviews[-1].get("cli", CLAUDE) if to_fix else self._cli(task.project, "reviewer")
+        if cli not in AGENT_CLIS:
+            cli = self._cli(task.project, "reviewer")
         if to_fix:
             prompt = agents.second_review_prompt(task.repo, task.number, pr["number"], head, language, to_fix,
                                                  self.github.default_branch(task.repo), self._copy(task.project))
@@ -690,8 +694,8 @@ class Supervisor:
             prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head, language,
                                             companions, criteria, first_n, self.github.default_branch(task.repo),
                                             local_dir=self.local_dir, copy=self._copy(task.project))
-        tools = agents.reviewer_tools(task.project, self._rules("reviewer"), self._remote(task.project))
-        result = self._agent(task, "reviewer", cwd, prompt, tools, run_id, schema=review.REPORT_SCHEMA)
+        tools = agents.reviewer_tools(task.project, self._rules("reviewer"), self._remote(task.project), cli)
+        result = self._agent(task, "reviewer", cwd, prompt, tools, run_id, schema=review.REPORT_SCHEMA, cli=cli)
 
         stale = []
 
@@ -715,7 +719,7 @@ class Supervisor:
             self._decide(task, "findings_dropped", f"{dropped} outside what this review may report")
         findings = self._forbidden_changed(task, cwd, head, review.open_after(report, to_fix), reviews)
         self.github.comment_pr(task.repo, pr["number"],
-                               review.comment_for(report, round_number, findings, second=bool(to_fix)))
+                               review.comment_for(report, round_number, findings, second=bool(to_fix), cli=cli))
         self.store.record("review_finished", task=task.key, project=task.project.name, run_id=run_id,
                           round=round_number, head_sha=head, findings=len(findings),
                           blockers=len(review.blockers(findings)), door=report["door"],

@@ -1,7 +1,8 @@
 // Opens the Classic new look in a real headless browser at several widths and says, for each, how tall the header is,
 // whether anything on the page goes past its edge, and what the explanation under the pointer says over two buttons.
 // Usage: node drive_classic_new.js <browser> <dashboard url> <empty profile folder> <cases as JSON>
-// A case is {lang, width, height, mobile}. It talks to the browser over the DevTools protocol, with no library.
+// A case is {lang, width, height, mobile, patches}: it is measured once the meadow has drawn a gauge under each of its patches.
+// It talks to the browser over the DevTools protocol, with no library.
 const {spawn} = require("child_process");
 const [browserPath, base, profile, casesJson] = process.argv.slice(2);
 const cases = JSON.parse(casesJson);
@@ -71,11 +72,11 @@ const MEASURE = `(() => { ${GAUGES}
     await evaluate(`localStorage.setItem("kandu-language", "${c.lang}"); localStorage.setItem("kandu-field", "all")`);
     await send("Page.navigate", {url: base + "/"});
     let seen = null;
-    for (let i = 0; i < 40; i++) {  // until the state and the queue are drawn
+    const deadline = Date.now() + 15000;  // a busy machine draws the meadow late, so wait for it, but not forever
+    do {  // until the state is drawn, and the queue with every patch's gauge on the meadow
       await sleep(250);
       seen = await evaluate(MEASURE).catch(() => null);
-      if (seen && seen.stats && seen.fields.length) break;
-    }
+    } while (!(seen && seen.stats && seen.fields.length && seen.gauges.count >= c.patches && seen.gauges.names >= c.patches) && Date.now() < deadline);
     results.push({...c, seen});
   }
   console.log(JSON.stringify({errors, results}));

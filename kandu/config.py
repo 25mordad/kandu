@@ -269,6 +269,11 @@ class Project:
         """The agent CLI that runs this project's workers: Claude Code unless `agent_cli` names another."""
         return self.agent_cli.get("worker", CLAUDE)
 
+    @property
+    def reviewer_cli(self):
+        """The agent CLI that reviews this project's PRs: Claude Code unless `agent_cli` names another."""
+        return self.agent_cli.get("reviewer", CLAUDE)
+
 
 @dataclass
 class Settings:

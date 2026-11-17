@@ -346,7 +346,7 @@ class Api:
         """Takes a changed config without a restart, so a new project shows in its own patch.
 
         A config with a problem leaves the last good one in place; `python -m kandu.config` names the problem. The
-        agent CLI the dashboard chose for a project's workers is put in its `agent_cli` on each request.
+        agent CLI the dashboard chose for a project's workers or reviewers is put in its `agent_cli` on each request.
         """
         with self._config_lock:
             stamp = config_stamp(self.local_dir)
@@ -1315,7 +1315,7 @@ class Api:
                 for p in self.config.projects]
 
     def codex_on(self, query, name):
-        """Whether Codex can run this project's workers on its machine, asked as the doctor asks it: `why` is the
+        """Whether Codex can run this project's workers or reviewers on its machine, asked as the doctor asks it: `why` is the
         doctor's reason when it cannot, or null. It costs no tokens and changes nothing."""
         project = self._project(name)
         runner = self.runner or Runner(self.config)
@@ -1339,8 +1339,9 @@ class Api:
     def change_project_settings(self, query, name):
         """Changes a project's settings. Each change is logged.
 
-        `split_approval`, `queen_answers_one_way` and `worker_cli` are kept in Kandu's state, where they win over the
-        registry; proposals already accepted, splits already made and workers already running stay as they are.
+        `split_approval`, `queen_answers_one_way`, `worker_cli` and `reviewer_cli` are kept in Kandu's state, where they
+        win over the registry; proposals already accepted, splits already made and workers or reviews already running
+        stay as they are.
         `priority`, `daily_token_limit`, `auto_merge` and `frozen` are written in its entry in `projects.yaml`, and
         the next cycle uses them. Nothing is changed if any value is wrong.
 

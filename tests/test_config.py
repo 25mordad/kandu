@@ -330,10 +330,18 @@ class CodexTest(unittest.TestCase):
 
     def test_the_example_shows_which_agent_cli_runs_a_projects_workers(self):
         config = load_config(self.local)
-        self.assertEqual(config.projects[0].agent_cli, {"worker": "claude"})
+        self.assertEqual(config.projects[0].agent_cli, {"worker": "claude", "reviewer": "claude"})
+        self.assertEqual((config.projects[0].worker_cli, config.projects[0].reviewer_cli), ("claude", "claude"))
         self.assertFalse(config.uses_codex())  # Claude Code, as with no setting
         self.edit("projects.yaml", lambda d: d["projects"][0].update(agent_cli={"worker": "codex"}))
         self.assertTrue(load_config(self.local).uses_codex())
+
+    def test_a_projects_reviewers_name_their_own_agent_cli(self):
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(agent_cli={"reviewer": "codex"}))
+        project = load_config(self.local).projects[0]
+        self.assertEqual((project.worker_cli, project.reviewer_cli), ("claude", "codex"))
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(agent_cli={"worker": "codex", "reviewer": "gemini"}))
+        self.assertIn("agent_cli.reviewer: must be one of", self.problems())
 
     def test_another_agent_cli_or_role_is_refused(self):
         self.edit("projects.yaml", lambda d: d["projects"][0].update(agent_cli={"worker": "gemini", "queen": "codex"}))

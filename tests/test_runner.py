@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from kandu import agents, ghmeter, review
-from kandu.config import Config, Machine, Project, Setup
+from kandu.config import Config, Machine, Project, Rules, Setup
 from kandu.runner import (KEPT_CHECKED_OUT, KEPT_NOT_WORKTREE, KEPT_UNCOMMITTED, KEPT_UNPUSHED, REMOVED, Host, LocalWork, Runner,
                           RunnerError, SCOPE_PROBE, Unreachable, child_env, repo_path)
 
@@ -825,6 +825,14 @@ class CodexTest(GitCase):
         self.codex(allowed=["Read", "Grep", "Bash(git diff *)"])
         self.assertEqual(self.args()[self.args().index("--sandbox") + 1], "read-only")
         self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", self.args())
+
+    def test_a_codex_reviewer_runs_read_only_whatever_its_rules_allow(self):
+        for rules in (None, Rules(allow=["Read", "Edit", "Write(**)", "NotebookEdit"], deny=["Read(**/.env)"])):
+            allowed, denied = agents.reviewer_tools(self.project(), rules, cli="codex")
+            self.runner.run_agent("box", str(self.home), "review", allowed, denied, "r-1", lambda: False, cli="codex")
+            args = self.args()
+            self.assertEqual(args[args.index("--sandbox") + 1], "read-only", rules)
+            self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", args)
 
     def test_a_run_that_may_edit_writes_its_checkout_and_commits_and_pushes(self):
         worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")

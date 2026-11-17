@@ -641,7 +641,7 @@ class CommandsTest(unittest.TestCase):
         setup = (COMMANDS / "kandu-setup.md").read_text(encoding="utf-8")
         add = (COMMANDS / "kandu-add.md").read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"^   \d+\. ", setup, re.MULTILINE)), 16)
-        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 21)
+        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 22)
 
     def test_add_asks_which_agent_cli_runs_the_workers_with_claude_code_as_the_default(self):
         add = (COMMANDS / "kandu-add.md").read_text(encoding="utf-8")
@@ -649,6 +649,14 @@ class CommandsTest(unittest.TestCase):
         self.assertIn("agent CLI", asked)
         self.assertIn("Claude Code (`claude`, the default)", asked)
         self.assertIn("`agent_cli: { worker: codex }`", asked)
+
+    def test_add_asks_which_agent_cli_reviews_the_prs_apart_from_the_workers(self):
+        add = (COMMANDS / "kandu-add.md").read_text(encoding="utf-8")
+        asked = re.search(r"^   21\. (.*)$", add, re.MULTILINE).group(1)
+        self.assertIn("agent CLI reviews its PRs", asked)
+        self.assertIn("Claude Code (`claude`, the default)", asked)
+        self.assertIn("`agent_cli: { reviewer: codex }`", asked)
+        self.assertIn("apart from the workers", asked)
 
     def test_add_never_creates_a_board_unasked(self):
         self.assertIn("only if the user said yes", (COMMANDS / "kandu-add.md").read_text(encoding="utf-8"))

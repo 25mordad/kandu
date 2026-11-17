@@ -8,6 +8,8 @@ import fnmatch
 import json
 import re
 
+from .config import CLAUDE
+
 REPORT_KEYS = {"head_sha", "summary", "criteria", "earlier", "findings", "checked_ok", "door",
                "blast_radius", "brief", "user_brief", "wait_for_user"}
 FINDING_KEYS = {"n", "path", "line", "blocker", "body", "criterion"}
@@ -198,11 +200,12 @@ def _finding_line(finding):
     return f"- **{kind} {finding['n']}** `{place}`: {finding['body']}"
 
 
-def comment_for(report, round_number, findings, second=False):
-    """Renders one review round: readable text, then the marker the supervisor reads back."""
+def comment_for(report, round_number, findings, second=False, cli=CLAUDE):
+    """Renders one review round: readable text, then the marker the supervisor reads back. A review on another agent
+    CLI than Claude Code names it there (`cli`), so the second review runs on the same one."""
     record = {"round": round_number, "second": second, "head_sha": report["head_sha"], "door": report["door"], "open": findings,
               "summary": report["summary"], "brief": report["brief"], "blast_radius": report["blast_radius"],
-              "criteria": report["criteria"], "wait_for_user": report["wait_for_user"]}
+              "criteria": report["criteria"], "wait_for_user": report["wait_for_user"]} | ({} if cli == CLAUDE else {"cli": cli})
     # `>` only occurs inside JSON strings, so this keeps `-->` in a finding from ending the marker.
     marker = json.dumps(record, ensure_ascii=False).replace(">", "\\u003e")
     lines = [f"**Kandu review, round {round_number}** on `{report['head_sha']}`", "", report["brief"], ""]

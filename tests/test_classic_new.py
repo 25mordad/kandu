@@ -160,6 +160,7 @@ class ClassicNewBrowserTest(Served):
     def test_the_header_is_one_row_at_every_width_and_explains_its_buttons(self):
         cases = [{"lang": lang, "width": w, "height": h, "mobile": False} for w, h in self.WIDTHS for lang in ("en", "fa")]
         cases += [{"lang": lang, "width": 390, "height": 844, "mobile": True} for lang in ("en", "fa")]
+        cases = [{**case, "patches": 2} for case in cases]  # the driver waits until both patches' gauges are drawn
         with tempfile.TemporaryDirectory() as profile:
             done = subprocess.run([NODE, str(ROOT / "tests" / "drive_classic_new.js"), browser(), self.base, profile, json.dumps(cases)],
                                   capture_output=True, text=True, timeout=180)

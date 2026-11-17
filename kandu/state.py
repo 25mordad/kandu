@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from .config import AGENT_CLIS, SPLIT_APPROVALS
+from .config import AGENT_CLIS, CLAUDE, SPLIT_APPROVALS
 
 DEFAULT_STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 FORMAT_VERSION = 1
@@ -108,7 +108,8 @@ EVENT_FIELDS = {
 }
 # Each setting a project may have in the dashboard's settings section, with its values. One there wins over the registry.
 PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS, "queen_answers_one_way": (True, False),
-                    "worker_cli": AGENT_CLIS}  # the agent CLI that runs its workers
+                    "worker_cli": AGENT_CLIS,  # the agent CLI that runs its workers
+                    "reviewer_cli": AGENT_CLIS}  # and the one that reviews its PRs
 # Carried once, on the first cycle after the switch came, for the projects an install had: today's behaviour stays.
 CARRIED_SETTINGS = {"queen_answers_one_way": True}
 
@@ -468,13 +469,15 @@ class StateStore:
         return self.project_settings().get(project.name, {}).get(setting, getattr(project, setting))
 
     def choose_agent_clis(self, projects):
-        """Puts the dashboard's choice of each project's workers' agent CLI in its `agent_cli`, so all that reads
-        the config sees it; a project the dashboard chose nothing for keeps the registry's."""
+        """Puts the dashboard's choice of the agent CLI of each project's workers and of its reviewers in its
+        `agent_cli`, so all that reads the config sees it; a role the dashboard chose nothing for keeps the
+        registry's."""
         chosen = self.project_settings()
         for project in projects:
-            cli = chosen.get(project.name, {}).get("worker_cli")
-            if cli is not None and cli != project.worker_cli:
-                project.agent_cli = project.agent_cli | {"worker": cli}
+            for role in ("worker", "reviewer"):
+                cli = chosen.get(project.name, {}).get(f"{role}_cli")
+                if cli is not None and cli != project.agent_cli.get(role, CLAUDE):
+                    project.agent_cli = project.agent_cli | {role: cli}
 
     @contextmanager
     def split_lock(self):
