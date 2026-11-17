@@ -666,7 +666,7 @@ class ControlTest(Base):
 
     def on_codex(self):
         path = self.root / "local" / "projects.yaml"
-        path.write_text(path.read_text(encoding="utf-8").replace("    run: clone", "    agent_cli: {worker: codex}\n    run: clone", 1),
+        path.write_text(path.read_text(encoding="utf-8").replace("agent_cli: { worker: claude }", "agent_cli: { worker: codex }", 1),
                         encoding="utf-8")
         self.api.config = load_config(self.root / "local")
 

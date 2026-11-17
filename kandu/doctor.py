@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .boards import missing_columns, missing_fields
-from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
+from .config import CODEX, DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .dashboard import TOKEN_ENV
 from .github import GitHub, GitHubError
 from .privateterms import all_terms
@@ -92,6 +92,27 @@ def check_codex(config, login=codex_login, reader=read_codex_usage):
     return [(OK, "codex: logged in"), (OK, f"codex usage: {usage.session}% of the 5-hour window, {usage.week}% of the week")]
 
 
+def check_codex_machines(config, runner):
+    """Codex on each machine a project runs it on, with those projects: without it, they start no Codex run there.
+    A machine that does not answer is left to its own line."""
+    projects = {}
+    for project in config.projects:
+        if CODEX in project.agent_cli.values():
+            projects.setdefault(project.machine, []).append(project.name)
+    results = []
+    for machine, names in sorted(projects.items()):
+        if not runner.reachable(machine):
+            continue
+        try:
+            why = runner.codex_login(machine)
+        except RunnerError:
+            continue
+        on = f"({', '.join(names)})"
+        results.append((OK, f"codex on {machine}: logged in {on}") if why is None else
+                       (FAIL, f"codex on {machine}: {why} {on}"))
+    return results
+
+
 def check_machine(machine, runner):
     if runner.reachable(machine.name):
         return OK, f"machine {machine.name} is reachable"
@@ -145,6 +166,7 @@ def run_checks(config, local_dir, runner, github):
     results.append(check_dashboard_token(local_dir))
     results.append(check_notify(settings.notify, local_dir))
     results += [check_machine(m, runner) for m in settings.machines]
+    results += check_codex_machines(config, runner)
     for project in config.projects:
         if runner.reachable(project.machine):
             results += check_project(project, runner, github)
