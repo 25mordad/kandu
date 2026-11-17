@@ -151,7 +151,7 @@ def task_statuses(events):
             if decision == "worktree_cleaned":
                 seen["cleaned"] = reason
             elif decision == "internal_error":
-                seen["tries"] += 1
+                seen["tries"] += tries.is_try(event)
                 if not seen["stuck"]:
                     say("error", "internal_error", reason, tries_={"this": seen["tries"], "of": tries.INTERNAL_TRIES})
             elif decision == "round_no_commit":

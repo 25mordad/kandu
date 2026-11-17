@@ -23,6 +23,10 @@ BOARDS_UNREADABLE = "could not read the boards"
 QUEEN_TROUBLE = "the queen could not look"
 LIMIT_SLEEPS = ("5-hour usage", "weekly usage", "the queen reached her daily token limit")
 USAGE_UNKNOWN = "usage unknown"
+# The end-of-cycle check's problems, as the supervisor writes them in `project_checked`'s detail.
+CHECK_NOT_RUN = "the check could not run"
+TESTS_FAIL_IN = "tests fail in "
+LIVE_DOWN = "the live URL does not answer"
 FAILED_OUTCOMES = {"failed": "task_failed", "deploy_failed": "deploy_failed",
                    "live_check_failed": "live_check_failed", "sizing_failed": "sizing_failed"}
 STUCK_OUTCOMES = {"blocked": "blocked", "needs_info": "needs_info", "pr_closed": "pr_closed",
@@ -35,7 +39,7 @@ STUCK, YOUR_TURN, DONE, FOR_YOUR_INFO = "stuck", "your_turn", "done", "for_your_
 MARKS = {STUCK: "🔴", YOUR_TURN: "🟡", DONE: "🟢", FOR_YOUR_INFO: "⚪"}
 LEVELS = {"pr_ready": YOUR_TURN, "pr_held": YOUR_TURN, "split": YOUR_TURN, "flight_left_open": YOUR_TURN,
           "task_done": DONE, "task_replaced": DONE,
-          "split_made": FOR_YOUR_INFO,
+          "split_made": FOR_YOUR_INFO, "check_not_run": FOR_YOUR_INFO,
           "queen_split": FOR_YOUR_INFO,
           "blocker_rewritten": FOR_YOUR_INFO,
           "usage_limit": FOR_YOUR_INFO, "project_limit": FOR_YOUR_INFO, "machine_back": FOR_YOUR_INFO}  # Everything else stops work: STUCK.
@@ -53,7 +57,13 @@ MESSAGES = {
         "deploy_failed": "{task} was merged, but the deploy failed. Nothing was reverted.",
         "live_check_failed": "{task} is deployed, but the live check failed. Nothing was reverted.",
         "sizing_failed": "Kandu could not size {task}.",
-        "check_failed": "{project} failed the check after its merges. The details are on the dashboard.",
+        "check_failed": "{project} failed the check after its merges: {what}.",
+        "check_tests": "the tests fail on the default branch of {repo}",
+        "check_live": "its live URL does not answer",
+        "check_other": "the details are on the dashboard",
+        "check_and": "; ",
+        "check_not_run": "Kandu could not run the check of {project} after its merges, so nothing is known of its "
+                         "default branch. The details are on the dashboard.",
         "blocked": "{task} is blocked and needs your decision.",
         "needs_info": "{task} needs more information from you.",
         "pr_closed": "The PR of {task} was closed, so the task stopped.",
@@ -103,7 +113,13 @@ MESSAGES = {
         "deploy_failed": "{task} ادغام شد ولی deploy شکست خورد. چیزی برگردانده نشد.",
         "live_check_failed": "{task} روی نسخه‌ی زنده رفت ولی بررسی زنده رد شد. چیزی برگردانده نشد.",
         "sizing_failed": "کندو نتوانست اندازه‌ی {task} را تعیین کند.",
-        "check_failed": "{project} در بررسی بعد از ادغام‌ها رد شد. جزئیات در داشبورد است.",
+        "check_failed": "{project} در بررسی بعد از ادغام‌ها رد شد: {what}.",
+        "check_tests": "تست‌ها روی شاخه‌ی اصلی {repo} رد می‌شوند",
+        "check_live": "آدرس زنده‌اش جواب نمی‌دهد",
+        "check_other": "جزئیات در داشبورد است",
+        "check_and": "، ",
+        "check_not_run": "کندو نتوانست {project} را بعد از ادغام‌هایش بررسی کند، پس از حال شاخه‌ی اصلی‌اش خبری "
+                         "نیست. جزئیات در داشبورد است.",
         "blocked": "{task} گیر کرده و تصمیم تو را لازم دارد.",
         "needs_info": "{task} اطلاعات بیشتری از تو لازم دارد.",
         "pr_closed": "PR مربوط به {task} بسته شد و تسک متوقف شد.",
@@ -181,6 +197,22 @@ def _ready_message(event):
     return _task_message("pr_ready", "pr_held" if wait["held"] else "pr_ready", event, wait)
 
 
+def _check_message(event):
+    """Told once a day per project: each cycle with merges checks again, and a new day may be new trouble."""
+    detail = event["detail"]
+    text = "check_not_run" if detail.startswith(CHECK_NOT_RUN) else "check_failed"
+    failing = [part.removeprefix(TESTS_FAIL_IN) for part in detail.split("; ") if part.startswith(TESTS_FAIL_IN)]
+    values = {"project": event["project"], "failing": failing, "live_down": LIVE_DOWN in detail}
+    return Message("failure", text, f"{text}:{event['project']}:{event['ts'][:10]}", values=values)
+
+
+def _check_problems(values, words):
+    """What the check found, in fixed words."""
+    found = [words["check_tests"].format(repo=repo) for repo in values["failing"]]
+    found += [words["check_live"]] if values["live_down"] else []
+    return words["check_and"].join(found) or words["check_other"]
+
+
 def _machine_message(text, event):
     """Once per outage: its key is the machine and when the outage began."""
     since = datetime.fromisoformat(event["since"]).strftime("%Y-%m-%d %H:%M")
@@ -229,7 +261,7 @@ def message_for(event, queen=False):
         key = f"over_budget:{event['project']}:{event['ts'][:10]}"
         return Message("usage_limit", "project_limit", key, values={"project": event["project"]})
     if kind == "project_checked" and not event["passed"]:
-        return Message("failure", "check_failed", values={"project": event["project"]})
+        return _check_message(event)
     if kind == "machine_unreachable":
         return _machine_message("machine_unreachable", event)
     if kind == "machine_up" and event["told"]:  # the user heard of the outage, so hears of its end
@@ -244,12 +276,13 @@ def message_for(event, queen=False):
 def _render(message, language):
     words = MESSAGES.get(language, MESSAGES["en"])
     level = LEVELS.get(message.text, STUCK)
-    text = f"{MARKS[level]} {words[level]}\n" + words[message.text].format(**message.values)
+    values = message.values | ({"what": _check_problems(message.values, words)} if message.text == "check_failed" else {})
+    text = f"{MARKS[level]} {words[level]}\n" + words[message.text].format(**values)
     if message.wait:  # what it waits on, where and the next step
         text += "".join(f"\n{line}" for line in waits.lines(message.wait, language))
     task = message.values.get("task")
-    if task is None:
-        return text
+    if task is None:  # a repo whose tests fail is linked, so the user sees its last commits
+        return text + "".join(f"\nhttps://github.com/{repo}/commits" for repo in message.values.get("failing", ()))
     repo, number = task.split("#")
     return f"{text}\nhttps://github.com/{repo}/issues/{number}"
 

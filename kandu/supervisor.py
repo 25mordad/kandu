@@ -26,8 +26,8 @@ from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .flights import Flights
 from .github import TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
 from .mirror import open_github
-from .notify import notifier_for
-from .runner import DEFAULT_LOGS_DIR, LocalWork, Runner, RunnerError
+from .notify import CHECK_NOT_RUN, LIVE_DOWN, TESTS_FAIL_IN, notifier_for
+from .runner import DEFAULT_LOGS_DIR, LocalWork, Runner, RunnerError, Unreachable
 from .state import StateStore
 from .tasks import TaskError
 from .tries import FAILURE_COMMENT, INTERNAL_TRIES, SIZING_FAILURE_COMMENT, count as count_tries
@@ -1321,21 +1321,30 @@ class Supervisor:
             base = self.github.default_branch(repo)
             cwd = self.runner.prepare_review(project, repo, "kandu/end-check", f"origin/{base}")
             if self.runner.run_test(project, cwd, new_run_id(self.now())) != 0:
-                problems.append(f"tests fail in {repo}")
+                problems.append(f"{TESTS_FAIL_IN}{repo}")
             if project.deploy is not None and project.deploy.live_url:
                 url = shlex.quote(project.deploy.live_url)
                 if self.runner.run_command(project, cwd, f"curl -fsS -o /dev/null {url}", new_run_id(self.now())) != 0:
-                    problems.append("the live URL does not answer")
+                    problems.append(LIVE_DOWN)
         return problems
 
     def _end_checks(self):
+        """A machine that does not answer gets no check: a dropped connection says nothing of the project."""
         for project in self.config.projects:
             if self.merged[project.name] < END_CHECK_MERGES or self._is_paused(project):
                 continue
+            if not self._reachable(project.machine):
+                self.store.record("check_skipped", project=project.name, machine=project.machine)
+                continue
             try:
                 problems = self._check_project(project)
+            except Unreachable:
+                problems = None
             except (GitHubError, RunnerError) as e:
-                problems = [f"the check could not run: {type(e).__name__}"]
+                problems = [f"{CHECK_NOT_RUN}: {type(e).__name__}"]
+            if problems is None or problems and not self._reachable(project.machine):  # it dropped during the check
+                self.store.record("check_skipped", project=project.name, machine=project.machine)
+                continue
             self.store.record("project_checked", project=project.name, passed=not problems, detail="; ".join(problems))
 
     def _drive(self, task):
@@ -1453,6 +1462,9 @@ class Supervisor:
         Only when it comes back `INTERNAL_TRIES` times in a row does the task stop for the queen to look at.
         """
         details = "".join(traceback.format_exception_only(error)).strip()
+        if isinstance(error, Unreachable):  # the rest of this cycle waits for the machine; tries.py counts no try
+            with self._lock:
+                self.seen[task.project.machine] = False
         if internal(error) and self._internal_tries(task) + 1 < INTERNAL_TRIES:
             self._decide(task, "internal_error", details)
             return

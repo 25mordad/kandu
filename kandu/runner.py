@@ -24,6 +24,7 @@ from .state import usage_from_result
 DEFAULT_LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
 GIT_TIMEOUT_SECONDS = 300
 PROBE_TIMEOUT_SECONDS = 20
+SSH_FAILED = 255  # ssh's own exit code: it could not connect, or the connection dropped
 POLL_SECONDS = 2
 STOP_GRACE_SECONDS = 10
 # A run in a scope: if the machine has a user systemd, the command runs in its own scope, and when it ends
@@ -42,6 +43,10 @@ KEPT_CHECKED_OUT = "it is checked out in a folder that stays"
 
 class RunnerError(Exception):
     pass
+
+
+class Unreachable(RunnerError):
+    """The machine did not answer over SSH, or the connection dropped: nothing was learnt about the work itself."""
 
 
 class LocalWork(RunnerError):
@@ -110,14 +115,20 @@ class Host:
         except subprocess.TimeoutExpired as e:
             raise RunnerError(f"{command[0]} timed out on {self.name}") from e
 
+    def _answered(self, result):
+        """`result`, unless ssh itself failed. Git and the shell's tools never exit with 255 themselves."""
+        if self.ssh_target is not None and result.returncode == SSH_FAILED:
+            raise Unreachable(f"{self.name} did not answer over SSH")
+        return result
+
     def check(self, command, cwd=None):
-        result = self.run(command, cwd)
+        result = self._answered(self.run(command, cwd))
         if result.returncode != 0:
             raise RunnerError(f"{' '.join(command[:3])} failed on {self.name}: {result.stderr.strip()}")
         return result.stdout
 
     def succeeds(self, command, cwd=None):
-        return self.run(command, cwd).returncode == 0
+        return self._answered(self.run(command, cwd)).returncode == 0
 
     def absolute(self, path):
         """Expands a leading `~` on this machine: arguments reach commands unexpanded."""

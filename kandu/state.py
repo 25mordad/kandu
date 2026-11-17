@@ -55,6 +55,7 @@ EVENT_FIELDS = {
     "task_finished": TASK_FIELDS + ("outcome",),
     "card_stuck": TASK_FIELDS + ("reason",),  # a card the loop cannot drive: the user hears once
     "project_checked": ("project", "passed", "detail"),
+    "check_skipped": ("project", "machine"),  # the machine did not answer, so the end check did not run
     "project_inspected": ("project", "run_id", "passed", "findings", "judged"),
     "inspect_changed": ("project", "enabled", "at"),
     "project_paused": ("project",),

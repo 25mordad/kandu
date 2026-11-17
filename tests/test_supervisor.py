@@ -19,7 +19,7 @@ from kandu.config import Rules, load_config
 from kandu.flights import Flights, task_key
 from kandu.notify import Notifier
 from kandu.github import BoardItem, GitHubError
-from kandu.runner import AgentResult, LocalWork, RunnerError
+from kandu.runner import AgentResult, LocalWork, RunnerError, Unreachable
 from kandu.state import StateStore
 from kandu.supervisor import CycleStop, Supervisor, read_tasks
 from kandu.usage import Usage, UsageError
@@ -2738,6 +2738,31 @@ class MergeTest(Base):
         event = self.events("project_checked")[-1]
         self.assertFalse(event["passed"])
         self.assertIn("tests fail", event["detail"])
+
+    def merged_twice(self):
+        self.sup.merged["website"] = 2
+        self.sup._check_project = mock.Mock(return_value=["tests fail in o/r"])
+
+    def test_a_machine_that_does_not_answer_gets_no_check(self):
+        self.merged_twice()
+        self.runner.down.add(self.config.projects[0].machine)
+        self.sup._end_checks()
+        self.sup._check_project.assert_not_called()
+        self.assertEqual(self.events("project_checked"), [])
+        self.assertEqual(self.events("check_skipped")[-1]["project"], "website")
+
+    def test_a_connection_dropped_during_the_check_is_no_failure(self):
+        self.merged_twice()
+        self.sup._check_project.side_effect = Unreachable("server did not answer over SSH")
+        self.sup._end_checks()
+        self.assertEqual(self.events("project_checked"), [])
+        self.assertEqual(len(self.events("check_skipped")), 1)
+
+    def test_tests_that_fail_while_the_machine_went_away_are_no_failure(self):
+        self.merged_twice()
+        self.sup._check_project.side_effect = lambda project: self.runner.down.add(project.machine) or ["tests fail in o/r"]
+        self.sup._end_checks()
+        self.assertEqual(self.events("project_checked"), [])
 
     def test_one_merge_earns_no_check(self):
         self.github.prs[(REPO, 1)]["state"] = "MERGED"

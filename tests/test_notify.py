@@ -124,6 +124,26 @@ class WhatIsImportantTest(unittest.TestCase):
         self.assertIsNone(self.kind_of("project_checked", project="site", passed=True, detail=""))
         self.assertEqual(self.kind_of("decision", decision="over_budget", reason="", **ON_TASK), "usage_limit")
 
+    def check(self, detail, ts="2026-10-31T10:00:00+01:00"):
+        return message_for({"type": "project_checked", "project": "site", "passed": False, "detail": detail, "ts": ts})
+
+    def test_a_failed_check_says_what_failed_and_links_the_repo(self):
+        detail = f"{notify.TESTS_FAIL_IN}acme/site; {notify.LIVE_DOWN}"
+        text = notify._render(self.check(detail), "en")
+        self.assertIn("the tests fail on the default branch of acme/site; its live URL does not answer", text)
+        self.assertIn("https://github.com/acme/site/commits", text)
+        self.assertIn("آدرس زنده", notify._render(self.check(detail), "fa"))
+
+    def test_a_check_that_could_not_run_is_not_told_as_failed(self):
+        message = self.check(f"{notify.CHECK_NOT_RUN}: RunnerError")
+        self.assertEqual((message.kind, message.text), ("failure", "check_not_run"))
+        self.assertNotIn("failed the check", notify._render(message, "en"))
+
+    def test_a_check_is_told_once_a_day(self):
+        first, later = self.check(f"{notify.TESTS_FAIL_IN}acme/site"), self.check("", ts="2026-10-31T23:00:00+01:00")
+        self.assertEqual(first.key, later.key)
+        self.assertNotEqual(first.key, self.check("", ts="2026-11-01T01:00:00+01:00").key)
+
     def test_the_queen_failing_uses_the_words_the_supervisor_writes(self):
         brief = f"{queen.COULD_NOT_FINISH}: no JSON."
         self.assertEqual(self.kind_of("queen_finished", run_id="r", brief=brief, backlog=[], by_hand=[]), "failure")

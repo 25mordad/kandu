@@ -13,7 +13,7 @@ from unittest import mock
 from kandu import ghmeter
 from kandu.config import Config, Machine, Project, Setup
 from kandu.runner import (KEPT_CHECKED_OUT, KEPT_NOT_WORKTREE, KEPT_UNCOMMITTED, KEPT_UNPUSHED, REMOVED, Host, LocalWork, Runner,
-                          RunnerError, SCOPE_PROBE, child_env, repo_path)
+                          RunnerError, SCOPE_PROBE, Unreachable, child_env, repo_path)
 
 import tempfile as _tempfile
 from kandu import ghmeter as _ghmeter
@@ -53,6 +53,24 @@ class HostTest(unittest.TestCase):
     def test_ssh_never_prompts(self):
         argv = Host(Machine("a", "ssh box", False)).argv(["true"])
         self.assertEqual(argv[:6], ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "box"])
+
+    def test_a_dropped_ssh_connection_is_not_a_missing_copy(self):
+        host = Host(Machine("a", "ssh box", False))
+        dropped = subprocess.CompletedProcess([], 255, "", "Connection reset by 10.0.0.2 port 22")
+        with mock.patch("subprocess.run", return_value=dropped):
+            with self.assertRaises(Unreachable):
+                host.succeeds(["test", "-e", ".git"])
+            with self.assertRaises(Unreachable):
+                host.check(["git", "fetch", "origin"])
+
+    def test_a_missing_file_is_still_false(self):
+        host = Host(Machine("a", "ssh box", False))
+        with mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "")):
+            self.assertFalse(host.succeeds(["test", "-e", ".git"]))
+
+    def test_255_on_this_machine_is_the_commands_own(self):
+        with mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 255, "", "")):
+            self.assertFalse(Host(Machine("a", "local", True)).succeeds(["false"]))
 
     def test_tools_in_the_users_home_are_found(self):
         self.assertIn(':$HOME/.local/bin:$PATH"', Host(Machine("a", "local", True)).argv(["true"])[2])

@@ -9,6 +9,13 @@ FAILURE_COMMENT = "Kandu could not finish this step and stopped here. The detail
 SIZING_FAILURE_COMMENT = ("Kandu could not size this task. Move it back to Backlog to try again. "
                           "The details are in its local log.")
 STOPPED_BY_USER = "the user stopped Kandu's tries"
+UNREACHABLE = "kandu.runner.Unreachable"  # a machine that dropped the connection: the work was not tried
+
+
+def is_try(event):
+    """Kandu's own error on a step; a machine that dropped the connection is no try, as the step never ran."""
+    return (event["type"] == "decision" and event["decision"] == "internal_error"
+            and not event.get("reason", "").startswith(UNREACHABLE))
 
 
 def count(events, key):
@@ -19,7 +26,7 @@ def count(events, key):
             continue
         if event["type"] in PROGRESS:
             tries = 0
-        elif event["type"] == "decision" and event["decision"] == "internal_error":
+        elif is_try(event):
             tries += 1
     return tries
 

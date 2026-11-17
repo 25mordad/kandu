@@ -72,6 +72,11 @@ class StatusTest(unittest.TestCase):
         self.assertEqual((stopped["state"], stopped["why"], stopped["detail"]), ("stuck", "failed", "boom"))
         self.assertEqual(status(decision("internal_error"), review())["tries"], None)
 
+    def test_a_machine_that_dropped_the_connection_costs_no_try(self):
+        dropped = decision("internal_error", f"{tries.UNREACHABLE}: server did not answer over SSH")
+        found = status(decision("internal_error", "boom"), dropped, dropped)
+        self.assertEqual(found["tries"], {"this": 1, "of": tries.INTERNAL_TRIES})
+
     def test_a_stopped_task_and_a_loop_stop_are_stuck_and_a_resume_clears_them(self):
         for outcome in ("blocked", "needs_info", "sizing_failed", "deploy_failed", "live_check_failed"):
             self.assertEqual(status(event("task_finished", outcome=outcome))["why"], outcome)

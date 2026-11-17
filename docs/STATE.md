@@ -101,6 +101,7 @@ state/
 | `spec_closed` | `task`, `project`: the last task that names the spec closed, so the spec did too |
 | `deployed` | `task`, `project`, `run_id` |
 | `project_checked` | `project`, `passed`, `detail` |
+| `check_skipped` | `project`, `machine` |
 | `project_inspected` | `project`, `run_id`, `passed`, `findings`, `judged` |
 | `inspect_changed` | `project`, `enabled`, `at` |
 | `backup_made` | `copy`, `files`, `removed` |
@@ -122,7 +123,7 @@ state/
 
 The numbers come from `modelUsage` in the `result` event of `claude --output-format stream-json`.
 
-`review_finished` is written for every review round, even with no findings. `findings` and `blockers` are counts, `round` starts at 1 and `door` is `two-way` or `one-way`. The text of a finding is not logged here. The merge gate reads this event, not the PR comment, because a worker uses the same account and could write one. `wait_for_user` holds the reviewer's one-line questions; `project_checked` is the end-of-cycle check. `project_inspected` is Bazras's daily look: `findings` is a count, `judged` says whether an agent judged them, and the report itself stays in `local/reports/bazras/`, never in the log; `log-offsets.json` there remembers how far each of the project's log files was read. `inspect_changed` is the user turning Bazras on or off for a project in the dashboard; `at` is null when the project takes `bazras.at`. `backup_made` is a daily backup (DESIGN §12): `copy` is the new copy's file name, `files` how many files it holds and `removed` the names of the old copies it removed. `backup_failed` holds a reason that names no file's content; no copy was made or removed. `backup_changed` is the user setting the backup in the dashboard.
+`review_finished` is written for every review round, even with no findings. `findings` and `blockers` are counts, `round` starts at 1 and `door` is `two-way` or `one-way`. The text of a finding is not logged here. The merge gate reads this event, not the PR comment, because a worker uses the same account and could write one. `wait_for_user` holds the reviewer's one-line questions; `project_checked` is the end-of-cycle check; `check_skipped` is one that did not run because the project's machine did not answer, before or during it. `project_inspected` is Bazras's daily look: `findings` is a count, `judged` says whether an agent judged them, and the report itself stays in `local/reports/bazras/`, never in the log; `log-offsets.json` there remembers how far each of the project's log files was read. `inspect_changed` is the user turning Bazras on or off for a project in the dashboard; `at` is null when the project takes `bazras.at`. `backup_made` is a daily backup (DESIGN §12): `copy` is the new copy's file name, `files` how many files it holds and `removed` the names of the old copies it removed. `backup_failed` holds a reason that names no file's content; no copy was made or removed. `backup_changed` is the user setting the backup in the dashboard.
 
 ## current.json
 A snapshot, replaced atomically, so a reader never sees half a file.
