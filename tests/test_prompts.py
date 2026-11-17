@@ -118,5 +118,91 @@ class PromptsTest(unittest.TestCase):
             self.assertTrue((ROOT / name).exists(), name)
 
 
+def numbered_step(text, n):
+    return re.search(rf"^{n}\. .+?(?=^\d+\. |\Z)", text, re.MULTILINE | re.DOTALL).group(0)
+
+
+class TwoStepDefiningTest(unittest.TestCase):
+    FIELDS = ("`Blocked by`", "`Priority`", "`Kind`", "`Size`", "`Deadline`")
+
+    def to_issue(self):
+        return {name: (PROMPTS / name).read_text(encoding="utf-8") for name in ("to-spec.md", "to-ticket.md")}
+
+    def test_the_interviews_last_summary_holds_the_seams_and_every_planned_task_with_its_fields(self):
+        summary = numbered_step((PROMPTS / "grilling.md").read_text(encoding="utf-8"), 7)
+        for words in ("testing seams", "planned tasks", "by hand", "`task_tokens`") + self.FIELDS:
+            self.assertIn(words, summary)
+
+    def test_to_issue_asks_nothing_and_waits_for_no_yes(self):
+        for name, text in self.to_issue().items():
+            for waiting in ("Then ask", "until the user", "the user has said yes", "the user says yes",
+                            "as an assumption they can reject"):
+                self.assertNotIn(waiting, text, name)
+        self.assertIn("The user's yes to the interview's summary is the yes to the spec and every task",
+                      self.to_issue()["to-spec.md"])
+
+    def test_to_issue_creates_the_spec_then_every_task_in_order_then_closes_the_request(self):
+        spec, ticket = self.to_issue()["to-spec.md"], self.to_issue()["to-ticket.md"]
+        self.assertIn("with the command of step 4 of `prompts/defining.md` for a spec", spec)
+        self.assertLess(ticket.index("--spec #N"), ticket.index("kandu.intake close ID"))
+        self.assertIn("each before any task that names it under `Blocked by`", ticket)
+
+    def test_a_field_the_interview_left_open_takes_a_stated_default_named_in_the_spec_as_an_assumption(self):
+        spec = self.to_issue()["to-spec.md"]
+        for field in self.FIELDS + ("by hand", "tokens"):
+            self.assertRegex(spec, rf"(?m)^   - {re.escape(field)}: \S", field)
+        self.assertIn("`## Assumptions`", spec)
+        self.assertIn("each choice made by a default", spec)
+
+    def test_to_issue_stops_only_without_a_finished_interview_and_points_to_it(self):
+        texts = self.to_issue()
+        self.assertEqual(sum(len(re.findall(r"\b[Ss]top", text)) for text in texts.values()), 1)
+        first = numbered_step(texts["to-spec.md"], 1)
+        self.assertIn("❓ or ⏳", first)
+        self.assertIn("stop and point to `/kandu-grill-with-docs`", first)
+
+    def test_a_rerun_with_the_spec_made_still_takes_the_tasks_before_creating_them(self):
+        first = numbered_step(self.to_issue()["to-spec.md"], 1)
+        self.assertIn("the spec exists already: do step 3, then go on with `prompts/to-ticket.md`", first)
+
+    def test_to_issue_ends_on_one_table_of_what_it_created(self):
+        text = self.to_issue()["to-ticket.md"]
+        last = numbered_step(text, len(re.findall(r"(?m)^\d+\. ", text)))
+        self.assertIn("one table", last)
+        for column in ("link",) + self.FIELDS:
+            self.assertIn(column, last)
+
+
+class GlossaryInTheTaskTest(unittest.TestCase):
+    def read(self, path):
+        return (ROOT / path).read_text(encoding="utf-8")
+
+    def test_to_issue_writes_the_words_and_decisions_into_the_task_that_first_uses_them(self):
+        ticket = self.read("prompts/to-ticket.md")
+        for words in ("one acceptance criterion", "the task whose change first uses", "`GLOSSARY.md`",
+                      "`docs/adr/`", "in the form the file already uses",
+                      "When the repo has no `GLOSSARY.md`, write no word criterion", "never one that creates it"):
+            self.assertIn(words, ticket)
+
+    def test_to_issue_adds_no_separate_task_to_record_them(self):
+        for name in ("to-spec.md", "to-ticket.md"):
+            self.assertNotIn("Record the glossary and decisions", self.read("prompts/" + name), name)
+
+    def test_the_worker_adds_a_new_word_to_an_existing_glossary_and_never_creates_one(self):
+        text = self.read("prompts/worker.md")
+        self.assertIn("add each new project word your change names to the repo's `GLOSSARY.md` in the same PR", text)
+        self.assertIn("Never create the file", text)
+
+    def test_the_reviewer_reports_a_missing_word_as_a_note(self):
+        notes = re.search(r"^## Notes, which do not block\n(.+?)(?=^## )",
+                          self.read("prompts/reviewer.md"), re.MULTILINE | re.DOTALL).group(1)
+        self.assertIn("a new project word the PR names but leaves out of the repo's existing `GLOSSARY.md`", notes)
+
+    def test_the_design_says_where_a_tasks_words_and_decisions_are_written(self):
+        design = self.read("DESIGN.md")
+        self.assertNotIn("one more task of the spec records", design)
+        self.assertIn("in the same PR as the change that first uses them", design)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,9 @@ import argparse
 import json
 import posixpath
 import re
+import shutil
 import sys
+import tempfile
 import types
 from dataclasses import MISSING, dataclass, field, fields, is_dataclass
 from pathlib import Path
@@ -17,18 +19,22 @@ import yaml
 
 DEFAULT_LOCAL_DIR = Path(__file__).resolve().parent.parent / "local"
 SSH_REACH = re.compile(r"ssh \w[\w.@-]*")
+RUN_MODES = ("clone", "in-place")  # where a project runs: always set by the user, never inferred
 ROLES = ("worker", "reviewer", "splitter", "live_check", "queen")
 MODEL_ROLES = ROLES + ("bazras",)  # Bazras's tools are fixed in code, so it has no `permissions` entry.
 CLOCK = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 MODEL = re.compile(r"[a-z][\w.\[\]-]*")  # It reaches `claude --model`, so it cannot be a flag.
+GIT_NAME = re.compile(r"\w[\w./-]*")  # a remote or branch that reaches git as an argument, so never a flag
 TECHNICAL_DEBT = "Technical debt"
 SPLIT_APPROVALS = ("user", "queen")   # who accepts a split proposal; the dashboard's switch wins over the registry
 BOARD_COLUMNS = ("Backlog", TECHNICAL_DEBT, "Ready", "In progress", "In review", "Needs info", "Needs split", "Blocked", "Done")
 BOARD_FIELDS = {"Priority": ("High", "Medium", "Low"), "Kind": ("Bug", "Feature", "Chore"),
                 "Size": ("Small", "Medium", "Large")}
 DEADLINE_FIELD = "Deadline"
-NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "task_done", "usage_limit", "claude_login")
+NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "task_done", "usage_limit", "claude_login",
+                 "machine_unreachable")
 NOTIFY_LANGUAGES = ("en", "fa")
+LOOKS = ("classic", "classic-new", "clean")  # the dashboard's looks: Classic, Classic new and Kandu Clean
 
 
 class ConfigError(Exception):
@@ -88,6 +94,7 @@ class GitHub:
 class Telegram:
     bot_token_env: str
     chat_id_env: str
+    buttons: bool = False  # an approve button under a PR that waits for the user's yes (telegram_bot.py)
 
 
 @dataclass
@@ -109,6 +116,7 @@ class Supervisor:
     queen: bool = True
     queen_max_retries: int = 3
     queen_daily_token_limit: int = 2000000
+    unreachable_alert_hours: int = 12  # a machine silent this long while tasks wait for it: the user hears once
     queen_drop_blockers: bool = False   # she may ask the user to drop a blocker; off until the user turns it on
     # A merged task's folders and branches go: on by default, as the user chose, and off from the dashboard.
     clean_merged: bool = True
@@ -132,6 +140,20 @@ class Backup:
 
 
 @dataclass
+class Upstream:
+    """How far the install's `main` is from the public Kandu it came from, shown on the dashboard (DESIGN §12).
+
+    Off until the user turns it on: a new install must not reach the network by itself. The check only fetches
+    and counts; updates come in as a task on the board of `project`, Kandu's own repo, and never by themselves.
+    """
+    enabled: bool = False
+    remote: str = "upstream"       # the git remote of the public repo, in the install
+    branch: str = "main"           # its branch the install's `main` is counted against
+    every_hours: int = 4           # how often the dashboard checks by itself; "Check now" checks at once
+    project: str = ""              # the project in projects.yaml whose repo is this install's own copy
+
+
+@dataclass
 class Rules:
     allow: list[str] = field(default_factory=list)
     deny: list[str] = field(default_factory=list)
@@ -152,6 +174,7 @@ class Dashboard:
     bind: str
     port: int
     show_requests: bool = False    # list open requests with their decision maps; off until the user turns it on
+    look: str = "classic"          # the look a browser opens in until it chooses its own (LOOKS)
 
 
 @dataclass
@@ -166,6 +189,13 @@ class Deploy:
     mode: str
     command: str
     live_url: str = ""             # empty: nothing can check the live software, for example behind a login
+
+
+@dataclass
+class Setup:
+    """What a fresh checkout needs before the project's `test` runs there, such as `npm ci` (DESIGN §4)."""
+    command: str
+    inputs: list[str] = field(default_factory=list)  # files whose change runs it again; none: each new head
 
 
 @dataclass
@@ -200,6 +230,7 @@ class Project:
     description: str = ""
     board: Board | None = None
     run_local: str | None = None
+    setup: Setup | None = None       # run before Kandu runs `test` in a checkout of its own, when that needs it
     deploy: Deploy | None = None
     inspect: Inspect | None = None   # Bazras's daily look; without it, or with it off, Bazras leaves the project alone
     secrets_from: str | None = None
@@ -229,6 +260,7 @@ class Settings:
     didban: Didban = field(default_factory=Didban)
     bazras: BazrasSettings = field(default_factory=BazrasSettings)
     backup: Backup = field(default_factory=Backup)
+    upstream: Upstream = field(default_factory=Upstream)
 
 
 @dataclass
@@ -378,7 +410,7 @@ def _check_settings(s, problems):
         _check_one_of(s.notify.language, NOTIFY_LANGUAGES, "notify.language", problems)
 
     for name in ("wake_every_minutes", "max_cycle_minutes", "max_parallel_workers", "max_parallel_sizers",
-                 "queen_max_retries", "queen_daily_token_limit"):
+                 "queen_max_retries", "queen_daily_token_limit", "unreachable_alert_hours"):
         _check_positive(getattr(s.supervisor, name), f"supervisor.{name}", problems)
     _check_positive(s.github.sync_every_minutes, "github.sync_every_minutes", problems)
     if s.supervisor.auto_revert:
@@ -388,6 +420,7 @@ def _check_settings(s, problems):
     _check_backup(s.backup.enabled, s.backup.at, s.backup.destination, s.backup.keep, problems)
     if not 1 <= s.dashboard.port <= 65535:
         problems.append(f"dashboard.port: must be between 1 and 65535, got {s.dashboard.port}")
+    _check_one_of(s.dashboard.look, LOOKS, "dashboard.look", problems)
 
 
 def _check_backup(enabled, at, destination, keep, problems):
@@ -426,7 +459,7 @@ def _check_projects(projects, s, problems):
                     problems.append(f"{where}.board.columns: unknown column {column!r}")
             if family_boards.setdefault(p.family, p.board) != p.board:
                 problems.append(f"{where}.board: family {p.family!r} already has another board; one board per family")
-        _check_one_of(p.run, ("clone", "in-place"), f"{where}.run", problems)
+        _check_one_of(p.run, RUN_MODES, f"{where}.run", problems)
         if p.machine not in machines:
             problems.append(f"{where}.machine: unknown machine {p.machine!r}")
         if p.run == "clone" and p.machine != s.brain.machine:
@@ -454,12 +487,29 @@ def _check_projects(projects, s, problems):
         for report in p.reports:
             if not report.strip():
                 problems.append(f"{where}.reports: a path must not be empty")
+        if p.setup is not None:
+            if not p.setup.command.strip():
+                problems.append(f"{where}.setup.command: must not be empty")
+            if any(not entry.strip() for entry in p.setup.inputs):
+                problems.append(f"{where}.setup.inputs: an entry must not be empty")
         if p.deploy is not None:
             _check_one_of(p.deploy.mode, ("direct", "preview"), f"{where}.deploy.mode", problems)
         _check_one_of(p.split_approval, SPLIT_APPROVALS, f"{where}.split_approval", problems)
         _check_positive(p.priority, f"{where}.priority", problems)
         _check_positive(p.max_parallel_workers, f"{where}.max_parallel_workers", problems)
         _check_positive(p.daily_token_limit, f"{where}.daily_token_limit", problems)
+
+
+def _check_upstream(s, projects, problems):
+    u = s.upstream
+    _check_positive(u.every_hours, "upstream.every_hours", problems)
+    for name in ("remote", "branch"):
+        if not GIT_NAME.fullmatch(getattr(u, name)):
+            problems.append(f"upstream.{name}: must be a git name, not starting with '-', got {getattr(u, name)!r}")
+    if u.enabled:
+        project = next((p for p in projects if p.name == u.project), None)
+        if project is None or project.board is None:
+            problems.append(f"upstream.project: must name a project with a board, Kandu's own repo, got {u.project!r}")
 
 
 def set_limits(session, week, local_dir=DEFAULT_LOCAL_DIR):
@@ -615,6 +665,75 @@ def _set_top_block(text, block, values):
     return "\n".join(lines)
 
 
+def _set_list_in_block(text, block, key, items):
+    """Sets `key:` under the top-level `block:` to a list, one `- item` line each, in place of the list it had."""
+    lines = text.split("\n")
+    head = next((i for i, l in enumerate(lines) if re.fullmatch(rf"{block}:[ \t]*(#.*)?", l)), None)
+    if head is None:
+        raise ConfigError([f"{block}: not in kandu.yaml as a block; change it there by hand"])
+    end = head + 1
+    while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t#"):
+        end += 1
+    children = [i for i in range(head + 1, end) if lines[i].strip() and not lines[i].lstrip().startswith("#")]
+    pad = " " * (len(lines[children[0]]) - len(lines[children[0]].lstrip())) if children else "  "
+    new = [f"{pad}{key}:" + ("" if items else " []")] + [f"{pad}  - {item}" for item in items]
+    hit = next((i for i in children if re.match(rf"^{pad}{key}:", lines[i])), None)
+    if hit is None:
+        lines[head + 1:head + 1] = new
+        return "\n".join(lines)
+    stop = hit + 1  # its old list: the lines under it, deeper than the key or `- ` at its depth
+    while stop < end and (not lines[stop].strip() or lines[stop].startswith(pad + " ") or lines[stop].startswith(pad + "- ")
+                          or lines[stop].lstrip().startswith("#") and len(lines[stop]) - len(lines[stop].lstrip()) > len(pad)):
+        stop += 1
+    while stop > hit + 1 and not lines[stop - 1].strip():  # a blank line before the next block stays
+        stop -= 1
+    lines[hit:stop] = new  # its old comment goes: it spoke of the old list
+    return "\n".join(lines)
+
+
+def set_notify_events(events, local_dir=DEFAULT_LOCAL_DIR):
+    """Sets what Kandu tells the user, `notify.events` in `kandu.yaml`, in NOTIFY_EVENTS's order. Nothing is written
+    if one is not in NOTIFY_EVENTS. The next cycle uses it."""
+    problems = []
+    for event in events:
+        _check_one_of(event, NOTIFY_EVENTS, "notify.events", problems)
+    if problems:
+        raise ConfigError(problems)
+    events = [event for event in NOTIFY_EVENTS if event in events]
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_list_in_block(path.read_text(encoding="utf-8"), "notify", "events", events)
+    if ((yaml.safe_load(text) or {}).get("notify") or {}).get("events") != events:
+        raise ConfigError(["notify.events: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+    return events
+
+
+def set_telegram_buttons(enabled, local_dir=DEFAULT_LOCAL_DIR):
+    """Turns the approve button in Telegram on or off: `notify.telegram.buttons` in `kandu.yaml`, line by line."""
+    path = Path(local_dir) / "kandu.yaml"
+    lines = path.read_text(encoding="utf-8").split("\n")
+    head = next((i for i, l in enumerate(lines) if re.fullmatch(r"notify:[ \t]*(#.*)?", l)), None)
+    sub = next((i for i in range((head or 0) + 1, len(lines)) if head is not None and re.fullmatch(r"( +)telegram:[ \t]*(#.*)?", lines[i])), None)
+    if sub is None:
+        raise ConfigError(["notify.telegram: not in kandu.yaml as a block; change it there by hand"])
+    pad = re.match(r" +", lines[sub]).group(0)
+    inner = next((re.match(r" +", lines[i]).group(0) for i in range(sub + 1, len(lines))
+                  if lines[i].strip() and not lines[i].lstrip().startswith("#")), pad + "  ")
+    end = sub + 1
+    while end < len(lines) and (not lines[end].strip() or lines[end].startswith(inner)):
+        end += 1
+    value = "true" if enabled else "false"
+    hit = next((i for i in range(sub + 1, end) if re.match(rf"^{inner}buttons:", lines[i])), None)
+    if hit is None:
+        lines.insert(sub + 1, f"{inner}buttons: {value}")
+    else:
+        lines[hit] = f"{inner}buttons: {value}"
+    text = "\n".join(lines)
+    if (((yaml.safe_load(text) or {}).get("notify") or {}).get("telegram") or {}).get("buttons") is not enabled:
+        raise ConfigError(["notify.telegram.buttons: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
 def set_drop_blockers(enabled, local_dir=DEFAULT_LOCAL_DIR):
     """Lets the queen ask to drop a blocker, or stops her, in `kandu.yaml`'s `supervisor` block, line by line."""
     path = Path(local_dir) / "kandu.yaml"
@@ -642,6 +761,111 @@ def set_show_requests(enabled, local_dir=DEFAULT_LOCAL_DIR):
                           {"show_requests": "true" if enabled else "false"})
     if ((yaml.safe_load(text) or {}).get("dashboard") or {}).get("show_requests") is not enabled:
         raise ConfigError(["dashboard.show_requests: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
+def set_default_look(look, local_dir=DEFAULT_LOCAL_DIR):
+    """Sets the install's default look in `kandu.yaml`'s `dashboard` block, line by line. Nothing is written if it is
+    not one of LOOKS."""
+    problems = []
+    _check_one_of(look, LOOKS, "dashboard.look", problems)
+    if problems:
+        raise ConfigError(problems)
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_top_block(path.read_text(encoding="utf-8"), "dashboard", {"look": look})
+    if ((yaml.safe_load(text) or {}).get("dashboard") or {}).get("look") != look:
+        raise ConfigError(["dashboard.look: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
+# What the dashboard's settings tab changes in a project's entry, and the kind of each value. The next cycle uses them.
+REGISTRY_SETTINGS = {"priority": int, "daily_token_limit": int, "auto_merge": bool, "frozen": bool}
+# The supervisor's pace in `kandu.yaml`. A new wake interval reaches the timer on "Restart Kandu".
+PACE_SETTINGS = ("wake_every_minutes", "max_cycle_minutes")
+
+
+def _yaml_scalar(value):
+    return ("true" if value else "false") if isinstance(value, bool) else str(value)
+
+
+def _check_values(values, kinds, where, problems):
+    for key, value in values.items():
+        kind = kinds.get(key)
+        if kind is None:
+            problems.append(f"{where}{key}: not a setting the dashboard changes")
+        elif type(value) is not kind:
+            problems.append(f"{where}{key}: must be {'true or false' if kind is bool else 'a whole number'}")
+        elif kind is int:
+            _check_positive(value, f"{where}{key}", problems)
+
+
+def _check_on_copy(local_dir, name, text):
+    """Loads the config as it would be with `text` as `name`, in a folder of its own. Raises ConfigError."""
+    local_dir = Path(local_dir)
+    with tempfile.TemporaryDirectory() as tmp:
+        for file in ("kandu.yaml", "projects.yaml"):
+            shutil.copy(local_dir / file, Path(tmp) / file)
+        (Path(tmp) / name).write_text(text, encoding="utf-8")
+        return load_config(tmp)
+
+
+def _set_project_values(text, name, values):
+    """Sets each `key: value` in this project's entry only, keeping a comment beside it, since it says what the key
+    is for. A key the entry lacks is added after its last line."""
+    lines = text.split("\n")
+    starts = [i for i, l in enumerate(lines) if re.match(r"^\s*- name:", l)]
+    start = next((i for i in starts if re.fullmatch(rf"\s*- name:\s*[\"']?{re.escape(name)}[\"']?\s*(#.*)?", lines[i])), None)
+    if start is None:
+        raise ConfigError([f"projects: no entry named {name!r} in projects.yaml"])
+    pad = " " * (len(lines[start]) - len(lines[start].lstrip())) + "  "
+    for key, value in values.items():
+        end = next((i for i in starts if i > start), len(lines))
+        line = re.compile(rf"^({re.escape(pad)}{key}:[ \t]*)([^#]*?)([ \t]+#.*)?$")
+        hits = [i for i in range(start + 1, end) if line.match(lines[i])]
+        if len(hits) > 1:
+            raise ConfigError([f"{name}.{key}: expected one such line in its entry, found {len(hits)}"])
+        if hits:
+            found, written = line.match(lines[hits[0]]), _yaml_scalar(value)
+            comment = found.group(3) or ""
+            if comment:  # it stays in its column, as long as the value leaves room
+                width = len(found.group(2)) + len(comment) - len(comment.lstrip())
+                comment = " " * max(1, width - len(written)) + comment.lstrip()
+            lines[hits[0]] = f"{pad}{key}: {written}{comment}"
+        else:
+            last = max(i for i in range(start, end) if lines[i].strip() and not lines[i].lstrip().startswith("#"))
+            lines.insert(last + 1, f"{pad}{key}: {_yaml_scalar(value)}")
+            starts = [i + 1 if i > last else i for i in starts]
+    return "\n".join(lines)
+
+
+def set_project_values(name, values, local_dir=DEFAULT_LOCAL_DIR):
+    """Changes a project's priority, daily tokens, auto-merge or freeze in `projects.yaml`, line by line.
+
+    The whole config is checked on a copy first, so nothing is written if any value is wrong.
+    """
+    problems = []
+    _check_values(values, REGISTRY_SETTINGS, f"{name}.", problems)
+    if not values:
+        problems.append(f"{name}: give a setting to change")
+    if problems:
+        raise ConfigError(problems)
+    path = Path(local_dir) / "projects.yaml"
+    text = _set_project_values(path.read_text(encoding="utf-8"), name, values)
+    _check_on_copy(local_dir, "projects.yaml", text)
+    _replace_file(path, text)
+
+
+def set_pace(values, local_dir=DEFAULT_LOCAL_DIR):
+    """Changes how often the supervisor wakes and how long a cycle may run, in `kandu.yaml`'s `supervisor` block."""
+    problems = []
+    _check_values(values, dict.fromkeys(PACE_SETTINGS, int), "supervisor.", problems)
+    if not values:
+        problems.append("supervisor: give wake_every_minutes or max_cycle_minutes")
+    if problems:
+        raise ConfigError(problems)
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_top_block(path.read_text(encoding="utf-8"), "supervisor", values)
+    _check_on_copy(local_dir, "kandu.yaml", text)
     _replace_file(path, text)
 
 
@@ -686,6 +910,7 @@ def load_config(local_dir=DEFAULT_LOCAL_DIR):
 
     _check_settings(settings, problems)
     _check_projects(registry.projects, settings, problems)
+    _check_upstream(settings, registry.projects, problems)
     if problems:
         raise ConfigError(problems)
     return Config(settings=settings, projects=registry.projects)

@@ -219,7 +219,7 @@ class Film:
         self.scene(8)
         self.page.click('[data-tab="days"]', force=True)
         self.at(5.5)
-        self.page.click('[data-tab="meadow"]', force=True)
+        self.page.click('[data-tab="today"]', force=True)
         self.at(7)
         self.page.click('#scene .switch[data-pause="tea-shop"]', force=True)
         self.at(10)
@@ -264,6 +264,7 @@ def main():
                       f"--force-device-scale-factor={SCALE}", "--disable-infobars", "--no-first-run",
                       "--hide-scrollbars", f"--lang={args.lang}"])
             context.add_init_script(OVERLAY)
+            context.add_cookies([{"name": "kandu-look", "value": "clean", "url": url}])  # the look the film was made in
             context.route("**/didban-demo*", lambda route: route.fulfill(body=terminal, content_type="text/html"))
             page = context.pages[0] if context.pages else context.new_page()
             recorder = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-framerate", "30",

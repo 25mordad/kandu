@@ -24,6 +24,7 @@ from .state import usage_from_result
 DEFAULT_LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
 GIT_TIMEOUT_SECONDS = 300
 PROBE_TIMEOUT_SECONDS = 20
+SSH_FAILED = 255  # ssh's own exit code: it could not connect, or the connection dropped
 POLL_SECONDS = 2
 STOP_GRACE_SECONDS = 10
 # A run in a scope: if the machine has a user systemd, the command runs in its own scope, and when it ends
@@ -31,6 +32,7 @@ STOP_GRACE_SECONDS = 10
 SCOPE_PROBE = "command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1"
 COMMAND_TIMEOUT_SECONDS = 30 * 60
 SECRET_PREFIX = "KANDU_"
+SETUP_MARK = "kandu-setup"  # in a checkout's git folder: what its last setup was for (`Runner.run_test`)
 # What `Runner.clean_task` says of each folder and branch it finds: removed, or why it stays.
 REMOVED = "removed"
 KEPT_UNCOMMITTED = "it has changes that are not committed"
@@ -41,6 +43,21 @@ KEPT_CHECKED_OUT = "it is checked out in a folder that stays"
 
 class RunnerError(Exception):
     pass
+
+
+class Unreachable(RunnerError):
+    """The machine did not answer over SSH, or the connection dropped: nothing was learnt about the work itself."""
+
+
+class LocalWork(RunnerError):
+    """A task's folder holds commits that are not on GitHub, so Kandu will not clean it."""
+
+
+# What a git operation left unfinished leaves in the worktree's git folder, and the command that cancels it.
+UNFINISHED = (("MERGE_HEAD", "merge"), ("rebase-merge", "rebase"), ("rebase-apply", "rebase"),
+              ("CHERRY_PICK_HEAD", "cherry-pick"))
+# A conflict marker git writes at the start of a line, which must never reach a review.
+CONFLICT_MARKER = "^(<<<<<<<|>>>>>>>)( |$)"
 
 
 def child_env(run_id=None):
@@ -96,16 +113,24 @@ class Host:
         try:
             return subprocess.run(self.argv(command, cwd), capture_output=True, text=True, timeout=timeout, env=child_env())
         except subprocess.TimeoutExpired as e:
+            if self.ssh_target is not None:  # a connection that hangs without closing is a drop too
+                raise Unreachable(f"{command[0]} timed out over SSH on {self.name}") from e
             raise RunnerError(f"{command[0]} timed out on {self.name}") from e
 
+    def _answered(self, result):
+        """`result`, unless ssh itself failed. Git and the shell's tools never exit with 255 themselves."""
+        if self.ssh_target is not None and result.returncode == SSH_FAILED:
+            raise Unreachable(f"{self.name} did not answer over SSH")
+        return result
+
     def check(self, command, cwd=None):
-        result = self.run(command, cwd)
+        result = self._answered(self.run(command, cwd))
         if result.returncode != 0:
             raise RunnerError(f"{' '.join(command[:3])} failed on {self.name}: {result.stderr.strip()}")
         return result.stdout
 
     def succeeds(self, command, cwd=None):
-        return self.run(command, cwd).returncode == 0
+        return self._answered(self.run(command, cwd)).returncode == 0
 
     def absolute(self, path):
         """Expands a leading `~` on this machine: arguments reach commands unexpanded."""
@@ -175,8 +200,13 @@ class Runner:
         host.check(["gh", "repo", "clone", repo, path])
         return path
 
-    def prepare_worktree(self, project, repo, branch, base):
-        """Returns the worker's worktree on `branch`, reusing it if an earlier run left one."""
+    def prepare_worktree(self, project, repo, branch, base, cleaned=None):
+        """Returns the worker's worktree on `branch`, reusing it if an earlier run left one.
+
+        A merge, rebase or cherry-pick an earlier run left unfinished there is cancelled first, and `cleaned` is
+        called with what was cancelled. If the folder holds commits that are not on GitHub, it is left as it is
+        and `LocalWork` is raised.
+        """
         host = self.hosts[project.machine]
         with self._repo_locks[(host.name, repo)]:
             path = self._ensure_copy(host, project, repo)
@@ -184,6 +214,7 @@ class Runner:
             host.check(["git", "fetch", "origin"], cwd=path)
             pushed = host.succeeds(["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"], cwd=path)
             if host.succeeds(["test", "-d", directory]):
+                self._cancel_unfinished(host, directory, branch, cleaned)
                 if pushed:
                     host.check(["git", "merge", "--ff-only", f"origin/{branch}"], cwd=directory)
                 return directory
@@ -191,6 +222,83 @@ class Runner:
             start = f"origin/{branch}" if pushed else f"origin/{base}"
             host.check(["git", "worktree", "add", "-B", branch, directory, start], cwd=path)
         return directory
+
+    @staticmethod
+    def _cancel_unfinished(host, directory, branch, cleaned):
+        operation = next((name for marker, name in UNFINISHED if host.succeeds(
+            ["test", "-e", host.check(["git", "rev-parse", "--git-path", marker], cwd=directory).strip()],
+            cwd=directory)), None)
+        if operation is None:
+            return
+        local = host.check(["git", "rev-list", "--count", "HEAD", f"refs/heads/{branch}", "--not", "--remotes=origin"],
+                           cwd=directory).strip()
+        if local != "0":
+            raise LocalWork(f"The task's folder on {host.name} has a {operation} left unfinished and {local} commit(s) "
+                            f"that are not on GitHub. Kandu left the folder as it is, so nothing is lost: finish or "
+                            f"cancel the {operation} there, push the commits, then send the task back.")
+        host.check(["git", operation, "--abort"], cwd=directory)
+        if cleaned is not None:
+            cleaned(f"cancelled a {operation} an earlier run left unfinished in the task's folder")
+
+    def merge_base(self, project, repo, directory, branch, base, message, kept=None):
+        """Merges `origin/<base>` into the pushed `branch`, in Kandu's code, so no worker runs `git merge`.
+
+        Work an earlier run left uncommitted or unpushed is dropped first: it was never reviewed, and it would
+        stop the merge. Commits it made but did not push, such as a run cut off by a dropped connection, are kept
+        first under `refs/kandu/kept/`, and `kept` is called with where. Returns the commit of `base` merged and
+        the files in conflict. With none the merge is committed with `message`; with some it is left open, for a
+        worker to resolve and commit."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            host.check(["git", "fetch", "origin"], cwd=directory)
+            local = host.check(["git", "rev-list", "--count", "HEAD", "--not", "--remotes=origin"], cwd=directory).strip()
+            if local != "0":
+                head = host.check(["git", "rev-parse", "HEAD"], cwd=directory).strip()
+                ref = f"refs/kandu/kept/{branch.removeprefix('kandu/')}/{head[:12]}"
+                host.check(["git", "update-ref", ref, head], cwd=directory)
+                if kept is not None:
+                    kept(f"{local} commit(s) a run made but did not push are kept in {ref} on {host.name}")
+            host.check(["git", "reset", "--hard", f"origin/{branch}"], cwd=directory)
+            host.check(["git", "clean", "-fd"], cwd=directory)
+            sha = host.check(["git", "rev-parse", f"origin/{base}"], cwd=directory).strip()
+            if host.succeeds(["git", "merge", "--no-ff", "-m", message, sha], cwd=directory):
+                return sha, []
+            conflicts = host.check(["git", "diff", "--name-only", "--diff-filter=U"], cwd=directory).splitlines()
+            if not conflicts:
+                host.run(["git", "merge", "--abort"], cwd=directory)
+                raise RunnerError(f"merging origin/{base} failed on {host.name}, with no conflict to resolve")
+            return sha, conflicts
+
+    def push_branch(self, project, directory, branch):
+        """Pushes a merge Kandu made itself. Never forced: a branch that moved meanwhile refuses it."""
+        self.hosts[project.machine].check(["git", "push", "origin", f"HEAD:refs/heads/{branch}"], cwd=directory)
+
+    def branch_pushed(self, project, repo, branch):
+        """Whether `branch` is on GitHub, such as a worker's that pushed but whose last message was lost."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            path = self._ensure_copy(host, project, repo)
+            host.check(["git", "fetch", "origin"], cwd=path)
+            return host.succeeds(["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
+                                 cwd=path)
+
+    def has_commit(self, project, repo, directory, branch, sha):
+        """Whether the pushed `branch` contains `sha`, such as the base commit an update round merges."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            host.check(["git", "fetch", "origin"], cwd=directory)
+        return host.succeeds(["git", "merge-base", "--is-ancestor", sha, f"origin/{branch}"], cwd=directory)
+
+    def conflict_markers(self, project, repo, directory, branch, paths):
+        """Returns which of `paths` still hold a conflict marker on the pushed branch."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            host.check(["git", "fetch", "origin"], cwd=directory)
+        ref = f"origin/{branch}"
+        found = host.run(["git", "grep", "-l", "-E", CONFLICT_MARKER, ref, "--", *paths], cwd=directory)
+        if found.returncode not in (0, 1):
+            raise RunnerError(f"git grep failed on {host.name}: {found.stderr.strip()}")
+        return [line.removeprefix(f"{ref}:") for line in found.stdout.splitlines() if line]
 
     def prepare_review(self, project, repo, branch, head_sha):
         """Returns a detached checkout of exactly `head_sha`, apart from the worker's worktree."""
@@ -291,13 +399,49 @@ class Runner:
         fd = os.open(self.logs_dir / f"{log_name}.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as log:
             try:
-                return subprocess.run(host.argv(argv, cwd), stdout=log, stderr=subprocess.STDOUT,
+                code = subprocess.run(host.argv(argv, cwd), stdout=log, stderr=subprocess.STDOUT,
                                       timeout=COMMAND_TIMEOUT_SECONDS, env=child_env()).returncode
             except subprocess.TimeoutExpired as e:
                 raise RunnerError(f"a project command timed out on {host.name}") from e
             finally:
                 if unit:
                     host.stop_scope(unit)
+        # 255 is ssh's own code, but a project's command may exit with it too: a machine that still
+        # answers says the command did, so only a machine that is gone makes it a drop
+        if host.ssh_target is not None and code == SSH_FAILED and not self.reachable(project.machine):
+            raise Unreachable(f"{host.name} dropped the connection during a project command")
+        return code
+
+    def run_test(self, project, cwd, log_name):
+        """Runs the project's `test` in `cwd` and returns its exit code, after its `setup` when the checkout needs it.
+
+        The setup runs in a checkout that never had it, and again when its `inputs` changed since, or, with no
+        `inputs`, when the head did. A mark in the checkout's own git folder says what it last set up, so the
+        project's files never show it. A setup that fails is the test's exit code, and its output is in the same log.
+        """
+        if project.setup is not None:
+            code = self._set_up(project, cwd, log_name)
+            if code != 0:
+                return code
+        return self.run_command(project, cwd, project.test, log_name)
+
+    def _set_up(self, project, cwd, log_name):
+        host = self.hosts[project.machine]
+        mark = posixpath.join(host.check(["git", "rev-parse", "--absolute-git-dir"], cwd=cwd).strip(), SETUP_MARK)
+        wanted = [project.setup.command]
+        for path in project.setup.inputs or ["HEAD"]:
+            ref = path if path == "HEAD" else f"HEAD:{path}"
+            found = host.run(["git", "rev-parse", "--verify", "--quiet", ref], cwd=cwd)
+            wanted.append(f"{path} {found.stdout.strip() if found.returncode == 0 else '-'}")
+        wanted = "\n".join(wanted) + "\n"
+        done = host.run(["cat", mark], cwd=cwd)
+        if done.returncode == 0 and done.stdout == wanted:
+            return 0
+        host.run(["rm", "-f", mark], cwd=cwd)  # a setup cut off halfway is not a setup done
+        code = self.run_command(project, cwd, project.setup.command, log_name)
+        if code == 0:
+            host.check(["sh", "-c", 'printf %s "$1" > "$2"', "sh", wanted, mark], cwd=cwd)
+        return code
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
                   schema=None, resume=None):

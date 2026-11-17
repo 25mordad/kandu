@@ -56,7 +56,8 @@ class WhatIsImportantTest(unittest.TestCase):
         for outcome, kind in (("failed", "failure"), ("deploy_failed", "failure"), ("live_check_failed", "failure"),
                               ("sizing_failed", "failure"), ("blocked", "needs_decision"),
                               ("needs_info", "needs_decision"), ("pr_closed", "needs_decision"),
-                              ("merged", "task_done"), ("stopped_by_user", None)):
+                              ("issue_closed", "needs_decision"), ("merged", "task_done"),
+                              ("replaced", "task_done"), ("stopped_by_user", None)):
             self.assertEqual(self.kind_of("task_finished", outcome=outcome, **ON_TASK), kind, outcome)
 
     def test_every_way_a_cycle_ends(self):
@@ -104,6 +105,16 @@ class WhatIsImportantTest(unittest.TestCase):
         landed = {"type": "task_finished", "outcome": "deploy_failed", "ts": "t", **ON_TASK}
         self.assertEqual(message_for(landed, queen=True).kind, "failure")
 
+    def test_a_closed_issue_reaches_the_user_even_with_the_queen_on(self):
+        event = {"type": "task_finished", "outcome": "issue_closed", "ts": "t", **ON_TASK}
+        self.assertEqual(message_for(event, queen=True).kind, "needs_decision")
+
+    def test_a_stuck_card_is_told_once_as_a_failure(self):
+        event = {"type": "card_stuck", "reason": "its issue is closed", "ts": "t", **ON_TASK}
+        message = message_for(event, queen=True)
+        self.assertEqual((message.kind, message.text), ("failure", "card_stuck"))
+        self.assertEqual(message.key, message_for(dict(event, ts="later")).key)
+
     def test_a_loop_stop_is_the_users_to_decide(self):
         event = {"type": "loop_stopped", "action": "retry", "reason": "r", "ts": "t", **ON_TASK}
         self.assertEqual(message_for(event, queen=True).kind, "needs_decision")
@@ -112,6 +123,26 @@ class WhatIsImportantTest(unittest.TestCase):
         self.assertEqual(self.kind_of("project_checked", project="site", passed=False, detail=""), "failure")
         self.assertIsNone(self.kind_of("project_checked", project="site", passed=True, detail=""))
         self.assertEqual(self.kind_of("decision", decision="over_budget", reason="", **ON_TASK), "usage_limit")
+
+    def check(self, detail, ts="2026-10-31T10:00:00+01:00"):
+        return message_for({"type": "project_checked", "project": "site", "passed": False, "detail": detail, "ts": ts})
+
+    def test_a_failed_check_says_what_failed_and_links_the_repo(self):
+        detail = f"{notify.TESTS_FAIL_IN}acme/site; {notify.LIVE_DOWN}"
+        text = notify._render(self.check(detail), "en")
+        self.assertIn("the tests fail on the default branch of acme/site; its live URL does not answer", text)
+        self.assertIn("https://github.com/acme/site/commits", text)
+        self.assertIn("آدرس زنده", notify._render(self.check(detail), "fa"))
+
+    def test_a_check_that_could_not_run_is_not_told_as_failed(self):
+        message = self.check(f"{notify.CHECK_NOT_RUN}: RunnerError")
+        self.assertEqual((message.kind, message.text), ("failure", "check_not_run"))
+        self.assertNotIn("failed the check", notify._render(message, "en"))
+
+    def test_a_check_is_told_once_a_day(self):
+        first, later = self.check(f"{notify.TESTS_FAIL_IN}acme/site"), self.check("", ts="2026-10-31T23:00:00+01:00")
+        self.assertEqual(first.key, later.key)
+        self.assertNotEqual(first.key, self.check("", ts="2026-11-01T01:00:00+01:00").key)
 
     def test_the_queen_failing_uses_the_words_the_supervisor_writes(self):
         brief = f"{queen.COULD_NOT_FINISH}: no JSON."

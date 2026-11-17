@@ -24,8 +24,10 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Bazras** | The inspector bee: a daily, read-only look at a live project's health; its findings go in a private report, never into a task by itself |
 | **Finding** (Bazras) | Something Bazras's code found wrong: a reverted Kandu commit, rework, a failed unit or cron line, new error lines in a log, failing tests or a failing check |
 | **Request** | What the user wants done, in their words, before it is a task; Didban keeps it until its tasks exist |
-| **Spec** | The issue that holds a request of several tasks: its Problem, Solution, Decisions and Out of scope. It is never work: no `agent` label, no card, never sized; each of its tasks names it and takes its Out of scope, and it closes with the last of them |
+| **Spec** | The issue that holds a request of several tasks, or any request defined with `/kandu-to-issue`: its Problem, Solution, Decisions and Out of scope. It is never work: no `agent` label, no card, never sized; each of its tasks names it and takes its Out of scope, and it closes with the last of them |
 | **Decision map** | The short list Didban shows after each round of refining a task: ✅ decided, ❓ asked now, ⏳ waits for another answer, ✂️ out of scope; refining ends when nothing is ❓ or ⏳. Didban saves it with the request after each round |
+| **Design tree** | The decisions of a request, each nested under the one it hangs off, as `/kandu-grill-with-docs` shows it; its flat copy is saved as the decision map |
+| **Frontier** | The decisions in a design tree whose parents are all settled: what can be asked now. `/kandu-grill-with-docs` asks the whole frontier at once |
 | **Family** | A group of repos that share one board |
 | **Board** | The GitHub Project of a family |
 | **Registry** | `local/projects.yaml`; a project not in it is never touched |
@@ -34,6 +36,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Ready task** | An `agent` task in `Ready` whose blockers are all done |
 | **Slice** | A task that delivers a complete path that can be verified alone |
 | **Blocker** | A review finding that the worker fixes and that stops the merge until it is gone |
+| **Blocking task** | A task named under another task's `Blocked by`; its merge must come first. Avoid: blocker (that is a review finding), dependency |
 | **Note** | A review finding that does not stop a merge. The splitter sizes it: a `Small`, `two-way` one is fixed in the same PR, and the queen parks any other in `Technical debt` |
 | **Second review** | The last review of a PR: it checks only the items the first review left for the worker, and reports nothing new |
 | **Open question** | Something a review met that the task never settled; it waits for the user's answer in Didban |
@@ -46,3 +49,8 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Check** | A read-only run the queen sends to find one thing out about a task; the run is the checker |
 | **Drop ask** | The queen's question to the user to drop one task from another's `Blocked by`, with her reason; only the user's yes on the dashboard takes it out of the issue. Off until the user turns it on |
 | **Loop guard** | The per-task limit on each of the queen's steps; past it the task stops for the user |
+| **Look** | One of the dashboard's appearances each browser chooses between, Classic, Classic new or Kandu Clean. Avoid: template, theme, skin |
+| **Classic look** | The dashboard as this install had it before Kandu Clean. Avoid: old look, original look, cards look |
+| **Classic new look** | Classic made compact: one header row, the numbers as a strip of chips, an explanation on every part. Avoid: new classic, classic 2 |
+| **Token gauge** | In the Classic new look, the small gauge under a project's name on the meadow: its tokens today against its daily token limit, red once it reaches the limit |
+| **Kandu Clean look** | The dashboard built to the Kandu Clean design. Avoid: new look, redesign |

@@ -3,14 +3,14 @@ description: Add a project to Kandu, by conversation
 ---
 Read `docs/COMMANDS.md`, then add one project to `local/projects.yaml`, in the shape of `config.example/projects.example.yaml`. A project that is not in this file is never touched.
 
-1. Read what you can: the git remote, existing boards, the test command, how it deploys, CI, PR bots, branch protection.
+1. Read what you can: the git remote, existing boards, the test command, how it deploys, CI, PR bots, branch protection. `.venv/bin/python -m kandu.add project --machine MACHINE --path PATH --dry-run` reads the repo, test command, deploy script, secrets file, forbidden folders and repo rules from the copy and changes nothing; start from its proposal and its warnings.
 2. Show the findings, then ask as one numbered list:
    1. Name, one line on what it is, and its family.
    2. Which repos, and who owns them?
    3. Which machine and path?
    4. May Kandu clone it into its work folder (`clone`), or must it work on that machine in a separate `git worktree` (`in-place`)? Always ask this.
    5. Which board? An existing board may have other column names: map them under `board.columns`. If there is none, should one be created?
-   6. The test and local run commands, and, if `permissions` in `kandu.yaml` limits the workers, any extra tools they need here (`allowed_tools`).
+   6. The test and local run commands, the `setup` a fresh checkout needs before the tests (such as `npm ci`, with `inputs: [package-lock.json]`; none if the tests run in a fresh checkout as they are), and, if `permissions` in `kandu.yaml` limits the workers, any extra tools they need here (`allowed_tools`).
    7. `direct` or `preview` deploy, and the live URL. Leave the URL out if the live software is behind a login. A deploy that pulls into a live checkout runs `<kandu>/.venv/bin/python -I <kandu>/kandu/pull.py <checkout>`, with Kandu's own path on that machine, never a plain `git pull`, so a conflict leaves the copy as it was.
    8. Where are its secrets? Store the location only. Which tokens may its tasks use, and what is each for (`task_tokens`)?
    9. Forbidden areas, such as migrations or payments.

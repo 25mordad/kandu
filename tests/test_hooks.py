@@ -146,6 +146,32 @@ class HooksTest(unittest.TestCase):
         self.commit("a.txt", "nothing here\n", verify=False)
         self.assertBlocked(self.git("push", "origin", "main", check=False))
 
+    def push_as(self, name, email):
+        remote = self.tmp / "remote.git"
+        self.git("init", "-q", "--bare", "-b", "main", str(remote))
+        self.git("remote", "add", "origin", str(remote))
+        self.git("push", "-q", "origin", "main")
+        self.git("config", "user.name", name)
+        self.git("config", "user.email", email)
+        self.commit("a.txt", "nothing here\n", verify=False)
+        return self.git("push", "origin", "main", check=False)
+
+    def test_push_passes_a_github_noreply_author_named_by_its_login(self):
+        result = self.push_as(TERM, f"12345+{TERM}@users.noreply.github.com")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_push_blocks_a_noreply_address_under_another_name(self):
+        self.assertBlocked(self.push_as("Someone", f"12345+{TERM}@users.noreply.github.com"))
+
+    def test_push_blocks_a_private_name_with_another_address(self):
+        self.assertBlocked(self.push_as(TERM, "someone@example.com"))
+
+    def test_a_noreply_author_does_not_free_the_term_in_content(self):
+        result = self.push_as(TERM, f"{TERM}@users.noreply.github.com")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.commit("b.txt", f"{TERM}\n", verify=False)
+        self.assertBlocked(self.git("push", "origin", "main", check=False))
+
     def test_push_of_clean_commits_passes(self):
         remote = self.tmp / "remote.git"
         self.git("init", "-q", "--bare", "-b", "main", str(remote))

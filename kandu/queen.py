@@ -19,12 +19,13 @@ import re
 from .github import BLOCKED_BY, HTML_COMMENT, ISSUE_REFERENCE, blockers_in
 
 # A task that ended asks nothing. The rest can come back, as the queen or the user sends the task on.
-ENDED = ("merged", "pr_closed", "stopped_by_user", "deploy_failed", "live_check_failed")
+ENDED = ("merged", "replaced", "pr_closed", "issue_closed", "stopped_by_user", "deploy_failed", "live_check_failed")
 RETRYABLE = ("failed", "blocked", "needs_info", "sizing_failed")
 LIMITED = ("retry", "rework", "verify", "new_task", "block_on")  # each one this often per task
 SENT_ON = ("rework", "verify")  # code carries these out when it next drives the task
 LARGE = "Large"
 HIGH = "High"
+# Not `issue_closed`: no step of hers can reopen an issue, so the user hears of it at once.
 NEEDS_A_LOOK = RETRYABLE + ("deploy_failed", "live_check_failed", "pr_closed")
 MOVED_ON = ("user_approved", "queen_approved", "task_picked", "task_finished", "user_resumed")
 USER_ACTED = ("task_picked", "user_approved", "question_answered", "user_resumed")  # after a loop stop, only the user moves it

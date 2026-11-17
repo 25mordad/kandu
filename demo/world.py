@@ -62,7 +62,7 @@ WORKER_STEPS = [
     ("Read", "tests/notes/list.test.ts"), ("Edit", "tests/notes/list.test.ts"), ("Bash", "npm test -- list"),
     ("Edit", "src/notes/sort.ts"), ("Edit", "src/notes/list.ts"), ("Edit", "src/settings/prefs.ts"),
     ("Bash", "npm test"), ("Bash", "git commit -m \"Sort the notes list by date\""),
-    ("Bash", "git push -u origin kandu/21-sort-the-notes-list-by-date"), ("Bash", "gh pr create --fill"),
+    ("Bash", "git push -u origin kandu/21-sort-the-notes-list-by-date"),
 ]
 FIX_STEPS = [("Read", "tests/notes/list.test.ts"), ("Edit", "tests/notes/list.test.ts"), ("Bash", "npm test"),
              ("Bash", "git commit -m \"Test notes with the same date\""), ("Bash", "git push")]

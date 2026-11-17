@@ -12,10 +12,12 @@ state/
   flights/<key>.json      a session opened from the dashboard: its link, with its tmux socket and prompt beside it
   flown/<session>.json    what one free flight or Zanbourdar session spent and did, after it ended
   gh/2026-11-03.jsonl     each gh call Kandu and its agents made that day, and samples of GitHub's limit
+  renames.json            each project rename, oldest first: `old`, `new` and `at`
 ```
 
 ## Rules
 - The event log is append-only, and nothing is ever edited. Reports such as tokens by day are computed from it.
+- A renamed project keeps its history: an event whose `project` is a rename's `old`, written at or before its `at`, is read with its `new` name, each rename in turn. The file in `events/` keeps the name it was written with.
 - Each event type has a fixed set of fields, enforced in `kandu/state.py`. The values are not inspected, so a caller must never pass a task's text, command output, a prompt or a secret.
 - Timestamps are ISO 8601 with the machine's offset. A day's file is that machine's local date.
 - A reader splits lines on `\n` only, and skips any line that does not parse: a crash can cut one off. The next event starts on a new line.
@@ -48,6 +50,7 @@ state/
 | `phase_changed` | `task`, `project`, `phase` |
 | `decision` | `task`, `project`, `decision`, `reason` |
 | `merge_held` | `task`, `project`, `head_sha`, `blockers`: recorded after a `merge_waits` decision whose only reasons are open blockers |
+| `worker_pushed` | `task`, `project`, `branch`, `pr_title`, `pr_body`: a first run's worker pushed its branch, saved before Kandu opens the PR, so a PR GitHub refused for a moment opens in a later cycle with no new worker |
 | `run_finished` | `task`, `project`, `run_id`, `role`, `models`, `duration_ms`, `is_error` |
 | `review_finished` | `task`, `project`, `run_id`, `round`, `head_sha`, `findings`, `blockers`, `door`, `criteria_met`, `wait_for_user`, `user_brief` |
 | `user_approved` | `task`, `project`, `head_sha` |
@@ -73,10 +76,21 @@ state/
 | `notification_failed` | `kind`, `key`, `reason` |
 | `project_paused` | `project` |
 | `project_resumed` | `project` |
-| `project_setting_changed` | `project`, `setting`, `old`, `new`: the user changed a project's setting in the dashboard's settings section; `old` is what it was, from the state or else the registry |
+| `machine_down` | `machine`, `since`: the machine stopped answering; an outage starts |
+| `machine_unreachable` | `machine`, `since`, `waiting`: the outage has lasted `supervisor.unreachable_alert_hours` while `waiting` tasks wait for it; once per outage, and the user hears |
+| `machine_up` | `machine`, `since`, `told`: it answers again and the outage that began at `since` ends; `told` says whether the user heard of it, and then hears of its end |
+| `project_added` | `project`: the user added a project from the dashboard's form |
+| `project_removed` | `project`: the user took a project out of Kandu, from the dashboard or with `kandu.remove` |
+| `project_renamed` | `old`, `new`: the user gave a project a new name in its settings pop-up; earlier events are read under `new` (see Rules) |
+| `machine_added` | `machine`: the user added a machine from the dashboard's form |
+| `project_setting_changed` | `project`, `setting`, `old`, `new`: the user changed a project's setting in the dashboard's settings section; `old` is what it was, from the state or else the registry. `priority`, `daily_token_limit`, `auto_merge` and `frozen` are written in the registry |
+| `pace_changed` | `old`, `new`: the user changed `wake_every_minutes` or `max_cycle_minutes` in the dashboard; each holds both values |
 | `project_setting_carried` | `project`, `setting`, `value`: the first cycle after a setting came set it in the state, once, for a project the install already had, so it keeps its earlier behaviour (`queen_answers_one_way`, true) |
 | `limits_changed` | `session`, `week` |
 | `drop_blockers_changed` | `enabled`: the user let the queen ask to drop a blocker, or stopped her, from the dashboard |
+| `notify_changed` | `events`: the kinds of news Kandu sends, as the user chose them from the dashboard |
+| `telegram_changed` | `what`: `token`, `chat` or `buttons`, which the user set from the dashboard; never the value |
+| `telegram_pressed` | `action` (`a` approve, `y` sure, `n` cancel), `task` and `result` (`asked`, `approved`, `changed`, `refused`, `cancelled`, `no_pr`, `off`, `not_your_chat`, `too_long`, `unknown`): a button pressed in Telegram |
 | `requests_shown_changed` | `enabled`: the user showed the open requests on the dashboard, or hid them |
 | `clean_merged_changed` | `enabled`: the user turned the cleanup after a merge on or off from the dashboard |
 | `parallel_changed` | `total` (or null), `projects`: name → number, for those changed |
@@ -88,11 +102,15 @@ state/
 | `spec_closed` | `task`, `project`: the last task that names the spec closed, so the spec did too |
 | `deployed` | `task`, `project`, `run_id` |
 | `project_checked` | `project`, `passed`, `detail` |
+| `check_skipped` | `project`, `machine` |
 | `project_inspected` | `project`, `run_id`, `passed`, `findings`, `judged` |
 | `inspect_changed` | `project`, `enabled`, `at` |
 | `backup_made` | `copy`, `files`, `removed` |
 | `backup_failed` | `reason` |
 | `backup_changed` | `enabled`, `at`, `destination`, `keep` |
+| `upstream_checked` | `remote`, `branch`, `behind`, `ahead`: the install's `main` counted against the upstream branch |
+| `upstream_check_failed` | `remote`, `branch`, `reason`: git could not fetch or count; the reason holds no password |
+| `upstream_task_created` | `task`, `project`, `url`, `behind`: the one task "Bring in updates" made |
 | `task_finished` | `task`, `project`, `outcome` |
 
 `role` is `supervisor`, `queen`, `bazras`, `splitter`, `worker`, `reviewer` or `live_check`; a `bazras` run has no task, and its `project` is the one it looked at. `models` maps each model a run used to its tokens:
@@ -106,7 +124,7 @@ state/
 
 The numbers come from `modelUsage` in the `result` event of `claude --output-format stream-json`.
 
-`review_finished` is written for every review round, even with no findings. `findings` and `blockers` are counts, `round` starts at 1 and `door` is `two-way` or `one-way`. The text of a finding is not logged here. The merge gate reads this event, not the PR comment, because a worker uses the same account and could write one. `wait_for_user` holds the reviewer's one-line questions; `project_checked` is the end-of-cycle check. `project_inspected` is Bazras's daily look: `findings` is a count, `judged` says whether an agent judged them, and the report itself stays in `local/reports/bazras/`, never in the log; `log-offsets.json` there remembers how far each of the project's log files was read. `inspect_changed` is the user turning Bazras on or off for a project in the dashboard; `at` is null when the project takes `bazras.at`. `backup_made` is a daily backup (DESIGN §12): `copy` is the new copy's file name, `files` how many files it holds and `removed` the names of the old copies it removed. `backup_failed` holds a reason that names no file's content; no copy was made or removed. `backup_changed` is the user setting the backup in the dashboard.
+`review_finished` is written for every review round, even with no findings. `findings` and `blockers` are counts, `round` starts at 1 and `door` is `two-way` or `one-way`. The text of a finding is not logged here. The merge gate reads this event, not the PR comment, because a worker uses the same account and could write one. `wait_for_user` holds the reviewer's one-line questions; `project_checked` is the end-of-cycle check; `check_skipped` is one that did not run because the project's machine did not answer, before or during it. `project_inspected` is Bazras's daily look: `findings` is a count, `judged` says whether an agent judged them, and the report itself stays in `local/reports/bazras/`, never in the log; `log-offsets.json` there remembers how far each of the project's log files was read. `inspect_changed` is the user turning Bazras on or off for a project in the dashboard; `at` is null when the project takes `bazras.at`. `backup_made` is a daily backup (DESIGN §12): `copy` is the new copy's file name, `files` how many files it holds and `removed` the names of the old copies it removed. `backup_failed` holds a reason that names no file's content; no copy was made or removed. `backup_changed` is the user setting the backup in the dashboard.
 
 ## current.json
 A snapshot, replaced atomically, so a reader never sees half a file.
@@ -121,6 +139,7 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 | `workers` | one object per active task: `task`, `project`, `machine`, `phase`, `started` |
 | `queen_run` | the run id of the queen while she is awake, otherwise null |
 | `waiting_for_machine` | tasks whose machine was off in the last cycle |
+| `unreachable_machines` | each machine that did not answer in the last cycle: `machine`, `since` (when its outage began) and the `tasks` that wait for it, to be sized or worked |
 
 `phase` is `implement`, `review round N`, `sizing notes` or `fix round N`.
 
@@ -132,11 +151,15 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 | `type` | `call` |
 | `caller` | the process that ran it: `supervisor`, `dashboard`, `didban`, `flight-<key>`, … |
 | `run` | the agent run it came from, if any; `run_finished` names its role and task |
+| `call` | for a call Kandu's own code made, its id: a `cost` line with the same id says what it cost |
 | `command` | the first two words, such as `pr view`; `api graphql` or `api rest` for `gh api` |
 | `kind` | `graphql` or `rest`: the hourly limit it counts against |
 | `exit` | the exit code of `gh` |
 
-No other argument is kept. The dashboard adds a `limit` line every five minutes with `graphql_used`, `graphql_reset`, `rest_used` and `rest_reset` as GitHub reports them, so points that no counted call explains came from outside Kandu. `.venv/bin/python -m kandu.ghmeter` shows a day by hour, caller and command.
+No other argument is kept. Kandu's own GraphQL queries ask GitHub what they cost, and a `cost` line keeps the answer: `call` and `points`. A call without one counts as one point, the least a call costs. The dashboard adds a `limit` line every five minutes with `graphql_used`, `graphql_reset`, `rest_used` and `rest_reset` as GitHub reports them, so points that no counted call explains came from outside Kandu. `.venv/bin/python -m kandu.ghmeter` shows a day's points by hour, caller and command.
+
+## gh/backoff.json
+Exists after GitHub refused a call for a rate limit, primary or secondary: `until` (Unix seconds), `why` (GitHub's answer, first line) and `refusals` (how many in a row). Until then no Kandu process calls GitHub, and the dashboard says when it tries again. `meter/gh` keeps it for every `gh` an agent runs too: during it, a call waits until `until` and then goes, and a rate-limit answer to an agent's call writes this file the same way. The wait is the reset GitHub gives for a spent limit; without one it is a minute, doubled with each refusal in a row, at most an hour. The first call that goes through removes the file.
 
 ## Other files
 `state/stopped` exists while the user has stopped the supervisor. `state/paused/<project>` exists while the user has paused that project. `state/project-settings.json` maps a project's name to the settings the user chose in the dashboard, such as `{"website": {"split_approval": "user", "queen_answers_one_way": true}}`; one named there wins over the registry, and one not named there comes from it. `state/settings-carried` exists once the first cycle after `queen_answers_one_way` came has carried it (`project_setting_carried`), so it runs only once. `state/bazras.json` names the project Bazras is looking at, only while it looks, and `state/bazras.lock` is held during its run. `state/clean-since` holds the time of the first cycle that had the cleanup after a merge; only a PR merged after it is cleaned up. `state/supervisor.lock` is held during a cycle, `state/split.lock` while a split is accepted. The full stream of each agent run is in `logs/<run_id>.jsonl`, readable only by Kandu's user, and is not part of this interface.

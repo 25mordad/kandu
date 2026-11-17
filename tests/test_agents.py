@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from kandu import agents
-from kandu.config import Deploy, Project, Rules
+from kandu.config import Deploy, Project, Rules, Setup
 
 GH_READS = ("gh issue view", "gh pr view", "gh pr diff")
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -20,11 +20,22 @@ RULES = Rules(allow=["Read", "Bash(git push origin {branch})"], deny=["Read(**/.
 
 class ToolsTest(unittest.TestCase):
     def test_with_no_rules_a_role_may_do_everything(self):
-        for allowed, denied in (agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a"),
-                                agents.live_check_tools(project(allowed_tools=["Bash(npm install)"])),
+        for allowed, denied in (agents.live_check_tools(project(allowed_tools=["Bash(npm install)"])),
                                 agents.role_tools()):
             self.assertIsNone(allowed)
             self.assertEqual(denied, [])
+        allowed, denied = agents.worker_tools(project(secrets_from="~/s/keys.txt"), "kandu/1-a")
+        self.assertIsNone(allowed)
+        self.assertEqual(denied, agents.KANDU_ONLY)
+
+    def test_no_worker_merges_or_opens_or_edits_a_pr_whatever_the_config_says(self):
+        rules = Rules(allow=["Bash(git *)", "Bash(gh *)"], deny=[])
+        for given in (None, rules):
+            for remote in (False, True):
+                _, denied = agents.worker_tools(project(), "kandu/1-a", given, remote)
+                for tool in ("Bash(git merge *)", "Bash(git pull *)", "Bash(git rebase *)", "Bash(gh pr create *)",
+                             "Bash(gh pr edit *)", "Bash(gh pr merge *)"):
+                    self.assertIn(tool, denied)
 
     def test_forbidden_areas_hold_even_with_no_rules(self):
         for rules in (None, RULES):
@@ -45,6 +56,13 @@ class ToolsTest(unittest.TestCase):
             self.assertIn(tool, allowed)
         allowed, _ = agents.live_check_tools(project(allowed_tools=["Bash(npm install)"]), RULES)
         self.assertIn("Bash(npm install)", allowed)
+
+    def test_a_limited_worker_and_reviewer_may_run_the_setup_and_are_told_of_it(self):
+        site = project(setup=Setup("npm ci", ["package-lock.json"]))
+        for allowed, _ in (agents.worker_tools(site, "kandu/1-a", RULES), agents.reviewer_tools(site, RULES)):
+            self.assertIn("Bash(npm ci)", allowed)
+        self.assertTrue(any("Setup command: `npm ci`" in fact for fact in agents._project_facts(site)))
+        self.assertFalse(any("Setup" in fact for fact in agents._project_facts(project())))
 
     def test_a_reviewer_runs_the_projects_tests_and_commands(self):
         self.assertEqual(agents.reviewer_tools(project(allowed_tools=["Bash(npm run check)"])), (None, []))
@@ -304,25 +322,40 @@ class QueenReportTest(unittest.TestCase):
 
 class WorkerReplyTest(unittest.TestCase):
     def test_valid(self):
-        self.assertEqual(agents.parse_worker_reply('{"status": "pr_opened", "pr": 3}\n')["pr"], 3)
+        self.assertEqual(agents.parse_worker_reply('{"status": "pushed"}\n')["status"], "pushed")
         self.assertEqual(agents.parse_worker_reply('{"status": "needs_info", "question": "q"}')["question"], "q")
         self.assertEqual(agents.parse_worker_reply('{"status": "blocked", "reason": "r"}')["reason"], "r")
 
     def test_invalid(self):
-        for text in ("Done!", "[]", '{"status": "done"}', '{"status": "needs_info"}', '{"status": "blocked"}'):
+        for text in ("Done!", "[]", '{"status": "done"}', '{"status": "needs_info"}', '{"status": "blocked"}',
+                     '{"status": "pr_opened", "pr": 3}', '{"status": "pushed", "pr_body": " "}'):
             with self.assertRaises(agents.ReplyError):
                 agents.parse_worker_reply(text)
+
+    def test_a_first_push_needs_the_prs_title_and_description(self):
+        reply = agents.parse_first_reply('{"status": "pushed", "pr_title": "Add `x`", "pr_body": "Uses `y`."}')
+        self.assertEqual(reply["pr_body"], "Uses `y`.")
+        self.assertEqual(agents.parse_first_reply('{"status": "blocked", "reason": "r"}')["reason"], "r")
+        for text in ('{"status": "pushed"}', '{"status": "pushed", "pr_title": "t"}',
+                     '{"status": "pushed", "pr_body": "b"}'):
+            with self.assertRaises(agents.ReplyError):
+                agents.parse_first_reply(text)
+
+    def test_the_description_always_closes_the_issue(self):
+        self.assertEqual(agents.closing_body("Adds `x`.", 4), "Adds `x`.\n\nCloses #4\n")
+        self.assertEqual(agents.closing_body("Fixes #4 by adding `x`.", 4), "Fixes #4 by adding `x`.")
+        self.assertEqual(agents.closing_body("Closes #41", 4), "Closes #41\n\nCloses #4\n")
 
 
 
 class WorkerReplyAfterSummaryTest(unittest.TestCase):
     def test_a_summary_above_the_json_line_is_read(self):
-        reply = agents.parse_worker_reply('Opened the PR.\n\n- one change\n\n{"status": "pr_opened", "pr": 6}\n')
-        self.assertEqual(reply, {"status": "pr_opened", "pr": 6})
+        reply = agents.parse_worker_reply('Opened the PR.\n\n- one change\n\n{"status": "pushed"}\n')
+        self.assertEqual(reply, {"status": "pushed"})
 
     def test_a_code_block_that_ends_the_summary_is_read(self):
-        text = 'Opened the PR.\n\nThings to know:\n- one change\n\n```json\n{"status": "pr_opened", "pr": 15}\n```'
-        self.assertEqual(agents.parse_worker_reply(text), {"status": "pr_opened", "pr": 15})
+        text = 'Opened the PR.\n\nThings to know:\n- one change\n\n```json\n{"status": "pushed"}\n```'
+        self.assertEqual(agents.parse_worker_reply(text), {"status": "pushed"})
         live = 'Checked the page.\n```json\n{"result": "pass", "summary": "It plays."}\n```'
         self.assertEqual(agents.parse_live_check(live)["result"], "pass")
 
@@ -334,7 +367,7 @@ class WorkerReplyAfterSummaryTest(unittest.TestCase):
 
     def test_a_code_block_in_the_middle_is_not_the_reply(self):
         with self.assertRaises(agents.ReplyError):
-            agents.parse_worker_reply('```json\n{"status": "pr_opened", "pr": 1}\n```\nThen I stopped.')
+            agents.parse_worker_reply('```json\n{"status": "pushed"}\n```\nThen I stopped.')
 
     def test_the_reask_names_what_could_not_be_read(self):
         prompt = agents.reask_prompt(agents.ReplyError("worker reply is not JSON"))
@@ -362,4 +395,8 @@ class OpenBlockersTest(unittest.TestCase):
         project = load_config(root).projects[0]
         text = agents.worker_prompt(project, "o/r", 3, "b", "r-1", local_dir=root, open_blockers=["o/r#2"])
         self.assertIn("blocked by o/r#2", text)
+        self.assertIn("Do not merge their branches", text)
+        self.assertNotIn("merge their PR's branch", text)
+        for step in ("gh pr create", "gh pr edit", "gh pr merge", "git pull", "git rebase", "open a PR"):
+            self.assertNotIn(step, text)
         self.assertNotIn("Blockers not merged", agents.worker_prompt(project, "o/r", 3, "b", "r-1", local_dir=root))

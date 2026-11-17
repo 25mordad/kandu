@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import socket
+import subprocess
 import tempfile
 import threading
 import time
@@ -28,6 +29,7 @@ TOKEN = "secret-token"
 SESSION_A = "11111111-2222-3333-4444-555555555555"
 SESSION_B = "99999999-2222-3333-4444-555555555555"
 USAGE = {"session": 5, "week": 6}
+NODE = shutil.which("node")
 
 
 def assistant_line(*tools):
@@ -62,6 +64,23 @@ class ReadTest(Base):
         self.assertEqual((status, body["supervisor"], body["stop_requested"]), (200, "asleep", False))
         self.assertEqual(body["limits"], {"session": 70, "week": 60})
         self.assertEqual(body["language"], "en")
+
+    def test_state_says_while_github_refuses_calls_and_when_kandu_tries_again(self):
+        from kandu.ghlimit import Gate
+        now = [1_800_000_000.0]
+        self.api.gate = Gate(self.root / "backoff.json", clock=lambda: now[0], lookup=lambda: None)
+        self.assertIsNone(self.get("/api/v1/state")[1]["github_refused"])
+        self.api.gate.refused("GraphQL: API rate limit already exceeded for user ID 1.")
+        refused = self.get("/api/v1/state")[1]["github_refused"]
+        self.assertEqual(datetime.fromisoformat(refused["at"]).timestamp(), now[0] + 60)
+        self.assertIn("rate limit", refused["why"])
+        now[0] += 60
+        self.assertIsNone(self.get("/api/v1/state")[1]["github_refused"])
+
+    def test_the_header_says_while_github_refuses_calls(self):
+        page = (ROOT / "kandu" / "dashboard.html").read_text(encoding="utf-8")
+        self.assertIn('const refused = githubRefused(s);', page)
+        self.assertIn('refused ? "refused"', page)
 
     def test_state_lists_every_project_by_priority(self):
         order = self.get("/api/v1/state")[1]["project_order"]
@@ -213,6 +232,14 @@ class ReadTest(Base):
         self.assertEqual([t["task"] for t in answer["projects"]["website"]["Done"]], [f"{REPO}#1"])
         self.assertEqual(answer["done_days"], 5)
 
+    def test_a_done_task_says_when_it_closed(self):
+        when = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.github.board_items.return_value = [BoardItem(REPO, 1, "t", "u", "Done", ["agent"], "", closed_at=when),
+                                                BoardItem(REPO, 2, "t", "u", "Ready", ["agent"], "")]
+        website = self.get("/api/v1/queue")[1]["projects"]["website"]
+        self.assertEqual(website["Done"][0]["closed_at"], when)
+        self.assertNotIn("closed_at", website["Ready"][0])
+
     def test_a_task_says_what_it_was_and_what_it_cost(self):
         self.github.issue_text.return_value = {"title": "Big", "body": "Why", "url": "u"}
         usage = {"opus": {"input": 10, "output": 20, "cache_read": 100, "cache_creation": 5}}
@@ -228,6 +255,23 @@ class ReadTest(Base):
         self.assertEqual((answer["cost"]["runs"], answer["cost"]["duration_ms"]), (3, 180000))
         self.assertEqual(answer["cost"]["total"]["cache_read"], 300)
         self.assertEqual(answer["cost"]["roles"]["worker"]["runs"], 2)
+
+    def test_a_task_lists_its_steps_so_far_oldest_first_with_their_times(self):
+        self.github.issue_text.return_value = {"title": "Big", "body": "Why", "url": "u"}
+        usage = {"opus": {"input": 10, "output": 20, "cache_read": 100, "cache_creation": 5}}
+        self.store.record("task_sized", task=f"{REPO}#1", project="website", run_id="r-0", size="Medium", files=3,
+                          door="two-way", criteria=2, slices=None)
+        self.store.record("phase_changed", task=f"{REPO}#2", project="website", phase="implement")  # another task
+        self.store.record("phase_changed", task=f"{REPO}#1", project="website", phase="implement")
+        self.store.record("run_finished", task=f"{REPO}#1", project="website", run_id="r-1", role="worker",
+                          models=usage, duration_ms=60000, is_error=False)
+        steps = self.get(f"/api/v1/tasks/{REPO}/1")[1]["steps"]
+        self.assertEqual([(s["type"], s.get("phase"), s.get("run_id")) for s in steps],
+                         [("task_sized", None, "r-0"), ("phase_changed", "implement", None), ("run_finished", None, "r-1")])
+        self.assertTrue(all(datetime.fromisoformat(s["ts"]) for s in steps))
+        self.assertEqual(steps[0]["size"], "Medium")
+        self.assertNotIn("models", steps[2])  # the tokens stay in the cost
+        self.assertEqual(self.get(f"/api/v1/tasks/{REPO}/3")[1]["steps"], [])
 
     def test_a_task_outside_the_config_is_not_read(self):
         self.assertEqual(self.get("/api/v1/tasks/x/y/1")[0], 404)
@@ -758,6 +802,18 @@ class ControlTest(Base):
         self.assertEqual(self.store.last_event("user_resumed")["task"], f"{REPO}#1")
         self.assertIsNone(self.store.last_event("user_approved"))
 
+    def test_send_back_reads_github_fresh_and_never_resumes_a_closed_issue(self):
+        self.reviewed(status="Blocked")
+        self.github.issue_is_open.return_value = False
+        status, body = self.post(f"/api/v1/tasks/{REPO}/1/send-back")
+        self.assertEqual((status, body["error"]), (409, "its issue is closed"))
+        self.github.refresh_repo.assert_called_with(REPO)
+        self.github.set_status.assert_not_called()
+        self.github.issue_is_open.return_value = True
+        self.github.refresh_repo.side_effect = GitHubError("HTTP 502")
+        self.assertEqual(self.post(f"/api/v1/tasks/{REPO}/1/send-back")[0], 503)
+        self.github.set_status.assert_not_called()
+
     def test_a_task_that_could_not_be_sized_goes_back_to_be_sized(self):
         self.reviewed(status="Needs info")
         self.api.start_cycle = mock.Mock(return_value=None)
@@ -805,11 +861,14 @@ class ControlTest(Base):
         self.api.config.projects[0].priority, self.api.config.projects[1].priority = 2, 1
         self.store.pause_project("internal-tool")
         self.api.config.projects[0].paused = True
-        self.assertEqual(self.get("/api/v1/state")[1]["project_settings"], [
+        keys = ("name", "paused", "paused_in_config", "split_approval", "queen_answers_one_way", "priority")
+        rows = self.get("/api/v1/state")[1]["project_settings"]
+        self.assertEqual([{key: row[key] for key in keys} for row in rows], [
             {"name": "website", "paused": True, "paused_in_config": True, "split_approval": "user",
-             "queen_answers_one_way": False},
+             "queen_answers_one_way": False, "priority": 2},
             {"name": "internal-tool", "paused": True, "paused_in_config": False, "split_approval": "user",
-             "queen_answers_one_way": False}])
+             "queen_answers_one_way": False, "priority": 1}])
+        self.assertEqual(set(rows[0]), set(keys) | {"max_parallel_workers", "daily_token_limit", "auto_merge", "frozen"})
 
     def test_the_split_switch_is_kept_wins_over_the_registry_and_is_logged(self):
         self.api.config.projects[0].split_approval = "queen"
@@ -961,14 +1020,9 @@ class HiveTest(unittest.TestCase):
             self.assertIn(f'"{column}":', flowers)
 
     def test_a_finished_task_fills_the_comb_and_opens_its_cost(self):
-        self.assertIn('<div id="comb"', self.page)
+        self.assertIn('<div id="hivebox"', self.page)
         self.assertIn('class="cell full" data-review=', self.page)
         self.assertIn('get(`/tasks/${repo}/${number}`)', self.page)
-
-    def test_the_meadow_is_the_first_tab(self):
-        tabs = re.findall(r'data-tab="(\w+)"', self.page)
-        self.assertEqual(tabs[0], "meadow")
-        self.assertIn('tab = "meadow"', self.page)
 
     def test_every_flower_has_a_sign_and_a_place_in_the_legend(self):
         signs = re.search(r"const SIGNS = \{(.*?)\n\};", self.page, re.DOTALL).group(1)
@@ -1034,23 +1088,23 @@ class ByHandPageTest(unittest.TestCase):
         self.assertIn('entry(bloom("Backlog", 0, HAND), t("by_hand_yours")', legend)
 
     def test_no_by_hand_flower_is_called_unsized(self):
-        self.assertIn('size || item.column === "Technical debt" || item.by_hand ? null : [MARKS.unsized]', self.page)
+        self.assertIn('size || item.column === "Technical debt" || item.by_hand ? null : {key: "unsized", drawing: MARKS.unsized}', self.page)
 
     def test_its_state_reads_by_hand_waits_for_you_in_both_languages(self):
         self.assertEqual(self.text["en"]["by_hand_yours"], "By hand, waits for you")
         self.assertEqual(self.text["fa"]["by_hand_yours"], "دستی، منتظر توست")
         self.assertNotIn("ملکه", self.text["fa"]["by_hand_yours"])
         self.assertIn('item.yours ? t("by_hand_yours")', self.page)  # In place of the column's name.
-        rows = self.page.split("function projectCard(")[1].split("\n}\n")[0]
-        self.assertIn("stateBadge(item)", rows)
-        dialog = self.page.split("async function showReviews(")[1].split("\n}\n")[0]
-        self.assertEqual(dialog.count("stateBadge(item)"), 2)  # With a PR and without one.
-        self.assertNotIn("badge(item.column)", dialog)
+        rows = self.page.split("function taskRow(")[1].split("\n}\n")[0]
+        self.assertIn("stateText(item)", rows)
+        sheet = self.page.split("function sheetView(")[1].split("\n}\n")[0]
+        self.assertIn("stateText(item)", sheet)  # With a PR and without one.
+        self.assertNotIn("badge(item.column)", sheet)
 
-    def test_its_dialog_shows_the_chip_that_it_waits_for_you(self):
-        self.assertIn("const yoursChip = (task, item) => item?.yours || lastState?.flowers?.[task]?.yours", self.page)
-        dialog = self.page.split("async function showReviews(")[1].split("\n}\n")[0]
-        self.assertEqual(dialog.count("yoursChip(task, item)"), 2)
+    def test_its_sheet_says_that_it_waits_for_you(self):
+        sheet = self.page.split("function sheetView(")[1].split("\n}\n")[0]
+        self.assertIn("const wait = waitItems(s, queue).find(entry => entry.task === task);", sheet)
+        self.assertIn("state: wait && !wait.stuck ? wait.kind", sheet)  # "By hand, waits for you"
 
     def test_its_dialog_explains_it_and_shows_its_goal_and_criteria_in_both_languages(self):
         for language in ("en", "fa"):
@@ -1070,8 +1124,8 @@ class ByHandPageTest(unittest.TestCase):
         self.assertIn('part(t("issue_goal"), item.goal)', box)
         self.assertIn('part(t("issue_criteria"), item.criteria)', box)
         self.assertNotIn("<textarea", box)  # Read-only.
-        dialog = self.page.split("async function showReviews(")[1].split("\n}\n")[0]
-        self.assertEqual(dialog.count("byHandBox(item)"), 2)
+        sheet = self.page.split("function sheetBody(")[1].split("\n}\n")[0]
+        self.assertEqual(sheet.count("byHandBox(v.item)"), 1)
 
 
 class HeldByBlockerTest(Base):
@@ -1237,10 +1291,38 @@ class LanguageTest(unittest.TestCase):
         values.append(f"it waits for {REPO}#2, {REPO}#3 to merge first")
         from kandu import clean, runner
         values += [runner.KEPT_UNCOMMITTED, runner.KEPT_UNPUSHED, runner.KEPT_NOT_WORKTREE, runner.KEPT_CHECKED_OUT,
-                   clean.KEPT_PUSHED_AFTER, "clean_failed", "folder", "branch", "remote_branch"]
+                   clean.KEPT_PUSHED_AFTER, clean.FLIGHT_QUIET, "clean_failed", "folder", "branch", "remote_branch"]
         missing = [v for v in values if not self.translate(v)]
         self.assertEqual(missing, [])
 
+
+    def text_fields(self):
+        """Every text, search and password field of the page, written in its HTML or drawn by its script."""
+        fields = re.findall(r"<input\b[^>]*>", self.page)
+        typed = [(re.search(r'\btype="(\w+)"', f), f) for f in fields]
+        return [f for kind, f in typed if kind is None or kind.group(1) in ("text", "search", "password")]
+
+    def direction(self, field_id):
+        field = re.search(rf'<input id="{field_id}"[^>]*>', self.page).group(0)
+        found = re.search(r'\bdir="(\w+)"', field)
+        return found and found.group(1)
+
+    def test_every_text_and_password_field_has_its_direction_set(self):
+        fields = self.text_fields()
+        self.assertGreaterEqual(len(fields), 3)
+        self.assertEqual([f for f in fields if not re.search(r'\bdir="(ltr|rtl|auto)"', f)], [])
+
+    def test_the_control_token_writes_left_to_right_in_both_languages(self):
+        self.assertEqual(self.direction("token"), "ltr")
+
+    def test_the_search_box_follows_the_direction_of_what_is_typed(self):
+        self.assertEqual(self.direction("search"), "auto")
+        self.assertRegex(self.page, r'\[dir="auto"\] \{[^}]*unicode-bidi:plaintext')
+
+    def test_the_fields_that_had_a_direction_keep_it(self):
+        self.assertEqual(self.direction("backupat"), "ltr")
+        self.assertEqual(self.direction("backupdestination"), "ltr")
+        self.assertRegex(self.page, r'<input type="time"[^>]*data-inspect-at=[^>]*dir="ltr">')
 
     def test_every_reason_a_merge_waits_has_a_persian_form(self):
         gate = (ROOT / "kandu" / "merge.py").read_text(encoding="utf-8")
@@ -1249,6 +1331,281 @@ class LanguageTest(unittest.TestCase):
                    f"companion {REPO}#3 is open and unreviewed", f"blocker {REPO}#2 is not merged yet",
                    "the tests fail on this head"]
         self.assertEqual([v for v in values if not self.translate(v)], [])
+
+
+class FrameTest(unittest.TestCase):
+    """The Kandu Clean look: its frame, header, tabs, phone bar, More menu and Stop dialog (#43). Classic is in test_looks."""
+    # The design's colour tokens, light and dark (docs/design/kandu-clean.dc.html).
+    TOKENS = {
+        "bg": ("#F7F6F3", "#141413"), "surface": ("#FFFFFF", "#1C1C1A"), "surface2": ("#F0EFEB", "#262624"),
+        "line": ("#E6E4DE", "#32312E"), "ink": ("#1A1A18", "#EDECE8"), "ink2": ("#66655F", "#A6A59F"),
+        "ink3": ("#9A9993", "#76756F"), "dot": ("#CFCDC6", "#4E4D49"), "honey": ("#F5B301", None),
+        "honey-ink": ("#1A1A18", None), "honey-soft": ("#FDF1CC", "#3A2F12"), "amber": ("#B4500A", "#F2A05C"),
+        "amber-soft": ("#FBEBDD", "#3A2516"), "red": ("#BC392C", "#F0796C"), "red-soft": ("#F9E1DE", "#3D1E1B"),
+        "green": ("#2E7B4D", "#6CC38F"), "green-soft": ("#E0F0E6", "#1B3124"), "blue": ("#2F62B0", "#86A9EE"),
+        "blue-soft": ("#E2EAF7", "#1C2638"),
+    }
+    WAKE = "2026-11-15T21:22:00+00:00"
+
+    def setUp(self):
+        self.page = dashboard.PAGE.read_text(encoding="utf-8")
+        text = re.search(r'<script type="application/json" id="text">(.*?)</script>', self.page, re.DOTALL)
+        self.text = json.loads(text.group(1))
+        self.style = self.page.split("<style>")[1].split("</style>")[0]
+        self.header = self.page.split('<header class="top">')[1].split("</header>")[0]
+
+    def function(self, name):
+        begin = self.page.index(f"function {name}(")
+        if self.page[begin - 6:begin] == "async ":
+            begin -= 6
+        return self.page[begin:self.page.index("\n}\n", begin) + 2]
+
+    def line(self, start):
+        return next(line for line in self.page.splitlines() if line.startswith(start)) + "\n"
+
+    def run_js(self, lang, script):
+        """Runs the page's own functions in node, with its texts, in `lang`."""
+        prelude = (f"const TEXT = {json.dumps(self.text)};\nlet lang = {json.dumps(lang)};\nlet flights = {{open: [], flown: []}};\n"
+                   + "".join(self.line(start) for start in (
+                       "const esc = ", "const locale = ", "const t = ", "const num = ", "const when = ", "const clock = ",
+                       "const githubRefused = ", "const bdi = ", "const pct = "))
+                   + "".join(self.function(name) for name in ("tr", "stateChip", "stopText", "moreItems", "gauge", "chooseMore")))
+        done = subprocess.run([NODE, "-"], input=prelude + script, capture_output=True, text=True, timeout=30,
+                              env={**os.environ, "TZ": "UTC"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def state(self, **fields):
+        return {"supervisor": "asleep", "next_wake": self.WAKE, "usage": {"session": 10, "week": 20},
+                "limits": {"session": 80, "week": 90}, "timer_on": True, "stop_requested": False, "workers": []} | fields
+
+    # Nothing of the honeycomb look; its switch goes only to the Classic look.
+
+    def test_it_has_nothing_of_the_honeycomb_look_and_switches_only_to_the_classic_look(self):
+        self.assertIn('<button id="look" class="btn plain head-wide" aria-haspopup="dialog">', self.page)  # the Look menu's
+        self.assertNotIn("dataset.look", self.page)
+        for gone in ("LOOK_KEY", "setLook", "applyLook", "hexCell", "HONEY_", "pcell", "shelf", 'id="honey"', "honey-stripes"):
+            self.assertNotIn(gone, self.page, gone)
+        for key in ("look_cards", "look_switch", "hive_with_tasks", "hive_no_tasks", "legend_cell_sizes"):
+            self.assertNotIn(key, self.text["en"], key)
+        self.assertEqual([key for key in self.text["en"] if key.startswith("look_")], ["look_hint"])
+
+    def test_design_says_the_frame_is_the_kandu_clean_looks(self):
+        section = (ROOT / "DESIGN.md").read_text(encoding="utf-8").split("## 7. Dashboard")[1].split("\n## 8.")[0]
+        frame = next(line for line in section.splitlines() if line.startswith("- **Frame:**"))
+        self.assertIn("the Kandu Clean look has the Kandu Clean design's frame", frame)
+        self.assertIn("More", frame)
+        self.assertIn("the Classic look", frame)
+
+    # The header and the tabs on a wide screen.
+
+    def test_the_wide_header_holds_the_designs_parts_in_its_order(self):
+        order = ['class="mark"', 'id="pulse"', 'id="gauges"', 'id="stop"', 'id="wake"', 'id="didbanbox"', 'id="more"', 'id="lang"']
+        places = [self.header.index(part) for part in order]
+        self.assertEqual(places, sorted(places))
+        for gone in ('id="reload"', 'id="restart"', 'id="zanbourdarbox"'):  # They moved to More.
+            self.assertNotIn(gone, self.header)
+
+    def test_the_usage_bars_show_each_usage_against_its_limit(self):
+        gauges = self.function("gauges")
+        self.assertIn('gauge(t("session"), s.usage?.session, s.limits.session)', gauges)
+        self.assertIn('gauge(t("week"), s.usage?.week, s.limits.week)', gauges)
+        self.assertIn('$("gauges").innerHTML = gauges(s);', self.page)
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_a_usage_bar_shows_its_usage_amber_at_or_over_its_limit(self):
+        cases = {"below": 79, "at": 80, "above": 95, "unknown": None, "past_full": 130}
+        bars = self.run_js("en", f"console.log(JSON.stringify(Object.fromEntries(Object.entries({json.dumps(cases)}).map(([k, v]) => [k, gauge(\"Week\", v, 80)]))));")
+        def look(bar):
+            return {"over": 'class="gauge over"' in bar, "shown": re.search(r"<b>(.*?)</b>", bar).group(1),
+                    "width": re.search(r'<i style="width:([^"]*)%"', bar).group(1),
+                    "limit": re.search(r'<b style="inset-inline-start:([^"]*)%"', bar).group(1)}
+        self.assertEqual(look(bars["below"]), {"over": False, "shown": "79%", "width": "79", "limit": "80"})
+        self.assertEqual(look(bars["at"]), {"over": True, "shown": "80%", "width": "80", "limit": "80"})
+        self.assertEqual(look(bars["above"]), {"over": True, "shown": "95%", "width": "95", "limit": "80"})
+        self.assertEqual(look(bars["unknown"]), {"over": False, "shown": "—", "width": "0", "limit": "80"})
+        self.assertEqual(look(bars["past_full"]), {"over": True, "shown": "130%", "width": "100", "limit": "80"})
+        self.assertIn("Week · limit 80%", bars["below"])
+        persian = self.run_js("fa", 'console.log(JSON.stringify(gauge("هفته", 45, 80)));')
+        self.assertIn("<b>۴۵٪</b>", persian)
+
+    def test_didban_is_marked_while_a_session_is_open(self):
+        head = self.function("didbanHead")
+        self.assertIn('class="btn didban open"', head)
+        self.assertIn('<i class="dot"', head)
+        self.assertIn('$("didbanbox").innerHTML = didbanHead(', self.page)
+
+    def test_the_tabs_are_today_tasks_bazras_settings_daily_usage_and_live_stream(self):
+        tabs = self.page.split('<nav class="tabs" role="tablist">')[1].split("</nav>")[0]
+        found = re.findall(r'data-tab="(\w+)" data-t="(\w+)"', tabs)
+        self.assertEqual([self.text["en"][key] for _, key in found],
+                         ["Today", "Tasks", "Bazras", "Settings", "Daily usage", "Live stream"])
+        for name, _ in found:  # A page not yet rebuilt keeps its content, in a panel of its own.
+            self.assertIn(f'<section data-panel="{name}"', self.page)
+        self.assertEqual(found[0][0], "today")
+        self.assertIn('tab = "today"', self.page)
+        for panel, content in (("today", 'id="scene"'), ("tasks", 'id="projects"'), ("bazras", 'id="bazrasreports"'),
+                               ("settings", 'id="projectsettings"'), ("days", 'id="usage"'), ("activity", 'id="live"')):
+            section = self.page.split(f'<section data-panel="{panel}"')[1].split("</section>")[0]
+            self.assertIn(content, section, panel)
+
+    def test_a_tab_saved_under_its_old_name_opens_the_same_page(self):
+        self.assertIn('const OLD_TABS = {meadow: "today", work: "tasks"};', self.page)
+        self.assertIn("OLD_TABS[chosen] || chosen", self.function("showTab"))
+
+    # A phone.
+
+    def test_a_phone_has_a_compact_header_and_a_bottom_bar(self):
+        phone = self.style.split("@media (max-width: 760px) {")[1].split("\n}\n")[0]
+        self.assertRegex(phone, r"\.head-wide, \.tabs \{ display:none !important; \}")
+        self.assertRegex(phone, r"\.bottombar \{ display:grid; \}")
+        self.assertRegex(self.style, r"\.bottombar \{[^}]*display:none;[^}]*grid-template-columns:repeat\(4, minmax\(0, 1fr\)\)")
+        for part in ('class="mark"', 'id="pulse"', 'id="stop"', 'id="more"'):  # what stays on a phone
+            tag = self.header.split(part)[0].rsplit("<", 1)[1] + part + self.header.split(part)[1].split(">")[0]
+            self.assertNotIn("head-wide", tag, part)
+        for part in ('id="gauges"', 'id="wake"', 'id="didbanbox"', 'id="lang"'):
+            tag = self.header.split(part)[0].rsplit("<", 1)[1] + part + self.header.split(part)[1].split(">")[0]
+            self.assertIn("head-wide", tag, part)
+        bar = self.page.split('<nav class="bottombar"')[1].split("</nav>")[0]
+        self.assertEqual(re.findall(r'data-tab="(\w+)"', bar), ["today", "tasks", "settings"])
+        self.assertIn('id="morenav"', bar)
+        self.assertIn('id="waitcount"', bar.split('data-tab="today"')[1].split("</button>")[0])
+
+    def test_today_counts_what_waits_for_the_user_in_the_bottom_bar(self):
+        count = self.function("renderWaitCount")
+        self.assertIn('$("waitcount").textContent = num(waiting);', count)
+        self.assertIn('$("waitcount").hidden = !waiting;', count)
+        self.assertIn("renderWaitCount(s.waits_for_you || 0);", self.page)
+
+    def test_nothing_pushes_a_phone_page_sideways(self):
+        self.assertRegex(self.style, r"\.bar \{[^}]*flex-wrap:wrap")
+        self.assertRegex(self.style, r"\.gauges \{[^}]*min-width:0;[^}]*overflow:hidden")
+        self.assertRegex(self.style, r"\.tabs \{[^}]*overflow-x:auto")
+        self.assertRegex(self.style, r"\.settings \{[^}]*flex-wrap:wrap")
+
+    # The state chip.
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_the_chip_says_awake_asleep_holding_or_stopped_with_the_next_wake(self):
+        cases = {
+            "awake": self.state(supervisor="awake"),
+            "asleep": self.state(),
+            "holding": self.state(usage={"session": 85, "week": 20}),
+            "holding_week": self.state(usage={"session": 1, "week": 90}),
+            "stopped": self.state(stop_requested=True),
+            "timer_off": self.state(timer_on=False, next_wake=None),
+        }
+        chips = self.run_js("en", f"console.log(JSON.stringify(Object.fromEntries(Object.entries({json.dumps(cases)}).map(([k, s]) => [k, stateChip(s)]))));")
+        self.assertEqual(chips["awake"], {"kind": "awake", "short": "Awake", "long": "Awake · wakes 21:22"})
+        self.assertEqual(chips["asleep"], {"kind": "asleep", "short": "Asleep", "long": "Asleep · wakes 21:22"})
+        self.assertEqual(chips["holding"], {"kind": "holding", "short": "Asleep", "long": "Holding at a usage limit · wakes 21:22"})
+        self.assertEqual(chips["holding_week"]["kind"], "holding")
+        self.assertEqual(chips["stopped"], {"kind": "stopped", "short": "Stopped", "long": "Stopped"})
+        self.assertEqual(chips["timer_off"]["long"], "Asleep · timer off")
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_the_chip_reads_in_persian(self):
+        chip = self.run_js("fa", f"console.log(JSON.stringify(stateChip({json.dumps(self.state())})));")
+        self.assertEqual(chip["short"], "خواب")
+        self.assertIn("۲۱:۲۲", chip["long"])
+
+    # More.
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_more_lists_what_the_frame_does_not_show(self):
+        open_ = [{"kind": "didban", "status": "open", "key": "didban-1", "url": "https://claude.ai/code/x"},
+                 {"kind": "zanbourdar", "status": "open", "key": "zan-1", "url": "https://claude.ai/code/y"}]
+        menus = self.run_js("en", f"""
+const pick = items => items.map(i => i.label);
+console.log(JSON.stringify({{phone: pick(moreItems([], false)), wide: pick(moreItems([], true)),
+  phoneOpen: moreItems({json.dumps(open_)}, false), wideOpen: pick(moreItems({json.dumps(open_)}, true))}}));""")
+        self.assertEqual(menus["phone"], ["Wake the queen", "Read the board", "Restart Kandu", "Open Didban", "Open Zanbourdar",
+                                          "Bazras", "Daily usage", "Live stream", "Look", "فارسی"])
+        self.assertEqual(menus["wide"], ["Read the board", "Restart Kandu", "Open Zanbourdar", "Bazras", "Daily usage",
+                                         "Live stream", "Look", "فارسی"])
+        self.assertEqual(menus["wideOpen"], ["Read the board", "Restart Kandu", "Close Didban", "Go to Zanbourdar",
+                                             "Close Zanbourdar", "Bazras", "Daily usage", "Live stream", "Look", "فارسی"])
+        items = {i["label"]: i for i in menus["phoneOpen"]}
+        self.assertEqual(items["Go to Didban"]["href"], "https://claude.ai/code/x")
+        self.assertEqual(items["Close Didban"]["attrs"], 'data-land="didban-1"')
+        self.assertEqual(items["Restart Kandu"]["attrs"], 'data-menu="restart"')
+        self.assertEqual(items["Restart Kandu"]["hint"], "asks first")
+        self.assertEqual(items["Bazras"]["attrs"], 'data-tab="bazras"')
+        self.assertEqual(items["Daily usage"]["attrs"], 'data-tab="days"')
+        self.assertEqual(items["Live stream"]["attrs"], 'data-tab="activity"')
+
+    def test_more_opens_from_the_header_and_the_bottom_bar(self):
+        self.assertIn('$("more").onclick = $("morenav").onclick = openMore;', self.page)
+        self.assertIn('$("moremenu").showModal();', self.function("openMore"))
+        self.assertIn('<dialog id="moremenu"', self.page)
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_each_more_action_does_its_work_then_closes_the_menu(self):
+        done = self.run_js("en", """
+const calls = [];
+const dialogs = {};
+const $ = id => dialogs[id] ||= {close: () => calls.push(`close ${id}`), showModal: () => calls.push(`open ${id}`)};
+let lastState = {supervisor: "asleep"};
+const act = async (button, path) => calls.push(`act ${button.dataset.menu} ${path}`);
+const busy = async (button, work) => { calls.push(`busy ${button.dataset.menu}`); await work(); };
+const refreshQueue = async (state, force) => calls.push(`refreshQueue ${state === lastState} ${force}`);
+const setLanguage = chosen => calls.push(`setLanguage ${chosen}`);
+(async () => {
+  const runs = {};
+  for (const what of ["wake", "reload", "restart", "lang"]) {
+    calls.length = 0;
+    await chooseMore({dataset: {menu: what}});
+    runs[what] = [...calls];
+  }
+  console.log(JSON.stringify(runs));
+})();""")
+        self.assertEqual(done["wake"], ["act wake /wake", "close moremenu"])
+        self.assertEqual(done["reload"], ["busy reload", "refreshQueue true true", "close moremenu"])
+        self.assertEqual(done["restart"], ["close moremenu", "open restartbox"])
+        self.assertEqual(done["lang"], ["close moremenu", "setLanguage fa"])
+
+    def test_restart_asks_first(self):
+        self.assertIn('$("restartnow").onclick = e => confirmed(e.currentTarget, "/restart", "restartbox");', self.page)
+        box = self.page.split('<dialog id="restartbox"')[1].split("</dialog>")[0]
+        self.assertIn('value="no" data-t="cancel"', box)
+
+    # Stop.
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_stop_says_how_many_bees_stop_and_that_work_stays_on_its_branch(self):
+        texts = self.run_js("en", """console.log(JSON.stringify([0, 1, 3].map(n => stopText({workers: Array(n).fill({})}))));""")
+        kept = "Work in progress stays on its branch, and nothing new starts until you resume Kandu."
+        self.assertEqual(texts, [f"No bee is at work. {kept}", f"1 bee stops now. {kept}", f"3 bees stop now. {kept}"])
+        persian = self.run_js("fa", """console.log(JSON.stringify(stopText({workers: Array(3).fill({})})));""")
+        self.assertIn("۳", persian)
+
+    def test_stop_asks_first_and_stop_now_stops_as_stop_did(self):
+        self.assertIn('$("stop").onclick = askStop;', self.page)
+        self.assertIn('$("stoptext").textContent = stopText(lastState || {});', self.function("askStop"))
+        self.assertIn('$("stopnow").onclick = e => confirmed(e.currentTarget, "/stop", "stopbox");', self.page)
+        box = self.page.split('<dialog id="stopbox"')[1].split("</dialog>")[0]
+        self.assertIn('value="no" data-t="keep_running"', box)  # closes it and changes nothing
+        self.assertIn('id="stopnow"', box)
+        self.assertEqual((self.text["en"]["keep_running"], self.text["en"]["stop_now"]), ("Keep running", "Stop now"))
+        self.assertIn("await act(button, path);\n  $(box).close();", self.function("confirmed"))
+
+    # Colours.
+
+    def test_the_colours_are_the_designs_tokens_in_light_and_dark(self):
+        root = self.style.split(":root {")[1].split("}")[0]
+        dark = self.style.split("@media (prefers-color-scheme: dark) { :root {")[1].split("}")[0]
+        for name, (light, night) in self.TOKENS.items():
+            self.assertRegex(root, rf"--{name}:{light};", name)
+            if night:
+                self.assertRegex(dark, rf"--{name}:{night};", name)
+        self.assertIn("color-scheme:light dark;", root)
+
+    def test_the_new_words_read_in_both_languages(self):
+        for key in ("tab_today", "keep_running", "stop_now", "stop_ask", "stop_none", "stop_one", "stop_many", "stop_kept",
+                    "restart_ask", "restart_why", "restart_now", "chip_awake", "chip_asleep", "chip_holding", "chip_stopped",
+                    "chip_wakes", "chip_timer_off", "hint_restart", "hint_land", "hint_zanbourdar", "hint_bazras",
+                    "hint_usage", "hint_live", "hint_language", "hint_didban"):
+            self.assertEqual(self.page.count(f'"{key}": '), 2, key)
 
 
 class StreamTest(Base):
@@ -1293,6 +1650,16 @@ class ServerTest(Base):
         request.add_header("Authorization", f"Bearer {TOKEN}")
         with urllib.request.urlopen(request) as r:
             self.assertEqual(json.load(r), {"stop_requested": True})
+
+    def test_a_body_too_long_is_refused_whole_and_nothing_is_done(self):
+        body = b"x=" + b"a" * dashboard.MAX_BODY
+        request = urllib.request.Request(self.base + "/api/v1/stop", data=body, method="POST")
+        request.add_header("Authorization", f"Bearer {TOKEN}")
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(request)
+        self.assertEqual(caught.exception.code, 413)
+        caught.exception.close()
+        self.assertFalse(self.store.stop_file.exists())
 
     def test_stream_sends_new_events(self):
         with mock.patch("kandu.dashboard.STREAM_POLL_SECONDS", 0.01):
@@ -1451,8 +1818,8 @@ class CleanMergedTest(Base):
 
     def test_the_settings_section_has_its_switch(self):
         page = (ROOT / "kandu" / "dashboard.html").read_text(encoding="utf-8")
-        self.assertIn("data-clean-merged", page)
-        self.assertIn("/clean-merged?enabled=", page)
+        self.assertIn('flag(s.clean_merged, "clean_merged", "/clean-merged"', page)
+        self.assertIn('data-switch="${esc(path)}"', page)
 
 
 class RequestsTest(Base):

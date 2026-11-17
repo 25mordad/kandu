@@ -120,11 +120,15 @@ If the project has no board, Kandu creates one only when you say so, with the st
 
 Check: `.venv/bin/python -m kandu.doctor` shows the project's copy, its test tool and its board columns as `OK`.
 
+To take a project out of Kandu later, open its settings in the dashboard's settings tab and press **Remove from Kandu** at the bottom, twice, or ask Didban. Its running work stops, and Kandu's worktrees for it and its entry in `projects.yaml` go. What Kandu learned about it is offered as a PR to its own repo, unless the repo is public, and kept on the brain, so it comes back if you add the project again. Its copy, repo, board and issues stay.
+
 ## 7. Define your first task
 
-In Didban, say what you want in your own words, in any language. Or run `/kandu-task`.
+In Didban, say what you want in your own words, in any language. Or run `/kandu-task`, or `/kandu-grill-with-docs` and then `/kandu-to-issue` (below).
 
 Kandu first reads the code the task touches and checks that the behavior does not exist yet. Then it asks you numbered questions in rounds, each with one line on why it matters and a recommended answer: "yes" accepts them all. You need no engineering background; technical choices it makes itself and tells you as assumptions you can reject. After each round it shows a decision map (✅ decided, ❓ asked now, ⏳ later, ✂️ out of scope), and it stops asking only when nothing is open and you agree with its summary. Then it shows you the final text. The task is created only after your yes.
+
+`/kandu-grill-with-docs` asks every question it can ask now at once, shows the decisions as a tree, and saves each one with the request after each answer, so a closed session loses none. You may stop to ask what a question means. `/kandu-to-issue` then writes a spec that holds every decision and the words you settled, and the tasks under it; each of those words and each decision that is hard to undo is recorded in the project's repo by the task whose change first uses it.
 
 A task is written in English on GitHub, whatever language you speak, and always has the same sections: goal, current behavior, acceptance criteria, how to test, out of scope, and `Blocked by`. Kandu sets its `Priority`, `Kind` and `Size`. A `Large` task is split into slices before it reaches the board.
 
@@ -150,7 +154,7 @@ This starts the timer and the dashboard together. The supervisor now wakes every
 What happens to your task:
 1. The **splitter** sizes it.
 2. The **queen** releases it from `Backlog` to `Ready`, at the pace the project can take.
-3. A **worker** builds it in its own worktree, tests first, and opens a PR on a `kandu/...` branch.
+3. A **worker** builds it in its own worktree, tests first, and pushes a `kandu/...` branch. Kandu opens the PR from the title and description the worker writes.
 4. A fresh **reviewer** checks the PR against the criteria. The worker fixes what it found, for at most two rounds.
 5. With every merge condition met on the reviewed commit, the PR **merges** if auto-merge is on, or waits for you if it is off.
 6. Kandu **deploys** and runs the **live check**. Then the task is `Done`.

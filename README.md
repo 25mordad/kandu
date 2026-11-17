@@ -163,7 +163,10 @@ There are no forms. You configure Kandu by talking to it in Claude Code. It firs
 
 - `/kandu-setup` (once): where the supervisor runs, which machines exist and how to reach them, Claude access and usage limits, GitHub account and owners, notifications and language, defaults.
 - `/kandu-add` (per project): repos, location, permission to run (`clone` or `in-place`), board, how to test and deploy, live URL, where secrets are, forbidden areas, repo rules, merge mode, priority.
+- **+ Add a project** in the dashboard's settings tab, or `.venv/bin/python -m kandu.add project --machine laptop --path ~/code/website --set run=in-place` (per project, the quick way): name the machine and the path, and Kandu reads the repo, test command, deploy script, secrets file and repo rules from the copy there. You check the proposal, choose where Kandu works on it, and add it; a missing copy is cloned and a family with no board gets a new one. A new machine is added the same way, from its SSH alias (`python -m kandu.add machine --name laptop --ssh laptop`).
+- **Remove from Kandu** at the bottom of a project's settings in the settings tab, or `.venv/bin/python -m kandu.remove website`: stops its running work, removes Kandu's worktrees for it and its entry in `projects.yaml`, and keeps what Kandu learned about it (offered as a PR to its own repo unless that repo is public, and archived on the brain for when it is added back). Its copy, repo, board and issues stay.
 - `/kandu-task`: define a task; it becomes an issue on the right board.
+- `/kandu-grill-with-docs` and `/kandu-to-issue`: the same in two steps, the way of Matt Pocock's skills. The first asks every open decision at once and saves each one; the second turns the interview into a spec and its tasks.
 - `/kandu-config`: change anything later ("pause this project for a week").
 - `/kandu-doctor`: check that everything works.
 

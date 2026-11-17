@@ -25,6 +25,7 @@ EVENT_FIELDS = {
     "phase_changed": TASK_FIELDS + ("phase",),
     "decision": TASK_FIELDS + ("decision", "reason"),
     "merge_held": TASK_FIELDS + ("head_sha", "blockers"),
+    "worker_pushed": TASK_FIELDS + ("branch", "pr_title", "pr_body"),
     "merge_retry": TASK_FIELDS + ("head_sha", "next_try", "reason"),
     "run_finished": TASK_FIELDS + ("run_id", "role", "models", "duration_ms", "is_error"),
     "review_finished": TASK_FIELDS + ("run_id", "round", "head_sha", "findings", "blockers", "door", "criteria_met",
@@ -53,7 +54,9 @@ EVENT_FIELDS = {
     "spec_closed": TASK_FIELDS,
     "deployed": TASK_FIELDS + ("run_id",),
     "task_finished": TASK_FIELDS + ("outcome",),
+    "card_stuck": TASK_FIELDS + ("reason",),  # a card the loop cannot drive: the user hears once
     "project_checked": ("project", "passed", "detail"),
+    "check_skipped": ("project", "machine"),  # the machine did not answer, so the end check did not run
     "project_inspected": ("project", "run_id", "passed", "findings", "judged"),
     "inspect_changed": ("project", "enabled", "at"),
     "project_paused": ("project",),
@@ -63,6 +66,9 @@ EVENT_FIELDS = {
     "limits_changed": ("session", "week"),
     "parallel_changed": ("total", "projects"),
     "drop_blockers_changed": ("enabled",),
+    "notify_changed": ("events",),
+    "telegram_pressed": ("action", "task", "result"),
+    "telegram_changed": ("what",),
     "requests_shown_changed": ("enabled",),
     "kandu_restarted": (),
     "wake_requested": (),
@@ -80,7 +86,20 @@ EVENT_FIELDS = {
     "cleaned": TASK_FIELDS + ("what", "target"),
     "clean_kept": TASK_FIELDS + ("what", "target", "reason"),
     "clean_finished": TASK_FIELDS + ("pr",),
+    "flight_ended": TASK_FIELDS + ("reason",),  # a quiet free flight on a merged task, ended by the cleanup
+    "flight_left_open": TASK_FIELDS + ("session",),  # a task closed without a merge while its free flight is open
     "clean_merged_changed": ("enabled",),
+    "project_added": ("project",),
+    "project_removed": ("project",),
+    "project_renamed": ("old", "new"),
+    "pace_changed": ("old", "new"),
+    "machine_down": ("machine", "since"),                   # it stopped answering: an outage starts
+    "machine_unreachable": ("machine", "since", "waiting"),  # the outage is long and tasks wait: the user hears
+    "machine_up": ("machine", "since", "told"),              # it answers again: the outage ends
+    "machine_added": ("machine",),
+    "upstream_checked": ("remote", "branch", "behind", "ahead"),
+    "upstream_check_failed": ("remote", "branch", "reason"),
+    "upstream_task_created": TASK_FIELDS + ("url", "behind"),
 }
 # Each setting a project may have in the dashboard's settings section, with its values. One there wins over the registry.
 PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS, "queen_answers_one_way": (True, False)}
@@ -94,6 +113,8 @@ def is_project_setting(setting, value):
 
 
 NO_TASK_ROLES = ("supervisor", "queen", "bazras")
+# The usage view counts their runs as Kandu itself: sizing (the splitter's) names a task but is not its work.
+KANDU_ROLES = ("supervisor", "queen", "bazras", "splitter")
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
 
 
@@ -137,6 +158,7 @@ class StateStore:
         self.worker_stops_dir = self.root / "stop-workers"
         self.paused_dir = self.root / "paused"
         self.project_settings_file = self.root / "project-settings.json"
+        self.renames_file = self.root / "renames.json"  # Each rename, so the log reads under the name a project has now.
         self.settings_carried_file = self.root / "settings-carried"  # The one-time carry of CARRIED_SETTINGS ran.
         self.splits_dir = self.root / "splits"
         self.requests_dir = self.root / "requests"
@@ -186,7 +208,8 @@ class StateStore:
     def events(self, day):
         """Returns one day's events; a line cut off by a crash is skipped.
 
-        Lines are split on newlines only: JSON text may hold other line separators.
+        Lines are split on newlines only: JSON text may hold other line separators. The log is never edited, so an
+        event written before a project was renamed is read with the name the project has now.
         """
         path = self.events_dir / f"{day}.jsonl"
         if not path.exists():
@@ -197,6 +220,37 @@ class StateStore:
                 events.append(json.loads(line.decode("utf-8")))
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
+        return self._renamed(events)
+
+    def renames(self):
+        """Each project rename, oldest first: `old`, `new` and `at`, when it was made."""
+        if not self.renames_file.exists():
+            return []
+        return json.loads(self.renames_file.read_text(encoding="utf-8"))
+
+    def write_renames(self, renames):
+        if not renames:
+            self.renames_file.unlink(missing_ok=True)
+            return
+        self._write_private(self.root, self.renames_file.name, json.dumps(renames, ensure_ascii=False))
+
+    def _renamed(self, events):
+        """An event's project as it is named now: each rename made at or after the event, in turn."""
+        renames = [(r["old"], r["new"], datetime.fromisoformat(r["at"])) for r in self.renames()]
+        if not renames:
+            return events
+        for event in events:
+            name = event.get("project")
+            if name is None:
+                continue
+            try:
+                when = datetime.fromisoformat(event["ts"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            for old, new, at in renames:
+                if name == old and when <= at:
+                    name = new
+            event["project"] = name
         return events
 
     def _split_file(self, task):
@@ -244,6 +298,53 @@ class StateStore:
                 _add_tokens(report["no_task"] if task is None else report["tasks"].setdefault(task, _empty_tokens()), usage)
                 _add_tokens(report["models"].setdefault(model, _empty_tokens()), usage)
                 _add_tokens(report["roles"].setdefault(event["role"], _empty_tokens()), usage)
+        return report
+
+    def usage_between(self, first, last):
+        """Tokens from day `first` to day `last`, both included, counted as the daily limit counts them.
+
+        Split by task, with each task's project and its last outcome in the range, and by role and model. Runs with
+        no task and sizing runs go under `kandu`, Kandu's own spending. Didban's sessions and the free flights are
+        kept apart from the event log; each counts under `sessions` on the day it started, with the role `didban`
+        or `flight`. So the tasks, `kandu` and `sessions` add up to `total`.
+        """
+        counted = lambda usage: sum(usage.get(kind, 0) for kind in TOKEN_KINDS if kind != "cache_read")
+        report = {"total": 0, "tasks": {}, "kandu": 0, "sessions": 0, "roles": {}, "models": {}}
+
+        def add(where, role, tokens, model=None):
+            report["total"] += tokens
+            report["roles"][role] = report["roles"].get(role, 0) + tokens
+            if model is not None:
+                report["models"][model] = report["models"].get(model, 0) + tokens
+            if isinstance(where, str):
+                report[where] += tokens
+            else:
+                where["tokens"] += tokens
+
+        outcomes = {}
+        for day in self.days():
+            if not first <= day <= last:
+                continue
+            for event in self.events(day):
+                if event["type"] == "task_finished":
+                    outcomes[event["task"]] = event["outcome"]
+                if event["type"] != "run_finished":
+                    continue
+                own = event["task"] is None or event["role"] in KANDU_ROLES
+                where = "kandu" if own else report["tasks"].setdefault(
+                    event["task"], {"project": event["project"], "tokens": 0, "outcome": None})
+                for model, usage in event["models"].items():
+                    add(where, event["role"], counted(usage), model)
+        for task, entry in report["tasks"].items():
+            entry["outcome"] = outcomes.get(task)
+        for role, sessions in (("didban", self.didban_sessions()), ("flight", self.flown())):
+            for session in sessions:
+                try:
+                    day = datetime.fromisoformat(session["started"].replace("Z", "+00:00")).astimezone().date().isoformat()
+                except (KeyError, TypeError, AttributeError, ValueError):
+                    continue
+                if first <= day <= last:
+                    add("sessions", role, counted(session.get("tokens") or {}))
         return report
 
     def task_cost(self, task):
@@ -305,6 +406,10 @@ class StateStore:
             raise StateError(f"not a project setting: {setting}={value!r}")
         settings = self.project_settings()
         settings.setdefault(name, {})[setting] = value
+        self.write_project_settings(settings)
+
+    def write_project_settings(self, settings):
+        """Replaces every project's settings at once."""
         self._make_dirs()
         tmp = self.project_settings_file.with_suffix(f".{os.getpid()}.tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

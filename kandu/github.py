@@ -1,11 +1,13 @@
 """Everything Kandu reads from and writes to GitHub, through `gh` (DESIGN §3, §10)."""
+import base64
 import json
 import re
+import secrets
 import subprocess
 import time
 from dataclasses import dataclass, field
 
-from . import ghmeter
+from . import ghlimit, ghmeter
 from .config import BOARD_FIELDS, DEADLINE_FIELD
 
 KANDU_LABEL = "kandu"
@@ -22,17 +24,25 @@ PR_FIELDS = "number,title,state,url,body,changedFiles,files,headRefName,headRefO
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 ISSUE_REFERENCE = re.compile(r"(?:(?<![\w.-])([\w.-]+/[\w.-]+))?#(\d+)")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-THREADS_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
+
+
+def costed(query):
+    """The query also asks what it cost, so the meter counts the points GitHub took, not one a call."""
+    head, _, tail = query.rpartition("}")
+    return f"{head} rateLimit {{ cost }} }}{tail}"
+
+
+THREADS_QUERY = costed("""query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes {
     isResolved resolvedBy { login } comments(first: 1) { nodes { author { login } } }
   } } } }
-}"""
+}""")
 
 # GitHub's own "blocked by" relationships of an issue: `task_blockers` joins them with `## Blocked by`.
 BLOCKED_BY_NODE = "blockedBy(first: 50) { nodes { number repository { nameWithOwner } } }"
 SELECT_VALUE = "... on ProjectV2ItemFieldSingleSelectValue { name }"
 # `fieldValueByName` is what keeps this at one point a page: `gh project item-list` costs 100.
-BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
+BOARD_QUERY = costed(f"""query($owner: String!, $number: Int!, $after: String) {{
   repositoryOwner(login: $owner) {{ ... on ProjectV2Owner {{ projectV2(number: $number) {{
     id
     fields(first: 50) {{ nodes {{ ... on ProjectV2FieldCommon {{ id name }} ... on ProjectV2SingleSelectField {{ options {{ id name }} }} }} }}
@@ -48,22 +58,27 @@ BOARD_QUERY = f"""query($owner: String!, $number: Int!, $after: String) {{
       content {{ ... on Issue {{ number title url body closedAt repository {{ nameWithOwner }} labels(first: 50) {{ nodes {{ name }} }} {BLOCKED_BY_NODE} }} }}
     }}
   }} }} }} }}
-}}"""
+}}""")
 
 COMMENTS = "comments(last: 100) { nodes { author { login } body createdAt } }"
 # A new comment changes an issue's `updatedAt`, so reading what changed reads its comments too, in the same request.
-ISSUE_NODE = f"number title body url state updatedAt labels(first: 30) {{ nodes {{ name }} }} {COMMENTS} {BLOCKED_BY_NODE}"
+# Why it was closed, and the PR or commit that closed it: a task whose issue other work completed is replaced.
+CLOSER = ("timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { "
+          "closer { __typename ... on PullRequest { number merged repository { nameWithOwner } } "
+          "... on Commit { oid repository { nameWithOwner } } } } } }")
+ISSUE_NODE = (f"number title body url state stateReason closedAt updatedAt labels(first: 30) {{ nodes {{ name }} }} "
+              f"{COMMENTS} {BLOCKED_BY_NODE} {CLOSER}")
 PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable mergedAt "
            "updatedAt "
            f"labels(first: 30) {{ nodes {{ name }} }} {COMMENTS}")
 # Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
 PR_DEEP = """files(first: 100) { nodes { path additions deletions } }
   commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 50) { nodes {
-    __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }
+    __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } } } }
   reviewThreads(first: 20) { nodes { isResolved resolvedBy { login } path line
     comments(first: 20) { nodes { author { login } body createdAt } } } }"""
 # One request reads what a repo holds for Kandu: what changed in its issues, every open PR, the PRs that closed lately.
-REPO_QUERY = f"""query($owner: String!, $name: String!, $since: DateTime, $issuesAfter: String, $openAfter: String,
+REPO_QUERY = costed(f"""query($owner: String!, $name: String!, $since: DateTime, $issuesAfter: String, $openAfter: String,
       $issues: Boolean!, $open: Boolean!, $closed: Boolean!) {{
   repository(owner: $owner, name: $name) {{
     defaultBranchRef {{ name }}
@@ -74,16 +89,16 @@ REPO_QUERY = f"""query($owner: String!, $name: String!, $since: DateTime, $issue
     closed: pullRequests(first: 30, states: [CLOSED, MERGED], orderBy: {{field: UPDATED_AT, direction: DESC}})
         @include(if: $closed) {{ nodes {{ {PR_NODE} }} }}
   }}
-}}"""
-ISSUE_QUERY = f"""query($owner: String!, $name: String!, $number: Int!) {{
+}}""")
+ISSUE_QUERY = costed(f"""query($owner: String!, $name: String!, $number: Int!) {{
   repository(owner: $owner, name: $name) {{ issue(number: $number) {{ {ISSUE_NODE} }} }}
-}}"""
-PR_QUERY = f"""query($owner: String!, $name: String!, $number: Int!) {{
+}}""")
+PR_QUERY = costed(f"""query($owner: String!, $name: String!, $number: Int!) {{
   repository(owner: $owner, name: $name) {{ pullRequest(number: $number) {{ {PR_NODE} {PR_DEEP} }} }}
-}}"""
+}}""")
 REPO_ISSUE_LIMIT = 500
 OPEN_PR_LIMIT = 100
-CONTENT_QUERY = "query($url: URI!) { resource(url: $url) { ... on Issue { id } ... on PullRequest { id } } }"
+CONTENT_QUERY = costed("query($url: URI!) { resource(url: $url) { ... on Issue { id } ... on PullRequest { id } } }")
 ADD_ITEM = ("mutation($project: ID!, $content: ID!) { addProjectV2ItemById(input: {projectId: $project, contentId: $content}) "
             "{ item { id } } }")
 
@@ -166,16 +181,52 @@ def _blocked_by(node):
 def _issue(node):
     return {"number": node["number"], "title": node["title"], "body": node.get("body") or "", "url": node["url"],
             "state": node["state"], "labels": [label["name"] for label in node["labels"]["nodes"]],
-            "updatedAt": node.get("updatedAt"), "comments": _comments(node), "blocked_by": _blocked_by(node)}
+            "updatedAt": node.get("updatedAt"), "comments": _comments(node), "blocked_by": _blocked_by(node),
+            "stateReason": node.get("stateReason"), "closedBy": _closer(node), "closedAt": node.get("closedAt")}
 
 
-def run_gh(args):
+def _closer(node):
+    """What closed the issue: a PR as {repo, number, merged}, a commit on the default branch as {repo, sha, merged},
+    or None. Only a push to the default branch closes an issue from a commit, so such a commit counts as merged."""
+    events = (node.get("timelineItems") or {}).get("nodes") or []
+    closer = (events[-1] or {}).get("closer") if events else None
+    kind = (closer or {}).get("__typename")
+    if kind == "PullRequest":
+        return {"repo": closer["repository"]["nameWithOwner"], "number": closer["number"], "merged": closer["merged"]}
+    if kind == "Commit":
+        return {"repo": closer["repository"]["nameWithOwner"], "sha": closer["oid"], "merged": True}
+    return None
+
+
+def closure(issue):
+    """None while the issue is open; else why it was closed (`reason`) and the PR or commit that closed it (`by`)."""
+    if issue["state"] == "OPEN":
+        return None
+    return {"reason": issue.get("stateReason"), "by": issue.get("closedBy")}
+
+
+def run_gh(args, gate=None, run=subprocess.run, meter_log=None):
+    """Runs one `gh` call, unless GitHub refuses calls for now (`ghlimit`): then it raises without calling.
+
+    A rate-limit answer makes every Kandu process wait before its next call, as GitHub says or longer each time.
+    The error says "rate limit", so it counts as trouble that passes by itself (`transient`).
+    """
+    gate = gate or ghlimit.GATE
+    held = gate.blocked()
+    if held:
+        raise GitHubError(f"gh {' '.join(args[:2])}: {gate.say(held)}")
+    call = secrets.token_hex(6)
     try:
-        result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=TIMEOUT_SECONDS, env=ghmeter.env())
+        result = run(["gh", *args], capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
+                     env=ghmeter.env(call=call, log_dir=meter_log, gate_kept=True))
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         raise GitHubError(f"gh {args[0]}: {type(e).__name__}") from e
     if result.returncode != 0:
+        if ghlimit.is_refusal(result.stderr):
+            raise GitHubError(f"gh {' '.join(args[:2])}: {gate.say(gate.refused(result.stderr))}")
         raise GitHubError(f"gh {' '.join(args[:2])}: {result.stderr.strip()}")
+    gate.cleared()
+    ghmeter.record_cost(call, result.stdout, meter_log)
     return result.stdout
 
 
@@ -394,7 +445,7 @@ class GitHub:
         """Adds columns to a board. Each existing option keeps its id, or its items would lose their column."""
         data = self._json(["project", "field-list", str(board.number), "--owner", board.owner, "--format", "json"])
         status = next(f for f in data["fields"] if f["name"] == "Status")
-        query = ("query { node(id: %s) { ... on ProjectV2SingleSelectField { options { id name color description } } } }"
+        query = costed("query { node(id: %s) { ... on ProjectV2SingleSelectField { options { id name color description } } } }"
                  % json.dumps(status["id"]))
         options = self._json(["api", "graphql", "-f", f"query={query}"])["data"]["node"]["options"]
         kept = [f'{{id: {json.dumps(o["id"])}, name: {json.dumps(o["name"])}, color: {o["color"]}, '
@@ -452,6 +503,15 @@ class GitHub:
     def edit_issue(self, repo, number, title, body):
         self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", f"title={title}", "-f", f"body={body}"])
 
+    def create_pr(self, repo, head, base, title, body):
+        """Opens a PR from `head` into `base` and returns its number. Each field is one argument, never shell text."""
+        args = ["api", f"repos/{repo}/pulls", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}",
+                "-f", f"head={head}", "-f", f"base={base}"]
+        return self._json(args)["number"]
+
+    def edit_pr_body(self, repo, number, body):
+        self._run(["api", f"repos/{repo}/pulls/{number}", "-X", "PATCH", "-f", f"body={body}"])
+
     def remove_blocked_by(self, repo, number, blocker_repo, blocker_number):
         """Takes away GitHub's "blocked by" relationship of `repo#number` on `blocker_repo#blocker_number`.
         GitHub names the blocker by its issue id, so that is read first."""
@@ -460,6 +520,36 @@ class GitHub:
 
     def repo_is_public(self, repo):
         return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"
+
+    def offer_file_pr(self, repo, branch, path, content, title, body):
+        """Opens a PR that adds one file on a branch of its own, made on GitHub: no copy of the repo is touched.
+
+        Run again, it reuses the branch, replaces the file and keeps the open PR. Returns the PR's URL.
+        """
+        base = self.default_branch(repo)
+        head = self._json(["api", f"repos/{repo}/git/ref/heads/{base}"])["object"]["sha"]
+        try:
+            self._run(["api", f"repos/{repo}/git/refs", "-X", "POST", "-f", f"ref=refs/heads/{branch}",
+                       "-f", f"sha={head}"])
+        except GitHubError as e:
+            if "already exists" not in str(e):
+                raise
+        try:
+            existing = self._json(["api", f"repos/{repo}/contents/{path}?ref={branch}"]).get("sha")
+        except GitHubError as e:
+            if "Not Found" not in str(e) and "404" not in str(e):
+                raise
+            existing = None
+        encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
+        put = ["api", f"repos/{repo}/contents/{path}", "-X", "PUT", "-f", f"message={title}",
+               "-f", f"content={encoded}", "-f", f"branch={branch}"]
+        self._run(put + (["-f", f"sha={existing}"] if existing else []))
+        owner = repo.split("/")[0]
+        found = self._json(["api", f"repos/{repo}/pulls?state=open&head={owner}:{branch}"])
+        if found:
+            return found[0]["html_url"]
+        return self._json(["api", f"repos/{repo}/pulls", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}",
+                           "-f", f"head={branch}", "-f", f"base={base}"])["html_url"]
 
     def issue_text(self, repo, number):
         return self._json(["issue", "view", str(number), "--repo", repo, "--json", "title,body,url"])
@@ -470,6 +560,15 @@ class GitHub:
 
     def close_issue(self, repo, number):
         self._run(["api", f"repos/{repo}/issues/{number}", "-X", "PATCH", "-f", "state=closed"])
+
+    def issue_closure(self, repo, number):
+        issue = self.read_issue(repo, number)
+        if issue is None:
+            raise GitHubError(f"{repo}#{number}: no such issue")
+        return closure(issue)
+
+    def close_pr(self, repo, number):
+        self._run(["api", f"repos/{repo}/pulls/{number}", "-X", "PATCH", "-f", "state=closed"])
 
     def comment_issue(self, repo, number, body):
         """A PR takes its comments the same way: on GitHub it is an issue too."""

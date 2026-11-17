@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,6 +54,90 @@ class MeterScriptTest(unittest.TestCase):
         self.assertEqual(self.call("issue", "list").returncode, 3)
 
 
+class MeterBackoffTest(unittest.TestCase):
+    """Every `gh` through the meter, an agent's too, honors GitHub's back-off and starts one when refused."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        real = self.tmp / "bin"
+        real.mkdir()
+        self.ran = self.tmp / "ran"
+        # The fake gh notes when it ran; `pr view` is refused with GitHub's secondary-limit answer.
+        (real / "gh").write_text(
+            '#!/bin/sh\n'
+            '[ "$1 $2" = "api rate_limit" ] && echo "not this time" >&2 && exit 1\n'
+            f'date +%s.%N >> "{self.ran}"\n'
+            '[ "$1 $2" = "pr view" ] && echo "gh: You have exceeded a secondary rate limit. Please wait a few minutes." >&2'
+            ' && exit 1\n'
+            'echo ok\n')
+        (real / "gh").chmod(0o755)
+        self.log = self.tmp / "log"
+        self.log.mkdir()
+        self.backoff = self.log / "backoff.json"
+        self.env = {"PATH": f"{ghmeter.METER_DIR}:{real}:/usr/bin:/bin", "GH_METER_LOG": str(self.log),
+                    ghmeter.CALLER_ENV: "worker"}
+
+    def call(self, *args):
+        return subprocess.run([str(ghmeter.METER), *args], capture_output=True, text=True, env=self.env)
+
+    def ran_at(self):
+        return [float(line) for line in self.ran.read_text().split()]
+
+    def test_a_call_during_a_backoff_waits_until_it_ends(self):
+        until = int(time.time()) + 2
+        self.backoff.write_text(json.dumps({"until": until, "refusals": 1, "why": "secondary rate limit"}))
+        result = self.call("issue", "list")
+        self.assertEqual((result.stdout, result.returncode), ("ok\n", 0))
+        [ran] = self.ran_at()
+        self.assertGreaterEqual(ran, until)
+        self.assertFalse(self.backoff.exists())  # the call went through, so the next refusal starts from a minute
+
+    def test_a_rate_limit_answer_writes_the_backoff(self):
+        before = time.time()
+        result = self.call("pr", "view", "12")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("secondary rate limit", result.stderr)
+        data = json.loads(self.backoff.read_text())
+        self.assertEqual(data["refusals"], 1)
+        self.assertIn("secondary rate limit", data["why"])
+        self.assertGreaterEqual(data["until"], int(before) + 60)
+
+    def test_an_other_failure_writes_no_backoff(self):
+        bin2 = self.tmp / "bin2"
+        bin2.mkdir()
+        (bin2 / "gh").write_text('#!/bin/sh\necho "could not resolve to a PullRequest" >&2\nexit 1\n')
+        (bin2 / "gh").chmod(0o755)
+        self.env["PATH"] = f"{ghmeter.METER_DIR}:{bin2}:/usr/bin:/bin"
+        self.assertEqual(self.call("pr", "view", "12").returncode, 1)
+        self.assertFalse(self.backoff.exists())
+
+    def test_without_a_backoff_there_is_no_delay(self):
+        start = time.time()
+        self.assertEqual(self.call("issue", "list").returncode, 0)
+        self.assertLess(time.time() - start, 1)
+
+    def test_a_past_backoff_does_not_delay(self):
+        self.backoff.write_text(json.dumps({"until": int(time.time()) - 5, "refusals": 1, "why": "x"}))
+        start = time.time()
+        self.assertEqual(self.call("issue", "list").returncode, 0)
+        self.assertLess(time.time() - start, 1)
+
+    def test_kandus_own_calls_are_left_to_kandu(self):
+        until = int(time.time()) + 30
+        self.backoff.write_text(json.dumps({"until": until, "refusals": 1, "why": "x"}))
+        self.env[ghmeter.GATE_ENV] = "kandu"
+        start = time.time()
+        self.assertEqual(self.call("issue", "list").returncode, 0)
+        self.assertLess(time.time() - start, 1)
+        self.assertEqual(json.loads(self.backoff.read_text())["until"], until)
+
+    def test_the_rate_limit_lookup_never_waits(self):
+        self.backoff.write_text(json.dumps({"until": int(time.time()) + 30, "refusals": 1, "why": "x"}))
+        start = time.time()
+        self.call("api", "rate_limit")
+        self.assertLess(time.time() - start, 1)
+
+
 class ReportTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -80,6 +165,25 @@ class ReportTest(unittest.TestCase):
         self.assertIn("11:00                    7              0               7", text)
         self.assertIn("1  worker a/b#1", text)
         self.assertIn("1  dashboard", text)
+
+    def test_each_call_counts_the_points_it_really_cost(self):
+        lines = [
+            {"type": "limit", "ts": f"{self.day}T12:00:00+01:00", "graphql_used": 100, "graphql_reset": 3, "rest_used": 0, "rest_reset": 3},
+            {"type": "call", "ts": f"{self.day}T12:01:00+01:00", "caller": "sync", "run": "", "call": "c1", "command": "api graphql", "kind": "graphql", "exit": 0},
+            {"type": "cost", "ts": f"{self.day}T12:01:00+01:00", "call": "c1", "points": 30},
+            {"type": "call", "ts": f"{self.day}T12:02:00+01:00", "caller": "doctor", "run": "", "call": "c2", "command": "api graphql", "kind": "graphql", "exit": 0},
+            {"type": "cost", "ts": f"{self.day}T12:02:00+01:00", "call": "c2", "points": 19},
+            {"type": "call", "ts": f"{self.day}T12:03:00+01:00", "caller": "worker", "run": "", "command": "pr view", "kind": "graphql", "exit": 0},
+            {"type": "call", "ts": f"{self.day}T12:04:00+01:00", "caller": "sync", "run": "", "call": "c3", "command": "api rest", "kind": "rest", "exit": 0},
+            {"type": "limit", "ts": f"{self.day}T12:05:00+01:00", "graphql_used": 150, "graphql_reset": 3, "rest_used": 1, "rest_reset": 3},
+        ]
+        (self.log / f"{self.day}.jsonl").write_text("\n".join(json.dumps(l) for l in lines) + "\n")
+        text = ghmeter.report(self.day, self.log, self.store)
+        # 50 points spent: 30 + 19 by Kandu's costed calls, 1 by a call that said nothing of its cost.
+        self.assertIn("12:00                   50             50               0", text)
+        self.assertIn("    30  sync", text)
+        self.assertIn("    19  doctor", text)
+        self.assertIn("     1  worker", text)
 
     def test_no_log(self):
         self.assertIn("0 GraphQL calls", ghmeter.report("2001-01-01", self.log, self.store))

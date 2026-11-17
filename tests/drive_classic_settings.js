@@ -1,0 +1,156 @@
+// Opens the Classic look in a real headless browser, as a user would, and clicks a project's name where it shows: on
+// the meadow, on the Work page and on the Settings page. Each click should open the project's settings in a pop-up
+// over the same page. Prints what each step shows as JSON.
+// Usage: node drive_classic_settings.js <browser> <dashboard url> <empty profile folder> <token> <cases as JSON>
+// A case is {lang, width, height, mobile}. It talks to the browser over the DevTools protocol, with no library.
+const {spawn} = require("child_process");
+const [chromiumFile, base, profile, apiToken, casesJson] = process.argv.slice(2);
+const cases = JSON.parse(casesJson);
+
+const browser = spawn(chromiumFile, ["--headless", "--no-sandbox", "--disable-gpu", "--no-first-run", "--remote-debugging-port=0",
+                                    `--user-data-dir=${profile}`, "about:blank"], {stdio: ["ignore", "ignore", "pipe"]});
+const fail = message => { console.error(message); browser.kill(); process.exit(1); };
+setTimeout(() => fail("the browser took too long"), 150000);
+
+const endpoint = new Promise((resolve, reject) => {
+  let said = "";
+  browser.stderr.on("data", chunk => {
+    said += chunk;
+    const found = said.match(/DevTools listening on (ws:\/\/\S+)/);
+    if (found) resolve(found[1]);
+  });
+  browser.on("exit", () => reject(new Error(`the browser stopped: ${said}`)));
+});
+
+let socket, next = 0, session = null;
+const waiting = new Map(), listeners = [];
+function send(method, params = {}) {
+  const id = ++next;
+  socket.send(JSON.stringify({id, method, params, ...(session ? {sessionId: session} : {})}));
+  return new Promise((resolve, reject) => waiting.set(id, {resolve, reject, method}));
+}
+const once = method => new Promise(resolve => listeners.push({method, resolve}));
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const errors = [];
+
+async function evaluate(expression) {
+  const answer = await send("Runtime.evaluate", {expression, awaitPromise: true, returnByValue: true});
+  if (answer.exceptionDetails) throw new Error(`${expression}: ${answer.exceptionDetails.exception?.description || answer.exceptionDetails.text}`);
+  return answer.result.value;
+}
+
+async function ready() {
+  for (let i = 0; i < 100; i++) {
+    if (await evaluate('typeof lastState !== "undefined" && lastState !== null && typeof lastQueue !== "undefined" && lastQueue !== null')) {
+      await sleep(300);
+      return;
+    }
+    await sleep(100);
+  }
+  fail("the page never drew the state");
+}
+
+async function load(action) {
+  const loaded = once("Page.loadEventFired");
+  await action();
+  await loaded;
+  await ready();
+}
+
+// A click as a user's, which bubbles; the meadow's name is SVG and has no click() of its own.
+const click = selector => evaluate(`document.querySelector(${JSON.stringify(selector)}).dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true}))`);
+
+// What the page shows once a name was clicked: whether the pop-up is open, for which project, on which page, and
+// whether anything scrolls sideways.
+const seen = () => evaluate(`(() => {
+  const sheet = document.getElementById("setsheet"), html = document.documentElement, body = document.getElementById("setbody");
+  return {open: sheet.open, project: sheet.querySelector(".sheet-who h2")?.textContent || null, tab,
+          controls: [...new Set([...sheet.querySelectorAll("[data-draft]")].map(el => el.dataset.draft))],
+          remove: Boolean(sheet.querySelector("[data-remove]")), save: Boolean(sheet.querySelector("[data-set-save]")),
+          sideways: html.scrollWidth > html.clientWidth || body.scrollWidth > body.clientWidth};
+})()`);
+
+async function waitFor(expression) {
+  for (let i = 0; i < 50; i++) {
+    if (await evaluate(expression)) return true;
+    await sleep(100);
+  }
+  return false;
+}
+
+async function run() {
+  socket = new WebSocket(await endpoint);
+  socket.onmessage = event => {
+    const message = JSON.parse(event.data);
+    if (message.id && waiting.has(message.id)) {
+      const {resolve, reject, method} = waiting.get(message.id);
+      waiting.delete(message.id);
+      if (message.error) reject(new Error(`${method}: ${message.error.message}`));
+      else resolve(message.result);
+      return;
+    }
+    if (message.method === "Runtime.exceptionThrown") {
+      const details = message.params.exceptionDetails;
+      errors.push(details.exception?.description || details.text);
+    }
+    for (const listener of listeners.filter(l => l.method === message.method)) {
+      listeners.splice(listeners.indexOf(listener), 1);
+      listener.resolve(message.params);
+    }
+  };
+  await new Promise(resolve => { socket.onopen = resolve; });
+  const {targetId} = await send("Target.createTarget", {url: "about:blank"});
+  session = (await send("Target.attachToTarget", {targetId, flatten: true})).sessionId;
+  await send("Page.enable");
+  await send("Runtime.enable");
+  await send("Network.enable");
+
+  const results = [];
+  for (const c of cases) {
+    await send("Network.clearBrowserCookies");
+    await send("Network.setCookie", {name: "kandu-look", value: "classic", url: base});
+    await send("Emulation.setDeviceMetricsOverride", {width: c.width, height: c.height, deviceScaleFactor: 1, mobile: c.mobile});
+    await load(() => send("Page.navigate", {url: base + "/"}));
+    await evaluate(`localStorage.setItem("kandu-language", ${JSON.stringify(c.lang)}); localStorage.setItem("kandu-tab", "meadow");`);
+    await load(() => send("Page.reload"));
+    const steps = {look: await evaluate("document.documentElement.dataset.look")};
+
+    // On the meadow: the name drawn over the project's patch.
+    await click(".patch-name[data-settings-open]");
+    steps.meadow = await seen();
+    await click("[data-set-cancel]");
+    steps.meadow_closed = await waitFor('!document.getElementById("setsheet").open && setEdit === null');
+
+    // On the Work page: the name in the project's card, which stays as open as it was.
+    await evaluate('showTab("work")');
+    const wasOpen = await evaluate('document.querySelector("details.project").open');
+    await click("details.project .project-name[data-settings-open]");
+    steps.work = await seen();
+    steps.work_card_kept = wasOpen === await evaluate('document.querySelector("details.project").open');
+    await evaluate('document.getElementById("setsheet").close()');
+    await waitFor("setEdit === null");  // The browser tells the page of a close a moment later.
+
+    // On the Settings page: the name in the project's row. A change there waits for Save, then goes to the API.
+    await evaluate('showTab("settings")');
+    await click('#projectsettings [data-settings-open]');
+    steps.settings = await seen();
+    const before = await evaluate("setEdit.was.priority");
+    await evaluate(`token = ${JSON.stringify(apiToken)};`);
+    await click('[data-draft="priority"][data-by="1"]');
+    steps.unsaved = await evaluate(`fetch("/api/v1/state").then(r => r.json()).then(s => s.project_settings.find(p => p.name === setEdit.name).priority)`);
+    await click("[data-set-save]");
+    steps.saved_closed = await waitFor('!document.getElementById("setsheet").open');
+    const name = steps.settings.project;
+    steps.priority = {before, unsaved: steps.unsaved,
+                      after: await evaluate(`fetch("/api/v1/state").then(r => r.json()).then(s => s.project_settings.find(p => p.name === ${JSON.stringify(name)}).priority)`)};
+    steps.toast = await evaluate('document.getElementById("toast").hidden ? "" : document.getElementById("toast").textContent');
+    // The next case starts from the same priority.
+    await evaluate(`fetch("/api/v1/projects/${encodeURIComponent(name)}/settings?priority=" + ${before}, {method: "POST", headers: {Authorization: "Bearer " + token}})`);
+    results.push({...c, steps});
+  }
+  console.log(JSON.stringify({results, errors}));
+  browser.kill();
+  process.exit(0);
+}
+
+run().catch(error => fail(error.stack || String(error)));

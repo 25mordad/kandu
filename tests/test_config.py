@@ -57,6 +57,16 @@ class ConfigTest(unittest.TestCase):
                         encoding="utf-8")
         self.assertIn("permissions.painter: unknown key", self.problems())
 
+    def test_an_empty_setup_command_is_refused(self):
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(setup={"command": " ", "inputs": [""]}))
+        problems = self.problems()
+        self.assertIn("setup.command: must not be empty", problems)
+        self.assertIn("setup.inputs: an entry must not be empty", problems)
+
+    def test_the_example_setup_is_read(self):
+        setup = load_config(self.local).projects[0].setup
+        self.assertEqual((setup.command, setup.inputs), ("npm ci", ["package-lock.json"]))
+
     def test_examples_are_valid(self):
         config = load_config(self.local)
         self.assertEqual(config.settings.brain.machine, "server")
@@ -70,6 +80,24 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(load_config(self.local).settings.supervisor.clean_merged)
         self.edit("kandu.yaml", lambda d: d["supervisor"].update(clean_merged=False))
         self.assertFalse(load_config(self.local).settings.supervisor.clean_merged)
+
+    def test_the_default_look_is_classic_unless_the_config_names_kandu_clean(self):
+        self.edit("kandu.yaml", lambda d: d["dashboard"].pop("look", None))
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "classic")
+        self.edit("kandu.yaml", lambda d: d["dashboard"].update(look="clean"))
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "clean")
+        self.edit("kandu.yaml", lambda d: d["dashboard"].update(look="classic"))
+        self.assertEqual(load_config(self.local).settings.dashboard.look, "classic")
+
+    def test_any_other_default_look_is_a_config_problem(self):
+        for wrong in ("honeycomb", "Clean", ""):
+            self.edit("kandu.yaml", lambda d: d["dashboard"].update(look=wrong))
+            self.assertIn(f"dashboard.look: must be one of classic, classic-new, clean, got {wrong!r}", self.problems())
+
+    def test_the_example_config_shows_the_default_look(self):
+        text = (EXAMPLES / "kandu.example.yaml").read_text(encoding="utf-8")
+        dashboard = text.split("\ndashboard:\n")[1].split("\n\n")[0]
+        self.assertRegex(dashboard, r"\n  look: classic +# optional; ")
 
     def test_empty_registry_is_valid(self):
         self.edit("projects.yaml", lambda d: d.update(projects=[]))

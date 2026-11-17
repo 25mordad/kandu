@@ -43,6 +43,7 @@ notify:
   telegram:
     bot_token_env: KANDU_TELEGRAM_BOT_TOKEN   # names of variables in local/.env, not the values
     chat_id_env: KANDU_TELEGRAM_CHAT_ID
+    buttons: false               # optional; an Approve merge button under a PR that waits for your yes. Default: false
   language: en                 # optional; the language of notifications only, en | fa. Default: top-level language
   events:                      # optional; what is important enough to send. Default: all of these
     - supervisor_stopped
@@ -52,6 +53,7 @@ notify:
     - task_done
     - usage_limit
     - claude_login
+    - machine_unreachable      # a machine has not answered for hours while tasks wait for it, and when it is back
 
 bazras:                        # optional; Bazras's daily look at projects whose `inspect` is on (DESIGN §5)
   at: "06:00"                  # default hour; a project's inspect.at overrides it
@@ -61,6 +63,14 @@ backup:                        # optional; a daily copy of local/ and state/, wh
   at: "03:00"                  # the hour of the daily copy, on the brain's clock
   destination: ~/kandu-backups # a folder on the brain's machine, outside local/ and state/; logs/ is left out
   keep: 7                      # how many copies stay; the oldest go only after a new copy is good
+
+upstream:                      # optional; how far this install's main is from the public Kandu it came from (DESIGN §12)
+  enabled: false               # off until you turn it on; the check only fetches and counts, it never merges or pushes
+  remote: upstream             # the git remote of the public repo in this install
+  branch: main                 # the remote's branch that main is counted against
+  every_hours: 4               # how often the dashboard checks by itself; "Check now" checks at once
+  project: kandu               # the project in projects.yaml whose repo is this install's own copy:
+                               # "Bring in updates" puts one task on its board, worked and merged like any other
 
 supervisor:                    # optional; these are the defaults
   wake_every_minutes: 60
@@ -72,6 +82,7 @@ supervisor:                    # optional; these are the defaults
   queen: true                  # true = an LLM runs the cycle for every project; it wakes only when needed
   queen_max_retries: 3         # how often the queen may take each kind of step on one task (retry, rework, check, new task, merge order); past it the task stops and you hear of it
   queen_daily_token_limit: 2000000   # her own limit; past it, running work ends and nothing new starts
+  unreachable_alert_hours: 12  # a machine that has not answered this long while tasks wait for it: you hear once
   queen_drop_blockers: false   # true = the queen may ask you to drop a blocker a task does not need; off until you turn it on, here or in the dashboard
   clean_merged: true           # true = once a task's PR is merged, its folders beside the repo and its kandu/ branches go; a folder with work not in the PR stays. Off here or in the dashboard
 
@@ -83,9 +94,11 @@ supervisor:                    # optional; these are the defaults
 #                              # than the brain cannot reach bin/kandu-show: Kandu puts the issue and the PR
 #                              # from its copy into those agents' prompts instead.
 #   worker:                    # the project's test command and allowed_tools are added; forbidden areas are always denied
+#                              # Kandu merges the base, opens the PR and edits its text itself: every worker is
+#                              # denied git merge, pull and rebase and gh pr create, edit and merge, named here or not
 #     allow: ["Read", "Glob", "Grep", "Edit", "Write", "Bash(git add *)", "Bash(git rm *)", "Bash(rm *)",
 #             "Bash(git status *)", "Bash(git diff *)", "Bash(git log *)", "Bash(git commit *)", "Bash(git fetch *)",
-#             "Bash(gh pr create *)", "Bash(gh pr list *)", "Bash(gh pr comment *)",
+#             "Bash(gh pr list *)", "Bash(gh pr comment *)",
 #             "Bash(git push origin {branch})", "Bash(git push -u origin {branch})"]
 #     deny: ["Read(~/.ssh/**)", "Read(~/.claude/.credentials.json)", "Read(**/.env)", "Read(**/.dev.vars)",
 #            "Read(//proc/**)", "Bash(git push --force*)", "Bash(git push -f*)"]
@@ -108,3 +121,4 @@ dashboard:
   bind: 127.0.0.1             # stay on this machine; reach it from another through an SSH tunnel
   port: 8790                 # keep this port free for Kandu on the brain's machine
   show_requests: false        # true = list open requests with their decision maps; off until you turn it on, here or in the dashboard
+  look: classic               # optional; the look a browser opens in until it chooses its own: classic | classic-new (Classic new) | clean (Kandu Clean). Default classic. Changed from either look's Settings tab
