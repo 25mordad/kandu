@@ -6,7 +6,9 @@ each project's name, family, repos, board owner and path, each machine and how i
 the brain's folders, Didban's knowledge sources and the values in `local/.env`.
 The GitHub account is left out: it owns the public repo and signs its commits. So is a term
 the public examples already use (`config.example/`, `README.md`), such as a machine named
-`laptop`: it says nothing about this setup.
+`laptop`: it says nothing about this setup. So is a term the user names in `local/public-words.txt`,
+such as a project named after an ordinary word the code uses too: only that exact term, never a
+longer one that holds it, such as its repo or its path.
 
 The git hooks in `.githooks` run it as a file with the install's own Python, so it imports
 nothing of Kandu:
@@ -111,9 +113,12 @@ def config_terms(local_dir):
 
 
 def all_terms(local_dir):
-    """The user's words first, then the setup's, each once, ignoring case."""
+    """The user's words first, then the setup's, each once, ignoring case. A term of the setup the user named
+    in `public-words.txt` is left out; the user's own private words never are."""
+    public = {word.lower() for word in _words(Path(local_dir) / "public-words.txt")}
     seen, terms = set(), []
-    for term in [*_words(Path(local_dir) / "private-words.txt"), *config_terms(local_dir)]:
+    for term in [*_words(Path(local_dir) / "private-words.txt"),
+                 *(t for t in config_terms(local_dir) if str(t).lower() not in public)]:
         term = str(term)
         if term.lower() not in seen:
             seen.add(term.lower())

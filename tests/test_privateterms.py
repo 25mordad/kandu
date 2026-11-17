@@ -76,6 +76,14 @@ class PrivateTermsTest(unittest.TestCase):
         self.assertEqual(terms[0], "Alice")
         self.assertEqual(len(terms), len({term.lower() for term in terms}))
 
+    def test_a_term_the_user_names_public_is_left_out_but_not_what_holds_it(self):
+        (self.local / "public-words.txt").write_text("# ordinary words\nWebsite\nalice\n", encoding="utf-8")
+        terms = all_terms(self.local)
+        self.assertNotIn("website", [term.lower() for term in terms])
+        for term in ["acme-org/website", "~/sites/acme-website"]:
+            self.assertIn(term, terms)
+        self.assertIn("Alice", terms)  # the user's own private word stays, whatever the public list says
+
     def test_empty_local_gives_nothing(self):
         empty = self.root / "empty" / "local"
         empty.mkdir(parents=True)
