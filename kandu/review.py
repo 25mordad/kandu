@@ -14,7 +14,8 @@ DOORS = ("two-way", "one-way")
 CRITERION_RESULTS = ("met", "not_met", "not_shown")
 EARLIER_RESULTS = ("fixed", "not_fixed", "partly_fixed")
 REVIEW_MARKER = re.compile(r"<!-- kandu-review (\{.*?\}) -->", re.DOTALL)
-FIX_MARKER = re.compile(r"<!-- kandu-fix ([0-9a-f]+) -->")
+FIX_MARKER = re.compile(r"<!-- kandu-fix ([0-9a-f]+) -->")  # also on update rounds, before they got their own mark
+UPDATE_MARKER = re.compile(r"<!-- kandu-update ([0-9a-f]+) -->")
 # The last thing in a reply. A model may write a line before it, however clearly it is told not to.
 _TEXT = {"type": "string"}
 _TEXTS = {"type": "array", "items": _TEXT}
@@ -212,3 +213,13 @@ def fix_comment(head_sha):
 def fix_tried(pr, account, head_sha):
     """True if a fix round already ended on `head_sha` with no new commit."""
     return any(head_sha in FIX_MARKER.findall(body) for body in _own_comments(pr, account))
+
+
+def update_comment(head_sha):
+    return f"Kandu: the update round pushed nothing new on `{head_sha}`.\n\n<!-- kandu-update {head_sha} -->"
+
+
+def update_tried(pr, account, head_sha):
+    """True if an update round already ended on `head_sha` with no new commit. A fix round's mark does not count:
+    a later move of the base can make a new conflict on the same head."""
+    return any(head_sha in UPDATE_MARKER.findall(body) for body in _own_comments(pr, account))

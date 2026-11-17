@@ -2741,6 +2741,55 @@ class MergeTest(Base):
         self.cycle()
         self.assertEqual(len(self.runner.merged), 1)
 
+    def marked(self, comment):
+        self.github.prs[(REPO, 1)]["comments"].append({"author": {"login": ACCOUNT}, "body": comment})
+
+    def test_a_fix_rounds_mark_does_not_hold_back_an_update_round(self):
+        self.marked("Kandu: the fix round changed no code on `aaaaaaaa`.\n\n<!-- kandu-fix aaaaaaaa -->")
+        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.runner.on_push = lambda: self.github.prs[(REPO, 1)].update(headRefOid=SHA2, mergeable="MERGEABLE")
+        self.runner.steps = [report(SHA1), report(SHA2), self.PASS]
+        self.cycle()
+        self.assertEqual(len(self.runner.merged), 1)
+        self.assertEqual(self.github.merges, [SHA2])
+
+    def test_an_update_rounds_mark_holds_back_another_update_on_that_head(self):
+        self.marked(review.update_comment(SHA1))
+        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.waits("the PR has conflicts")
+        self.assertEqual(self.runner.merged, [])
+
+    def test_an_update_rounds_mark_does_not_count_as_a_fix_try(self):
+        self.marked(review.update_comment(SHA1))
+        self.runner.steps = [report(SHA1, [BLOCKER]), self.worker_pushes(SHA2),
+                             report(SHA2, earlier=[{"n": 1, "result": "fixed", "body": "ok"}]), self.PASS]
+        self.cycle()
+        self.assertIn("This breaks.", self.runner.runs[1].prompt)
+        self.assertEqual(self.github.merges, [SHA2])
+        self.assertNotEqual(self.github.status(1), "Blocked")
+
+    def test_a_mark_from_before_allows_one_more_update_round_on_that_head(self):
+        # Before update rounds had their own mark, both rounds wrote this one.
+        self.marked("Kandu: the fix round changed no code on `aaaaaaaa`.\n\n<!-- kandu-fix aaaaaaaa -->")
+        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertEqual(len(self.runner.merged), 1)
+        self.assertTrue(review.update_tried(self.github.prs[(REPO, 1)], ACCOUNT, SHA1))
+        self.cycle()
+        self.assertEqual(len(self.runner.merged), 1)
+        self.assertEqual(self.github.merges, [])
+        self.assertIn("the PR has conflicts", self.events("decision")[-1]["reason"])
+
+    def test_an_update_round_whose_worker_pushes_nothing_leaves_an_update_mark(self):
+        self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
+        self.runner.conflicts = ["a.py"]
+        self.runner.steps = [report(SHA1), lambda: '{"status": "pushed"}']
+        self.cycle()
+        pr = self.github.prs[(REPO, 1)]
+        self.assertTrue(review.update_tried(pr, ACCOUNT, SHA1))
+        self.assertFalse(review.fix_tried(pr, ACCOUNT, SHA1))
+
     def test_conflict_markers_left_after_the_round_block_the_task(self):
         self.github.prs[(REPO, 1)]["mergeable"] = "CONFLICTING"
         self.runner.conflicts = ["a.py", "b.py"]

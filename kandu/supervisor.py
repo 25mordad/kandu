@@ -733,9 +733,9 @@ class Supervisor:
         """One fix round by a fresh worker on the same branch."""
         self._round(task, pr, f"fix round {len(reviews)}", self._to_fix(task, reviews[-1]))
 
-    def _round(self, task, pr, phase, findings, cwd=None):
-        """A fresh worker on the same branch. A round that adds no commit is recorded, so it is not run again.
-        Returns the worker's reply, or None if it could not be read."""
+    def _round(self, task, pr, phase, findings, cwd=None, mark=review.fix_comment):
+        """A fresh worker on the same branch. A round that adds no commit is marked on the PR with `mark`, so it is
+        not run again on that head. Returns the worker's reply, or None if it could not be read."""
         head = pr["headRefOid"]
         self._pick(task)
         self._phase(task, phase)
@@ -746,16 +746,18 @@ class Supervisor:
             pass  # A round is judged by its commits, not by its last message.
         self._edit_pr_body(task, pr, reply)
         if self._head_after_push(task, pr) == head:
-            self.github.comment_pr(task.repo, pr["number"], review.fix_comment(head))
+            self.github.comment_pr(task.repo, pr["number"], mark(head))
             # For the user's eyes: the card says the task will not move on by itself, and why.
             why = (reply or {}).get("reason") or (reply or {}).get("question") or "it pushed no new commit"
             self._decide(task, "round_no_commit", f"{phase}: {why}"[:300])
         return reply
 
     def _conflicts(self, pr, outcome):
-        """A reviewed PR that only its conflicts hold back, and that no update round has tried on this head."""
+        """A reviewed PR that only its conflicts hold back, and that no update round has tried on this head.
+        Only an update round's mark holds it back; a fix round's, or a mark from before the two had their own, does
+        not."""
         return (outcome in MERGEABLE and pr["mergeable"] == "CONFLICTING"
-                and not review.fix_tried(pr, self.config.settings.github.account, pr["headRefOid"]))
+                and not review.update_tried(pr, self.config.settings.github.account, pr["headRefOid"]))
 
     def _update(self, task, pr):
         """Brings the default branch into the PR. Kandu merges; a worker only resolves the files in conflict.
@@ -773,7 +775,7 @@ class Supervisor:
             self._decide(task, "base_merged", f"{base} merged into the PR with no conflict, run {run_id}")
             if self._head_after_push(task, pr) == pr["headRefOid"]:
                 # Nothing new to push, yet GitHub sees a conflict: marked, so this head is not tried again.
-                self.github.comment_pr(task.repo, pr["number"], review.fix_comment(pr["headRefOid"]))
+                self.github.comment_pr(task.repo, pr["number"], review.update_comment(pr["headRefOid"]))
             return True
         files = ", ".join(f"`{path}`" for path in conflicts)
         conflict = {"n": 0, "blocker": True, "path": "", "line": None,
@@ -783,7 +785,7 @@ class Supervisor:
                             f"{task.branch}` and your `Kandu-Run:` line. Run the tests and push. Do not start "
                             "another merge or a rebase. Change nothing else."}
         try:
-            reply = self._round(task, pr, "update", [conflict], cwd=cwd)
+            reply = self._round(task, pr, "update", [conflict], cwd=cwd, mark=review.update_comment)
         except BaseException:
             # Even a round cut short may have pushed: markers must not reach a review.
             if self._merge_left_markers(task, pr, cwd, conflicts):
