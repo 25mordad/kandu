@@ -13,6 +13,7 @@ from .dashboard import TOKEN_ENV
 from .github import GitHub, GitHubError
 from .privateterms import all_terms
 from .runner import Runner, RunnerError, repo_path
+from .state import StateStore
 from .usage import UsageError, codex_login, read_codex_usage, read_usage
 
 REPO_DIR = Path(__file__).resolve().parent.parent
@@ -183,6 +184,7 @@ def main():
     except ConfigError as e:
         print(f"{FAIL} config: {len(e.problems)} problem(s); run: python -m kandu.config")
         return 1
+    StateStore().choose_agent_clis(config.projects)  # a project the dashboard put on Codex is checked as one
     results = run_checks(config, args.local, Runner(config), GitHub())
     for level, message in results:
         print(f"{level:4} {message}")

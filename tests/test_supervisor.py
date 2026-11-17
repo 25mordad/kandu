@@ -1830,6 +1830,76 @@ class CodexWorkerTest(Base):
         self.assertEqual(self.runner.diffs, [(f"/review/{SHA1}", "main", SHA1)])
 
 
+class DashboardWorkerCliTest(Base):
+    """The agent CLI chosen for a project's workers on the dashboard wins over the registry, from the next worker that
+    starts (#81)."""
+    def setUp(self):
+        super().setUp()
+        self.github.add(1)
+
+    def choose(self, cli):
+        self.store.set_project_setting("website", "worker_cli", cli)
+
+    def test_the_dashboards_codex_wins_over_the_registrys_claude(self):
+        self.choose("codex")
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual([run.cli for run in self.runner.runs], ["codex", "claude"])
+        self.assertIn("codex_usage", self.store.read_current())  # the project uses Codex now: its usage is read
+
+    def test_the_dashboards_claude_wins_over_the_registrys_codex(self):
+        self.config.projects[0].agent_cli = {"worker": "codex"}
+        self.choose("claude")
+        self.codex_usage = AssertionError("Codex must not be read")
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual([run.cli for run in self.runner.runs], ["claude", "claude"])
+        self.assertNotIn("codex_usage", self.store.read_current())
+
+    def test_a_change_reaches_the_next_worker_and_never_the_one_running(self):
+        def worker_while_the_user_chooses_codex():
+            self.choose("codex")
+            return self.worker_makes_pr()()
+
+        self.runner.steps = [worker_while_the_user_chooses_codex, report(SHA1, [BLOCKER]), self.worker_pushes(SHA2),
+                             report(SHA2, earlier=[{"n": 1, "result": "fixed", "body": "ok"}])]
+        self.cycle()
+        self.assertEqual([run.cli for run in self.runner.runs], ["claude", "claude", "codex", "claude"])
+
+    def test_what_a_codex_worker_changed_is_still_read_after_a_switch_to_claude_while_it_ran(self):
+        self.config.projects[0].auto_merge = True
+        self.choose("codex")
+
+        def codex_worker_while_the_user_chooses_claude():
+            self.choose("claude")
+            return self.worker_makes_pr()()
+
+        self.runner.changed = {SHA1: ["migrations/001.sql"], SHA2: ["src/a.py"]}
+        self.runner.steps = [codex_worker_while_the_user_chooses_claude, report(SHA1), self.worker_pushes(SHA2),
+                             report(SHA2, earlier=[{"n": 1, "result": "fixed", "body": "ok"}])]
+        self.cycle()
+        self.assertEqual([run.cli for run in self.runner.runs], ["codex", "claude", "claude", "claude"])
+        self.assertIn("`migrations/`", self.github.prs[(REPO, 1)]["comments"][0]["body"])
+        self.assertEqual([e["blockers"] for e in self.events("review_finished")], [1, 0])
+        self.assertEqual(self.github.merges, [SHA2])  # Codex's change to a forbidden area never merged
+
+    def test_a_forbidden_area_codex_changed_still_holds_the_pr_after_a_switch_to_claude(self):
+        self.config.projects[0].auto_merge = True
+        self.choose("codex")
+
+        def review_while_the_user_chooses_claude():
+            self.choose("claude")
+            return report(SHA1)
+
+        self.runner.changed = {SHA1: ["migrations/001.sql"], SHA2: ["migrations/001.sql", "a.py"]}
+        self.runner.steps = [self.worker_makes_pr(), review_while_the_user_chooses_claude, self.worker_pushes(SHA2),
+                             report(SHA2, earlier=[{"n": 1, "result": "fixed", "body": "ok"}])]
+        self.cycle()
+        self.assertEqual([run.cli for run in self.runner.runs], ["codex", "claude", "claude", "claude"])
+        self.assertEqual([e["blockers"] for e in self.events("review_finished")], [1, 1])
+        self.assertEqual(self.github.merges, [])  # Codex's change is still in the PR, whoever works on it now
+
+
 class ParallelTest(Base):
     def test_project_cap_runs_tasks_in_turn(self):
         self.config.projects[0].max_parallel_workers = 1

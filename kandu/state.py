@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from .config import SPLIT_APPROVALS
+from .config import AGENT_CLIS, SPLIT_APPROVALS
 
 DEFAULT_STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 FORMAT_VERSION = 1
@@ -107,7 +107,8 @@ EVENT_FIELDS = {
     "upstream_task_created": TASK_FIELDS + ("url", "behind"),
 }
 # Each setting a project may have in the dashboard's settings section, with its values. One there wins over the registry.
-PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS, "queen_answers_one_way": (True, False)}
+PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS, "queen_answers_one_way": (True, False),
+                    "worker_cli": AGENT_CLIS}  # the agent CLI that runs its workers
 # Carried once, on the first cycle after the switch came, for the projects an install had: today's behaviour stays.
 CARRIED_SETTINGS = {"queen_answers_one_way": True}
 
@@ -465,6 +466,15 @@ class StateStore:
     def project_setting(self, project, setting):
         """The project's setting: the dashboard's choice, else the registry's."""
         return self.project_settings().get(project.name, {}).get(setting, getattr(project, setting))
+
+    def choose_agent_clis(self, projects):
+        """Puts the dashboard's choice of each project's workers' agent CLI in its `agent_cli`, so all that reads
+        the config sees it; a project the dashboard chose nothing for keeps the registry's."""
+        chosen = self.project_settings()
+        for project in projects:
+            cli = chosen.get(project.name, {}).get("worker_cli")
+            if cli is not None and cli != project.worker_cli:
+                project.agent_cli = project.agent_cli | {"worker": cli}
 
     @contextmanager
     def split_lock(self):
