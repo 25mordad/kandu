@@ -1651,6 +1651,16 @@ class ServerTest(Base):
         with urllib.request.urlopen(request) as r:
             self.assertEqual(json.load(r), {"stop_requested": True})
 
+    def test_a_body_too_long_is_refused_whole_and_nothing_is_done(self):
+        body = b"x=" + b"a" * dashboard.MAX_BODY
+        request = urllib.request.Request(self.base + "/api/v1/stop", data=body, method="POST")
+        request.add_header("Authorization", f"Bearer {TOKEN}")
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(request)
+        self.assertEqual(caught.exception.code, 413)
+        caught.exception.close()
+        self.assertFalse(self.store.stop_file.exists())
+
     def test_stream_sends_new_events(self):
         with mock.patch("kandu.dashboard.STREAM_POLL_SECONDS", 0.01):
             with socket.create_connection(self.server.server_address, timeout=5) as sock:

@@ -227,7 +227,7 @@ class FakeRunner:
         self.on_push = lambda: None
         self.heads_at_merge = {}
 
-    def merge_base(self, project, repo, directory, branch, base, message):
+    def merge_base(self, project, repo, directory, branch, base, message, kept=None):
         self.merged.append((directory, base))
         self.merge_message = message
         self.heads_at_merge[branch] = self.github.prs[(repo, 1)]["headRefOid"]
@@ -318,6 +318,9 @@ class Base(unittest.TestCase):
     def events(self, kind):
         day = datetime.now().astimezone().date().isoformat()
         return [e for e in self.store.events(day) if e["type"] == kind]
+
+    def decisions(self, kind):
+        return [e for e in self.events("decision") if e["decision"] == kind]
 
     def tried_before(self, issue=1):
         """Kandu's own trouble came back on this task until the next one is its last try."""
@@ -1555,6 +1558,32 @@ class FirstRunTest(Base):
         self.cycle()
         self.assertEqual(len(self.github.opened), 1)
         self.assertEqual(self.github.status(1), "In review")
+
+    def test_a_pr_github_refuses_for_a_moment_opens_next_cycle_with_no_new_worker(self):
+        real = self.github.create_pr
+        self.github.create_pr = mock.Mock(side_effect=GitHubError("HTTP 502"))
+        self.runner.steps = [self.worker_makes_pr()]
+        self.cycle()
+        self.assertEqual(self.github.opened, [])
+        self.assertEqual(self.github.status(1), "In progress")
+        self.assertEqual(self.decisions("internal_error"), [])  # no try is spent
+        self.assertEqual(len(self.decisions("pr_open_waits")), 1)
+        self.github.create_pr = real
+        self.runner.steps = [report(SHA1)]  # only the review runs: the worker's reply was kept
+        self.cycle()
+        [(_, head, _, title, body)] = self.github.opened
+        self.assertEqual(head, "kandu/1-task-1")
+        self.assertIn("Closes #1", body)
+        self.assertEqual(len(self.decisions("pushed_reply_reused")), 1)
+        self.assertEqual(self.github.status(1), "In review")
+
+    def test_a_dropped_machine_never_uses_up_the_last_try(self):
+        self.tried_before()
+        self.runner.prepare_worktree = mock.Mock(side_effect=Unreachable("server did not answer over SSH"))
+        self.cycle()
+        self.assertEqual(self.github.status(1), "In progress")
+        self.assertEqual(self.events("task_finished"), [])
+        self.assertTrue(self.events("decision")[-1]["reason"].startswith("kandu.runner.Unreachable"))
 
     def test_a_pr_github_refuses_to_open_stops_the_task(self):
         self.runner.steps = [lambda: PR_OPENED]  # it says it pushed, but no branch is on GitHub
@@ -2820,9 +2849,6 @@ class MergeRetryTest(Base):
         items = list(sup._board_items())
         events = queen.all_events(self.store)
         return next(p for p in sup._project_view(items, sup._startable(items), events) if p["project"] == "website")
-
-    def decisions(self, kind):
-        return [e for e in self.events("decision") if e["decision"] == kind]
 
     def test_a_merge_refused_twice_for_a_moment_lands_and_deploys_in_the_same_cycle(self):
         self.refuses(2)

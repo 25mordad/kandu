@@ -5,9 +5,11 @@ and never puts one in a URL or a log. A button press counts only from the config
 the first names the PR's head as it is then, and the second approves only that head through the dashboard's own
 approval, so a PR that changed in between is not approved. The texts are Kandu's own (notify.MESSAGES).
 """
+import fcntl
 import json
 import os
 import re
+import tempfile
 import threading
 import time
 import urllib.error
@@ -51,19 +53,31 @@ def read_env(local_dir):
 
 
 def write_env(local_dir, values):
-    """Sets each variable in local/.env, keeping every other line, readable by its owner only."""
+    """Sets each variable in local/.env, keeping every other line, readable by its owner only.
+
+    One write at a time, as two saves at once would each keep only their own variable; the new file is its
+    owner's only from the moment it exists, as it holds the bot's token."""
     path = Path(local_dir) / ".env"
-    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    left = dict(values)
-    for i, line in enumerate(lines):
-        name = line.partition("=")[0].strip()
-        if name in left and "=" in line and not line.lstrip().startswith("#"):
-            lines[i] = f"{name}={left.pop(name)}"
-    lines += [f"{name}={value}" for name, value in left.items()]
-    temp = path.with_name(".env.new")
-    temp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.chmod(temp, 0o600)
-    os.replace(temp, path)
+    lock = os.open(path.with_name(".env.lock"), os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        left = dict(values)
+        for i, line in enumerate(lines):
+            name = line.partition("=")[0].strip()
+            if name in left and "=" in line and not line.lstrip().startswith("#"):
+                lines[i] = f"{name}={left.pop(name)}"
+        lines += [f"{name}={value}" for name, value in left.items()]
+        fd, temp = tempfile.mkstemp(prefix=".env.", dir=path.parent)  # made 0600, with a name no one else uses
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as out:
+                out.write("\n".join(lines) + "\n")
+            os.replace(temp, path)
+        except BaseException:
+            Path(temp).unlink(missing_ok=True)
+            raise
+    finally:
+        os.close(lock)
 
 
 def call(token, method, params=None, timeout=10):
@@ -91,9 +105,12 @@ def _data(*parts):
     return data if len(data.encode("utf-8")) <= CALLBACK_LIMIT else None
 
 
-def approve_markup(task, language):
-    """The button under a message about a PR that waits for the user's yes, or None when its data would not fit."""
-    data = _data(APPROVE, task)
+def approve_markup(task, head, language):
+    """The button under a message about a PR that waits for the user's yes, or None when its data would not fit.
+    It carries the head the message is about, so a commit pushed after the message is never approved by it."""
+    if not head or len(head) < HEAD_CHARS:
+        return None
+    data = _data(APPROVE, task, head[:HEAD_CHARS])
     if data is None:
         return None
     return {"inline_keyboard": [[{"text": _words(language)["tg_approve"], "callback_data": data}]]}
@@ -229,7 +246,7 @@ class Bot:
         message = press.get("message") or {}
         where = str((message.get("chat") or {}).get("id", ""))
         action, _, rest = (press.get("data") or "").partition(":")
-        task, _, head = rest.partition(":") if action == SURE else (rest, "", "")
+        task, _, head = rest.partition(":")
         if not chat or where != chat:
             self._answer(token, press, words["tg_not_yours"])
             self.api.store.record("telegram_pressed", action=action, task=task, result="not_your_chat")
@@ -247,29 +264,33 @@ class Bot:
         if action not in (APPROVE, SURE, CANCEL) or not number.isdigit() or repo.count("/") != 1:
             self._answer(token, press, "")
             return "unknown"
+        if len(head) != HEAD_CHARS:  # every button carries the whole of its head's prefix, never less
+            self._answer(token, press, words["tg_changed"])
+            self._markup(token, message, None)
+            return "changed"
         if action == CANCEL:
             self._answer(token, press, "")
-            self._markup(token, message, approve_markup(task, self._language()))
+            self._markup(token, message, approve_markup(task, head, self._language()))
             return "cancelled"
         pr = self.api.github.find_pr(repo, int(number))
         if pr is None or pr.get("state") != "OPEN":
             self._answer(token, press, words["tg_no_pr"])
             self._markup(token, message, None)
             return "no_pr"
+        if not pr["headRefOid"].startswith(head):  # pushed to since the message: look at it on the dashboard
+            self._answer(token, press, words["tg_changed"])
+            self._markup(token, message, None)
+            return "changed"
         if action == APPROVE:
-            sure = _data(SURE, task, pr["headRefOid"][:HEAD_CHARS])
+            sure = _data(SURE, task, head)
             if sure is None:
                 self._answer(token, press, words["tg_on_dashboard"])
                 return "too_long"
             self._answer(token, press, "")
             self._markup(token, message, {"inline_keyboard": [[
                 {"text": words["tg_sure"].format(head=pr["headRefOid"][:7]), "callback_data": sure},
-                {"text": words["tg_cancel"], "callback_data": _data(CANCEL, task)}]]})
+                {"text": words["tg_cancel"], "callback_data": _data(CANCEL, task, head)}]]})
             return "asked"
-        if not head or not pr["headRefOid"].startswith(head):
-            self._answer(token, press, words["tg_changed"])
-            self._markup(token, message, approve_markup(task, self._language()))
-            return "changed"
         try:
             self.approve(task, pr["headRefOid"])
         except Refused as e:

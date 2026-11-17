@@ -18,6 +18,9 @@ BOT_TOKEN = "123456789:" + "A" * 35
 CHAT = "4242"
 TASK = f"{REPO}#1"
 HEAD = "abc123def456789"
+H = HEAD[:12]  # what a button carries of its head
+REVIEW = dict(task=TASK, project="website", run_id="r", round=1, findings=0, blockers=0, door="one-way",
+              criteria_met=True, wait_for_user=["Merge?"], user_brief=None)
 
 
 class Telegram:
@@ -59,8 +62,13 @@ class EnvTest(unittest.TestCase):
         self.assertEqual(telegram_bot.read_env(self.local), {"A": "1", "B": "2"})
 
     def test_a_button_that_would_not_fit_is_left_out(self):
-        self.assertEqual(telegram_bot.approve_markup(TASK, "en")["inline_keyboard"][0][0]["callback_data"], f"a:{TASK}")
-        self.assertIsNone(telegram_bot.approve_markup("o/" + "r" * 80 + "#1", "en"))
+        self.assertEqual(telegram_bot.approve_markup(TASK, HEAD, "en")["inline_keyboard"][0][0]["callback_data"],
+                         f"a:{TASK}:{H}")
+        self.assertIsNone(telegram_bot.approve_markup("o/" + "r" * 80 + "#1", HEAD, "en"))
+
+    def test_no_button_without_the_head_it_is_about(self):
+        self.assertIsNone(telegram_bot.approve_markup(TASK, None, "en"))
+        self.assertIsNone(telegram_bot.approve_markup(TASK, "abc", "en"))
 
 
 class BotBase(Base):
@@ -170,18 +178,29 @@ class ApproveTest(BotBase):
         self.reviewed()
 
     def test_two_presses_approve_the_head_the_first_one_showed(self):
-        self.assertEqual(self.press(f"a:{TASK}")["result"], "asked")
+        self.assertEqual(self.press(f"a:{TASK}:{H}")["result"], "asked")
         sure = json.loads(self.telegram.made("editMessageReplyMarkup")[-1]["reply_markup"])["inline_keyboard"][0]
         self.assertEqual(sure[0]["callback_data"], f"y:{TASK}:{HEAD[:12]}")
         self.assertIn(HEAD[:7], sure[0]["text"])
-        self.assertEqual(sure[1]["callback_data"], f"n:{TASK}")
+        self.assertEqual(sure[1]["callback_data"], f"n:{TASK}:{H}")
         self.assertIsNone(self.store.last_event("user_approved"))
         self.assertEqual(self.press(sure[0]["callback_data"])["result"], "approved")
         self.assertEqual(self.store.last_event("user_approved")["head_sha"], HEAD)
         self.api.start_cycle.assert_called_once()
 
+    def test_a_head_pushed_after_the_message_is_not_approved_by_its_button(self):
+        self.reviewed(head="fff000fff000fff")
+        self.assertEqual(self.press(f"a:{TASK}:{H}")["result"], "changed")
+        self.assertEqual(self.press(f"y:{TASK}:{H}")["result"], "changed")
+        self.assertIsNone(self.store.last_event("user_approved"))
+
+    def test_a_head_shorter_than_a_button_carries_is_refused(self):
+        for data in (f"y:{TASK}:a", f"y:{TASK}:{HEAD[:11]}", f"y:{TASK}", f"a:{TASK}"):
+            self.assertEqual(self.press(data)["result"], "changed")
+        self.assertIsNone(self.store.last_event("user_approved"))
+
     def test_a_head_that_changed_after_the_first_press_is_not_approved(self):
-        self.press(f"a:{TASK}")
+        self.press(f"a:{TASK}:{H}")
         self.reviewed(head="fff000fff000fff")
         self.assertEqual(self.press(f"y:{TASK}:{HEAD[:12]}")["result"], "changed")
         self.assertIsNone(self.store.last_event("user_approved"))
@@ -204,10 +223,10 @@ class ApproveTest(BotBase):
         self.assertIsNone(self.store.last_event("user_approved"))
 
     def test_cancel_puts_the_first_button_back_and_a_closed_pr_takes_it_away(self):
-        self.assertEqual(self.press(f"n:{TASK}")["result"], "cancelled")
-        self.assertEqual(json.loads(self.telegram.made("editMessageReplyMarkup")[-1]["reply_markup"])["inline_keyboard"][0][0]["callback_data"], f"a:{TASK}")
+        self.assertEqual(self.press(f"n:{TASK}:{H}")["result"], "cancelled")
+        self.assertEqual(json.loads(self.telegram.made("editMessageReplyMarkup")[-1]["reply_markup"])["inline_keyboard"][0][0]["callback_data"], f"a:{TASK}:{H}")
         self.github.find_pr.return_value |= {"state": "MERGED"}
-        self.assertEqual(self.press(f"a:{TASK}")["result"], "no_pr")
+        self.assertEqual(self.press(f"a:{TASK}:{H}")["result"], "no_pr")
         self.assertEqual(json.loads(self.telegram.made("editMessageReplyMarkup")[-1]["reply_markup"]), {"inline_keyboard": []})
 
     def test_nonsense_data_does_nothing(self):
@@ -232,7 +251,9 @@ class MessageButtonTest(unittest.TestCase):
         return self.sent[-1]
 
     def test_only_a_pr_that_waits_for_the_yes_carries_the_button_and_only_when_on(self):
-        self.assertEqual(self.tell(True, "pr_ready")["inline_keyboard"][0][0]["callback_data"], f"a:{TASK}")
+        self.assertIsNone(self.tell(True, "pr_ready"))  # no review yet: no head to carry
+        self.store.record("review_finished", **REVIEW, head_sha=HEAD)
+        self.assertEqual(self.tell(True, "pr_ready")["inline_keyboard"][0][0]["callback_data"], f"a:{TASK}:{H}")
         self.assertIsNone(self.tell(False, "pr_ready"))
         self.assertIsNone(self.tell(True, "pr_held"))
 

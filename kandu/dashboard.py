@@ -37,7 +37,7 @@ LOOK_COOKIE = "kandu-look"  # the look each browser chose; the page sets it
 LOOKS = {"classic": CLASSIC_PAGE, "classic-new": CLASSIC_NEW_PAGE, "clean": PAGE}  # in the order the Look menu lists them
 FONT = Path(__file__).with_name("vazirmatn.woff2")
 TOKEN_ENV = "KANDU_DASHBOARD_TOKEN"
-MAX_BODY = 4096  # a POST's form body: a bot's token or a chat, never more
+MAX_BODY = 16384  # a POST's form body; a longer one is refused whole, never cut, as a cut form would save half a command
 BODY_ONLY = ("token", "chat_id")  # secrets a POST takes only from its body, so no URL or log ever holds one
 API = "/api/v1"
 QUEUE_CACHE_SECONDS = 900  # GitHub's hourly limit is shared with all else on the account, however many pages are open.
@@ -1501,8 +1501,13 @@ def make_handler(api):
 
         def _answer(self, method):
             auth = self.headers.get("Authorization", "")
-            length = min(int(self.headers.get("Content-Length") or 0), MAX_BODY) if method == "POST" else 0
-            body = self.rfile.read(length).decode("utf-8", "replace") if length else ""
+            length = int(self.headers.get("Content-Length") or 0) if method == "POST" else 0
+            if length > MAX_BODY:
+                self.close_connection = True  # its body is left unread
+                self._send(413, json.dumps({"error": "the request is too long"}).encode("utf-8"),
+                           "application/json; charset=utf-8")
+                return
+            body = self.rfile.read(length).decode("utf-8", "replace") if length > 0 else ""
             status, payload = dispatch(api, method, self.path, auth.removeprefix("Bearer ") or None, body)
             self._send(status, json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                        "application/json; charset=utf-8")

@@ -343,7 +343,9 @@ class Notifier:
         if not self.buttons or message.text != "pr_ready":
             return None
         from .telegram_bot import approve_markup  # here, as telegram_bot reads this module's words
-        return approve_markup(message.values["task"], self.language)
+        task = message.values["task"]
+        reviewed = self.store.last_event("review_finished", task=task)  # the head the yes is asked for
+        return approve_markup(task, reviewed and reviewed.get("head_sha"), self.language)
 
     def tell(self, message):
         if message.kind not in self.events:

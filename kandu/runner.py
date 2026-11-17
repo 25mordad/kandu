@@ -113,6 +113,8 @@ class Host:
         try:
             return subprocess.run(self.argv(command, cwd), capture_output=True, text=True, timeout=timeout, env=child_env())
         except subprocess.TimeoutExpired as e:
+            if self.ssh_target is not None:  # a connection that hangs without closing is a drop too
+                raise Unreachable(f"{command[0]} timed out over SSH on {self.name}") from e
             raise RunnerError(f"{command[0]} timed out on {self.name}") from e
 
     def _answered(self, result):
@@ -238,15 +240,24 @@ class Runner:
         if cleaned is not None:
             cleaned(f"cancelled a {operation} an earlier run left unfinished in the task's folder")
 
-    def merge_base(self, project, repo, directory, branch, base, message):
+    def merge_base(self, project, repo, directory, branch, base, message, kept=None):
         """Merges `origin/<base>` into the pushed `branch`, in Kandu's code, so no worker runs `git merge`.
 
         Work an earlier run left uncommitted or unpushed is dropped first: it was never reviewed, and it would
-        stop the merge. Returns the commit of `base` merged and the files in conflict. With none the merge is
-        committed with `message`; with some it is left open, for a worker to resolve and commit."""
+        stop the merge. Commits it made but did not push, such as a run cut off by a dropped connection, are kept
+        first under `refs/kandu/kept/`, and `kept` is called with where. Returns the commit of `base` merged and
+        the files in conflict. With none the merge is committed with `message`; with some it is left open, for a
+        worker to resolve and commit."""
         host = self.hosts[project.machine]
         with self._repo_locks[(host.name, repo)]:
             host.check(["git", "fetch", "origin"], cwd=directory)
+            local = host.check(["git", "rev-list", "--count", "HEAD", "--not", "--remotes=origin"], cwd=directory).strip()
+            if local != "0":
+                head = host.check(["git", "rev-parse", "HEAD"], cwd=directory).strip()
+                ref = f"refs/kandu/kept/{branch.removeprefix('kandu/')}/{head[:12]}"
+                host.check(["git", "update-ref", ref, head], cwd=directory)
+                if kept is not None:
+                    kept(f"{local} commit(s) a run made but did not push are kept in {ref} on {host.name}")
             host.check(["git", "reset", "--hard", f"origin/{branch}"], cwd=directory)
             host.check(["git", "clean", "-fd"], cwd=directory)
             sha = host.check(["git", "rev-parse", f"origin/{base}"], cwd=directory).strip()
@@ -388,13 +399,18 @@ class Runner:
         fd = os.open(self.logs_dir / f"{log_name}.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as log:
             try:
-                return subprocess.run(host.argv(argv, cwd), stdout=log, stderr=subprocess.STDOUT,
+                code = subprocess.run(host.argv(argv, cwd), stdout=log, stderr=subprocess.STDOUT,
                                       timeout=COMMAND_TIMEOUT_SECONDS, env=child_env()).returncode
             except subprocess.TimeoutExpired as e:
                 raise RunnerError(f"a project command timed out on {host.name}") from e
             finally:
                 if unit:
                     host.stop_scope(unit)
+        # 255 is ssh's own code, but a project's command may exit with it too: a machine that still
+        # answers says the command did, so only a machine that is gone makes it a drop
+        if host.ssh_target is not None and code == SSH_FAILED and not self.reachable(project.machine):
+            raise Unreachable(f"{host.name} dropped the connection during a project command")
+        return code
 
     def run_test(self, project, cwd, log_name):
         """Runs the project's `test` in `cwd` and returns its exit code, after its `setup` when the checkout needs it.

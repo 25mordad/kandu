@@ -196,6 +196,10 @@ def _held_by_blockers(events, key):
 _ENDS_RETRY = ("review_finished", "task_finished", "merge_held")
 
 
+# The decisions after which a first run's pushed reply has done its job: its PR is open.
+OPENED = ("pr_opened", "reply_unread_pr_found")
+
+
 def merge_retry(events, key):
     """The task's last `merge_retry` while Kandu still tries its merge again by itself, or None."""
     for event in reversed(events):
@@ -497,8 +501,9 @@ class Supervisor:
             pr = self.github.find_pr(task.repo, task.number)
             if pr is not None and pr["state"] == "OPEN":
                 return pr
-            if transient(e):
-                raise KanduTrouble(f"the PR could not be opened from {task.branch}: {e}") from e
+            if transient(e):  # the pushed reply is saved: a later cycle opens the PR, and no try is spent
+                self._decide(task, "pr_open_waits", f"GitHub refused the PR for a moment: {e}")
+                raise CycleStop(f"the PR could not be opened from {task.branch} yet: {e}") from e
             raise TaskFailed(f"the PR could not be opened from {task.branch}: {e}") from e
         self._decide(task, "pr_opened", f"#{number} from {task.branch}")
         return self.github.pr(task.repo, number)
@@ -512,10 +517,32 @@ class Supervisor:
             except GitHubError as e:
                 self._decide(task, "pr_body_not_edited", str(e))
 
+    def _pushed_unopened(self, task):
+        """The reply of a first run whose worker pushed but whose PR was not opened yet, or None. A cycle that GitHub
+        cut short after the push keeps it, so the next opens the PR with no new worker."""
+        found = None
+        for event in queen.all_events(self.store):
+            if event.get("task") != task.key:
+                continue
+            if event["type"] == "worker_pushed":
+                found = event
+            elif event["type"] == "task_finished" or (event["type"] == "decision" and event["decision"] in OPENED):
+                found = None
+        if found is None or found["branch"] != task.branch:
+            return None
+        if not self.runner.branch_pushed(task.project, task.repo, task.branch):
+            return None
+        return {"status": "pushed", "pr_title": found["pr_title"], "pr_body": found["pr_body"]}
+
     def _implement(self, task):
         """First run. Returns the new PR, or None if the worker gave the task back."""
         self._pick(task)
         self._move(task, IN_PROGRESS)
+        saved = self._pushed_unopened(task)
+        if saved is not None:
+            self._decide(task, "pushed_reply_reused", f"{task.branch} is pushed: its PR opens with no new run")
+            self._reread(lambda: self.github.refresh_repo(task.repo))
+            return self._open_pr(task, saved)
         self._phase(task, "implement")
         try:
             reply = self._work(task)
@@ -539,6 +566,8 @@ class Supervisor:
             self.github.comment_issue(task.repo, task.number, reply["reason"])
             self._finish(task, BLOCKED, "blocked")
             return None
+        self.store.record("worker_pushed", task=task.key, project=task.project.name, branch=task.branch,
+                          pr_title=reply["pr_title"], pr_body=reply["pr_body"])  # kept if GitHub cuts the cycle short
         self._reread(lambda: self.github.refresh_repo(task.repo))  # the worker pushed its branch
         return self._open_pr(task, reply)
 
@@ -722,7 +751,8 @@ class Supervisor:
         run_id = new_run_id(self.now())
         cwd = self._worktree(task, base)
         message = f"Merge {base} into {task.branch}\n\nKandu-Run: {run_id}"
-        merged, conflicts = self.runner.merge_base(task.project, task.repo, cwd, task.branch, base, message)
+        merged, conflicts = self.runner.merge_base(task.project, task.repo, cwd, task.branch, base, message,
+                                                   kept=lambda note: self._decide(task, "unpushed_kept", note))
         if not conflicts:
             self._pick(task)
             self._phase(task, "update")
@@ -1240,8 +1270,10 @@ class Supervisor:
         except StoppedByUser:
             raise
         except (TaskFailed, split.ReportError, GitHubError, RunnerError) as e:
-            if internal(e) and self._internal_tries(task) + 1 < INTERNAL_TRIES:
-                self._decide(task, "internal_error", str(e))  # still unsized, so the next cycle sizes it again
+            if isinstance(e, Unreachable) or internal(e) and self._internal_tries(task) + 1 < INTERNAL_TRIES:
+                # still unsized, so the next cycle sizes it again; the reason names the error's class, as
+                # tries.py tells a drop, which is no try, by it
+                self._decide(task, "internal_error", "".join(traceback.format_exception_only(e)).strip())
                 return
             self._decide(task, "sizing_failed", str(e))
             self.github.comment_issue(task.repo, task.number, SIZING_FAILURE_COMMENT)
@@ -1465,8 +1497,8 @@ class Supervisor:
         if isinstance(error, Unreachable):  # the rest of this cycle waits for the machine; tries.py counts no try
             with self._lock:
                 self.seen[task.project.machine] = False
-        if internal(error) and self._internal_tries(task) + 1 < INTERNAL_TRIES:
-            self._decide(task, "internal_error", details)
+        if isinstance(error, Unreachable) or internal(error) and self._internal_tries(task) + 1 < INTERNAL_TRIES:
+            self._decide(task, "internal_error", details)  # a drop is no try, so it never uses up the last one
             return
         self._decide(task, "failed", details)
         try:

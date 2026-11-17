@@ -63,6 +63,28 @@ class HostTest(unittest.TestCase):
             with self.assertRaises(Unreachable):
                 host.check(["git", "fetch", "origin"])
 
+    def test_a_connection_that_hangs_is_a_drop_but_a_local_timeout_is_not(self):
+        hung = subprocess.TimeoutExpired(["ssh"], 1)
+        with mock.patch("subprocess.run", side_effect=hung):
+            with self.assertRaises(Unreachable):
+                Host(Machine("a", "ssh box", False)).run(["git", "fetch"])
+            with self.assertRaises(RunnerError) as caught:
+                Host(Machine("a", "local", True)).run(["git", "fetch"])
+        self.assertNotIsInstance(caught.exception, Unreachable)
+
+    def test_255_from_a_project_command_is_a_drop_only_when_the_machine_is_gone(self):
+        machine = Machine("a", "ssh box", False)
+        runner = Runner(Config(settings=mock.Mock(machines=[machine]), projects=[]), tempfile.mkdtemp())
+        project = Project(name="site", family="f", repos=["o/site"], run="clone", machine="a", path="~/s",
+                          test="t", priority=1, max_parallel_workers=1, paused=False, daily_token_limit=1000)
+        exited = subprocess.CompletedProcess([], 255)
+        with mock.patch("subprocess.run", return_value=exited):
+            with mock.patch.object(runner, "reachable", return_value=True):
+                self.assertEqual(runner.run_command(project, "~/s", "t", "log-a", scoped=False), 255)
+            with mock.patch.object(runner, "reachable", return_value=False):
+                with self.assertRaises(Unreachable):
+                    runner.run_command(project, "~/s", "t", "log-b", scoped=False)
+
     def test_a_missing_file_is_still_false(self):
         host = Host(Machine("a", "ssh box", False))
         with mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "")):
@@ -241,6 +263,24 @@ class RunnerTest(GitCase):
         self.assertEqual(sorted(files), ["first.txt", "new.txt", "same.txt"])
         self.assertIn("Kandu-Run: r-1", git("log", "-1", "--format=%B", "kandu/1-a", cwd=self.origin))
         self.assertTrue(self.runner.has_commit(self.project(), "o/site", worktree, "kandu/1-a", base))
+
+    def test_commits_a_run_did_not_push_are_kept_before_the_merge(self):
+        worktree = self.merging()
+        (Path(worktree) / "late.txt").write_text("cut off\n")
+        git("add", "late.txt", cwd=worktree)
+        git("commit", "-m", "not pushed", cwd=worktree)
+        late = git("rev-parse", "HEAD", cwd=worktree).strip()
+        notes = []
+        self.runner.merge_base(self.project(), "o/site", worktree, "kandu/1-a", "main", "Merge", kept=notes.append)
+        self.assertEqual(git("rev-parse", f"refs/kandu/kept/1-a/{late[:12]}", cwd=worktree).strip(), late)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("1 commit(s)", notes[0])
+
+    def test_a_merge_with_nothing_unpushed_keeps_nothing(self):
+        worktree = self.merging()
+        notes = []
+        self.runner.merge_base(self.project(), "o/site", worktree, "kandu/1-a", "main", "Merge", kept=notes.append)
+        self.assertEqual(notes, [])
 
     def test_a_conflicting_merge_is_left_open_and_its_markers_are_found(self):
         worktree = self.merging()
