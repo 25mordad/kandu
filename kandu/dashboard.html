@@ -960,6 +960,11 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "set_run_label": "Bees work on it",
   "set_split_by": "When a task is too big, the split is accepted by",
   "set_one_way_by": "A hard-to-undo merge is answered by",
+  "set_run_with": "Run with",
+  "set_run_with_hint": "The program its workers run on, from the next worker that starts; one already at work keeps its own",
+  "cli_claude": "Claude Code",
+  "cli_codex": "Codex",
+  "set_codex_why": "Codex cannot run on {machine}: {why}",
   "set_me": "Me",
   "set_the_queen": "The queen",
   "set_merge_ask": "Turn on «merges by itself»? Kandu then merges this project's PRs once their review passes, without waiting for your yes.",
@@ -1482,6 +1487,11 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "set_run_label": "زنبورها رویش کار می‌کنند",
   "set_split_by": "وقتی تسکی بزرگ است، شکستنش را می‌پذیرد",
   "set_one_way_by": "به ادغامی که برگشتش سخت است جواب می‌دهد",
+  "set_run_with": "اجرا با",
+  "set_run_with_hint": "برنامه‌ای که کارگرهایش با آن کار می‌کنند، از کارگر بعدی که شروع می‌کند؛ کارگری که سر کار است برنامهٔ خودش را نگه می‌دارد",
+  "cli_claude": "Claude Code",
+  "cli_codex": "Codex",
+  "set_codex_why": "Codex روی {machine} اجرا نمی‌شود: {why}",
   "set_me": "من",
   "set_the_queen": "ملکه",
   "set_merge_ask": "«ادغام خودکار» روشن شود؟ آن‌وقت کندو PRهای این پروژه را بعد از قبول شدن بازبینی ادغام می‌کند و منتظر بلهٔ تو نمی‌ماند.",
@@ -1698,6 +1708,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "step_blockers": "{n} مانع"
  },
  "values_fa": {
+  "not installed": "نصب نیست",
+  "not logged in; run: codex login": "واردش نشده‌ای؛ اجرا کن: codex login",
+  "codex login status did not answer": "codex login status جواب نداد",
+  "the machine does not answer": "ماشین جواب نمی‌دهد",
   "review": "بازبینی",
   "awake": "بیدار",
   "waiting for machine": "در انتظار ماشین",
@@ -3233,7 +3247,7 @@ function settingsProjectsHtml(projects) {
 
 // A project's pop-up shows every setting it has, in its groups. Nothing changes until Save, and then each change
 // goes through the call it always had, so it is checked and logged as before.
-const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]]];
+const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "worker_cli", "priority", "daily_token_limit"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]]];
 
 function settingsDraft(row) {
   return {name: row.name, ...Object.fromEntries(SETTING_GROUPS.flatMap(([, keys]) => keys).map(key => [key, row[key]]))};
@@ -3279,28 +3293,31 @@ async function applySettings(name, edit, send) {
   return edit.refused;
 }
 
-const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by"};
-const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint"};
+const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by", worker_cli: "set_run_with"};
+const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint", worker_cli: "set_run_with_hint"};
 
-// One setting's control, drawn from the draft. A pause set in the config shows and cannot move.
-function settingControl(key, row, now) {
+// One setting's control, drawn from the draft. A pause set in the config shows and cannot move. Codex chosen on a
+// machine where it cannot run shows the doctor's reason beside its switch (`codex`, the machine's answer).
+function settingControl(key, row, now, codex = null) {
   const label = t(SETTING_LABELS[key]), value = now[key];
   const hint = row.paused_in_config && key === "paused" ? t("paused_in_config_hint") : SETTING_HINTS[key] ? t(SETTING_HINTS[key]) : "";
   const head = `<div class="set-label"><span>${label}</span>${hint ? `<small>${esc(hint)}</small>` : ""}</div>`;
-  const seg = (options, off = false) => `<div class="set-field stack">${head}<div class="seg" role="group" aria-label="${esc(label)}">${options.map(([v, text]) =>
-    `<button type="button" data-draft="${key}" data-value="${v}" aria-pressed="${String(value) === v}"${off ? " disabled" : ""}>${t(text)}</button>`).join("")}</div></div>`;
+  const seg = (options, off = false, after = "") => `<div class="set-field stack">${head}<div class="seg" role="group" aria-label="${esc(label)}">${options.map(([v, text]) =>
+    `<button type="button" data-draft="${key}" data-value="${v}" aria-pressed="${String(value) === v}"${off ? " disabled" : ""}>${t(text)}</button>`).join("")}</div>${after}</div>`;
   const step = () => `<div class="set-field">${head}<span class="stepper"><button type="button" class="btn small" data-draft="${key}" data-by="-1" aria-label="${esc(`${t("less")}: ${label}`)}"${value <= 1 ? " disabled" : ""}>−</button><b class="number">${num(value)}</b><button type="button" class="btn small" data-draft="${key}" data-by="1" aria-label="${esc(`${t("more")}: ${label}`)}">+</button></span></div>`;
   const flip = () => `<div class="set-field">${head}<button type="button" class="switch" role="switch" aria-checked="${Boolean(value)}" data-draft="${key}" aria-label="${esc(label)}"><i></i></button></div>`;
   if (key === "paused") return seg([["false", "set_running"], ["true", "project_on_pause"]], row.paused_in_config);
   if (key === "split_approval") return seg([["user", "set_me"], ["queen", "set_the_queen"]]);
   if (key === "queen_answers_one_way") return seg([["false", "set_me"], ["true", "set_the_queen"]]);
+  if (key === "worker_cli") return seg([["claude", "cli_claude"], ["codex", "cli_codex"]], false, value === "codex" && codex?.why
+    ? `<div class="sheet-note tone-amber" role="status" data-codex-why>${esc(fillIn("set_codex_why", {machine: codex.machine, why: tr(codex.why)}))}</div>` : "");
   if (key === "name") return `<div class="set-field stack">${head}<input type="text" class="name-field" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" data-draft="${key}" value="${esc(value)}" aria-label="${esc(label)}"></div>`;
   if (key === "daily_token_limit") return `<div class="set-field">${head}<input type="number" class="tokens-field" min="1" step="100000" dir="ltr" inputmode="numeric" data-draft="${key}" value="${esc(value)}" aria-label="${esc(label)}"></div>`;
   return key === "max_parallel_workers" || key === "priority" ? step() : flip();
 }
 
 function settingsBody(row, edit) {
-  const groups = SETTING_GROUPS.map(([head, keys]) => `<section class="set-group"><h3>${t(head)}</h3>${keys.map(key => settingControl(key, row, edit.now)).join("")}</section>`).join("");
+  const groups = SETTING_GROUPS.map(([head, keys]) => `<section class="set-group"><h3>${t(head)}</h3>${keys.map(key => settingControl(key, row, edit.now, edit.codex)).join("")}</section>`).join("");
   const refused = edit.refused.length ? `<div class="set-refused" role="alert"><b>${t("set_refused")}</b><ul>${edit.refused.map(r =>
     `<li>${esc(t(SETTING_LABELS[r.setting]))}: <span dir="auto">${esc(r.why)}</span></li>`).join("")}</ul></div>` : "";
   return `<div class="sheet-grip"></div><div class="sheet-head"><div class="sheet-who"><div class="muted">${t("tab_settings")}</div><h2>${bdi(row.name)}</h2></div>
@@ -3319,10 +3336,21 @@ let setEdit = null;  // The open pop-up: its project, what the server had, the d
 function openSettings(name) {
   const row = (lastState?.project_settings || []).find(p => p.name === name);
   if (!row) return;
-  setEdit = {name, was: settingsDraft(row), now: settingsDraft(row), refused: [], asking: false};
+  setEdit = {name, was: settingsDraft(row), now: settingsDraft(row), refused: [], asking: false, codex: null};
   drawSettings();
   $("setsheet").showModal();
   $("setbody").scrollTop = 0;
+  if (row.worker_cli === "codex") checkCodex(setEdit);
+}
+
+// Choosing Codex asks the project's machine, as the doctor does, whether Codex can run there. The answer is drawn
+// only while the same pop-up still has Codex chosen.
+async function checkCodex(edit) {
+  edit.codex = null;
+  const answer = await get(`/projects/${encodeURIComponent(edit.name)}/codex`).catch(() => null);
+  if (edit !== setEdit || edit.now.worker_cli !== "codex") return;
+  edit.codex = answer;
+  drawSettings();
 }
 
 function drawSettings() {
@@ -3340,6 +3368,7 @@ function changeDraft(control) {
   else { now[key] = key === "name" ? control.value.trim() : control.value.trim() === "" ? "" : Number(control.value); setEdit.asking = false; $("setfoot").innerHTML = settingsFoot(setEdit); return; }
   setEdit.asking = false;
   drawSettings();
+  if (key === "worker_cli" && now[key] === "codex") checkCodex(setEdit);
 }
 
 async function saveSettings(button) {

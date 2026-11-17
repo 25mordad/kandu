@@ -261,6 +261,11 @@ class Project:
     reports: list[str] = field(default_factory=list)   # files on its machine that `kandu.brief show` reads, read-only
     agent_cli: dict[str, str] = field(default_factory=dict)  # role -> agent CLI (AGENT_CLI_ROLES); a role not named runs on Claude Code
 
+    @property
+    def worker_cli(self):
+        """The agent CLI that runs this project's workers: Claude Code unless `agent_cli` names another."""
+        return self.agent_cli.get("worker", CLAUDE)
+
 
 @dataclass
 class Settings:

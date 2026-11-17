@@ -478,10 +478,17 @@ class Supervisor:
             return None
         return lambda repo, number: show.render(self.github.item(repo, number))
 
-    @staticmethod
-    def _cli(project, role):
-        """The agent CLI that runs `role` for `project`: Claude Code unless its `agent_cli` names another."""
+    def _cli(self, project, role):
+        """The agent CLI that runs `role` for `project`: Claude Code unless its `agent_cli` names another. The
+        dashboard's choice is read again each time, so a change reaches the next run that starts, never one running."""
+        self.store.choose_agent_clis([project])
         return project.agent_cli.get(role, CLAUDE)
+
+    def _codex_may_have_worked(self, project):
+        """Codex runs this project's workers, or ran one before the dashboard switched it back to Claude Code: what a
+        Codex worker changed stays in its PR, whoever works on it after."""
+        chosen = "worker_cli" in self.store.project_settings().get(project.name, {})
+        return self._cli(project, "worker") == CODEX or chosen
 
     def _codex_ready(self, task):
         """Ends this turn when Codex is missing or logged out on the task's machine: no Codex run starts there. It is
@@ -720,7 +727,7 @@ class Supervisor:
         changed is Kandu's own blocker, naming the areas: the task goes back to a fix round, and the PR never merges
         while it is open. Code alone opens and closes it, on each reviewed head."""
         project = task.project
-        if self._cli(project, "worker") != CODEX or not project.forbidden:
+        if not project.forbidden or not self._codex_may_have_worked(project):
             return findings
         paths = self.runner.changed_paths(project, task.repo, cwd, self.github.default_branch(task.repo), head)
         areas = review.forbidden_areas(project.forbidden, paths)
@@ -2111,6 +2118,7 @@ class Supervisor:
         self.seen.clear()
         self.waiting_on.clear()
         self.store.carry_settings(self.config.projects)  # before the first snapshot: it tells an install that ran before
+        self.store.choose_agent_clis(self.config.projects)  # the dashboard's choice, before anything asks who uses Codex
         self.store.record("supervisor_woke")
         clean_since = self.store.clean_since(woke)  # set once, on the first cycle that has the cleanup
         self._snapshot("awake")

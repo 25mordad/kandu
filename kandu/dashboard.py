@@ -27,7 +27,7 @@ from .config import (AGENT_CLIS, CLAUDE, CODEX, DEFAULT_LOCAL_DIR, NOTIFY_EVENTS
 from .github import AGENT_LABEL, GitHubError, task_blockers
 from . import telegram_bot
 from .mirror import FRESH_SECONDS, open_github
-from .runner import DEFAULT_LOGS_DIR
+from .runner import DEFAULT_LOGS_DIR, Runner, RunnerError
 from .state import PROJECT_SETTINGS, StateStore, is_project_setting
 from .tasks import TaskError
 
@@ -41,6 +41,7 @@ TOKEN_ENV = "KANDU_DASHBOARD_TOKEN"
 MAX_BODY = 16384  # a POST's form body; a longer one is refused whole, never cut, as a cut form would save half a command
 BODY_ONLY = ("token", "chat_id")  # secrets a POST takes only from its body, so no URL or log ever holds one
 API = "/api/v1"
+MACHINE_SILENT = "the machine does not answer"  # why Codex cannot be asked about there
 QUEUE_CACHE_SECONDS = 900  # GitHub's hourly limit is shared with all else on the account, however many pages are open.
 QUEUE_FRESH_SECONDS = 60
 QUEUE_RETRY_SECONDS = 300
@@ -314,8 +315,9 @@ class ApiError(Exception):
 class Api:
     def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic, start_cycle=timer.start_cycle,
                  local_dir=DEFAULT_LOCAL_DIR, timer_on=timer.timer_on, flights_=None, restart=timer.restart,
-                 backup_timer=timer.enable_backup, install_dir=upstream.INSTALL_DIR, gate=None):
+                 backup_timer=timer.enable_backup, install_dir=upstream.INSTALL_DIR, gate=None, runner=None):
         self.config = config
+        self.runner = runner  # asks a machine whether Codex can run there; a new Runner each time when not given
         self.gate = gate or ghlimit.GATE
         self.store = store
         self.github = github
@@ -343,20 +345,22 @@ class Api:
     def refresh_config(self):
         """Takes a changed config without a restart, so a new project shows in its own patch.
 
-        A config with a problem leaves the last good one in place; `python -m kandu.config` names the problem.
+        A config with a problem leaves the last good one in place; `python -m kandu.config` names the problem. The
+        agent CLI the dashboard chose for a project's workers is put in its `agent_cli` on each request.
         """
         with self._config_lock:
             stamp = config_stamp(self.local_dir)
-            if stamp == self._config_stamp:
-                return
-            self._config_stamp = stamp
-            try:
-                config = load_config(self.local_dir)
-            except ConfigError:
-                return
-            self.config = config
-            self.flights.config = config
-            self._queue_time = None  # a new project's tasks need a new read
+            if stamp != self._config_stamp:
+                self._config_stamp = stamp
+                try:
+                    config = load_config(self.local_dir)
+                except ConfigError:
+                    config = None
+                if config is not None:
+                    self.config = config
+                    self.flights.config = config
+                    self._queue_time = None  # a new project's tasks need a new read
+            self.store.choose_agent_clis(self.config.projects)  # the dashboard's choice wins over the registry's
 
     def state(self, query):
         limits = self.config.settings.claude.limits
@@ -1300,6 +1304,17 @@ class Api:
                 | {setting: self._registry_value(p, setting) for setting in REGISTRY_SETTINGS}
                 for p in self.config.projects]
 
+    def codex_on(self, query, name):
+        """Whether Codex can run this project's workers on its machine, asked as the doctor asks it: `why` is the
+        doctor's reason when it cannot, or null. It costs no tokens and changes nothing."""
+        project = self._project(name)
+        runner = self.runner or Runner(self.config)
+        try:
+            why = runner.codex_login(project.machine)
+        except RunnerError:
+            why = MACHINE_SILENT
+        return {"machine": project.machine, "why": why}
+
     @staticmethod
     def _read_value(kind, setting, text):
         if kind is bool:
@@ -1314,10 +1329,10 @@ class Api:
     def change_project_settings(self, query, name):
         """Changes a project's settings. Each change is logged.
 
-        `split_approval` and `queen_answers_one_way` are kept in Kandu's state, where they win over the registry;
-        proposals already accepted and splits already made stay as they are. `priority`, `daily_token_limit`,
-        `auto_merge` and `frozen` are written in its entry in `projects.yaml`, and the next cycle uses them. Nothing
-        is changed if any value is wrong.
+        `split_approval`, `queen_answers_one_way` and `worker_cli` are kept in Kandu's state, where they win over the
+        registry; proposals already accepted, splits already made and workers already running stay as they are.
+        `priority`, `daily_token_limit`, `auto_merge` and `frozen` are written in its entry in `projects.yaml`, and
+        the next cycle uses them. Nothing is changed if any value is wrong.
 
         `name` renames the project, in a call of its own (`kandu.rename`): Kandu then knows it only by the new name.
         """
@@ -1458,6 +1473,7 @@ ROUTES = [
     ("POST", "/projects/{name}/resume", Api.resume_project),
     ("POST", "/projects/{name}/inspect", Api.change_inspect),
     ("POST", "/projects/{name}/settings", Api.change_project_settings),
+    ("GET", "/projects/{name}/codex", Api.codex_on),
     ("POST", "/projects/{name}/remove", Api.remove_project),
     ("POST", "/backup", Api.change_backup),
     ("POST", "/upstream/check", Api.check_upstream),

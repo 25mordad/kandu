@@ -144,8 +144,20 @@ async function run() {
     steps.priority = {before, unsaved: steps.unsaved,
                       after: await evaluate(`fetch("/api/v1/state").then(r => r.json()).then(s => s.project_settings.find(p => p.name === ${JSON.stringify(name)}).priority)`)};
     steps.toast = await evaluate('document.getElementById("toast").hidden ? "" : document.getElementById("toast").textContent');
-    // The next case starts from the same priority.
-    await evaluate(`fetch("/api/v1/projects/${encodeURIComponent(name)}/settings?priority=" + ${before}, {method: "POST", headers: {Authorization: "Bearer " + token}})`);
+    // Run with: choosing Codex asks the project's machine, which has none, and says why beside the switch; Save keeps it.
+    await waitFor("setEdit === null");
+    await click('#projectsettings [data-settings-open]');
+    await click('[data-draft="worker_cli"][data-value="codex"]');
+    await waitFor('document.querySelector("#setbody [data-codex-why]") !== null');
+    steps.codex = await evaluate(`(() => {
+      const why = document.querySelector("#setbody [data-codex-why]");
+      return {why: why?.textContent || null, beside: Boolean(why?.closest(".set-field")?.querySelector('[data-draft="worker_cli"][data-value="codex"][aria-pressed="true"]'))};
+    })()`);
+    await click("[data-set-save]");
+    await waitFor('!document.getElementById("setsheet").open');
+    steps.codex.saved = await evaluate(`fetch("/api/v1/state").then(r => r.json()).then(s => s.project_settings.find(p => p.name === ${JSON.stringify(name)}).worker_cli)`);
+    // The next case starts from the same priority, on Claude Code.
+    await evaluate(`fetch("/api/v1/projects/${encodeURIComponent(name)}/settings?priority=" + ${before} + "&worker_cli=claude", {method: "POST", headers: {Authorization: "Bearer " + token}})`);
     results.push({...c, steps});
   }
   console.log(JSON.stringify({results, errors}));
