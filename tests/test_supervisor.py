@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from kandu import agents, notify, queen, questions, review, split, supervisor, tasks
-from kandu.config import Rules, load_config
+from kandu.config import Rules, UsageLimits, load_config
 from kandu.flights import Flights, task_key
 from kandu.notify import Notifier
 from kandu.github import BoardItem, GitHubError
@@ -303,6 +303,7 @@ class Base(unittest.TestCase):
         self.store = StateStore(self.root / "state")
         self.github.on_add = self.sized  # Most tests are about what comes after the splitter.
         self.usage = Usage(10, 10)
+        self.codex_usage = Usage(10, 10)  # a faked Codex usage answer; an exception here is a read that failed
         self.clock = [NOW]
         self.sup = self.new_supervisor()
 
@@ -312,7 +313,12 @@ class Base(unittest.TestCase):
 
     def new_supervisor(self):
         return Supervisor(self.config, self.store, self.github, self.runner, lambda: self.usage, self.local,
-                          now=lambda: self.clock[0])
+                          now=lambda: self.clock[0], codex_reader=self.read_codex)
+
+    def read_codex(self):
+        if isinstance(self.codex_usage, Exception):
+            raise self.codex_usage
+        return self.codex_usage
 
     def cycle(self):
         self.sup = self.new_supervisor()
@@ -1593,6 +1599,119 @@ class GateTest(Base):
         self.cycle()
         self.assertEqual(self.store.read_current()["usage"], {"session": 70, "week": 10, "session_resets": "2026-10-30T18:20:00+01:00",
                                                              "week_resets": "2026-11-05T20:00:00+01:00"})
+
+
+class CodexUsageTest(Base):
+    """Codex's usage holds Codex's runs alone, and Claude's holds Claude's alone (#79)."""
+    def setUp(self):
+        super().setUp()
+        self.github.add(1)
+
+    def on_codex(self):
+        self.config.projects[0].agent_cli = {"worker": "codex"}
+
+    def broken_codex_reply(self):
+        return AgentResult(text="All done!", models={}, duration_ms=1, is_error=False, session_id="t-1", cli="codex")
+
+    def test_with_no_project_on_codex_nothing_of_codex_is_read_kept_or_told(self):
+        self.codex_usage = AssertionError("Codex must not be read")
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "In review")
+        self.assertNotIn("codex_usage", self.store.read_current())
+        self.assertEqual(self.events("codex_usage_read"), [])
+
+    def test_a_project_on_codex_has_codex_usage_read_each_cycle_with_when_each_limit_resets(self):
+        self.on_codex()
+        self.github.items.clear()
+        self.codex_usage = Usage(12, 41, "2026-10-30T17:00:00+01:00", "2026-11-04T09:00:00+01:00")
+        self.assertEqual(self.cycle(), "nothing ready")
+        self.assertEqual(self.store.read_current()["codex_usage"], {"session": 12, "week": 41,
+                         "session_resets": "2026-10-30T17:00:00+01:00", "week_resets": "2026-11-04T09:00:00+01:00"})
+        self.assertEqual(self.store.read_current()["usage"]["session"], 10)  # Claude's is its own
+
+    def test_codex_over_its_limit_holds_no_claude_run(self):
+        self.on_codex()
+        self.codex_usage = Usage(99, 99)
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual([run.cli for run in self.runner.runs], ["claude", "claude"])
+        self.assertEqual(self.github.status(1), "In review")
+
+    def test_codex_usage_that_cannot_be_read_holds_no_claude_run(self):
+        self.on_codex()
+        self.codex_usage = UsageError("codex refused the usage read: error -32600")
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 2)
+        self.assertEqual(self.github.status(1), "In review")
+
+    def test_a_codex_run_does_not_start_over_codex_limit_and_the_task_waits(self):
+        self.on_codex()
+        self.codex_usage = Usage(70, 0)  # Codex's limits are Claude's values until it has its own: 70% and 60%
+        self.runner.steps = [self.broken_codex_reply()]
+        reason = self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)  # the Codex run that would ask again never started
+        self.assertEqual(self.github.status(1), "In progress")  # not failed: it goes on in a later cycle
+        self.assertEqual(self.events("task_finished"), [])
+        self.assertNotIn("5-hour", reason)  # Claude is under its limit, so the cycle does not sleep on one
+
+    def test_a_codex_run_does_not_start_when_codex_usage_cannot_be_read(self):
+        self.on_codex()
+        self.runner.steps = [self.broken_codex_reply()]
+        self.codex_usage = UsageError("codex timed out")
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+        self.assertEqual(self.github.status(1), "In progress")
+
+    def test_codex_has_its_own_limits(self):
+        self.on_codex()
+        self.codex_usage = Usage(50, 0)  # under Claude's 70%
+        self.config.settings.codex.limits = UsageLimits(40, 90)
+        self.runner.steps = [self.broken_codex_reply()]
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 1)
+        self.config.settings.codex.limits = UsageLimits(60, 90)
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()  # the task resumes; Codex is under its own limits now
+        self.assertEqual(self.github.status(1), "In review")
+
+    def test_a_codex_run_is_not_held_by_claudes_limit(self):
+        self.on_codex()
+        def worker():
+            self.usage = Usage(99, 0)  # Claude reaches its limit while its worker runs
+            return self.broken_codex_reply()
+        self.runner.steps = [worker, self.worker_makes_pr()]
+        reason = self.cycle()
+        self.assertEqual([run.cli for run in self.runner.runs], ["claude", "codex"])  # the Codex run still started
+        self.assertEqual(self.github.status(1), "In review")  # its PR opened; the Claude review waits
+        self.assertIn("5-hour", reason)  # the cycle says Claude's limit, as it always has
+
+    def test_claude_over_its_limit_in_an_install_on_codex_starts_no_claude_run(self):
+        self.on_codex()
+        self.usage = Usage(70, 0)
+        reason = self.cycle()
+        self.assertIn("5-hour", reason)
+        self.assertEqual(self.runner.runs, [])
+
+    def test_both_over_their_limits_touches_nothing(self):
+        self.on_codex()
+        self.usage, self.codex_usage = Usage(70, 0), Usage(0, 60)
+        self.assertIn("5-hour", self.cycle())
+        self.assertEqual((self.github.reads, self.runner.runs), (0, []))
+
+    def test_each_time_codex_usage_cannot_be_read_is_recorded_once(self):
+        self.on_codex()
+        self.github.items.clear()
+        self.codex_usage = UsageError("codex timed out")
+        self.cycle()
+        self.cycle()
+        self.codex_usage = Usage(1, 1)
+        self.cycle()
+        self.codex_usage = UsageError("could not run codex: FileNotFoundError")
+        self.cycle()
+        self.assertEqual([(e["readable"], e["reason"]) for e in self.events("codex_usage_read")],
+                         [(False, "codex timed out"), (True, ""), (False, "could not run codex: FileNotFoundError")])
 
 
 class ParallelTest(Base):

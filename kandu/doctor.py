@@ -13,7 +13,7 @@ from .dashboard import TOKEN_ENV
 from .github import GitHub, GitHubError
 from .privateterms import all_terms
 from .runner import Runner, RunnerError, repo_path
-from .usage import UsageError, read_usage
+from .usage import UsageError, codex_login, read_codex_usage, read_usage
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 REQUIRED_TOOLS = ("claude", "gh", "git")
@@ -78,6 +78,20 @@ def check_usage(auth, reader=read_usage):
     return OK, f"usage: {usage.session}% of the 5-hour window, {usage.week}% of the week"
 
 
+def check_codex(config, login=codex_login, reader=read_codex_usage):
+    """Codex on the brain, where its usage is read: only when a project uses Codex."""
+    if not config.uses_codex():
+        return []
+    why = login()
+    if why is not None:
+        return [(FAIL, f"codex: {why}")]
+    try:
+        usage = reader()
+    except UsageError as e:
+        return [(OK, "codex: logged in"), (FAIL, f"codex usage cannot be read: {e}")]
+    return [(OK, "codex: logged in"), (OK, f"codex usage: {usage.session}% of the 5-hour window, {usage.week}% of the week")]
+
+
 def check_machine(machine, runner):
     if runner.reachable(machine.name):
         return OK, f"machine {machine.name} is reachable"
@@ -127,6 +141,7 @@ def run_checks(config, local_dir, runner, github):
     hooks = subprocess.run(["git", "config", "core.hooksPath"], capture_output=True, text=True, cwd=REPO_DIR)
     results += check_guard(hooks.stdout.strip(), local_dir)
     results.append(check_usage(settings.claude.auth))
+    results += check_codex(config)
     results.append(check_dashboard_token(local_dir))
     results.append(check_notify(settings.notify, local_dir))
     results += [check_machine(m, runner) for m in settings.machines]

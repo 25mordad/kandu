@@ -19,7 +19,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, rename, review, sessions, split,
                tasks, timer, tries, upstream, waits)
-from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, REGISTRY_SETTINGS, TECHNICAL_DEBT, ConfigError, Inspect,
+from .config import (AGENT_CLIS, CLAUDE, CODEX, DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, REGISTRY_SETTINGS, TECHNICAL_DEBT,
+                     ConfigError, Inspect, UsageLimits,
                      load_config, set_backup, set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_pace,
                      set_default_look, set_notify_events, set_parallel, set_project_values, set_show_requests,
                      set_telegram_buttons)
@@ -361,7 +362,9 @@ class Api:
         limits = self.config.settings.claude.limits
         marks = self._open_marks(flower_marks(self.store))
         tokens = self._project_tokens()
-        return self.store.read_current() | {
+        current = self.store.read_current()
+        codex_usage = current.pop("codex_usage", None)
+        return current | self._codex(codex_usage) | {
             "timer_on": self.timer_on(),
             "stop_requested": self.store.stop_file.exists(),
             "stopping": self.store.stopping(),  # bees still finishing their step after a stop
@@ -1214,15 +1217,30 @@ class Api:
         self.store.record("wake_requested")
         return {"cycle_started": True}
 
+    def _codex(self, usage):
+        """Codex's usage, as the supervisor last read it, and its limits: only while a project uses Codex."""
+        if not self.config.uses_codex():
+            return {}
+        limits = self.config.codex_limits()
+        return {"codex": {"usage": usage, "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent}}}
+
     def change_limits(self, query):
-        """Reaches the next cycle through `kandu.yaml`; a cycle already running keeps the limits it read."""
+        """Reaches the next cycle through `kandu.yaml`; a cycle already running keeps the limits it read. `cli=codex`
+        sets Codex's own, while a project uses Codex."""
+        cli = query.get("cli", [CLAUDE])[0]
+        if cli not in AGENT_CLIS or (cli == CODEX and not self.config.uses_codex()):
+            raise ApiError(400, "cli: claude, or codex while a project uses it")
         try:
             session, week = int(query["session"][0]), int(query["week"][0])
-            set_limits(session, week, self.local_dir)
+            set_limits(session, week, self.local_dir, cli)
         except (KeyError, ValueError):
             raise ApiError(400, "give both limits, as whole percents") from None
         except ConfigError as e:
             raise ApiError(400, e.problems[0]) from None
+        if cli == CODEX:
+            self.config.settings.codex.limits = UsageLimits(session, week)
+            self.store.record("codex_limits_changed", session=session, week=week)
+            return {"codex": {"limits": {"session": session, "week": week}}}
         limits = self.config.settings.claude.limits
         limits.session_5h_percent, limits.weekly_percent = session, week
         self.store.record("limits_changed", session=session, week=week)

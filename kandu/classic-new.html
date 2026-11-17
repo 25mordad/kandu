@@ -679,6 +679,9 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "limit": "limit",
   "session": "5-hour",
   "week": "Week",
+  "codex_session": "Codex 5-hour",
+  "codex_week": "Codex week",
+  "codex_limits_title": "Codex usage limits",
   "next_wake": "next wake",
   "timer_off": "Timer off",
   "watch": "Watch",
@@ -1043,6 +1046,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "field_all": "All",
   "s_session": "5h",
   "s_week": "Week",
+  "s_codex_session": "Codex 5h",
+  "s_codex_week": "Codex week",
   "s_bees": "Bees",
   "s_yours": "Yours",
   "s_debt": "Debt",
@@ -1181,6 +1186,9 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "limit": "سقف",
   "session": "پنج‌ساعته",
   "week": "هفته",
+  "codex_session": "Codex پنج‌ساعته",
+  "codex_week": "هفتهٔ Codex",
+  "codex_limits_title": "سقف مصرف Codex",
   "next_wake": "بیداری بعدی",
   "timer_off": "تایمر خاموش است",
   "watch": "تماشا",
@@ -1545,6 +1553,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "field_all": "همه",
   "s_session": "۵ساعته",
   "s_week": "هفته",
+  "s_codex_session": "Codex ۵ساعته",
+  "s_codex_week": "هفتهٔ Codex",
   "s_bees": "زنبور",
   "s_yours": "منتظر تو",
   "s_debt": "بدهی",
@@ -1774,6 +1784,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "question_answered": "به سؤال جواب داده شد",
   "project_paused": "پروژه متوقف شد",
   "limits_changed": "سقف مصرف تغییر کرد",
+  "codex_limits_changed": "سقف مصرف Codex تغییر کرد",
+  "codex_usage_read": "خواندن مصرف Codex عوض شد",
   "parallel_changed": "تعداد کارگرهای هم‌زمان تغییر کرد",
   "pace_changed": "آهنگ کار کندو تغییر کرد",
   "kandu_restarted": "کندو ری‌استارت شد",
@@ -2454,12 +2466,13 @@ function meter(label, value, limit) {
 }
 
 function changeLimits(button) {
-  const box = $("limitsbox");
-  $("limitsession").value = lastState.limits.session;
-  $("limitweek").value = lastState.limits.week;
+  const box = $("limitsbox"), codex = button.dataset.limits === "codex", limits = codex ? lastState.codex.limits : lastState.limits;
+  box.querySelector("h2").textContent = t(codex ? "codex_limits_title" : "limits_title");
+  $("limitsession").value = limits.session;
+  $("limitweek").value = limits.week;
   box.returnValue = "no";
   box.addEventListener("close", () => {
-    if (box.returnValue === "yes") act(button, `/limits?session=${$("limitsession").value}&week=${$("limitweek").value}`);
+    if (box.returnValue === "yes") act(button, `/limits?session=${$("limitsession").value}&week=${$("limitweek").value}${codex ? "&cli=codex" : ""}`);
   }, {once: true});
   box.showModal();
 }
@@ -2503,10 +2516,16 @@ function hiveChip(s) {
 
 function renderStats(s) {
   const workers = s.workers || [];
-  const use = (key, long, value, limit) => value === undefined || value === null
-    ? schip(t(key), "—", {after: `<bdi class="of">${pct(limit)}</bdi>`, attrs: "data-limits", title: `${long} · ${t("limit")} ${pct(limit)}`})
-    : schip(t(key), pct(value), {after: `<bdi class="of">${pct(limit)}</bdi>`, attrs: "data-limits", tone: value >= limit ? "over" : "", bar: {value, limit, over: value >= limit}, title: `${long} · ${t("limit")} ${pct(limit)}`});
-  const chips = [use("s_session", t("session"), s.usage?.session, s.limits.session), use("s_week", t("week"), s.usage?.week, s.limits.week),
+  // `cli` is "codex" for Codex's chips, beside Claude's only while a project uses Codex: a click sets Codex's limits.
+  const use = (key, long, value, limit, cli = "") => {
+    const attrs = cli ? `data-limits="${cli}"` : "data-limits";
+    return value === undefined || value === null
+      ? schip(t(key), "—", {after: `<bdi class="of">${pct(limit)}</bdi>`, attrs, title: `${long} · ${t("limit")} ${pct(limit)}`})
+      : schip(t(key), pct(value), {after: `<bdi class="of">${pct(limit)}</bdi>`, attrs, tone: value >= limit ? "over" : "", bar: {value, limit, over: value >= limit}, title: `${long} · ${t("limit")} ${pct(limit)}`});
+  };
+  const codex = s.codex ? [use("s_codex_session", t("codex_session"), s.codex.usage?.session, s.codex.limits.session, "codex"),
+                           use("s_codex_week", t("codex_week"), s.codex.usage?.week, s.codex.limits.week, "codex")] : [];
+  const chips = [use("s_session", t("session"), s.usage?.session, s.limits.session), use("s_week", t("week"), s.usage?.week, s.limits.week), ...codex,
     schip(t("s_bees"), s.parallel ? `${num(workers.length)}/${num(s.parallel.total)}` : num(workers.length), {attrs: s.parallel ? "data-parallel" : "", title: t("active_workers")}),
     schip(t("s_yours"), num(s.waits_for_you || 0), {tone: s.waits_for_you ? "hot" : "", title: t("waits_for_you_count")}),
     schip(t("s_debt"), lastQueue ? num(debtCount()) : "—", {title: t("debt")}),
@@ -2529,8 +2548,9 @@ function renderStats(s) {
   }
   if (s.drop_blockers !== undefined) chips.push(schip(t("s_drops"), s.drop_blockers ? "✓" : "✗", {attrs: `data-drops="${!s.drop_blockers}"`, title: `${t("drop_blockers")} · ${t(s.drop_blockers ? "drop_on" : "drop_off")} · ${t(s.drop_blockers ? "drop_turn_off" : "drop_turn_on")}`}));
   if (s.show_requests !== undefined) chips.push(schip(t("s_requests"), s.show_requests ? "✓" : "✗", {attrs: `data-requests="${!s.show_requests}"`, title: `${t("open_requests")} · ${t(s.show_requests ? "requests_shown" : "drop_off")} · ${t(s.show_requests ? "drop_turn_off" : "drop_turn_on")}`}));
-  // The hive and the two usage gauges lead; on a phone the gauges stand one above the other beside the hive.
-  $("stats").innerHTML = `<div class="lead">${hiveChip(s)}<div class="gauges">${chips.slice(0, 2).join("")}</div></div>${chips.slice(2).join("")}`;
+  // The hive and the usage gauges lead, Codex's after Claude's; on a phone the gauges stand one above the other beside the hive.
+  const gauges = 2 + codex.length;
+  $("stats").innerHTML = `<div class="lead">${hiveChip(s)}<div class="gauges">${chips.slice(0, gauges).join("")}</div></div>${chips.slice(gauges).join("")}`;
 }
 
 // Whether open requests show with their decision maps: off until the user turns it on here.

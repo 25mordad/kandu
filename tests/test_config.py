@@ -8,7 +8,7 @@ from unittest import mock
 
 import yaml
 
-from kandu.config import NOTIFY_EVENTS, ROLES, ConfigError, load_config, main, set_parallel
+from kandu.config import NOTIFY_EVENTS, ROLES, ConfigError, load_config, main, set_limits, set_parallel
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "config.example"
 
@@ -295,6 +295,68 @@ class ConfigTest(unittest.TestCase):
         self.edit("kandu.yaml", lambda d: d.update(supervisor={"wake_every_minutes": 30}))
         supervisor = load_config(self.local).settings.supervisor
         self.assertEqual((supervisor.wake_every_minutes, supervisor.max_cycle_minutes), (30, 50))
+
+
+class CodexTest(unittest.TestCase):
+    """Codex's own limits, and which projects run an agent on it (#79)."""
+    setUp, edit, problems = ConfigTest.setUp, ConfigTest.edit, ConfigTest.problems
+
+    def add_codex(self, session=50, week=40):
+        path = self.local / "kandu.yaml"
+        path.write_text(path.read_text(encoding="utf-8")
+                        + f"\ncodex:\n  limits:\n    session_5h_percent: {session}\n    weekly_percent: {week}\n",
+                        encoding="utf-8")
+
+    def limits(self, which):
+        config = load_config(self.local)
+        limits = config.settings.claude.limits if which == "claude" else config.codex_limits()
+        return limits.session_5h_percent, limits.weekly_percent
+
+    def test_codex_limits_are_claudes_values_until_it_has_its_own(self):
+        self.assertEqual(self.limits("codex"), (70, 60))
+        self.add_codex()
+        self.assertEqual((self.limits("codex"), self.limits("claude")), ((50, 40), (70, 60)))
+
+    def test_a_codex_limit_that_is_not_a_percent_is_refused(self):
+        self.add_codex(session=0)
+        self.assertIn("codex.limits.session_5h_percent", self.problems())
+
+    def test_no_project_uses_codex_until_one_names_it(self):
+        self.assertFalse(load_config(self.local).uses_codex())
+        self.edit("projects.yaml", lambda d: d["projects"][1].update(agent_cli={"worker": "claude"}))
+        self.assertFalse(load_config(self.local).uses_codex())
+        self.edit("projects.yaml", lambda d: d["projects"][1].update(agent_cli={"reviewer": "codex"}))
+        self.assertTrue(load_config(self.local).uses_codex())
+
+    def test_another_agent_cli_or_role_is_refused(self):
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(agent_cli={"worker": "gemini", "queen": "codex"}))
+        problems = self.problems()
+        self.assertIn("agent_cli.worker: must be one of", problems)
+        self.assertIn("agent_cli: must be one of", problems)  # the queen stays on Claude Code
+
+    def text(self):
+        return (self.local / "kandu.yaml").read_text(encoding="utf-8")
+
+    def test_setting_codex_limits_the_first_time_adds_its_block_and_leaves_claudes(self):
+        before = self.text()
+        set_limits(55, 45, self.local, cli="codex")
+        self.assertEqual((self.limits("codex"), self.limits("claude")), ((55, 45), (70, 60)))
+        self.assertTrue(self.text().startswith(before.rstrip("\n")))  # every line and comment stays
+
+    def test_each_agent_clis_limits_change_alone(self):
+        self.add_codex()
+        set_limits(85, 30, self.local)
+        self.assertEqual((self.limits("claude"), self.limits("codex")), ((85, 30), (50, 40)))
+        set_limits(20, 25, self.local, cli="codex")
+        self.assertEqual((self.limits("claude"), self.limits("codex")), ((85, 30), (20, 25)))
+        self.assertIn("# stop when the 5-hour usage window reaches this", self.text())
+
+    def test_a_wrong_limit_or_agent_cli_writes_nothing(self):
+        before = self.text()
+        for session, cli in ((0, "codex"), (50, "gemini")):
+            with self.assertRaises(ConfigError):
+                set_limits(session, 50, self.local, cli=cli)
+        self.assertEqual(self.text(), before)
 
 
 class SetParallelTest(unittest.TestCase):

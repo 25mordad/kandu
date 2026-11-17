@@ -571,6 +571,9 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "limit": "limit",
   "session": "5-hour",
   "week": "Week",
+  "codex_session": "Codex 5-hour",
+  "codex_week": "Codex week",
+  "codex_limits_title": "Codex usage limits",
   "next_wake": "next wake",
   "timer_off": "Timer off",
   "watch": "Watch",
@@ -1033,6 +1036,9 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "limit": "سقف",
   "session": "پنج‌ساعته",
   "week": "هفته",
+  "codex_session": "Codex پنج‌ساعته",
+  "codex_week": "هفتهٔ Codex",
+  "codex_limits_title": "سقف مصرف Codex",
   "next_wake": "بیداری بعدی",
   "timer_off": "تایمر خاموش است",
   "watch": "تماشا",
@@ -1586,6 +1592,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "question_answered": "به سؤال جواب داده شد",
   "project_paused": "پروژه متوقف شد",
   "limits_changed": "سقف مصرف تغییر کرد",
+  "codex_limits_changed": "سقف مصرف Codex تغییر کرد",
+  "codex_usage_read": "خواندن مصرف Codex عوض شد",
   "parallel_changed": "تعداد کارگرهای هم‌زمان تغییر کرد",
   "pace_changed": "آهنگ کار کندو تغییر کرد",
   "kandu_restarted": "کندو ری‌استارت شد",
@@ -2219,8 +2227,9 @@ function renderLegend() {
   $("legend").innerHTML = group("legend_flowers", flowers) + group("legend_sizes", sizes) + group("legend_marks", signs) + group("legend_bees", bees) + over;
 }
 
-function meter(label, value, limit) {
-  const edit = `<button class="textlink limit-edit" data-limits>${t("change")}</button>`;
+// One usage tile against its limit; `cli` is "codex" for Codex's, whose change sets Codex's limits.
+function meter(label, value, limit, cli = "") {
+  const edit = `<button class="textlink limit-edit" data-limits${cli ? `="${cli}"` : ""}>${t("change")}</button>`;
   if (value === undefined || value === null) return `<div class="card stat"><div class="stat-label">${label}</div><div class="stat-value muted">—</div><small>${t("limit")} ${pct(limit)}${edit}</small></div>`;
   const over = value >= limit ? " over" : "";
   return `<div class="card stat"><div class="stat-label">${label}</div><div class="stat-value${over}">${pct(value)}</div>
@@ -2228,12 +2237,13 @@ function meter(label, value, limit) {
 }
 
 function changeLimits(button) {
-  const box = $("limitsbox");
-  $("limitsession").value = lastState.limits.session;
-  $("limitweek").value = lastState.limits.week;
+  const box = $("limitsbox"), codex = button.dataset.limits === "codex", limits = codex ? lastState.codex.limits : lastState.limits;
+  box.querySelector("h2").textContent = t(codex ? "codex_limits_title" : "limits_title");
+  $("limitsession").value = limits.session;
+  $("limitweek").value = limits.week;
   box.returnValue = "no";
   box.addEventListener("close", () => {
-    if (box.returnValue === "yes") act(button, `/limits?session=${$("limitsession").value}&week=${$("limitweek").value}`);
+    if (box.returnValue === "yes") act(button, `/limits?session=${$("limitsession").value}&week=${$("limitweek").value}${codex ? "&cli=codex" : ""}`);
   }, {once: true});
   box.showModal();
 }
@@ -2265,7 +2275,14 @@ function renderStats(s) {
   const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${wakeText(s)}</div></div>`;
   const parked = debtCount();
   const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
-  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + yours + debt + wake + backupCard(s.backup) + upstreamCard(s.upstream) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
+  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + codexMeters(s) + bees + yours + debt + wake + backupCard(s.backup) + upstreamCard(s.upstream) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
+}
+
+// Codex's two usage tiles beside Claude's, only while a project uses Codex.
+function codexMeters(s) {
+  if (!s.codex) return "";
+  const usage = s.codex.usage || {}, limits = s.codex.limits;
+  return meter(t("codex_session"), usage.session, limits.session, "codex") + meter(t("codex_week"), usage.week, limits.week, "codex");
 }
 
 // Whether open requests show with their decision maps: off until the user turns it on here.

@@ -1,5 +1,6 @@
 import json
 import tempfile
+from datetime import datetime, timedelta
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -198,6 +199,35 @@ class NotifierTest(Base):
         self.slept("weekly usage at 90%, limit 60%")
         self.slept("stopped by the user")
         self.assertEqual(len(self.adapter.sent), 2)
+
+    def read_codex(self, readable, reason=""):
+        """Each change comes in a later cycle than the one before."""
+        self.minutes = getattr(self, "minutes", 0) + 60
+        when = datetime.now().astimezone().replace(hour=0, minute=0, second=0) + timedelta(minutes=self.minutes)
+        self.store.record("codex_usage_read", now=when, readable=readable, reason=reason)
+
+    def test_codex_usage_that_cannot_be_read_is_told_once_each_time_in_its_own_words(self):
+        self.use(list(NOTIFY_EVENTS), "en")
+        self.read_codex(False, "codex timed out")
+        self.assertEqual(len(self.adapter.sent), 1)
+        self.assertIn("Kandu cannot read Codex's usage", self.adapter.sent[0])
+        self.assertNotIn("timed out", self.adapter.sent[0])  # the reason stays on the dashboard
+        self.read_codex(True)
+        self.assertEqual(len(self.adapter.sent), 1)  # readable again is no news
+        self.read_codex(False, "codex timed out")
+        self.assertEqual(len(self.adapter.sent), 2)
+
+    def test_codex_usage_that_cannot_be_read_is_told_in_persian(self):
+        self.read_codex(False, "codex timed out")
+        self.assertIn("مصرف Codex", self.adapter.sent[0])
+
+    def test_codex_usage_comes_with_the_claude_login_switch_as_for_claude(self):
+        self.use(["failure"], "en")
+        self.read_codex(False, "codex timed out")
+        self.assertEqual(self.adapter.sent, [])
+        self.use(["claude_login"], "en")
+        self.read_codex(False, "codex timed out")
+        self.assertEqual(len(self.adapter.sent), 1)
 
     def test_a_project_limit_is_told_once_a_day(self):
         for _ in range(2):

@@ -664,6 +664,45 @@ class ControlTest(Base):
         self.assertEqual(self.get("/api/v1/state")[1]["limits"], {"session": 85, "week": 40})
         self.assertEqual(self.store.last_event("limits_changed")["week"], 40)
 
+    def on_codex(self):
+        path = self.root / "local" / "projects.yaml"
+        path.write_text(path.read_text(encoding="utf-8").replace("    run: clone", "    agent_cli: {worker: codex}\n    run: clone", 1),
+                        encoding="utf-8")
+        self.api.config = load_config(self.root / "local")
+
+    def test_with_no_project_on_codex_the_state_has_nothing_of_codex(self):
+        self.store.write_current({"supervisor": "asleep", "usage": USAGE, "codex_usage": USAGE})  # left from before
+        state = self.get("/api/v1/state")[1]
+        self.assertNotIn("codex", state)
+        self.assertNotIn("codex_usage", state)
+
+    def test_with_a_project_on_codex_the_state_has_codex_usage_and_limits_beside_claudes(self):
+        self.on_codex()
+        self.store.write_current({"supervisor": "asleep", "usage": USAGE, "codex_usage": {"session": 12, "week": 41}})
+        state = self.get("/api/v1/state")[1]
+        self.assertEqual(state["codex"], {"usage": {"session": 12, "week": 41}, "limits": {"session": 70, "week": 60}})
+        self.assertEqual((state["usage"], state["limits"]), (USAGE, {"session": 70, "week": 60}))
+        self.store.write_current({"supervisor": "asleep", "usage": USAGE})  # Codex not read yet
+        self.assertEqual(self.get("/api/v1/state")[1]["codex"]["usage"], None)
+
+    def test_codex_limits_change_alone_in_the_config(self):
+        self.on_codex()
+        status, body = self.set_limits("?session=55&week=45&cli=codex")
+        self.assertEqual((status, body), (200, {"codex": {"limits": {"session": 55, "week": 45}}}))
+        config = load_config(self.root / "local")
+        self.assertEqual((config.codex_limits().session_5h_percent, config.codex_limits().weekly_percent), (55, 45))
+        self.assertEqual(config.settings.claude.limits.session_5h_percent, 70)
+        state = self.get("/api/v1/state")[1]
+        self.assertEqual((state["codex"]["limits"], state["limits"]), ({"session": 55, "week": 45}, {"session": 70, "week": 60}))
+        self.assertEqual(self.store.last_event("codex_limits_changed")["week"], 45)
+        self.assertIsNone(self.store.last_event("limits_changed"))
+
+    def test_codex_limits_cannot_be_set_while_no_project_uses_codex(self):
+        before = (self.root / "local" / "kandu.yaml").read_text(encoding="utf-8")
+        for query in ("?session=55&week=45&cli=codex", "?session=55&week=45&cli=gemini"):
+            self.assertEqual(self.set_limits(query)[0], 400, query)
+        self.assertEqual((self.root / "local" / "kandu.yaml").read_text(encoding="utf-8"), before)
+
     def test_a_wrong_limit_changes_nothing(self):
         before = (self.root / "local" / "kandu.yaml").read_text(encoding="utf-8")
         for query in ("?session=0&week=40", "?session=85&week=101", "?session=85", "?session=a&week=40", ""):

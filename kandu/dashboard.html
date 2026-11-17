@@ -766,6 +766,9 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "limit": "limit",
   "session": "5-hour",
   "week": "Week",
+  "codex_session": "Codex 5-hour",
+  "codex_week": "Codex week",
+  "codex_limits_title": "Codex usage limits",
   "next_wake": "next wake",
   "timer_off": "Timer off",
   "none": "None",
@@ -978,6 +981,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "set_name_hint": "Lowercase letters, digits and dashes. Kandu then knows it only by this name; its folder, repo and board stay as they are.",
   "limit_session": "Hold new work at 5-hour usage",
   "limit_week": "Hold new work at weekly usage",
+  "codex_limit_session": "Hold new Codex work at its 5-hour usage",
+  "codex_limit_week": "Hold new Codex work at its weekly usage",
   "machines_title": "Machines",
   "machine_answers": "answers",
   "machine_silent": "Not answering since {since}",
@@ -1292,6 +1297,9 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "limit": "سقف",
   "session": "پنج‌ساعته",
   "week": "هفته",
+  "codex_session": "Codex پنج‌ساعته",
+  "codex_week": "هفتهٔ Codex",
+  "codex_limits_title": "سقف مصرف Codex",
   "next_wake": "بیداری بعدی",
   "timer_off": "تایمر خاموش است",
   "none": "هیچ",
@@ -1504,6 +1512,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "set_name_hint": "حروف کوچک انگلیسی، رقم و خط تیره. کندو بعد از آن پروژه را فقط با این نام می‌شناسد؛ پوشه، مخزن و برد آن همان می‌مانند.",
   "limit_session": "نگه‌داشتن کار تازه در مصرف پنج‌ساعته",
   "limit_week": "نگه‌داشتن کار تازه در مصرف هفتگی",
+  "codex_limit_session": "نگه‌داشتن کار تازهٔ Codex در مصرف پنج‌ساعته‌اش",
+  "codex_limit_week": "نگه‌داشتن کار تازهٔ Codex در مصرف هفتگی‌اش",
   "machines_title": "ماشین‌ها",
   "machine_answers": "جواب می‌دهد",
   "machine_silent": "از {since} جواب نمی‌دهد",
@@ -1884,6 +1894,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "question_answered": "به سؤال جواب داده شد",
   "project_paused": "پروژه متوقف شد",
   "limits_changed": "سقف مصرف تغییر کرد",
+  "codex_limits_changed": "سقف مصرف Codex تغییر کرد",
+  "codex_usage_read": "خواندن مصرف Codex عوض شد",
   "parallel_changed": "تعداد کارگرهای هم‌زمان تغییر کرد",
   "pace_changed": "آهنگ کار کندو تغییر کرد",
   "kandu_restarted": "کندو ری‌استارت شد",
@@ -2511,8 +2523,9 @@ function renderLegend() {
   $("legend").innerHTML = group("legend_flowers", flowers) + group("legend_sizes", sizes) + group("legend_marks", signs) + group("legend_bees", bees) + over;
 }
 
-function meter(label, value, limit) {
-  const edit = `<button class="textlink limit-edit" data-limits>${t("change")}</button>`;
+// One usage tile against its limit; `cli` is "codex" for Codex's, whose change sets Codex's limits.
+function meter(label, value, limit, cli = "") {
+  const edit = `<button class="textlink limit-edit" data-limits${cli ? `="${cli}"` : ""}>${t("change")}</button>`;
   if (value === undefined || value === null) return `<div class="card stat"><div class="stat-label">${label}</div><div class="stat-value muted">—</div><small>${t("limit")} ${pct(limit)}${edit}</small></div>`;
   const over = value >= limit ? " over" : "";
   return `<div class="card stat"><div class="stat-label">${label}</div><div class="stat-value${over}">${pct(value)}</div>
@@ -2520,12 +2533,13 @@ function meter(label, value, limit) {
 }
 
 function changeLimits(button) {
-  const box = $("limitsbox");
-  $("limitsession").value = lastState.limits.session;
-  $("limitweek").value = lastState.limits.week;
+  const box = $("limitsbox"), codex = button.dataset.limits === "codex", limits = codex ? lastState.codex.limits : lastState.limits;
+  box.querySelector("h2").textContent = t(codex ? "codex_limits_title" : "limits_title");
+  $("limitsession").value = limits.session;
+  $("limitweek").value = limits.week;
   box.returnValue = "no";
   box.addEventListener("close", () => {
-    if (box.returnValue === "yes") act(button, `/limits?session=${$("limitsession").value}&week=${$("limitweek").value}`);
+    if (box.returnValue === "yes") act(button, `/limits?session=${$("limitsession").value}&week=${$("limitweek").value}${codex ? "&cli=codex" : ""}`);
   }, {once: true});
   box.showModal();
 }
@@ -2557,7 +2571,14 @@ function renderStats(s) {
   const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${wakeText(s)}</div></div>`;
   const parked = debtCount();
   const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
-  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + yours + debt + wake + backupCard(s.backup) + upstreamCard(s.upstream) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
+  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + codexMeters(s) + bees + yours + debt + wake + backupCard(s.backup) + upstreamCard(s.upstream) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
+}
+
+// Codex's two usage tiles beside Claude's, only while a project uses Codex.
+function codexMeters(s) {
+  if (!s.codex) return "";
+  const usage = s.codex.usage || {}, limits = s.codex.limits;
+  return meter(t("codex_session"), usage.session, limits.session, "codex") + meter(t("codex_week"), usage.week, limits.week, "codex");
 }
 
 // Whether open requests show with their decision maps: off until the user turns it on here.
@@ -2775,6 +2796,8 @@ function healthItems(s) {
     {kind: "state", tone: {awake: "green", holding: "amber", refused: "amber", stopped: "red"}[chip.kind] || "muted", text: chip.long, tab: "activity"},
     {kind: "bar", name: t("session"), value: s.usage?.session ?? null, limit: s.limits.session, tab: "days"},
     {kind: "bar", name: t("week"), value: s.usage?.week ?? null, limit: s.limits.week, tab: "days"},
+    ...(s.codex ? [{kind: "bar", name: t("codex_session"), value: s.codex.usage?.session ?? null, limit: s.codex.limits.session, tab: "days"},
+                   {kind: "bar", name: t("codex_week"), value: s.codex.usage?.week ?? null, limit: s.codex.limits.week, tab: "days"}] : []),
     {kind: "bees", tone: "muted", text: fillIn("health_bees", {n: num((s.workers || []).length), most: most ? num(most) : "—"}), tab: "tasks"},
     ...(s.unreachable_machines || []).map(m => ({kind: "machine", tone: "red", text: fillIn("health_machine", {machine: m.machine, since: when(m.since)}), tab: "tasks"})),
   ];
@@ -2934,7 +2957,8 @@ function gauge(name, value, limit) {
 }
 
 function gauges(s) {
-  return gauge(t("session"), s.usage?.session, s.limits.session) + gauge(t("week"), s.usage?.week, s.limits.week);
+  const codex = s.codex ? gauge(t("codex_session"), s.codex.usage?.session, s.codex.limits.session) + gauge(t("codex_week"), s.codex.usage?.week, s.codex.limits.week) : "";
+  return gauge(t("session"), s.usage?.session, s.limits.session) + gauge(t("week"), s.usage?.week, s.limits.week) + codex;
 }
 
 // Didban in the wide header: one button, marked while its session is open, when it goes to the session. More
@@ -3229,7 +3253,7 @@ function renderSettings(s) {
   if (tab !== "settings") return;
   const projects = settingsProjects(s, lastQueue);
   const key = JSON.stringify([lang, projects, s.project_settings, s.limits, s.machines, s.clean_merged, s.drop_blockers,
-                              s.show_requests, s.default_look, s.backup, s.pace, s.parallel?.total, s.notify]);
+                              s.show_requests, s.default_look, s.backup, s.pace, s.parallel?.total, s.notify, s.codex?.limits]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
   $("projectsettings").innerHTML = settingsProjectsHtml(projects);
@@ -3424,7 +3448,10 @@ const LIMIT_STEP = 5;
 function limitsHtml(s) {
   const {session, week} = s.limits;
   const line = (key, value, path) => `<div class="side-row"><span class="side-label">${t(key)}</span>${stepper(value, path, t(key), LIMIT_STEP, 100, pct)}</div>`;
-  return `<div class="side-head"><b>${t("limits_title")}</b></div>${line("limit_session", session, `/limits?session={n}&week=${week}`)}${line("limit_week", week, `/limits?session=${session}&week={n}`)}`;
+  const claude = `<div class="side-head"><b>${t("limits_title")}</b></div>${line("limit_session", session, `/limits?session={n}&week=${week}`)}${line("limit_week", week, `/limits?session=${session}&week={n}`)}`;
+  if (!s.codex) return claude;
+  const codex = s.codex.limits;  // Codex's own, only while a project uses Codex
+  return claude + `<div class="side-head"><b>${t("codex_limits_title")}</b></div>${line("codex_limit_session", codex.session, `/limits?session={n}&week=${codex.week}&cli=codex`)}${line("codex_limit_week", codex.week, `/limits?session=${codex.session}&week={n}&cli=codex`)}`;
 }
 
 // The machines, each answering or not since when, as the supervisor last saw it; Add opens the add flow at a new one.
