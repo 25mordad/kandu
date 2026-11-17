@@ -35,6 +35,11 @@ NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", 
                  "machine_unreachable")
 NOTIFY_LANGUAGES = ("en", "fa")
 LOOKS = ("classic", "classic-new", "clean")  # the dashboard's looks: Classic, Classic new and Kandu Clean
+# The programs that run an agent (GLOSSARY "Agent CLI"), and the roles a project may give to one other than Claude Code.
+CLAUDE = "claude"
+CODEX = "codex"
+AGENT_CLIS = (CLAUDE, CODEX)
+AGENT_CLI_ROLES = ("worker", "reviewer")
 
 
 class ConfigError(Exception):
@@ -70,17 +75,27 @@ class Machine:
 
 
 @dataclass
-class ClaudeLimits:
+class UsageLimits:
+    """An agent CLI's two usage limits, in percent: no run of it starts at or past either (DESIGN §6)."""
     session_5h_percent: int
     weekly_percent: int
+
+
+ClaudeLimits = UsageLimits
 
 
 @dataclass
 class Claude:
     auth: str
-    limits: ClaudeLimits
+    limits: UsageLimits
     login_warn_days: int = 7
     models: dict[str, str] = field(default_factory=dict)  # role -> model; a role not named runs on Claude's default
+
+
+@dataclass
+class Codex:
+    """Read only when a project runs an agent on Codex. Without `limits`, Codex's limits are Claude's values."""
+    limits: UsageLimits | None = None
 
 
 @dataclass
@@ -244,6 +259,7 @@ class Project:
     queen_answers_one_way: bool = False   # the queen's yes to a head answers its one-way door and its questions
     allowed_tools: list[str] = field(default_factory=list)   # added to the worker's and live check's rules, if they have any
     reports: list[str] = field(default_factory=list)   # files on its machine that `kandu.brief show` reads, read-only
+    agent_cli: dict[str, str] = field(default_factory=dict)  # role -> agent CLI (AGENT_CLI_ROLES); a role not named runs on Claude Code
 
 
 @dataclass
@@ -261,6 +277,7 @@ class Settings:
     bazras: BazrasSettings = field(default_factory=BazrasSettings)
     backup: Backup = field(default_factory=Backup)
     upstream: Upstream = field(default_factory=Upstream)
+    codex: Codex = field(default_factory=Codex)
 
 
 @dataclass
@@ -291,6 +308,14 @@ class Config:
         if project.auto_merge is not None:
             return project.auto_merge
         return self.settings.supervisor.auto_merge
+
+    def uses_codex(self):
+        """True when a project runs an agent on Codex. Without one, nothing of Codex is read, shown or told."""
+        return any(CODEX in p.agent_cli.values() for p in self.projects)
+
+    def codex_limits(self):
+        """Codex's own limits, or Claude's values while `codex.limits` is not set: the same defaults."""
+        return self.settings.codex.limits or self.settings.claude.limits
 
 
 def _type_name(tp):
@@ -393,8 +418,10 @@ def _check_settings(s, problems):
             problems.append(f"didban.knowledge[{i}].machine: unknown machine {k.machine!r}")
 
     _check_one_of(s.claude.auth, ("subscription", "api_key"), "claude.auth", problems)
-    _check_percent(s.claude.limits.session_5h_percent, "claude.limits.session_5h_percent", problems)
-    _check_percent(s.claude.limits.weekly_percent, "claude.limits.weekly_percent", problems)
+    for cli, limits in ((CLAUDE, s.claude.limits), (CODEX, s.codex.limits)):
+        if limits is not None:
+            _check_percent(limits.session_5h_percent, f"{cli}.limits.session_5h_percent", problems)
+            _check_percent(limits.weekly_percent, f"{cli}.limits.weekly_percent", problems)
     _check_positive(s.claude.login_warn_days, "claude.login_warn_days", problems)
     for role, model in s.claude.models.items():
         _check_one_of(role, MODEL_ROLES, "claude.models", problems)
@@ -495,6 +522,9 @@ def _check_projects(projects, s, problems):
         if p.deploy is not None:
             _check_one_of(p.deploy.mode, ("direct", "preview"), f"{where}.deploy.mode", problems)
         _check_one_of(p.split_approval, SPLIT_APPROVALS, f"{where}.split_approval", problems)
+        for role, cli in p.agent_cli.items():
+            _check_one_of(role, AGENT_CLI_ROLES, f"{where}.agent_cli", problems)
+            _check_one_of(cli, AGENT_CLIS, f"{where}.agent_cli.{role}", problems)
         _check_positive(p.priority, f"{where}.priority", problems)
         _check_positive(p.max_parallel_workers, f"{where}.max_parallel_workers", problems)
         _check_positive(p.daily_token_limit, f"{where}.daily_token_limit", problems)
@@ -512,20 +542,32 @@ def _check_upstream(s, projects, problems):
             problems.append(f"upstream.project: must name a project with a board, Kandu's own repo, got {u.project!r}")
 
 
-def set_limits(session, week, local_dir=DEFAULT_LOCAL_DIR):
-    """Changes the two usage limits in `kandu.yaml`, line by line, so its comments stay."""
+def set_limits(session, week, local_dir=DEFAULT_LOCAL_DIR, cli=CLAUDE):
+    """Changes an agent CLI's two usage limits in `kandu.yaml`, line by line under its own block, so its comments
+    stay. Codex's block is added the first time its limits are set: until then they are Claude's values."""
     problems = []
-    _check_percent(session, "claude.limits.session_5h_percent", problems)
-    _check_percent(week, "claude.limits.weekly_percent", problems)
+    _check_one_of(cli, AGENT_CLIS, "limits", problems)
+    _check_percent(session, f"{cli}.limits.session_5h_percent", problems)
+    _check_percent(week, f"{cli}.limits.weekly_percent", problems)
     if problems:
         raise ConfigError(problems)
     path = Path(local_dir) / "kandu.yaml"
     text = path.read_text(encoding="utf-8")
+    lines = text.split("\n")
+    head = next((i for i, l in enumerate(lines) if re.fullmatch(rf"{cli}:[ \t]*(#.*)?", l)), None)
+    if head is None and cli == CODEX and not any(re.match(rf"{cli}:", l) for l in lines):
+        text = text.rstrip("\n") + f"\n\n{cli}:\n  limits:\n    session_5h_percent: {session}\n    weekly_percent: {week}\n"
+        _replace_file(path, text)
+        return
+    end = head + 1 if head is not None else 0
+    while head is not None and end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t#"):
+        end += 1
+    block = "\n".join(lines[head + 1:end]) if head is not None else ""
     for name, value in (("session_5h_percent", session), ("weekly_percent", week)):
-        text, found = re.subn(rf"^(\s+{name}:\s*)\d+", rf"\g<1>{value}", text, flags=re.MULTILINE)
+        block, found = re.subn(rf"^(\s+{name}:\s*)\d+", rf"\g<1>{value}", block, flags=re.MULTILINE)
         if found != 1:
-            raise ConfigError([f"claude.limits.{name}: expected one such line in kandu.yaml, found {found}"])
-    _replace_file(path, text)
+            raise ConfigError([f"{cli}.limits.{name}: expected one such line in kandu.yaml, found {found}"])
+    _replace_file(path, "\n".join(lines[:head + 1] + block.split("\n") + lines[end:]))
 
 
 def _replace_file(path, text):

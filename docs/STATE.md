@@ -88,6 +88,8 @@ state/
 | `pace_changed` | `old`, `new`: the user changed `wake_every_minutes` or `max_cycle_minutes` in the dashboard; each holds both values |
 | `project_setting_carried` | `project`, `setting`, `value`: the first cycle after a setting came set it in the state, once, for a project the install already had, so it keeps its earlier behaviour (`queen_answers_one_way`, true) |
 | `limits_changed` | `session`, `week` |
+| `codex_limits_changed` | `session`, `week`: the user changed Codex's limits from the dashboard |
+| `codex_usage_read` | `readable`, `reason`: Codex's usage became readable, or not, with the fixed reason it could not be read; written only when this changes, and only while a project uses Codex. The user hears once of each time it cannot be read |
 | `drop_blockers_changed` | `enabled`: the user let the queen ask to drop a blocker, or stopped her, from the dashboard |
 | `notify_changed` | `events`: the kinds of news Kandu sends, as the user chose them from the dashboard |
 | `telegram_changed` | `what`: `token`, `chat` or `buttons`, which the user set from the dashboard; never the value |
@@ -137,6 +139,7 @@ A snapshot, replaced atomically, so a reader never sees half a file.
 | `last_reason` | why the last cycle ended |
 | `next_wake` | expected time of the next cycle, if the timer is on |
 | `usage` | `{"session": percent, "week": percent}`, or `null` if not read |
+| `codex_usage` | Codex's usage, the same shape as `usage`; there only while a project uses Codex |
 | `workers` | one object per active task: `task`, `project`, `machine`, `phase`, `started` |
 | `queen_run` | the run id of the queen while she is awake, otherwise null |
 | `waiting_for_machine` | tasks whose machine was off in the last cycle |

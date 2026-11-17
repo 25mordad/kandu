@@ -7,7 +7,7 @@ from unittest import mock
 
 from kandu import doctor, tasks
 from kandu.boards import missing_columns
-from kandu.config import BOARD_COLUMNS, BOARD_FIELDS, DEADLINE_FIELD, Board, Machine
+from kandu.config import BOARD_COLUMNS, BOARD_FIELDS, DEADLINE_FIELD, Board, Machine, load_config
 from kandu.github import GitHub, GitHubError, blockers_in
 from kandu.state import StateStore
 from kandu.usage import Usage, UsageError
@@ -507,6 +507,37 @@ class DoctorTest(unittest.TestCase):
             raise UsageError("x")
         self.assertEqual(doctor.check_usage("subscription", broken)[0], doctor.FAIL)
         self.assertEqual(doctor.check_usage("api_key", broken)[0], doctor.OK)
+
+    def codex_lines(self, on_codex=True, login=None, usage=Usage(12, 41)):
+        with tempfile.TemporaryDirectory() as local:
+            for name in ("kandu", "projects"):
+                (Path(local) / f"{name}.yaml").write_text(
+                    (ROOT / "config.example" / f"{name}.example.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+            config = load_config(local)
+        if on_codex:
+            config.projects[1].agent_cli = {"reviewer": "codex"}
+
+        def reader():
+            if isinstance(usage, Exception):
+                raise usage
+            return usage
+        return doctor.check_codex(config, lambda: login, reader)
+
+    def test_codex_is_checked_only_when_a_project_uses_it(self):
+        self.assertEqual(self.codex_lines(on_codex=False, login="not installed", usage=UsageError("x")), [])
+
+    def test_codex_logged_in_with_its_usage_read(self):
+        self.assertEqual(self.codex_lines(), [(doctor.OK, "codex: logged in"),
+                                              (doctor.OK, "codex usage: 12% of the 5-hour window, 41% of the week")])
+
+    def test_codex_logged_out_or_missing_fails_and_says_so(self):
+        for why in ("not logged in; run: codex login", "not installed"):
+            self.assertEqual(self.codex_lines(login=why, usage=UsageError("codex refused the usage read: error 1")),
+                             [(doctor.FAIL, f"codex: {why}")])
+
+    def test_codex_usage_that_cannot_be_read_fails(self):
+        self.assertEqual(self.codex_lines(usage=UsageError("codex timed out")),
+                         [(doctor.OK, "codex: logged in"), (doctor.FAIL, "codex usage cannot be read: codex timed out")])
 
     def test_a_machine_that_may_sleep_is_only_a_warning(self):
         runner = mock.Mock()

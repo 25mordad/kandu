@@ -1,12 +1,15 @@
-"""Reads Claude usage at no token cost (DESIGN §6).
+"""Reads Claude's and Codex's usage at no token cost (DESIGN §6).
 
 Fails closed: if usage cannot be read, the caller must treat it as over the limit.
 """
 import json
+import os
 import re
+import signal
 import subprocess
+import threading
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 SESSION = re.compile(r"Current session:\s*(\d+)% used(.*)")
@@ -15,6 +18,14 @@ WEEK = re.compile(r"Current week \(all models\):\s*(\d+)% used(.*)")
 RESETS = re.compile(r"resets\s+(?:([A-Z][a-z]{2})\s+(\d{1,2}),\s*)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)(?:\s*\(([^)]+)\))?", re.I)
 MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 TIMEOUT_SECONDS = 60
+# What Kandu asks `codex app-server` on its stdin; the answer to id 2 holds the limits. It answers only while its
+# stdin is open, so the read keeps it open until that answer comes.
+CODEX_USAGE_ID = 2
+CODEX_REQUESTS = "".join(json.dumps(request) + "\n" for request in (
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "kandu", "version": "1"}}},
+    {"jsonrpc": "2.0", "method": "initialized"},
+    {"jsonrpc": "2.0", "id": CODEX_USAGE_ID, "method": "account/rateLimits/read", "params": None}))
+DAY_MINUTES = 24 * 60  # a Codex window this long or shorter is its 5-hour one; a longer one is its week
 
 
 class UsageError(Exception):
@@ -86,10 +97,111 @@ def read_usage():
         raise UsageError("claude gave no JSON result") from e
 
 
-def over_limit(usage, limits):
-    """Returns why usage is over a limit, or None if it is under both."""
+def _codex_resets(window):
+    stamp = window.get("resetsAt")
+    if not isinstance(stamp, int):
+        return None
+    return datetime.fromtimestamp(stamp, timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def parse_codex_usage(result):
+    """Takes the result of `account/rateLimits/read`; returns Usage, or raises UsageError.
+
+    Each window is known by its length, the first and second when Codex does not say it. As for Claude, the weekly
+    window must be there, and a plan with no 5-hour window counts it as 0%.
+    """
+    try:
+        limits = (result.get("rateLimitsByLimitId") or {}).get("codex") or result["rateLimits"]
+        windows = [w for w in (limits.get("primary"), limits.get("secondary")) if w is not None]
+        session = week = None
+        for place, window in enumerate(windows):
+            length = window.get("windowDurationMins")
+            short = length <= DAY_MINUTES if isinstance(length, int) else place == 0 and len(windows) == 2
+            if short and session is None:
+                session = window
+            elif not short and week is None:
+                week = window
+        if week is None or not isinstance(week["usedPercent"], int):
+            raise UsageError("codex usage has an unknown shape")
+        used = session["usedPercent"] if session is not None else 0
+        if not isinstance(used, int):
+            raise UsageError("codex usage has an unknown shape")
+    except (AttributeError, KeyError, TypeError) as e:
+        raise UsageError("codex usage has an unknown shape") from e
+    return Usage(used, week["usedPercent"], _codex_resets(session) if session is not None else None, _codex_resets(week))
+
+
+def _start_codex(args, **pipes):
+    """Starts `codex` as the leader of its own process group: `codex` may be a wrapper, as the npm package's node
+    launcher is, and the program it starts holds the pipes too, so stopping it must stop the whole group."""
+    return subprocess.Popen(["codex", *args], start_new_session=True, text=True, **pipes)
+
+
+def _stop_codex(process):
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def read_codex_usage():
+    """Codex's usage, from `codex app-server` on this machine. Only the error's code is kept: its message may name
+    the account."""
+    try:
+        server = _start_codex(["app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        raise UsageError(f"could not run codex: {type(e).__name__}") from e
+    late = threading.Timer(TIMEOUT_SECONDS, _stop_codex, (server,))
+    late.start()
+    try:
+        server.stdin.write(CODEX_REQUESTS)
+        server.stdin.flush()
+        for line in server.stdout:
+            try:
+                answer = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(answer, dict) or answer.get("id") != CODEX_USAGE_ID:
+                continue
+            if "error" in answer:
+                code = answer["error"].get("code") if isinstance(answer["error"], dict) else None
+                raise UsageError(f"codex refused the usage read: error {code}")
+            return parse_codex_usage(answer.get("result"))
+        raise UsageError("codex timed out" if late.finished.is_set() else "codex gave no usage answer")
+    except OSError as e:
+        raise UsageError(f"codex could not be asked: {type(e).__name__}") from e
+    finally:
+        late.cancel()
+        late.join()  # the group is stopped while the server is not yet reaped, so its id is still its own
+        _stop_codex(server)
+        for pipe in (server.stdin, server.stdout):
+            try:
+                pipe.close()
+            except OSError:
+                pass
+        server.wait()
+
+
+def codex_login():
+    """None when Codex is logged in on this machine; otherwise why not, in fixed words."""
+    try:
+        status = _start_codex(["login", "status"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL)
+    except FileNotFoundError:
+        return "not installed"
+    try:
+        code = status.wait(timeout=TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        _stop_codex(status)
+        status.wait()
+        return "codex login status did not answer"
+    return None if code == 0 else "not logged in; run: codex login"
+
+
+def over_limit(usage, limits, who=""):
+    """Returns why usage is over a limit, or None if it is under both. `who` names the agent CLI, as `Codex `."""
     if usage.session >= limits.session_5h_percent:
-        return f"5-hour usage at {usage.session}%, limit {limits.session_5h_percent}%"
+        return f"{who}5-hour usage at {usage.session}%, limit {limits.session_5h_percent}%"
     if usage.week >= limits.weekly_percent:
-        return f"weekly usage at {usage.week}%, limit {limits.weekly_percent}%"
+        return f"{who}weekly usage at {usage.week}%, limit {limits.weekly_percent}%"
     return None

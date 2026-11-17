@@ -8,7 +8,7 @@ Read `docs/COMMANDS.md`, then set up this install, once. The result is `local/ka
 3. Ask, as one numbered list, what you could not find out:
    1. Which machine runs the brain, and is it always on?
    2. Which other machines exist, how are they reached, and which are always on?
-   3. Subscription or API key? The 5-hour and weekly limits, in percent. Point out that a shared subscription needs a margin.
+   3. Subscription or API key? The 5-hour and weekly limits, in percent. Point out that a shared subscription needs a margin. If a project will run an agent on Codex: Codex's own two limits (`codex.limits`), which are Claude's values unless set.
    4. The GitHub account, and the owners Kandu may work in.
    5. Notifications: Telegram or none? In which language should Kandu talk to the user (`language`, default `en`)? Should notifications use another language (`notify.language`)? Which of `notify.events` should be sent (default all)? With Telegram: should the message about a PR that waits for the user's yes carry an Approve merge button (`notify.telegram.buttons`, off by default)? A press asks once more and approves only the head it showed.
    6. Parallel workers, parallel sizers (`max_parallel_sizers`, default 4: the splitter only reads, so these run side by side), wake interval, how often Kandu syncs its copy of GitHub (`github.sync_every_minutes`, default 10: reads GitHub and sends queued changes), auto-merge, and the queen. Recommend leaving auto-merge off and the queen on: she costs tokens only when there is something to decide. Ask for her daily token limit (`queen_daily_token_limit`), and how many hours a machine may stay unreachable while tasks wait for it before the user hears (`unreachable_alert_hours`, default 12).

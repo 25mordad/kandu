@@ -31,6 +31,11 @@ claude:
     splitter: claude-sonnet-5-5
     live_check: claude-sonnet-5-5
 
+# codex:                       # read only while a project runs an agent on Codex
+#   limits:                    # optional; without them Codex stops at Claude's values above
+#     session_5h_percent: 70
+#     weekly_percent: 60
+
 github:
   account: your-github-login
   owners:                      # users / orgs Kandu may work in

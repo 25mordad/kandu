@@ -55,6 +55,7 @@ MESSAGES = {
         "usage_limit": "Kandu reached a usage limit and starts no new work for now.",
         "project_limit": "{project} reached its daily token limit.",
         "claude_login": "Kandu cannot read Claude's usage, so the login may have stopped working. No agent starts.",
+        "codex_login": "Kandu cannot read Codex's usage, so its login may have stopped working. No Codex agent starts.",
         "task_failed": "{task} stopped on an error. The details are on the dashboard.",
         "deploy_failed": "{task} was merged, but the deploy failed. Nothing was reverted.",
         "live_check_failed": "{task} is deployed, but the live check failed. Nothing was reverted.",
@@ -111,6 +112,7 @@ MESSAGES = {
         "usage_limit": "کندو به سقف مصرف رسید و فعلاً کار تازه‌ای شروع نمی‌کند.",
         "project_limit": "{project} به سقف روزانه‌ی توکن رسید.",
         "claude_login": "کندو نمی‌تواند مصرف Claude را بخواند و شاید ورود از کار افتاده باشد. هیچ عاملی شروع نمی‌شود.",
+        "codex_login": "کندو نمی‌تواند مصرف Codex را بخواند و شاید ورودش از کار افتاده باشد. هیچ عامل Codex شروع نمی‌شود.",
         "task_failed": "{task} با خطا متوقف شد. جزئیات در داشبورد است.",
         "deploy_failed": "{task} ادغام شد ولی deploy شکست خورد. چیزی برگردانده نشد.",
         "live_check_failed": "{task} روی نسخه‌ی زنده رفت ولی بررسی زنده رد شد. چیزی برگردانده نشد.",
@@ -268,6 +270,8 @@ def message_for(event, queen=False):
         return _machine_message("machine_unreachable", event)
     if kind == "machine_up" and event["told"]:  # the user heard of the outage, so hears of its end
         return _machine_message("machine_back", event)
+    if kind == "codex_usage_read" and not event["readable"]:  # written once each time it cannot be read
+        return Message("claude_login", "codex_login", f"codex_login:{event['ts']}")
     if kind == "backup_failed":  # Told once a day: the timer tries again until a copy is made.
         return Message("failure", "backup_failed", f"backup_failed:{event['ts'][:10]}")
     if kind == "queen_finished" and event["brief"].startswith(COULD_NOT_FINISH):

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import ghmeter
+from .config import AGENT_CLIS, CLAUDE, CODEX
 from .didban import remote_path
 from .state import usage_from_result
 
@@ -69,10 +70,7 @@ def child_env(run_id=None):
                                         if not name.startswith(SECRET_PREFIX)})
 
 
-# The program that runs an agent (GLOSSARY "Agent CLI"). A caller that names none gets Claude Code.
-CLAUDE = "claude"
-CODEX = "codex"
-AGENT_CLIS = (CLAUDE, CODEX)
+# The program that runs an agent (GLOSSARY "Agent CLI"), from config: a caller that names none gets Claude Code.
 # Rules that let a run change files: with one, a Codex run may write in its checkout.
 EDIT_TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
 

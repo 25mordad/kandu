@@ -64,6 +64,8 @@ EVENT_FIELDS = {
     "project_setting_changed": ("project", "setting", "old", "new"),
     "project_setting_carried": ("project", "setting", "value"),
     "limits_changed": ("session", "week"),
+    "codex_limits_changed": ("session", "week"),
+    "codex_usage_read": ("readable", "reason"),  # Codex's usage became readable or unreadable: the user hears of the latter
     "parallel_changed": ("total", "projects"),
     "drop_blockers_changed": ("enabled",),
     "notify_changed": ("events",),
