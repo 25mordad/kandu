@@ -21,6 +21,7 @@ from . import ghmeter
 from .config import AGENT_CLIS, CLAUDE, CODEX
 from .didban import remote_path
 from .state import usage_from_result
+from .usage import CODEX_LOGGED_OUT, CODEX_NO_ANSWER, CODEX_NOT_INSTALLED, TIMEOUT_SECONDS as CODEX_LOGIN_TIMEOUT
 
 DEFAULT_LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
 GIT_TIMEOUT_SECONDS = 300
@@ -233,10 +234,71 @@ def _codex_limits(host, cwd, allowed):
     return limits + (["--add-dir", found.stdout.strip()] if found.returncode == 0 and found.stdout.strip() else [])
 
 
-def _codex_command(limits, model, schema_file, resume):
+# A Codex run's commands, as Claude's `Bash(...)` rules name them: the program, then what its arguments start with.
+BASH_RULE = re.compile(r"Bash\(([A-Za-z0-9._+-]+)(?: (.*))?\)")
+PROGRAM_NAME = re.compile(r"[A-Za-z0-9._+-]+")
+# Stands in for one program on a Codex run's PATH: refuses what the run's deny list names, runs the rest as it is.
+# It comes after the meter, which counts a `gh` call first, and passes it by when it looks for the real program.
+HELD_PROGRAM = """#!/bin/sh
+case "$*" in
+  {patterns}) echo "kandu: denied in this run: {program} $*" >&2; exit 1 ;;
+esac
+here=$(dirname "$0")
+IFS=:
+set -f
+for dir in $PATH; do
+  [ -n "$dir" ] && [ "$dir" != "$here" ] && [ "$dir" != {meter} ] && [ -x "$dir/{program}" ] && exec "$dir/{program}" "$@"
+done
+echo "{program}: not found" >&2
+exit 127
+"""
+# Codex's answer for this machine: 127 when there is no `codex` on its PATH, else `codex login status`'s own.
+CODEX_LOGIN = 'command -v codex >/dev/null 2>&1 || exit 127; exec codex login status >/dev/null 2>&1'
+
+
+def _case_pattern(rest):
+    """A shell `case` pattern for a rule's arguments: `*` stays a wildcard, the rest is literal. A rule that ends in
+    ` *` or `:*` holds the words before it alone too, as Claude Code does."""
+    if rest.endswith(":*"):
+        rest = rest[:-2] + " *"
+    glob = lambda text: "*".join(shlex.quote(piece) for piece in text.split("*"))
+    return f"{glob(rest[:-2])}|{glob(rest)}" if rest.endswith(" *") else glob(rest)
+
+
+def held_programs(denied):
+    """The stand-ins for a Codex run's deny list: {program: script}. Codex cannot deny a single command, so each
+    program a `Bash(...)` rule names is found first on the run's PATH, and refuses what the rules name."""
+    patterns = defaultdict(list)
+    for rule in denied or []:
+        found = BASH_RULE.fullmatch(rule.strip())
+        if found and PROGRAM_NAME.fullmatch(found.group(1)):
+            patterns[found.group(1)].append(_case_pattern(found.group(2) or ""))
+    return {program: HELD_PROGRAM.format(program=program, patterns="|".join(rules),
+                                         meter=shlex.quote(str(ghmeter.METER_DIR)))
+            for program, rules in patterns.items()}
+
+
+def _put_held(host, programs):
+    """Writes the stand-ins to a new folder on the host's machine and returns its path."""
+    script = ('d=$(mktemp -d "${TMPDIR:-/tmp}/kandu-held.XXXXXX") || exit 1; '
+              'while [ $# -gt 0 ]; do printf %s "$2" > "$d/$1" && chmod 755 "$d/$1" || exit 1; shift 2; done; '
+              'printf %s "$d"')
+    return host.check(["sh", "-c", script, "sh", *[part for item in programs.items() for part in item]])
+
+
+def _held(folder, command):
+    """`command` with `folder` on its PATH right after the meter, and so on the PATH of every command it starts."""
+    return ["sh", "-c", 'PATH="$1:$2:$PATH"; export PATH; shift 2; exec "$@"', "sh", str(ghmeter.METER_DIR), folder,
+            *command]
+
+
+def _codex_command(limits, model, schema_file, resume, held=False):
+    """With `held`, Codex runs its commands in plain shells, never login ones: a login profile may put another
+    folder ahead of the held programs on PATH, and so run the real program."""
     return ["codex", "exec", "--json", "--skip-git-repo-check",
             # Codex gets Kandu's instructions alone, never the repo's own agent files.
             "-c", "project_doc_max_bytes=0", *limits,
+            *(["-c", "allow_login_shell=false"] if held else []),
             *(["--model", model] if model else []),
             *(["--output-schema", schema_file] if schema_file else []),
             *(["resume", resume] if resume else []),
@@ -447,6 +509,29 @@ class Runner:
             raise RunnerError(f"git grep failed on {host.name}: {found.stderr.strip()}")
         return [line.removeprefix(f"{ref}:") for line in found.stdout.splitlines() if line]
 
+    def changed_paths(self, project, repo, directory, base, head_sha):
+        """The paths `head_sha` changed since it left `origin/<base>`: what its PR changes. A file moved counts at
+        both its old and its new path."""
+        host = self.hosts[project.machine]
+        with self._repo_locks[(host.name, repo)]:
+            host.check(["git", "fetch", "origin"], cwd=directory)
+        return host.check(["git", "diff", "--name-only", "--no-renames", f"origin/{base}...{head_sha}"],
+                          cwd=directory).splitlines()
+
+    def codex_login(self, machine):
+        """None when Codex is installed and logged in on `machine`; otherwise why not. `Unreachable` when the
+        machine does not answer: that says nothing of Codex."""
+        host = self.hosts[machine]
+        try:
+            found = host._answered(host.run(["sh", "-c", CODEX_LOGIN], timeout=CODEX_LOGIN_TIMEOUT))
+        except Unreachable:
+            raise
+        except RunnerError:
+            return CODEX_NO_ANSWER
+        if found.returncode == 0:
+            return None
+        return CODEX_NOT_INSTALLED if found.returncode == 127 else CODEX_LOGGED_OUT
+
     def prepare_review(self, project, repo, branch, head_sha):
         """Returns a detached checkout of exactly `head_sha`, apart from the worker's worktree."""
         host = self.hosts[project.machine]
@@ -606,18 +691,25 @@ class Runner:
         if cli not in AGENT_CLIS:
             raise RunnerError(f"not an agent CLI: {cli!r}")
         host = self.hosts[machine]
-        schema_file = None
+        schema_file = held = None
         try:
             if cli == CLAUDE:
                 command, reply = _claude_command(allowed, denied, model, schema, resume), _ClaudeReply()
             else:
                 schema_file = _put_schema(host, strict_schema(schema)) if schema else None
-                command = _codex_command(_codex_limits(host, cwd, allowed), model, schema_file, resume)
+                programs = held_programs(denied)
+                command = _codex_command(_codex_limits(host, cwd, allowed), model, schema_file, resume,
+                                         held=bool(programs))
+                if programs:
+                    held = _put_held(host, programs)
+                    command = _held(held, command)
                 reply = _CodexReply(model, schema)
             return self._run(host, cwd, command, prompt, run_id, should_stop, tokens, reply)
         finally:
             if schema_file:
                 host.run(["rm", "-f", schema_file])
+            if held:
+                host.run(["rm", "-rf", held])
 
     def _run(self, host, cwd, command, prompt, run_id, should_stop, tokens, reply):
         if tokens:

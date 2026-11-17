@@ -539,6 +539,45 @@ class DoctorTest(unittest.TestCase):
         self.assertEqual(self.codex_lines(usage=UsageError("codex timed out")),
                          [(doctor.OK, "codex: logged in"), (doctor.FAIL, "codex usage cannot be read: codex timed out")])
 
+    def codex_machine_lines(self, logins, down=()):
+        """The doctor's Codex lines for each machine a project runs Codex on; `logins` is each machine's answer."""
+        with tempfile.TemporaryDirectory() as local:
+            for name in ("kandu", "projects"):
+                (Path(local) / f"{name}.yaml").write_text(
+                    (ROOT / "config.example" / f"{name}.example.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+            config = load_config(local)
+        config.projects[0].agent_cli = {"worker": "codex"}
+        config.projects[1].agent_cli = {"worker": "codex"}
+        runner = mock.Mock()
+        runner.reachable.side_effect = lambda machine: machine not in down
+        runner.codex_login.side_effect = lambda machine: logins[machine]
+        return doctor.check_codex_machines(config, runner)
+
+    def test_codex_on_each_machine_a_project_runs_it_on(self):
+        self.assertEqual(self.codex_machine_lines({"server": None, "laptop": None}),
+                         [(doctor.OK, "codex on laptop: logged in (internal-tool)"),
+                          (doctor.OK, "codex on server: logged in (website)")])
+
+    def test_codex_missing_or_logged_out_names_the_machine_and_the_cause(self):
+        self.assertEqual(self.codex_machine_lines({"server": "not logged in; run: codex login",
+                                                   "laptop": "not installed"}),
+                         [(doctor.FAIL, "codex on laptop: not installed (internal-tool)"),
+                          (doctor.FAIL, "codex on server: not logged in; run: codex login (website)")])
+
+    def test_a_machine_that_does_not_answer_is_left_to_its_own_line(self):
+        self.assertEqual(self.codex_machine_lines({"server": None}, down=("laptop",)),
+                         [(doctor.OK, "codex on server: logged in (website)")])
+
+    def test_no_machine_is_asked_of_codex_without_a_project_on_it(self):
+        with tempfile.TemporaryDirectory() as local:
+            for name in ("kandu", "projects"):
+                (Path(local) / f"{name}.yaml").write_text(
+                    (ROOT / "config.example" / f"{name}.example.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+            config = load_config(local)
+        runner = mock.Mock()
+        self.assertEqual(doctor.check_codex_machines(config, runner), [])
+        runner.codex_login.assert_not_called()
+
     def test_a_machine_that_may_sleep_is_only_a_warning(self):
         runner = mock.Mock()
         runner.reachable.return_value = False
@@ -602,7 +641,14 @@ class CommandsTest(unittest.TestCase):
         setup = (COMMANDS / "kandu-setup.md").read_text(encoding="utf-8")
         add = (COMMANDS / "kandu-add.md").read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"^   \d+\. ", setup, re.MULTILINE)), 16)
-        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 19)
+        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 20)
+
+    def test_add_asks_which_agent_cli_runs_the_workers_with_claude_code_as_the_default(self):
+        add = (COMMANDS / "kandu-add.md").read_text(encoding="utf-8")
+        asked = re.search(r"^   20\. (.*)$", add, re.MULTILINE).group(1)
+        self.assertIn("agent CLI", asked)
+        self.assertIn("Claude Code (`claude`, the default)", asked)
+        self.assertIn("`agent_cli: { worker: codex }`", asked)
 
     def test_add_never_creates_a_board_unasked(self):
         self.assertIn("only if the user said yes", (COMMANDS / "kandu-add.md").read_text(encoding="utf-8"))

@@ -1,4 +1,5 @@
 import json
+import shlex
 import os
 import shutil
 import stat
@@ -176,6 +177,7 @@ class GitCase(unittest.TestCase):
         git("clone", str(self.origin), scratch)
         pushed = branch in git("branch", "-r", cwd=scratch)
         git("checkout", "-B", branch, *([f"origin/{branch}"] if pushed else []), cwd=scratch)
+        (Path(scratch) / name).parent.mkdir(parents=True, exist_ok=True)
         (Path(scratch) / name).write_text(text)
         git("add", ".", cwd=scratch)
         git("commit", "-m", "c", cwd=scratch)
@@ -710,6 +712,58 @@ class SetupTest(GitCase):
         self.assertEqual(self.setups(), 2)
 
 
+class ChangedPathsTest(GitCase):
+    def test_the_paths_a_branch_changed_since_it_left_the_base(self):
+        self.push_commit("kandu/1-a", "migrations/001.sql")
+        self.push_commit("main", "later-on-main.txt")  # the base moved on: not the branch's change
+        head = self.push_commit("kandu/1-a", "src/a.py")
+        cwd = self.runner.prepare_review(self.project(), "o/site", "kandu/1-a", head)
+        self.assertEqual(sorted(self.runner.changed_paths(self.project(), "o/site", cwd, "main", head)),
+                         ["migrations/001.sql", "src/a.py"])
+
+    def test_a_file_moved_out_of_a_folder_counts_on_both_sides(self):
+        self.push_commit("main", "migrations/001.sql")
+        scratch = tempfile.mkdtemp(dir=self.root)
+        git("clone", str(self.origin), scratch)
+        git("checkout", "-b", "kandu/1-a", cwd=scratch)
+        git("mv", "migrations/001.sql", "kept.sql", cwd=scratch)
+        git("commit", "-m", "move", cwd=scratch)
+        git("push", "origin", "kandu/1-a", cwd=scratch)
+        head = git("rev-parse", "HEAD", cwd=scratch)
+        cwd = self.runner.prepare_review(self.project(), "o/site", "kandu/1-a", head)
+        self.assertEqual(sorted(self.runner.changed_paths(self.project(), "o/site", cwd, "main", head)),
+                         ["kept.sql", "migrations/001.sql"])
+
+
+class CodexLoginTest(GitCase):
+    def test_codex_logged_in_on_a_machine(self):
+        install(self.home / ".local" / "bin" / "codex", "#!/bin/sh\n[ \"$1 $2\" = \"login status\" ]\n")
+        self.assertIsNone(self.runner.codex_login("box"))
+
+    def test_codex_logged_out_on_a_machine(self):
+        install(self.home / ".local" / "bin" / "codex", "#!/bin/sh\necho 'Not logged in' >&2\nexit 1\n")
+        self.assertEqual(self.runner.codex_login("box"), "not logged in; run: codex login")
+
+    def test_codex_missing_on_a_machine(self):
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}):
+            self.assertEqual(self.runner.codex_login("box"), "not installed")
+
+    def test_a_machine_that_does_not_answer_is_not_a_missing_codex(self):
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        install(bin_dir / "ssh", "#!/bin/sh\nexit 255\n")
+        far = Machine("far", "ssh far.example", False)
+        runner = Runner(Config(settings=mock.Mock(machines=[far]), projects=[]), self.root / "logs")
+        with mock.patch.dict(os.environ, {"PATH": f"{bin_dir}:{os.environ['PATH']}"}):
+            with self.assertRaises(Unreachable):
+                runner.codex_login("far")
+
+
+    def test_a_codex_login_status_that_hangs_is_no_answer(self):
+        install(self.home / ".local" / "bin" / "codex", "#!/bin/sh\nexec sleep 30\n")
+        with mock.patch("kandu.runner.CODEX_LOGIN_TIMEOUT", 0.5):
+            self.assertEqual(self.runner.codex_login("box"), "codex login status did not answer")
+
 class ClaudeCommandTest(GitCase):
     def test_a_caller_that_names_no_agent_cli_runs_claude_with_todays_command_line(self):
         self.runner.run_agent("box", str(self.home), "p", ["Read", "Bash(npm test *)"], ["Edit"], "r-1", lambda: False,
@@ -911,6 +965,55 @@ class CodexTest(GitCase):
         self.assertEqual(self.args()[self.args().index("--model") + 1], "gpt-5.5")
         self.assertEqual(json.loads((self.home / "codex.schema").read_text())["required"], ["result", "summary"])
         self.assertEqual((self.home / "codex.stdin").read_text(), "the prompt")
+
+    def run_held(self, script, denied=agents.KANDU_ONLY + ["Bash(git push --force*)"]):
+        """A Codex run with the worker's deny list, whose `codex` runs `script` as one of its shell commands. As
+        Codex does, it runs the command in a login shell unless it was told `allow_login_shell=false`."""
+        login = ('case " $* " in *" allow_login_shell=false "*) shell="bash -c" ;; *) shell="bash -lc" ;; esac; '
+                 f'$shell {shlex.quote(script)}')
+        install(self.home / ".local" / "bin" / "codex",
+                FAKE_CODEX.replace('cat "$HOME/codex.events"', f'{{ {login}; }} > "$HOME/held.out" 2>&1; '
+                                   'echo "exit $?" >> "$HOME/held.out"; cat "$HOME/codex.events"'))
+        tmp = self.root / "tmp"
+        tmp.mkdir(exist_ok=True)
+        with mock.patch.dict(os.environ, {"TMPDIR": str(tmp)}):
+            result = self.runner.run_agent("box", str(self.home), "p", ["Read", "Edit"], denied, "r-1",
+                                           lambda: False, cli="codex")
+        self.assertFalse(result.is_error)
+        self.assertEqual([p for p in tmp.iterdir() if p.name.startswith("kandu-")], [])  # nothing stays behind
+        return (self.home / "held.out").read_text()
+
+    def test_a_codex_run_cannot_run_what_kandu_alone_runs(self):
+        install(self.home / ".local" / "bin" / "gh", "#!/bin/sh\necho \"gh ran: $*\"\n")
+        for command in ("git merge main", "git pull", "git rebase main", "git pull --rebase origin main",
+                        "gh pr create --fill", "gh pr edit 7 --body x", "gh pr merge 7"):
+            out = self.run_held(command)
+            self.assertIn("denied", out, command)
+            self.assertNotIn("ran:", out, command)
+            self.assertTrue(out.rstrip().endswith("exit 1"), command)
+
+    def test_a_login_profile_cannot_put_another_program_ahead_of_the_hold(self):
+        # As Ubuntu's stock ~/.profile does with ~/bin and ~/.local/bin, where a gh installed without root lives.
+        (self.home / ".profile").write_text('PATH="$HOME/bin:$PATH"\n')
+        (self.home / "bin").mkdir()
+        install(self.home / "bin" / "gh", "#!/bin/sh\necho \"gh ran: $*\"\n")
+        out = self.run_held("gh pr merge 7")
+        self.assertIn("denied", out)
+        self.assertNotIn("ran:", out)
+
+    def test_a_codex_run_cannot_run_what_its_deny_list_names(self):
+        self.assertIn("denied", self.run_held("git push --force origin kandu/1-a"))
+
+    def test_a_codex_run_runs_every_other_command_as_it_is(self):
+        install(self.home / ".local" / "bin" / "gh", "#!/bin/sh\necho \"gh ran: $*\"\n")
+        self.assertIn("gh ran: pr comment 7 --body ok", self.run_held("gh pr comment 7 --body ok"))
+        self.assertIn("gh ran: pr list", self.run_held("gh pr list"))
+        out = self.run_held("git --version && git mergetool --help >/dev/null 2>&1; git status --short")
+        self.assertIn("git version", out)
+        self.assertNotIn("denied", out)
+
+    def test_a_codex_run_with_nothing_denied_runs_as_before(self):
+        self.assertIn("git version", self.run_held("git --version", denied=["Read(**/.env)"]))
 
     def test_an_unknown_agent_cli_is_refused(self):
         with self.assertRaises(RunnerError):

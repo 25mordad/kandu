@@ -25,6 +25,10 @@ CODEX_REQUESTS = "".join(json.dumps(request) + "\n" for request in (
     {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "kandu", "version": "1"}}},
     {"jsonrpc": "2.0", "method": "initialized"},
     {"jsonrpc": "2.0", "id": CODEX_USAGE_ID, "method": "account/rateLimits/read", "params": None}))
+# Why Codex cannot run on a machine, in the same words wherever Kandu says it.
+CODEX_NOT_INSTALLED = "not installed"
+CODEX_LOGGED_OUT = "not logged in; run: codex login"
+CODEX_NO_ANSWER = "codex login status did not answer"
 DAY_MINUTES = 24 * 60  # a Codex window this long or shorter is its 5-hour one; a longer one is its week
 
 
@@ -188,14 +192,14 @@ def codex_login():
         status = _start_codex(["login", "status"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                               stderr=subprocess.DEVNULL)
     except FileNotFoundError:
-        return "not installed"
+        return CODEX_NOT_INSTALLED
     try:
         code = status.wait(timeout=TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         _stop_codex(status)
         status.wait()
-        return "codex login status did not answer"
-    return None if code == 0 else "not logged in; run: codex login"
+        return CODEX_NO_ANSWER
+    return None if code == 0 else CODEX_LOGGED_OUT
 
 
 def over_limit(usage, limits, who=""):

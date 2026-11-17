@@ -478,6 +478,20 @@ class Supervisor:
             return None
         return lambda repo, number: show.render(self.github.item(repo, number))
 
+    @staticmethod
+    def _cli(project, role):
+        """The agent CLI that runs `role` for `project`: Claude Code unless its `agent_cli` names another."""
+        return project.agent_cli.get(role, CLAUDE)
+
+    def _codex_ready(self, task):
+        """Ends this turn when Codex is missing or logged out on the task's machine: no Codex run starts there. It is
+        not the task's fault, so the task goes on in a later cycle; the doctor names the machine and the cause."""
+        machine = task.project.machine
+        why = self.runner.codex_login(machine)
+        if why is not None:
+            self._decide(task, "codex_unavailable", f"Codex on {machine}: {why}")
+            raise CycleStop(f"Codex on {machine}: {why}")
+
     def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None, resume=None, cli=CLAUDE):
         """Runs one agent for `task` with the agent CLI `cli`; Claude Code unless a caller names another."""
         if self._stopping():
@@ -485,6 +499,8 @@ class Supervisor:
         self._wait_for_usage(cli)
         if self._is_paused(task.project):
             raise CycleStop
+        if cli == CODEX:
+            self._codex_ready(task)
         allowed, denied = tools
         with self._lock:
             self.workers[task.key]["run_id"] = run_id
@@ -542,7 +558,8 @@ class Supervisor:
         project = task.project
         tokens = (project.secrets_from, list(project.task_tokens)) if task.tokens else None
         tools = agents.worker_tools(project, task.branch, self._rules("worker"), self._remote(project))
-        result = self._agent(task, "worker", cwd, prompt, tools, run_id, tokens, agents.WORKER_SCHEMA)
+        result = self._agent(task, "worker", cwd, prompt, tools, run_id, tokens, agents.WORKER_SCHEMA,
+                             cli=self._cli(project, "worker"))
         read = agents.parse_worker_reply if pr is not None else agents.parse_first_reply
         return self._reply(task, "worker", cwd, tools, result, read, tokens, agents.WORKER_SCHEMA)
 
@@ -689,7 +706,7 @@ class Supervisor:
                          f"{len(stale)} results for findings no longer open: {[e.get('n') if isinstance(e, dict) else e for e in stale]}")
         if dropped:
             self._decide(task, "findings_dropped", f"{dropped} outside what this review may report")
-        findings = review.open_after(report, to_fix)
+        findings = self._forbidden_changed(task, cwd, head, review.open_after(report, to_fix), reviews)
         self.github.comment_pr(task.repo, pr["number"],
                                review.comment_for(report, round_number, findings, second=bool(to_fix)))
         self.store.record("review_finished", task=task.key, project=task.project.name, run_id=run_id,
@@ -697,6 +714,23 @@ class Supervisor:
                           blockers=len(review.blockers(findings)), door=report["door"],
                           criteria_met=all(c["result"] == "met" for c in report["criteria"]),
                           wait_for_user=report["wait_for_user"], user_brief=report["user_brief"])
+
+    def _forbidden_changed(self, task, cwd, head, findings, reviews):
+        """Codex cannot be denied single folders, so code reads what a Codex worker's PR changed. A forbidden area it
+        changed is Kandu's own blocker, naming the areas: the task goes back to a fix round, and the PR never merges
+        while it is open. Code alone opens and closes it, on each reviewed head."""
+        project = task.project
+        if self._cli(project, "worker") != CODEX or not project.forbidden:
+            return findings
+        paths = self.runner.changed_paths(project, task.repo, cwd, self.github.default_branch(task.repo), head)
+        areas = review.forbidden_areas(project.forbidden, paths)
+        kept = [f for f in findings if not review.is_forbidden_finding(f)]
+        if not areas:
+            return kept
+        earlier = [f["n"] for f in findings if review.is_forbidden_finding(f)]
+        used = [f["n"] for r in reviews for f in r["open"]] + [f["n"] for f in findings]
+        self._decide(task, "forbidden_changed", ", ".join(areas))
+        return kept + [review.forbidden_finding(earlier[0] if earlier else 1 + max(used, default=0), areas)]
 
     def _sized_notes(self, task, pr, last):
         """The splitter sizes a review's notes once. If it cannot, they must still not hold the PR."""

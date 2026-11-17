@@ -24,6 +24,8 @@ projects:
     # add a Python that has Playwright, for example:
     #   "Bash(/path/to/venv/bin/python /path/to/kandu/kandu/look.py *)"
     # and say so in repo_rules, so the worker knows it may.
+    agent_cli: { worker: claude }      # the agent CLI that runs this project's workers: claude (Claude Code, the
+                                       # default) | codex. Codex's own model setting picks its model
     run_local: npm run dev
     deploy:
       mode: direct                     # direct | preview
