@@ -1385,7 +1385,8 @@ class Api:
             with self._add_lock:
                 result = rename.rename_project(project.name, given["name"], self.store, self.local_dir)
         except rename.RenameError as e:
-            raise ApiError(409 if str(e) == rename.RUNNING else 400, str(e)) from None
+            running = {"running": e.running} if e.running else None  # what to wait for or close, for the page to list
+            raise ApiError(409 if str(e) == rename.RUNNING else 400, str(e), running) from None
         except ConfigError as e:
             raise ApiError(400, e.problems[0]) from None
         finally:

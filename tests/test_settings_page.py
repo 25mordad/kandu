@@ -1,6 +1,7 @@
 """The Settings page (#46): the projects as a list, each opening its settings in a pop-up that changes only on Save,
 and beside them the usage limits, the machines and Kandu's own switches and pace. The page's own functions run in node
 on the state the API gives; the calls a Save makes go to the real API, as the page sends them."""
+import html as html_text
 import json
 import os
 import re
@@ -21,7 +22,7 @@ from tests.test_today import NODE, QUEUE, ROOT, Page, state
 LINES = ("const SETTING_GROUPS = ", "const SETTING_LABELS = ", "const SETTING_HINTS = ", "const LIMIT_STEP = ")
 FUNCTIONS = ("settingsProjects", "settingsProjectsHtml", "settingsDraft", "settingsCalls", "mergeOnAsked", "saveStep",
              "applySettings", "settingsBody", "settingsFoot", "settingControl", "stepper", "limitsHtml", "machinesHtml",
-             "kanduHtml", "switchRow", "defaultLookHtml", "kandubanOf", "flightControls", "kandubanControls")
+             "kanduHtml", "switchRow", "defaultLookHtml", "runningList", "kandubanOf", "flightControls", "kandubanControls")
 TOKEN = "secret-token"
 
 
@@ -297,7 +298,8 @@ return settingsFoot({{was: settingsDraft(r), now: {{...settingsDraft(r), auto_me
         """Opens the website's pop-up and runs `script` in it. `server(path)` answers each call: true, {error} for a
         refusal, or "lost" when the token is no longer taken. `press(key, value)` finds a drawn control of the draft
         and clicks it; `type(value)` types in the daily tokens."""
-        page = "".join(self.function(name) for name in ("openSettings", "checkCodex", "drawSettings", "changeDraft", "saveSettings"))
+        page = "".join(self.function(name) for name in ("openSettings", "checkCodex", "drawSettings", "changeDraft", "saveSettings",
+                                                         "landForRename"))
         return self.run_js(self.line("let setEdit = ") + page + f"""
 let token = {json.dumps(TOKEN)}, lastState = {{project_settings: {json.dumps(ROWS)}}}, server = () => true;
 const sent = [], toasts = [], els = {{setbody: {{innerHTML: "", scrollTop: 0}}, setfoot: {{innerHTML: ""}}, setsheet: {{open: false}}}};
@@ -512,6 +514,53 @@ typeName("site"); press("frozen"); await saveSettings({}); return {...sheet(), n
             self.assertIs(result["was"]["frozen"], True)  # the other setting was saved
             alert = result["body"].split('role="alert">')[1].split("</div>")[0]
             self.assertIn(words, " ".join(re.sub(r"<[^>]+>", " ", alert).split()))
+
+    def test_a_rename_refused_for_running_work_lists_each_one_and_closes_a_free_flight(self):
+        running = [{"kind": "worker", "task": "acme-org/website#12", "since": "2026-11-16T09:30:00+00:00"},
+                   {"kind": "flight", "task": "acme-org/website#14", "since": "2026-11-15T23:11:00+00:00", "key": "t-abc"}]
+        script = f"""
+server = path => path.includes("name=") ? {{error: "stop or wait for the running work first", running: {json.dumps(running)}}} : true;
+typeName("site"); await saveSettings({{}}); const refused = sheet();
+await landForRename({{dataset: {{setLand: "t-abc"}}}}); return {{refused, closed: sheet()}};"""
+        for lang in ("en", "fa"):
+            result = self.popup(script, lang)
+            words = lambda html: " ".join(re.sub(r"<[^>]+>", " ", html.split('role="alert">')[1].split("</div>")[0]).split())
+            listed = words(result["refused"]["body"])
+            self.assertIn("acme-org/website#12", listed)
+            self.assertIn("acme-org/website#14", listed)
+            self.assertIn('data-set-land="t-abc"', result["refused"]["body"])
+            self.assertIn(self.text[lang]["run_close"], listed)
+            self.assertNotIn("{", listed)  # every place in the texts is filled
+            self.assertEqual(result["closed"]["sent"][-1], "/flights/t-abc/close")
+            self.assertNotIn("data-set-land", result["closed"]["body"])  # the closed flight's line goes
+            self.assertIn("acme-org/website#12", words(result["closed"]["body"]))  # the worker is still waited for
+            self.assertTrue(result["closed"]["open"])
+
+    def test_once_the_last_flight_is_closed_the_pop_up_says_to_save_again(self):
+        running = [{"kind": "flight", "task": "acme-org/website#14", "since": "2026-11-15T23:11:00+00:00", "key": "t-abc"}]
+        result = self.popup(f"""
+server = path => path.includes("name=") ? {{error: "stop or wait for the running work first", running: {json.dumps(running)}}}
+  : path.includes("/close") ? {{error: "no such session"}} : true;
+typeName("site"); await saveSettings({{}}); await landForRename({{dataset: {{setLand: "t-abc"}}}}); return sheet();""")
+        alert = " ".join(re.sub(r"<[^>]+>", " ", result["body"].split('role="alert">')[1].split("</div>")[0]).split())
+        self.assertIn(self.text["en"]["run_closed"], alert)  # a flight already gone counts as closed
+        self.assertNotIn("data-set-land", result["body"])
+
+    def test_a_refused_rename_names_the_running_cycle(self):
+        html = self.run_js('return runningList([{kind: "cycle"}]);')
+        self.assertIn(self.text["en"]["run_cycle"], html_text.unescape(html))
+        self.assertEqual(self.run_js("return runningList([]) + runningList();"), "")
+
+    def test_every_look_lists_what_runs_and_closes_a_flight_the_same_way(self):
+        for look in ("classic.html", "classic-new.html"):
+            page = (ROOT / "kandu" / look).read_text(encoding="utf-8")
+            for name in ("runningList", "landForRename"):
+                self.assertIn(self.function(name), page, f"{look}: {name}")
+            self.assertIn('if (hit("set-land")) { landForRename(hit("set-land")); return; }', page, look)
+            self.assertIn("${runningList(r.running)}", page, look)
+            for lang in ("en", "fa"):
+                for key in ("run_cycle", "run_worker", "run_flight", "run_close", "run_close_hint", "run_closed"):
+                    self.assertIn(json.dumps(self.text[lang][key], ensure_ascii=False), page, f"{look}: {lang} {key}")
 
     def test_after_a_rename_the_pop_up_goes_on_under_the_new_name(self):
         result = self.popup("""

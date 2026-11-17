@@ -325,6 +325,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
 .flip[aria-checked="true"] { background:var(--honey); justify-content:flex-end; }
 .set-refused { padding:10px 14px; border-radius:12px; background:color-mix(in srgb, #f2a65a 14%, var(--surface)); color:var(--accent); font-size:13px; overflow-wrap:anywhere; }
 .set-refused ul { margin:4px 0 0; padding-inline-start:18px; }
+.set-refused .set-running li { margin-top:4px; }
+.set-running .btn { margin-inline-start:6px; }
 .set-danger { margin-top:6px; padding:14px 16px; border-radius:14px; border:1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); background:color-mix(in srgb, var(--bad) 8%, var(--surface)); display:flex; flex-direction:column; gap:8px; }
 .set-danger h3 { margin:0; font-size:13px; font-weight:700; color:var(--bad); }
 .set-danger p { margin:0; font-size:13px; overflow-wrap:anywhere; }
@@ -810,6 +812,12 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "cli_codex": "Codex",
   "set_codex_why": "Codex cannot run on {machine}: {why}",
   "set_refused": "Not saved:",
+  "run_cycle": "Kandu's cycle is running now: try again in a few minutes",
+  "run_worker": "A worker on {task}, since {since}: wait until it finishes",
+  "run_flight": "A free flight is open on {task}, since {since}",
+  "run_close": "Close it",
+  "run_close_hint": "Ends that session; then press Save again",
+  "run_closed": "Closed: press Save again",
   "set_danger": "Danger zone",
   "set_merge_ask": "Turn on «merges by itself»? Kandu then merges this project's PRs once their review passes, without waiting for your yes.",
   "set_merge_no": "No",
@@ -1280,6 +1288,12 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "cli_codex": "Codex",
   "set_codex_why": "Codex روی {machine} اجرا نمی‌شود: {why}",
   "set_refused": "ذخیره نشد:",
+  "run_cycle": "چرخهٔ کندو الان در حال اجراست: چند دقیقهٔ دیگر دوباره امتحان کن",
+  "run_worker": "کارگری روی {task}، از {since}: صبر کن تا تمام شود",
+  "run_flight": "پرواز آزادی روی {task} باز است، از {since}",
+  "run_close": "ببندش",
+  "run_close_hint": "آن جلسه تمام می‌شود؛ بعد دوباره «ذخیره» را بزن",
+  "run_closed": "بسته شد: دوباره «ذخیره» را بزن",
   "set_danger": "منطقهٔ خطر",
   "set_merge_ask": "«ادغام خودکار» روشن شود؟ آن‌وقت کندو PRهای این پروژه را بعد از قبول شدن بازبینی ادغام می‌کند و منتظر بلهٔ تو نمی‌ماند.",
   "set_merge_no": "نه",
@@ -2687,10 +2701,33 @@ async function applySettings(name, edit, send) {
       if (call.setting === "name") edit.name = edit.now.name;
       continue;
     }
-    edit.refused.push({setting: call.setting, why: answer.why});
+    edit.refused.push({setting: call.setting, why: answer.why, ...(answer.running && {running: answer.running})});
     if (answer.stop) break;
   }
   return edit.refused;
+}
+
+// What runs on a project whose rename was refused: the cycle to wait out, each worker to wait for, and each free
+// flight with a button that closes it, after which Save is pressed again.
+function runningList(running = []) {
+  if (!running.length) return "";
+  const since = r => ({task: bdi(r.task), since: bdi(when(r.since))});
+  return `<ul class="set-running">${running.map(r => r.kind === "cycle" ? `<li>${esc(t("run_cycle"))}</li>`
+    : r.kind === "worker" ? `<li>${fillIn("run_worker", since(r))}</li>`
+    : `<li>${fillIn("run_flight", since(r))} <button type="button" class="btn small" data-set-land="${esc(r.key)}" title="${esc(t("run_close_hint"))}">${esc(t("run_close"))}</button></li>`).join("")}</ul>`;
+}
+
+// Closes a free flight listed under a refused rename. Its line goes; once nothing is left, the pop-up says to save.
+async function landForRename(button) {
+  const edit = setEdit, key = button.dataset.setLand;
+  if (!await act(button, `/flights/${encodeURIComponent(key)}/close`) && post.failed?.error !== "no such session") return;
+  if (edit !== setEdit) return;
+  for (const r of edit.refused) {
+    if (!r.running?.some(x => x.key === key)) continue;
+    r.running = r.running.filter(x => x.key !== key);
+    if (!r.running.length) r.why = t("run_closed");
+  }
+  drawSettings();
 }
 
 const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by", worker_cli: "set_run_with", multi_user: "set_multi_user"};
@@ -2719,7 +2756,7 @@ function settingControl(key, row, now, codex = null) {
 function settingsBody(row, edit) {
   const groups = SETTING_GROUPS.map(([head, keys]) => `<section class="set-group"><h3>${t(head)}</h3>${keys.map(key => settingControl(key, row, edit.now, edit.codex)).join("")}</section>`).join("");
   const refused = edit.refused.length ? `<div class="set-refused" role="alert"><b>${t("set_refused")}</b><ul>${edit.refused.map(r =>
-    `<li>${esc(t(SETTING_LABELS[r.setting]))}: <span dir="auto">${esc(r.why)}</span></li>`).join("")}</ul></div>` : "";
+    `<li>${esc(t(SETTING_LABELS[r.setting]))}: <span dir="auto">${esc(r.why)}</span>${runningList(r.running)}</li>`).join("")}</ul></div>` : "";
   return `<div class="sheet-grip"></div><div class="sheet-head"><div class="sheet-who"><div class="muted">${t("tab_settings")}</div><h2>${bdi(row.name)}</h2></div>
     <button type="button" class="sheet-close" data-set-cancel aria-label="${esc(t("close"))}">✕</button></div>${refused}<section class="set-group">${settingControl("name", row, edit.now)}</section>${groups}
     <section class="set-group"><h3>${t("kanduban")}</h3><p class="muted">${t("kanduban_hint")}</p><div class="actions" id="setkanduban">${kandubanControls(row.name)}</div></section>
@@ -2780,7 +2817,7 @@ async function saveSettings(button) {
   const send = async path => {
     post.failed = null;
     if (await act(button, path)) return {ok: true};
-    return {ok: false, why: post.failed?.error ? tr(post.failed.error) : t("request_failed"), stop: !token};
+    return {ok: false, why: post.failed?.error ? tr(post.failed.error) : t("request_failed"), stop: !token, running: post.failed?.running};
   };
   const refused = await applySettings(edit.name, edit, send);
   renderSettings.key = null;  // Whatever the answers, the next state draws what the server kept.
@@ -3363,6 +3400,7 @@ document.addEventListener("click", e => {
   if (hit("set-save") || hit("set-yes")) { saveSettings(hit("set-save") || hit("set-yes")); return; }
   if (hit("set-no")) { setEdit.asking = false; drawSettings(); return; }
   if (hit("set-cancel")) { $("setsheet").close(); return; }
+  if (hit("set-land")) { landForRename(hit("set-land")); return; }
   if (hit("fly")) { openFlight(hit("fly")); return; }
   if (hit("inspect")) { saveInspect(hit("inspect")); return; }
   if (hit("remove")) { removeProject(hit("remove")); return; }

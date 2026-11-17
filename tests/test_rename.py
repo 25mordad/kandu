@@ -78,6 +78,7 @@ class RefusedTest(Base):
         self.assertEqual(str(caught.exception), message)
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.names(), ["website", "internal-tool"])
+        return caught.exception.running
 
     def test_an_empty_name_is_refused_and_nothing_changes(self):
         self.assert_refused("", "give the project a name")
@@ -90,14 +91,38 @@ class RefusedTest(Base):
     def test_another_projects_name_is_refused(self):
         self.assert_refused("internal-tool", "another project already has this name")
 
-    def test_a_rename_while_a_worker_runs_is_refused(self):
-        self.store.write_current({"workers": [{"task": "acme-org/website#12", "project": "website", "run_id": "r-1"}]})
-        self.assert_refused("site", "stop or wait for the running work first")
+    def test_a_rename_while_a_worker_runs_is_refused_naming_the_worker(self):
+        self.store.write_current({"workers": [{"task": "acme-org/website#12", "project": "website", "run_id": "r-1",
+                                               "started": "2026-11-16T09:30:00+01:00"}]})
+        self.assertEqual(self.assert_refused("site", "stop or wait for the running work first"),
+                         [{"kind": "worker", "task": "acme-org/website#12", "since": "2026-11-16T09:30:00+01:00"}])
 
-    def test_a_rename_while_a_free_flight_runs_is_refused(self):
+    def test_a_rename_while_a_free_flight_runs_is_refused_naming_the_flight_and_its_key(self):
+        self.store.write_flight({"key": "acme-org-website-12", "kind": "task", "task": "acme-org/website#12",
+                                 "project": "website", "started": "2026-11-16T09:00:00+01:00"})
+        self.assertEqual(self.assert_refused("site", "stop or wait for the running work first"),
+                         [{"kind": "flight", "task": "acme-org/website#12", "since": "2026-11-16T09:00:00+01:00",
+                           "key": "acme-org-website-12"}])
+
+    def test_a_refusal_names_every_worker_and_flight_on_the_project_and_nothing_else(self):
+        self.store.write_current({"workers": [
+            {"task": "acme-org/website#12", "project": "website", "run_id": "r-1", "started": "2026-11-16T09:30:00+01:00"},
+            {"task": "acme-org/tool#3", "project": "internal-tool", "run_id": "r-2", "started": "2026-11-16T09:31:00+01:00"}]})
+        for key, task, project in (("k-14", "acme-org/website#14", "website"), ("k-3", "acme-org/tool#3", "internal-tool")):
+            self.store.write_flight({"key": key, "kind": "task", "task": task, "project": project,
+                                     "started": "2026-11-16T08:00:00+01:00"})
+        self.store.write_flight({"key": "zanbourdar", "kind": "zanbourdar", "task": None, "project": None,
+                                 "started": "2026-11-16T07:00:00+01:00"})
+        running = self.assert_refused("site", "stop or wait for the running work first")
+        self.assertEqual([(r["kind"], r["task"]) for r in running],
+                         [("worker", "acme-org/website#12"), ("flight", "acme-org/website#14")])
+
+    def test_a_rename_after_its_free_flight_is_closed_goes_through(self):
         self.store.write_flight({"key": "acme-org-website-12", "kind": "task", "task": "acme-org/website#12",
                                  "project": "website", "started": "2026-11-16T09:00:00+01:00"})
         self.assert_refused("site", "stop or wait for the running work first")
+        self.store.forget_flight("acme-org-website-12")
+        self.assertEqual(self.rename("site")["name"], "site")
 
     def test_a_rename_while_a_supervisor_cycle_runs_is_refused(self):
         # A cycle reads projects.yaml once when it wakes, and may start work on the project at any step after.
@@ -108,8 +133,8 @@ class RefusedTest(Base):
 
             def cycle(cycle):
                 try:
-                    self.assert_refused("site", "stop or wait for the running work first")
-                    refused.append(True)
+                    running = self.assert_refused("site", "stop or wait for the running work first")
+                    refused.append(running == [{"kind": "cycle"}])
                 except AssertionError as e:
                     refused.append(e)
                 return "done"
@@ -305,7 +330,8 @@ class ThroughTheDashboardTest(Base):
         self.store.write_current({"workers": [{"task": "acme-org/website#12", "project": "website", "run_id": "r-1"}]})
         before = self.snapshot()
         self.assertEqual(self.post("/api/v1/projects/website/settings?name=site"),
-                         (409, {"error": "stop or wait for the running work first"}))
+                         (409, {"error": "stop or wait for the running work first",
+                                "running": [{"kind": "worker", "task": "acme-org/website#12", "since": None}]}))
         self.assertEqual(self.post("/api/v1/projects/website/settings?name=my%20site"), (400, {"error": rename.NOT_A_NAME}))
         self.assertEqual(self.post("/api/v1/projects/website/settings?name=internal-tool"),
                          (400, {"error": "another project already has this name"}))
