@@ -239,12 +239,32 @@ def flower_marks(store):
     return marks
 
 
+def _codex_actions(item):
+    """The steps in one item of a Codex run, each with the item's id: an item comes once started and again done.
+    Its messages, its reasoning and every step's output stay out."""
+    kind, key = item.get("type"), item.get("id")
+    if kind == "command_execution":
+        steps = [("Command", item.get("command"))]
+    elif kind == "file_change":
+        steps = [("Edit", change.get("path")) for change in item.get("changes") or [] if isinstance(change, dict)]
+    elif kind == "web_search":
+        steps = [("WebSearch", item.get("query"))]
+    elif kind == "mcp_tool_call":
+        steps = [(f"mcp__{item.get('server', '')}__{item.get('tool', '')}", "")]
+    else:
+        steps = []
+    return [{"tool": tool, "detail": str(detail or "")[:MAX_DETAIL], "id": key} for tool, detail in steps]
+
+
 def actions_in(line):
-    """Takes one `stream-json` line; returns what the agent did in it. Tool results stay out."""
+    """Takes one line of a run's log, from `claude` or `codex`; returns what the agent did in it. Tool results stay
+    out. A Codex step carries its item's `id`, as it comes twice (`run_actions`)."""
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
         return []
+    if isinstance(event, dict) and event.get("type") in ("item.started", "item.completed"):
+        return _codex_actions(event["item"]) if isinstance(event.get("item"), dict) else []
     message = event.get("message") if isinstance(event, dict) and event.get("type") == "assistant" else None
     content = message.get("content") if isinstance(message, dict) else None
     actions = []
@@ -253,6 +273,20 @@ def actions_in(line):
             tool_input = part.get("input") if isinstance(part.get("input"), dict) else {}
             detail = next((str(tool_input[k]) for k in TOOL_DETAIL_KEYS if k in tool_input), "")
             actions.append({"tool": part.get("name", ""), "detail": detail[:MAX_DETAIL]})
+    return actions
+
+
+def run_actions(lines):
+    """What a run did, from its log's lines, each step once."""
+    seen, actions = set(), []
+    for line in lines:
+        for action in actions_in(line):
+            key = action.pop("id", None)
+            if key is not None:
+                if (key, action["tool"], action["detail"]) in seen:
+                    continue
+                seen.add((key, action["tool"], action["detail"]))
+            actions.append(action)
     return actions
 
 
@@ -795,7 +829,7 @@ class Api:
         if not RUN_ID.fullmatch(run_id) or not path.exists():
             raise ApiError(404, "no such run")
         with open(path, encoding="utf-8", errors="replace") as log:
-            return {"run_id": run_id, "actions": [a for line in log for a in actions_in(line)]}
+            return {"run_id": run_id, "actions": run_actions(log)}
 
     def reviews(self, query, owner, repo, number):
         full = f"{owner}/{repo}"

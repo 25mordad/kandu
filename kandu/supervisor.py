@@ -27,7 +27,7 @@ from .flights import Flights
 from .github import TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
 from .mirror import open_github
 from .notify import CHECK_NOT_RUN, LIVE_DOWN, TESTS_FAIL_IN, notifier_for
-from .runner import DEFAULT_LOGS_DIR, LocalWork, Runner, RunnerError, Unreachable
+from .runner import CLAUDE, DEFAULT_LOGS_DIR, LocalWork, Runner, RunnerError, Unreachable
 from .state import StateStore
 from .tasks import TaskError
 from .tries import FAILURE_COMMENT, INTERNAL_TRIES, SIZING_FAILURE_COMMENT, count as count_tries
@@ -428,7 +428,8 @@ class Supervisor:
             return None
         return lambda repo, number: show.render(self.github.item(repo, number))
 
-    def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None, resume=None):
+    def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None, resume=None, cli=CLAUDE):
+        """Runs one agent for `task` with the agent CLI `cli`; Claude Code unless a caller names another."""
         if self._stopping():
             raise CycleStop(STOPPED_BY_USER)  # not kept for the cycle: a resume lets the rest go on
         reason = self._limit()
@@ -441,9 +442,11 @@ class Supervisor:
             self.workers[task.key]["run_id"] = run_id
         self._snapshot("awake")
         stop_one = self.store.worker_stop_file(run_id)
+        # Claude's model setting is for Claude Code alone: another CLI runs on its own default.
+        model = self._model(role) if cli == CLAUDE else None
         result = self.runner.run_agent(task.project.machine, cwd, prompt, allowed, denied, run_id,
-                                       lambda: self._hard_stop() or stop_one.exists(), self._model(role), tokens,
-                                       schema, resume)
+                                       lambda: self._hard_stop() or stop_one.exists(), model, tokens,
+                                       schema, resume, cli=cli)
         self.store.record("run_finished", task=task.key, project=task.project.name, run_id=run_id, role=role,
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
         if stop_one.exists():
@@ -460,7 +463,7 @@ class Supervisor:
 
     def _reply(self, task, role, cwd, tools, result, read, tokens=None, schema=None):
         """Returns `read(text)`. A reply it cannot read is asked for once more, in the same session: the work is
-        done, and only its last message is missing."""
+        done, and only its last message is missing. It goes to the CLI that ran it."""
         try:
             return read(result.text)
         except BROKEN_REPLY as e:
@@ -468,7 +471,7 @@ class Supervisor:
                 raise
             self._decide(task, "reply_reasked", f"{role}: {e}")
             again = self._agent(task, role, cwd, agents.reask_prompt(e), tools, new_run_id(self.now()), tokens,
-                                schema, resume=result.session_id)
+                                schema, resume=result.session_id, cli=result.cli)
             return read(again.text)
 
     def _worktree(self, task, base):

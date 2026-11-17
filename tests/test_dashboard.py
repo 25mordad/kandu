@@ -427,6 +427,35 @@ class ReadTest(Base):
         self.assertEqual(body["actions"], [{"tool": "Read", "detail": "a.py"}, {"tool": "Bash", "detail": "npm test"}])
         self.assertNotIn("SECRET", json.dumps(body))
 
+    def test_a_codex_runs_steps_show_once_each_and_no_output(self):
+        (self.root / "logs").mkdir()
+        def item(event, **fields):
+            return json.dumps({"type": f"item.{event}", "item": fields})
+        command = dict(id="item_1", type="command_execution", command="npm test", status="in_progress")
+        search = dict(id="item_4", type="web_search", query="codex json events")
+        lines = [json.dumps({"type": "thread.started", "thread_id": "t-1"}),
+                 item("completed", id="item_0", type="agent_message", text="Looking first."),
+                 item("completed", id="item_9", type="reasoning", text="thinking"),
+                 item("started", **command),
+                 item("completed", **command | {"aggregated_output": "SECRET", "exit_code": 0}),
+                 item("started", id="item_2", type="file_change", changes=[{"path": "/w/a.py", "kind": "update"}]),
+                 item("completed", id="item_2", type="file_change",
+                      changes=[{"path": "/w/a.py", "kind": "update"}, {"path": "/w/b.py", "kind": "add"}]),
+                 item("started", id="item_3", type="mcp_tool_call", server="docs", tool="search",
+                      arguments={"q": "x"}),
+                 item("completed", **search),
+                 json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1}}),
+                 "2026-11-17T08:39:01Z ERROR a line on stderr"]
+        (self.root / "logs" / "r-1.jsonl").write_text("\n".join(lines))
+        status, body = self.get("/api/v1/runs/r-1")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["actions"], [{"tool": "Command", "detail": "npm test"},
+                                           {"tool": "Edit", "detail": "/w/a.py"},
+                                           {"tool": "Edit", "detail": "/w/b.py"},
+                                           {"tool": "mcp__docs__search", "detail": ""},
+                                           {"tool": "WebSearch", "detail": "codex json events"}])
+        self.assertNotIn("SECRET", json.dumps(body))
+
     def test_run_id_cannot_leave_the_logs_folder(self):
         self.assertEqual(self.get("/api/v1/runs/..%2F..%2Fsecret")[0], 404)
         self.assertEqual(self.get("/api/v1/runs/r-none")[0], 404)

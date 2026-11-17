@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from kandu import ghmeter
+from kandu import agents, ghmeter, review
 from kandu.config import Config, Machine, Project, Setup
 from kandu.runner import (KEPT_CHECKED_OUT, KEPT_NOT_WORKTREE, KEPT_UNCOMMITTED, KEPT_UNPUSHED, REMOVED, Host, LocalWork, Runner,
                           RunnerError, SCOPE_PROBE, Unreachable, child_env, repo_path)
@@ -28,6 +28,36 @@ cat > "$HOME/claude.stdin"
 echo 'not json'
 echo '{{"type": "assistant"}}'
 echo '{json.dumps(RESULT)}'
+"""
+# What `codex exec --json` prints, as Codex 0.154 does: a thread, steps, its messages and the turn's usage.
+CODEX_EVENTS = [
+    {"type": "thread.started", "thread_id": "t-1"},
+    {"type": "turn.started"},
+    {"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": "Looking first."}},
+    {"type": "item.started", "item": {"id": "item_1", "type": "command_execution", "command": "ls",
+                                      "aggregated_output": "", "exit_code": None, "status": "in_progress"}},
+    {"type": "item.completed", "item": {"id": "item_1", "type": "command_execution", "command": "ls",
+                                        "aggregated_output": "a.txt\n", "exit_code": 0, "status": "completed"}},
+    {"type": "item.completed", "item": {"id": "item_2", "type": "agent_message", "text": "the reply"}},
+    {"type": "turn.completed", "usage": {"input_tokens": 1000, "cached_input_tokens": 600,
+                                         "cache_write_input_tokens": 50, "output_tokens": 30,
+                                         "reasoning_output_tokens": 10}},
+]
+# Keeps what it was given, then prints the events the test left in `$HOME/codex.events`.
+FAKE_CODEX = """#!/bin/sh
+pwd > "$HOME/codex.cwd"
+printf '%s\\n' "$@" > "$HOME/codex.args"
+cat > "$HOME/codex.stdin"
+for arg in "$@"; do [ "$previous" = --output-schema ] && cp "$arg" "$HOME/codex.schema"; previous=$arg; done
+echo '2026-11-17T08:39:01Z ERROR a line of its own on stderr'
+cat "$HOME/codex.events"
+"""
+# Runs the script it was given on this machine, as the far machine would.
+FAKE_SSH = """#!/bin/sh
+while [ "$1" = -o ]; do shift 2; done
+echo "$1" >> "$HOME/ssh.targets"
+shift
+exec sh -c "$1"
 """
 FAKE_GH = """#!/bin/sh
 git clone "$ORIGIN" "$4"
@@ -678,3 +708,210 @@ class SetupTest(GitCase):
         self.project_.setup.command = f"echo ran >> {self.runs}"
         self.assertEqual(self.checked()[0], 0)
         self.assertEqual(self.setups(), 2)
+
+
+class ClaudeCommandTest(GitCase):
+    def test_a_caller_that_names_no_agent_cli_runs_claude_with_todays_command_line(self):
+        self.runner.run_agent("box", str(self.home), "p", ["Read", "Bash(npm test *)"], ["Edit"], "r-1", lambda: False,
+                              "m-1", schema={"type": "object"}, resume="s-1")
+        self.assertEqual((self.home / "claude.args").read_text().splitlines(),
+                         ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk",
+                          "--allowedTools", "Read", "Bash(npm test *)", "--setting-sources", "user", "--model", "m-1",
+                          "--resume", "s-1", "--json-schema", '{"type": "object"}', "--disallowedTools", "Edit"])
+        self.assertFalse((self.home / "codex.args").exists())
+
+
+class CodexTest(GitCase):
+    """`codex` is a stub that prints Codex's JSON events, as `claude` is in the tests above."""
+
+    def setUp(self):
+        super().setUp()
+        install(self.home / ".local" / "bin" / "codex", FAKE_CODEX)
+        self.events(CODEX_EVENTS)
+
+    def events(self, events):
+        (self.home / "codex.events").write_text("".join(json.dumps(e) + "\n" for e in events))
+
+    def codex(self, allowed=("Read", "Bash(npm test *)"), machine="box", cwd=None, **options):
+        return self.runner.run_agent(machine, cwd or str(self.home), options.pop("prompt", "the prompt"),
+                                     None if allowed is None else list(allowed), ["Edit"], "r-1",
+                                     options.pop("should_stop", lambda: False), options.pop("model", None),
+                                     cli="codex", **options)
+
+    def args(self):
+        return (self.home / "codex.args").read_text().splitlines()
+
+    def test_the_prompt_reaches_codex_and_its_last_message_is_the_reply(self):
+        result = self.codex()
+        self.assertEqual(self.args()[:2], ["exec", "--json"])
+        self.assertEqual(self.args()[-1], "-")  # the prompt comes on stdin, whatever its size
+        self.assertEqual((self.home / "codex.stdin").read_text(), "the prompt")
+        self.assertEqual((self.home / "codex.cwd").read_text().strip(), str(self.home))
+        self.assertEqual((result.text, result.is_error, result.stopped, result.session_id),
+                         ("the reply", False, False, "t-1"))
+        self.assertEqual(result.cli, "codex")
+        self.assertFalse((self.home / "claude.args").exists())
+
+    def test_a_model_is_passed_only_when_one_is_set(self):
+        self.codex()
+        self.assertNotIn("--model", self.args())
+        self.codex(model="gpt-5.5-codex")
+        self.assertEqual(self.args()[self.args().index("--model") + 1], "gpt-5.5-codex")
+
+    def test_the_repos_own_agent_files_are_not_loaded(self):
+        self.codex()
+        self.assertEqual(self.args()[self.args().index("-c") + 1], "project_doc_max_bytes=0")
+
+    def test_with_no_allow_list_the_run_may_do_everything(self):
+        self.codex(allowed=None)
+        self.assertIn("--dangerously-bypass-approvals-and-sandbox", self.args())
+        self.assertNotIn("--sandbox", self.args())
+
+    def test_a_run_that_may_change_no_file_is_read_only(self):
+        self.codex(allowed=["Read", "Grep", "Bash(git diff *)"])
+        self.assertEqual(self.args()[self.args().index("--sandbox") + 1], "read-only")
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", self.args())
+
+    def test_a_run_that_may_edit_writes_its_checkout_and_commits_and_pushes(self):
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        self.codex(allowed=["Read", "Edit", "Bash(git commit *)"], cwd=worktree)
+        args = self.args()
+        self.assertEqual(args[args.index("--sandbox") + 1], "workspace-write")
+        self.assertIn("sandbox_workspace_write.network_access=true", args)
+        # A worktree's commits go to the copy's git folder, outside the checkout.
+        self.assertEqual(args[args.index("--add-dir") + 1], str(self.copy / ".git"))
+
+    def test_the_schema_reaches_codex_in_the_form_it_holds_a_reply_to(self):
+        schema = {"type": "object", "required": ["status"], "properties": {
+            "status": {"enum": ["pushed", "blocked"]}, "reason": {"type": "string"},
+            "items": {"type": "array", "items": {"type": "object", "required": ["n"], "properties": {
+                "n": {"type": "integer"}, "why": {"type": ["string", "null"]}}}}}}
+        tmp = self.root / "tmp"
+        tmp.mkdir()
+        with mock.patch.dict(os.environ, {"TMPDIR": str(tmp)}):
+            self.codex(schema=schema)
+        given = json.loads((self.home / "codex.schema").read_text())
+        # OpenAI's structured outputs hold a reply only to a schema where every object names every key as
+        # required and allows no other: an optional key may be null instead.
+        self.assertEqual(given["required"], ["status", "reason", "items"])
+        self.assertIs(given["additionalProperties"], False)
+        self.assertEqual(given["properties"]["status"], schema["properties"]["status"])
+        self.assertIn({"type": "null"}, given["properties"]["reason"]["anyOf"])
+        item = given["properties"]["items"]["anyOf"][0]["items"]
+        self.assertEqual((item["required"], item["additionalProperties"]), (["n", "why"], False))
+        self.assertIn({"type": "null"}, item["properties"]["why"]["anyOf"])
+        self.assertEqual(list(tmp.iterdir()), [])  # it does not stay behind
+
+    def test_no_schema_no_schema_file(self):
+        self.codex()
+        self.assertNotIn("--output-schema", self.args())
+
+    def reply(self, obj):
+        text = obj if isinstance(obj, str) else json.dumps(obj)
+        events = [dict(e) for e in CODEX_EVENTS]
+        events[5] = {"type": "item.completed", "item": {"id": "item_2", "type": "agent_message", "text": text}}
+        self.events(events)
+
+    def test_a_worker_reply_with_optional_fields_left_out_reads_as_from_claude(self):
+        self.reply({"status": "pushed", "pr_title": "T", "pr_body": "B", "question": None, "reason": None})
+        result = self.codex(schema=agents.WORKER_SCHEMA)
+        self.assertEqual(agents.parse_first_reply(result.text), {"status": "pushed", "pr_title": "T", "pr_body": "B"})
+        self.reply({"status": "blocked", "pr_title": None, "pr_body": None, "question": None, "reason": "no access"})
+        result = self.codex(schema=agents.WORKER_SCHEMA)
+        self.assertEqual(agents.parse_worker_reply(result.text), {"status": "blocked", "reason": "no access"})
+
+    def test_a_review_with_optional_fields_left_out_reads_as_from_claude(self):
+        finding = {"n": 1, "path": "a.py", "line": None, "blocker": True, "criterion": None, "body": "b"}
+        self.reply({"head_sha": "abc", "summary": "s", "criteria": [{"criterion": None, "result": "met"}],
+                    "earlier": [], "findings": [finding], "checked_ok": [], "door": "two-way", "wait_for_user": [],
+                    "blast_radius": "r", "brief": "b", "user_brief": "u"})
+        report = review.parse_report(self.codex(schema=review.REPORT_SCHEMA).text)
+        self.assertEqual(review.validate_report(report, []), [])
+        self.assertEqual(report["criteria"], [{"result": "met"}])
+        self.assertEqual(report["findings"], [finding])  # a null the schema itself allows stays
+
+    def test_a_reply_that_is_not_json_comes_back_as_it_is(self):
+        self.reply("All done!")
+        self.assertEqual(self.codex(schema=agents.WORKER_SCHEMA).text, "All done!")
+
+    def test_a_broken_reply_is_asked_for_again_in_the_same_session(self):
+        self.codex(prompt="again", resume="t-1", schema=agents.WORKER_SCHEMA)
+        args = self.args()
+        self.assertEqual(args[args.index("resume"):], ["resume", "t-1", "-"])
+        self.assertLess(args.index("--output-schema"), args.index("resume"))
+        self.assertLess(args.index("--sandbox"), args.index("resume"))
+        self.assertEqual((self.home / "codex.stdin").read_text(), "again")
+
+    def test_tokens_land_in_kandus_fields_with_cached_input_as_cache_reads(self):
+        result = self.codex()
+        self.assertEqual(result.models, {"codex": {"input": 400, "output": 30, "cache_read": 600,
+                                                   "cache_creation": 50}})
+        self.assertEqual(self.codex(model="gpt-5.5").models["gpt-5.5"]["cache_read"], 600)
+
+    def test_the_runs_duration_is_measured(self):
+        install(self.home / ".local" / "bin" / "codex", FAKE_CODEX.replace("cat \"$HOME/codex.events\"",
+                                                                           "sleep 0.3; cat \"$HOME/codex.events\""))
+        self.assertGreaterEqual(self.codex().duration_ms, 300)
+
+    def test_a_failed_turn_is_an_error(self):
+        self.events(CODEX_EVENTS[:3] + [{"type": "error", "message": "stream disconnected"},
+                                        {"type": "turn.failed", "error": {"message": "stream disconnected"}}])
+        self.assertTrue(self.codex().is_error)
+
+    def test_a_run_with_no_finished_turn_is_an_error(self):
+        self.events(CODEX_EVENTS[:6])
+        self.assertTrue(self.codex().is_error)
+
+    def test_a_failing_exit_is_an_error_even_with_a_turn(self):
+        install(self.home / ".local" / "bin" / "codex", FAKE_CODEX + "exit 1\n")
+        self.assertTrue(self.codex().is_error)
+
+    def test_its_events_are_logged_for_the_dashboard(self):
+        self.codex()
+        log = (self.root / "logs" / "r-1.jsonl").read_text()
+        self.assertIn('"command_execution"', log)
+        self.assertEqual((self.root / "logs" / "r-1.jsonl").stat().st_mode & 0o777, 0o600)
+
+    def test_a_token_task_gets_its_tokens(self):
+        install(self.home / ".local" / "bin" / "codex", "#!/bin/sh\nenv > \"$HOME/codex.env\"\n" + FAKE_CODEX.split("\n", 1)[1])
+        (self.home / "vars").write_text("A_KEY=one\nOTHER=hidden\n")
+        self.assertFalse(self.codex(tokens=(str(self.home / "vars"), ["A_KEY"])).is_error)
+        seen = (self.home / "codex.env").read_text().splitlines()
+        self.assertIn("A_KEY=one", seen)
+        self.assertNotIn("OTHER=hidden", seen)
+
+    def test_stop_ends_a_running_codex(self):
+        install(self.home / ".local" / "bin" / "codex", "#!/bin/sh\nexec sleep 60\n")
+        started = time.monotonic()
+        with mock.patch("kandu.runner.POLL_SECONDS", 0.01):
+            result = self.codex(should_stop=lambda: True)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertTrue(result.stopped)
+
+    @unittest.skipUnless(subprocess.run(["sh", "-c", SCOPE_PROBE]).returncode == 0, "needs a user systemd")
+    def test_what_codex_leaves_running_ends_with_it(self):
+        marker = f"sleep 300.{os.getpid()}3"
+        install(self.home / ".local" / "bin" / "codex",
+                f"#!/bin/sh\nsetsid {marker} </dev/null >/dev/null 2>&1 &\n" + FAKE_CODEX.split("\n", 1)[1])
+        self.assertFalse(self.codex().is_error)
+        found = subprocess.run(["pgrep", "-f", marker], capture_output=True, text=True).stdout.split()
+        self.assertEqual(found, [])
+
+    def test_on_a_remote_machine(self):
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        install(bin_dir / "ssh", FAKE_SSH)
+        far = Machine("far", "ssh far.example", False)
+        runner = Runner(Config(settings=mock.Mock(machines=[far]), projects=[]), self.root / "logs")
+        with mock.patch.dict(os.environ, {"PATH": f"{bin_dir}:{os.environ['PATH']}"}):
+            result = runner.run_agent("far", str(self.home), "the prompt", ["Read"], [], "r-1", lambda: False,
+                                      "gpt-5.5", schema=agents.CHECK_SCHEMA, cli="codex")
+        self.assertEqual(set((self.home / "ssh.targets").read_text().split()), {"far.example"})
+        self.assertEqual((result.text, result.is_error), ("the reply", False))
+        self.assertEqual(self.args()[self.args().index("--model") + 1], "gpt-5.5")
+        self.assertEqual(json.loads((self.home / "codex.schema").read_text())["required"], ["result", "summary"])
+        self.assertEqual((self.home / "codex.stdin").read_text(), "the prompt")
+
+    def test_an_unknown_agent_cli_is_refused(self):
+        with self.assertRaises(RunnerError):
+            self.runner.run_agent("box", str(self.home), "p", None, [], "r-1", lambda: False, cli="gemini")
