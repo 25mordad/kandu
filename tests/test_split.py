@@ -124,6 +124,19 @@ class SizingTest(Base):
         self.assertEqual(self.events("run_finished")[0]["role"], "splitter")
         self.assertEqual(self.github.status(1), "Backlog")
 
+    def test_a_stop_while_it_sizes_keeps_its_size_and_starts_nothing_after_it(self):
+        self.github.add(1, "Backlog", body=body())
+        self.github.add(2, "Backlog", body=body())
+        self.config.settings.supervisor.max_parallel_sizers = 1
+
+        def stopped_while_sizing():
+            self.store.request_stop()
+            return ok(json.dumps(sized("Medium")))
+        self.runner.steps = [stopped_while_sizing]
+        self.assertEqual(self.cycle(), "stopped by the user")
+        self.assertEqual(len(self.runner.runs), 1)
+        self.assertEqual([e["size"] for e in self.events("task_sized")], ["Medium"])
+
     def large_two_way(self):
         self.github.add(1, "Backlog", body=body())
         self.runner.steps = [ok(json.dumps(sized("Large", 40, "mixed", [part("First"), part("Second")])))]

@@ -40,10 +40,31 @@ def all_events(store):
 
 
 def since_last_look(store):
-    """Returns (events up to her last look, events after it), oldest first."""
+    """Returns (events up to her last look, events after it), oldest first.
+
+    A look that a stop held back saw the board when it was held, not when the resume carried it out: what happened
+    in between, such as a bee that finished its step while Kandu was stopping, is still news. Its `queen_finished`
+    goes last in the first list, as her last look.
+    """
     events = all_events(store)
     last = max((i for i, e in enumerate(events) if e["type"] == "queen_finished"), default=-1)
-    return events[:last + 1], events[last + 1:]
+    if last < 0:
+        return [], events
+    run_id = events[last]["run_id"]
+    held = next((i for i in range(last - 1, -1, -1)
+                 if events[i]["type"] == "queen_held" and events[i]["run_id"] == run_id), None)
+    if held is None:
+        return events[:last + 1], events[last + 1:]
+    return events[:held + 1] + [events[last]], events[held + 1:last] + events[last + 1:]
+
+
+def held_look(store):
+    """Her newest look that a stop held back and no cycle has carried out yet, or None."""
+    events = all_events(store)
+    held = next((e for e in reversed(events) if e["type"] == "queen_held"), None)
+    if held is None or any(e["type"] == "queen_finished" and e["run_id"] == held["run_id"] for e in events):
+        return None
+    return held
 
 
 def _is_news(event, before):

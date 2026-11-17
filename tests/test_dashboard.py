@@ -966,6 +966,17 @@ class ControlTest(Base):
         self.assertEqual(self.get("/api/v1/splits/other/repo/1")[0], 404)
         self.assertEqual(self.post("/api/v1/splits/other/repo/1/approve")[0], 404)
 
+    def test_while_stopping_the_state_counts_the_bees_still_at_work_then_none(self):
+        self.store.write_current({"supervisor": "awake", "workers": [{"task": "acme-org/website#1"}], "queen_run": "r-q"})
+        self.store.write_bazras({"project": "website"})
+        self.assertEqual(self.get("/api/v1/state")[1]["stopping"], 0)  # not stopped
+        self.assertEqual(self.post("/api/v1/stop")[0], 200)
+        self.assertEqual(self.get("/api/v1/state")[1]["stopping"], 3)
+        self.store.write_bazras(None)
+        self.store.write_current({"supervisor": "stopped", "workers": [], "queen_run": None})
+        state = self.get("/api/v1/state")[1]
+        self.assertEqual((state["stop_requested"], state["stopping"]), (True, 0))
+
     def test_stop_and_resume(self):
         self.assertEqual(self.post("/api/v1/stop")[0], 200)
         self.assertTrue(self.store.stop_file.exists())
@@ -1369,7 +1380,7 @@ class FrameTest(unittest.TestCase):
                    + "".join(self.line(start) for start in (
                        "const esc = ", "const locale = ", "const t = ", "const num = ", "const when = ", "const clock = ",
                        "const githubRefused = ", "const bdi = ", "const pct = "))
-                   + "".join(self.function(name) for name in ("tr", "stateChip", "stopText", "moreItems", "gauge", "chooseMore")))
+                   + "".join(self.function(name) for name in ("tr", "stopWord", "stateChip", "stopText", "moreItems", "gauge", "chooseMore")))
         done = subprocess.run([NODE, "-"], input=prelude + script, capture_output=True, text=True, timeout=30,
                               env={**os.environ, "TZ": "UTC"})
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -1493,6 +1504,8 @@ class FrameTest(unittest.TestCase):
             "holding": self.state(usage={"session": 85, "week": 20}),
             "holding_week": self.state(usage={"session": 1, "week": 90}),
             "stopped": self.state(stop_requested=True),
+            "stopping": self.state(supervisor="awake", stop_requested=True, stopping=2),
+            "stopping_one": self.state(supervisor="awake", stop_requested=True, stopping=1),
             "timer_off": self.state(timer_on=False, next_wake=None),
         }
         chips = self.run_js("en", f"console.log(JSON.stringify(Object.fromEntries(Object.entries({json.dumps(cases)}).map(([k, s]) => [k, stateChip(s)]))));")
@@ -1501,6 +1514,9 @@ class FrameTest(unittest.TestCase):
         self.assertEqual(chips["holding"], {"kind": "holding", "short": "Asleep", "long": "Holding at a usage limit · wakes 21:22"})
         self.assertEqual(chips["holding_week"]["kind"], "holding")
         self.assertEqual(chips["stopped"], {"kind": "stopped", "short": "Stopped", "long": "Stopped"})
+        self.assertEqual(chips["stopping"], {"kind": "stopped", "short": "Stopping · 2 bees still at work",
+                                             "long": "Stopping · 2 bees still at work"})
+        self.assertEqual(chips["stopping_one"]["short"], "Stopping · 1 bee still at work")
         self.assertEqual(chips["timer_off"]["long"], "Asleep · timer off")
 
     @unittest.skipUnless(NODE, "needs node to run the page's script")
@@ -1572,10 +1588,11 @@ const setLanguage = chosen => calls.push(`setLanguage ${chosen}`);
     # Stop.
 
     @unittest.skipUnless(NODE, "needs node to run the page's script")
-    def test_stop_says_how_many_bees_stop_and_that_work_stays_on_its_branch(self):
+    def test_stop_says_the_bees_at_work_finish_their_step_and_nothing_new_starts(self):
         texts = self.run_js("en", """console.log(JSON.stringify([0, 1, 3].map(n => stopText({workers: Array(n).fill({})}))));""")
-        kept = "Work in progress stays on its branch, and nothing new starts until you resume Kandu."
-        self.assertEqual(texts, [f"No bee is at work. {kept}", f"1 bee stops now. {kept}", f"3 bees stop now. {kept}"])
+        kept = "No bee is cut off: what each one makes is kept. No new run, merge or deploy starts until you resume Kandu."
+        self.assertEqual(texts, [f"No bee is at work. {kept}", f"1 bee finishes its step, then rests. {kept}",
+                                 f"3 bees finish their step, then rest. {kept}"])
         persian = self.run_js("fa", """console.log(JSON.stringify(stopText({workers: Array(3).fill({})})));""")
         self.assertIn("۳", persian)
 

@@ -45,6 +45,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **One-way door** | A change that is hard to undo; it always waits for the user |
 | **Blast radius** | What a merge can break if it is wrong |
 | **Cycle** | One wake of the supervisor, from waking to sleep |
+| **Stopping** | Kandu after Stop while runs still finish their step: nothing new starts, and once the last run ends it is stopped |
 | **Live check** | Seeing the result in the deployed software, not only in tests |
 | **Check** | A read-only run the queen sends to find one thing out about a task; the run is the checker |
 | **Drop ask** | The queen's question to the user to drop one task from another's `Blocked by`, with her reason; only the user's yes on the dashboard takes it out of the issue. Off until the user turns it on |

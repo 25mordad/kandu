@@ -330,6 +330,7 @@ class Api:
         return self.store.read_current() | {
             "timer_on": self.timer_on(),
             "stop_requested": self.store.stop_file.exists(),
+            "stopping": self.store.stopping(),  # bees still finishing their step after a stop
             "paused_projects": sorted(self._paused()),
             "paused_in_config": sorted(p.name for p in self.config.projects if p.paused),
             "project_order": [p.name for p in sorted(self.config.projects, key=lambda p: p.priority)],

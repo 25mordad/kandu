@@ -74,6 +74,7 @@ EVENT_FIELDS = {
     "wake_requested": (),
     "queen_decided": TASK_FIELDS + ("action", "note"),
     "queen_finished": ("run_id", "brief", "backlog", "by_hand", "splits"),
+    "queen_held": ("run_id", "brief", "decisions", "backlog", "by_hand", "splits"),  # a stop came while she looked
     "queen_step_done": TASK_FIELDS + ("action", "decided", "result", "summary", "head_sha", "run_id"),
     "queen_opened": TASK_FIELDS + ("url",),
     "loop_stopped": TASK_FIELDS + ("action", "reason"),
@@ -375,6 +376,17 @@ class StateStore:
     def request_stop(self):
         self._make_dirs()
         self.stop_file.touch(mode=0o600)
+
+    def bees_at_work(self):
+        """How many runs are at work now: the tasks a cycle that is awake drives, its queen run, and Bazras."""
+        current = self.read_current()
+        busy = len(current.get("workers") or []) + bool(current.get("queen_run")) \
+            if current.get("supervisor") == "awake" else 0
+        return busy + bool(self.read_bazras())
+
+    def stopping(self):
+        """While the user has Kandu stopped, how many bees still finish their step; 0 once none is at work."""
+        return self.bees_at_work() if self.stop_file.exists() else 0
 
     def by_hand_labelled(self):
         return self.by_hand_labelled_file.exists()

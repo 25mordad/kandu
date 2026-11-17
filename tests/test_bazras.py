@@ -276,6 +276,7 @@ class FakeRunner:
         self.host.check.side_effect = self.check
         self.hosts = {"server": self.host, "laptop": self.host}
         self.reply = AgentResult(text='{"findings": []}', is_error=False)
+        self.during = lambda: None  # what happens while the judge works
 
     def check(self, command, cwd=None):
         if command[:2] == ["git", "log"]:
@@ -308,6 +309,9 @@ class FakeRunner:
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, schema=None, **_):
         self.agents.append(SimpleNamespace(cwd=cwd, prompt=prompt, allowed=allowed, denied=denied, schema=schema))
+        self.during()
+        if should_stop():  # the real runner kills the run here, and what it made is lost
+            return AgentResult(stopped=True)
         return self.reply
 
 
@@ -351,6 +355,17 @@ class LookTest(Base):
         self.assertNotIn("FAILED test_x", text)
         runs = [e for e in self.store.events(self.store.today()) if e["type"] == "run_finished"]
         self.assertEqual((runs[0]["role"], runs[0]["task"], runs[0]["project"]), ("bazras", None, self.project.name))
+
+    def test_a_stop_while_the_judge_works_lets_it_finish_and_its_report_is_kept(self):
+        runner = self.runner(test_code=1)
+        runner.reply = AgentResult(is_error=False, text='{"findings": [{"n": 1, "what": "Tests fail.", "cause": "Commit abc.",'
+                                   ' "task": null}]}')
+        runner.during = self.store.request_stop
+        self.inspect(runner)
+        self.assertEqual(len(runner.agents), 1)
+        text = bazras.reports(self.project.name, self.local)[-1][1]
+        self.assertIn("What broke: Tests fail.", text)
+        self.assertNotIn("Not judged", text)
 
     def test_the_judge_is_skipped_by_the_stop_file_the_daily_limit_and_the_usage_limit(self):
         def stopped():

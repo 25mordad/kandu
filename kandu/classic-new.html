@@ -1008,12 +1008,14 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "hint_tab_settings": "Kandu's settings and each project's.",
   "hint_tab_days": "Tokens by project, and what happened on each day.",
   "hint_tab_activity": "Kandu's events as they happen.",
-  "hint_stop": "Stop Kandu: no new work starts until you resume it.",
+  "hint_stop": "Stop Kandu: the bees at work finish their step, and nothing new starts until you resume it.",
+  "stopping_one": "Stopping · {n} bee still at work",
+  "stopping_many": "Stopping · {n} bees still at work",
   "hint_resume": "Resume Kandu: cycles start again.",
   "hint_reload": "Read the boards from GitHub again, now.",
   "hint_wake": "Wake the queen: a cycle starts now, without waiting for the next wake.",
   "stop_queen": "Stop the queen",
-  "hint_stop_queen": "Stop the queen: the running cycle ends and no timer wakes her again until you click Wake the queen.",
+  "hint_stop_queen": "Stop the queen: the bees at work finish their step, nothing new starts, and no timer wakes her again until you click Wake the queen.",
   "hint_restart": "Restart Kandu: it takes the config again and re-arms its timer. A running cycle finishes first.",
   "hint_didban": "Didban: a Claude session where you talk over requests and turn them into tasks.",
   "hint_zanbourdar": "Zanbourdar: a Claude session that tends Kandu itself.",
@@ -1499,12 +1501,14 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "hint_tab_settings": "تنظیمات کندو و هر پروژه.",
   "hint_tab_days": "توکن‌ها به تفکیک پروژه، و آنچه هر روز رخ داد.",
   "hint_tab_activity": "رویدادهای کندو همان لحظه که رخ می‌دهند.",
-  "hint_stop": "توقف کندو: تا ادامه ندهی، کار تازه‌ای شروع نمی‌شود.",
+  "hint_stop": "توقف کندو: زنبورهای سر کار قدمشان را تمام می‌کنند و تا ادامه ندهی چیز تازه‌ای شروع نمی‌شود.",
+  "stopping_one": "در حال توقف · {n} زنبور هنوز سر کار است",
+  "stopping_many": "در حال توقف · {n} زنبور هنوز سر کار هستند",
   "hint_resume": "ادامهٔ کندو: چرخه‌ها دوباره شروع می‌شوند.",
   "hint_reload": "همین حالا تخته‌ها را دوباره از گیت‌هاب بخوان.",
   "hint_wake": "بیدار کردن ملکه: چرخه‌ای همین حالا شروع می‌شود، بی‌آنکه منتظر بیداری بعدی بماند.",
   "stop_queen": "خواباندن ملکه",
-  "hint_stop_queen": "خواباندن ملکه: چرخه‌ای که در جریان است تمام می‌شود و هیچ زمان‌سنجی بیدارش نمی‌کند تا خودت «بیدار کردن ملکه» را بزنی.",
+  "hint_stop_queen": "خواباندن ملکه: زنبورهای سر کار قدمشان را تمام می‌کنند، چیز تازه‌ای شروع نمی‌شود و هیچ زمان‌سنجی بیدارش نمی‌کند تا خودت «بیدار کردن ملکه» را بزنی.",
   "hint_restart": "ری‌استارت کندو: تنظیمات را دوباره می‌خواند و زمان‌سنجش را از نو تنظیم می‌کند. چرخه‌ای که در جریان است اول تمام می‌شود.",
   "hint_didban": "دیدبان: جلسهٔ Claude که در آن دربارهٔ درخواست‌ها حرف می‌زنی و آن‌ها را به تسک تبدیل می‌کنی.",
   "hint_zanbourdar": "زنبوردار: جلسهٔ Claude که به خود کندو رسیدگی می‌کند.",
@@ -1645,6 +1649,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "stopped by the user": "کاربر متوقف کرد",
   "cycle time is up": "زمان چرخه تمام شد",
   "stopped while an agent was running": "در میانه کار یک ایجنت متوقف شد",
+  "cycle time ran out while an agent was running": "زمان چرخه در میانه کار یک ایجنت تمام شد",
   "nothing ready": "چیزی آماده نیست",
   "waiting for a machine": "در انتظار یک ماشین",
   "tasks ran out": "تسک‌ها تمام شد",
@@ -1664,6 +1669,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "over_budget": "رسیدن به سقف روزانه",
   "the queen reached her daily token limit": "ملکه به سقف روزانهٔ توکن خود رسید",
   "queen_finished": "ملکه نگاه کرد",
+  "queen_held": "ملکه نگاه کرد؛ تصمیم‌هایش تا ادامه‌ی کندو می‌مانند",
   "stopped_by_user": "کاربر متوقف کرد",
   "retry": "تلاش دوباره",
   "ask_user": "پرسش از کاربر",
@@ -2442,7 +2448,7 @@ function schip(label, value, {title = "", attrs = "", tone = "", bar = null, hre
 
 function hiveChip(s) {
   const asleep = s.stop_requested || s.supervisor !== "awake";
-  const said = tr(s.stop_requested ? "stopped" : (s.supervisor || "never ran"));
+  const said = stopWord(s) || tr(s.supervisor || "never ran");
   const ring = asleep || STILL ? "" : '<circle class="awake-ring" cy="-34" r="62"/><circle class="awake-ring" cy="-34" r="62" style="animation-delay:1.2s"/>';
   const queen = s.queen_run ? '<circle class="halo" cy="-44" r="38"/><circle class="halo" cy="-44" r="38" style="animation-delay:.9s"/>' : "";
   const run = s.queen_run ? ` data-run="${esc(s.queen_run)}" title="${esc(t("queen_deciding"))}"` : ` title="${esc(t("hive"))} · ${esc(said)}"`;
@@ -2594,6 +2600,12 @@ function unreachableMachines(s) {
   }).join("");
 }
 
+// After Stop, the bees at work finish their step: Kandu says it is stopping, and how many still work, then stopped.
+function stopWord(s) {
+  if (!s.stop_requested) return "";
+  return s.stopping ? t(s.stopping === 1 ? "stopping_one" : "stopping_many").replace("{n}", num(s.stopping)) : tr("stopped");
+}
+
 async function refreshState() {
   const s = await get("/state");
   lastState = s;
@@ -2601,7 +2613,7 @@ async function refreshState() {
   const name = s.stop_requested ? "stopped" : (s.supervisor || "never ran");
   const refused = githubRefused(s);
   $("pulse").className = `pulse ${s.stop_requested ? "stopped" : refused ? "refused" : s.supervisor === "awake" ? "awake" : ""}`;
-  $("state").textContent = (refused ? refused + " · " : "") + tr(name) + (s.last_reason ? " · " + tr(s.last_reason) : "");
+  $("state").textContent = (refused ? refused + " · " : "") + (stopWord(s) || tr(name)) + (s.last_reason ? " · " + tr(s.last_reason) : "");
   $("pulse").title = `${$("state").textContent}\n${t("hint_state")}`;
   const working = s.supervisor === "awake" && !s.stop_requested;
   $("wake").dataset.mode = working ? "stop" : "wake";

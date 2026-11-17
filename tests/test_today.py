@@ -103,7 +103,7 @@ LINES = ("const esc = ", "const locale = ", "const t = ", "const num = ", "const
          "const when = ", "const clock = ", "const githubRefused = ", "const bdi = ", "const numberOf = ", "const repoOf = ",
          "const fillIn = ", "const overLimit = ", "const ON_THE_WAY = ", "const STAGES = ", "const STAGE_OF = ",
          "const DOTS_SHOWN = ", "const HIVE_CELLS = ", "const DOT_ORDER = ", "const WAIT_ORDER = ", "const EVENT_TONES = ")
-FUNCTIONS = ("tr", "stateChip", "gauge", "mergeMode", "fields", "statusText", "waitItems", "waitView", "todaySentence",
+FUNCTIONS = ("tr", "stopWord", "stateChip", "gauge", "mergeMode", "fields", "statusText", "waitItems", "waitView", "todaySentence",
              "healthItems", "dotKind", "flightPaths", "hiveCells", "eventTone", "eventLine", "todayEvents", "briefMeta",
              "healthHtml", "sentenceHtml", "waitsHtml", "pathsHtml", "hiveHtml", "eventsHtml", "briefHtml")
 
@@ -170,6 +170,13 @@ class TodayTest(unittest.TestCase, Page):
 
     def test_stopped_it_says_so(self):
         self.assertEqual(self.sentence(state(stop_requested=True))[0], "Stopped · nothing starts until you resume")
+
+    def test_while_bees_finish_their_step_it_says_kandu_is_stopping_and_how_many(self):
+        text, tones = self.sentence(state(supervisor="awake", stop_requested=True, stopping=2))
+        self.assertEqual(text, "Stopping · 2 bees still at work · the bees at work finish their step; "
+                               "nothing new starts until you resume")
+        self.assertEqual(tones[0], "red")
+        self.assertIn("۲", self.sentence(state(supervisor="awake", stop_requested=True, stopping=2), "fa")[0])
 
     def test_the_sentence_reads_in_persian(self):
         text, _ = self.sentence(state(), "fa")

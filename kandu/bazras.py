@@ -417,11 +417,11 @@ def judge(config, store, runner, project, result, cwd, run_id, local_dir, now, u
         denied.append(f"Read({'/' + project.secrets_from if project.secrets_from.startswith('/') else project.secrets_from})")
     prompt = judge_prompt(project, result, merged_lately(store, project.name, now), local_dir, now.date().isoformat())
     agent = runner.run_agent(project.machine, cwd, prompt, list(TOOLS), denied, run_id,
-                             lambda: store.stop_file.exists(), config.settings.claude.models.get(ROLE), schema=SCHEMA)
+                             lambda: False, config.settings.claude.models.get(ROLE), schema=SCHEMA)  # a stop lets it finish
     store.record("run_finished", task=None, project=project.name, run_id=run_id, role=ROLE, models=agent.models,
                  duration_ms=agent.duration_ms, is_error=agent.is_error)
     if agent.is_error or agent.stopped:
-        result.skipped = "the judgment run ended with an error" if agent.is_error else "stopped by the user"
+        result.skipped = "the judgment run ended with an error" if agent.is_error else "the judgment run was cut off"
         return
     try:
         result.judged = parse_judgment(agent.text, len(result.findings))

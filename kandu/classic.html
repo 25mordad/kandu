@@ -771,6 +771,9 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "step_blockers": "{n} blockers",
   "step_round": "round {n}",
   "stop_bee": "Stop this bee",
+  "stopping_one": "Stopping · {n} bee still at work",
+  "stopping_many": "Stopping · {n} bees still at work",
+  "hint_stop": "Stop Kandu: the bees at work finish their step, and nothing new starts until you resume it.",
   "task_issue": "Issue",
   "task_pr": "PR",
   "task_run_log": "Run log",
@@ -1221,6 +1224,9 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "step_blockers": "{n} مانع",
   "step_round": "دور {n}",
   "stop_bee": "توقف این زنبور",
+  "stopping_one": "در حال توقف · {n} زنبور هنوز سر کار است",
+  "stopping_many": "در حال توقف · {n} زنبور هنوز سر کار هستند",
+  "hint_stop": "توقف کندو: زنبورهای سر کار قدمشان را تمام می‌کنند و تا ادامه ندهی چیز تازه‌ای شروع نمی‌شود.",
   "task_issue": "issue",
   "task_pr": "PR",
   "task_run_log": "گزارش اجرا",
@@ -1455,6 +1461,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "stopped by the user": "کاربر متوقف کرد",
   "cycle time is up": "زمان چرخه تمام شد",
   "stopped while an agent was running": "در میانه کار یک ایجنت متوقف شد",
+  "cycle time ran out while an agent was running": "زمان چرخه در میانه کار یک ایجنت تمام شد",
   "nothing ready": "چیزی آماده نیست",
   "waiting for a machine": "در انتظار یک ماشین",
   "tasks ran out": "تسک‌ها تمام شد",
@@ -1474,6 +1481,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "over_budget": "رسیدن به سقف روزانه",
   "the queen reached her daily token limit": "ملکه به سقف روزانهٔ توکن خود رسید",
   "queen_finished": "ملکه نگاه کرد",
+  "queen_held": "ملکه نگاه کرد؛ تصمیم‌هایش تا ادامه‌ی کندو می‌مانند",
   "stopped_by_user": "کاربر متوقف کرد",
   "retry": "تلاش دوباره",
   "ask_user": "پرسش از کاربر",
@@ -2326,6 +2334,12 @@ function unreachableMachines(s) {
   }).join("");
 }
 
+// After Stop, the bees at work finish their step: Kandu says it is stopping, and how many still work, then stopped.
+function stopWord(s) {
+  if (!s.stop_requested) return "";
+  return s.stopping ? t(s.stopping === 1 ? "stopping_one" : "stopping_many").replace("{n}", num(s.stopping)) : tr("stopped");
+}
+
 async function refreshState() {
   const s = await get("/state");
   lastState = s;
@@ -2333,8 +2347,9 @@ async function refreshState() {
   const name = s.stop_requested ? "stopped" : (s.supervisor || "never ran");
   const refused = githubRefused(s);
   $("pulse").className = `pulse ${s.stop_requested ? "stopped" : refused ? "refused" : s.supervisor === "awake" ? "awake" : ""}`;
-  $("state").textContent = (refused ? refused + " · " : "") + tr(name) + (s.last_reason ? " · " + tr(s.last_reason) : "");
+  $("state").textContent = (refused ? refused + " · " : "") + (stopWord(s) || tr(name)) + (s.last_reason ? " · " + tr(s.last_reason) : "");
   $("stop").hidden = s.stop_requested;
+  $("stop").title = t("hint_stop");
   $("resume").hidden = !s.stop_requested;
   $("machines").innerHTML = unreachableMachines(s);
   $("machines").hidden = !(s.unreachable_machines || []).length;

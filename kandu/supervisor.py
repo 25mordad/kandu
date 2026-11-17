@@ -47,6 +47,8 @@ MERGE_RETRY_WAITS = (10, 30, 60)  # seconds before each quick new try of a merge
 MERGE_RETRY_EVERY = 60  # then one try about this often, until the cycle ends
 RETRY_POLL_SECONDS = 5  # how often a wait for the next try looks for a stop or a yes
 ALREADY_MERGED = "already merged"
+STOPPED_BY_USER = "stopped by the user"
+CUT_OFF = "cycle time ran out while an agent was running"
 RETRYING = "GitHub refused the merge for a moment; Kandu tries it again by itself"
 WAITS_FOR_BLOCKER = "blocker {} is not merged yet"
 ROOT = Path(__file__).resolve().parent.parent
@@ -319,13 +321,22 @@ class Supervisor:
         return self.store.stop_file
 
     def _hard_stop(self):
-        """True when running agents must be killed: the deadline passed or the user pressed stop."""
-        return self.now() >= self.deadline or self.stop_file.exists()
+        """True when running agents must be killed: the deadline passed. A stop by the user kills none: each run
+        finishes its step, and nothing new starts (`_stopping`)."""
+        return self.deadline is not None and self.now() >= self.deadline
+
+    def _stopping(self):
+        """True while the user has Kandu stopped: no new run, merge or deploy starts. A resume undoes it at once."""
+        return self.stop_file.exists()
 
     def _gate(self):
         """Returns why no agent may start now, or None."""
-        if self.stop_file.exists():
-            return "stopped by the user"
+        if self._stopping():
+            return STOPPED_BY_USER
+        return self._limit()
+
+    def _limit(self):
+        """Returns which limit holds every agent back now, or None: the cycle's time or the usage."""
         if self.deadline is not None and self.now() >= self.deadline:
             return "cycle time is up"
         if self.config.settings.claude.auth == "api_key":
@@ -418,7 +429,9 @@ class Supervisor:
         return lambda repo, number: show.render(self.github.item(repo, number))
 
     def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None, resume=None):
-        reason = self._gate()
+        if self._stopping():
+            raise CycleStop(STOPPED_BY_USER)  # not kept for the cycle: a resume lets the rest go on
+        reason = self._limit()
         if reason is not None:
             self._halt(reason)
         if self._is_paused(task.project):
@@ -437,9 +450,9 @@ class Supervisor:
             stop_one.unlink()
             raise StoppedByUser(f"{role} run {run_id} was stopped by the user")
         if result.stopped:
-            self._halt("stopped while an agent was running")
+            self._halt(CUT_OFF)
         if result.is_error:
-            reason = self._gate()  # A run cut off by a limit is not the task's fault.
+            reason = self._limit()  # A run cut off by a limit is not the task's fault.
             if reason is not None:
                 self._halt(reason)
             raise KanduTrouble(f"{role} run {run_id} ended with an error")
@@ -966,7 +979,8 @@ class Supervisor:
             blockers = self._open_blockers(task)
             self._merge_held(task, pr, reasons, blockers if reasons == self._blocker_reasons(blockers) else None)
             return False
-        if self._is_paused(task.project):  # The tests take minutes, and a pause may have come in meanwhile.
+        # The tests take minutes, and a pause or a stop may have come in meanwhile.
+        if self._is_paused(task.project) or self._stopping():
             return False
         try:
             tries = self._merge_now(task, pr, quick=retry is None)
@@ -1101,7 +1115,7 @@ class Supervisor:
 
     def _wait_for_retries(self):
         """Waits until a merge is due again. Returns its tasks, or [] when the cycle must end first."""
-        while self.halt_reason is None and not self._hard_stop():
+        while self.halt_reason is None and not self._hard_stop() and not self._stopping():
             due = self._due_retries()
             if due:
                 return due
@@ -1343,7 +1357,8 @@ class Supervisor:
             wait(futures)
 
     def _size_if_running(self, task, item):
-        if self.halt_reason is None:  # A limit reached or a stop meanwhile leaves the rest for the next cycle.
+        # A limit reached or a stop meanwhile leaves the rest for the next cycle.
+        if self.halt_reason is None and not self._stopping():
             self._run_task(task, lambda: self._size(task, item))
 
     def _check_project(self, project):
@@ -1363,7 +1378,7 @@ class Supervisor:
     def _end_checks(self):
         """A machine that does not answer gets no check: a dropped connection says nothing of the project."""
         for project in self.config.projects:
-            if self.merged[project.name] < END_CHECK_MERGES or self._is_paused(project):
+            if self.merged[project.name] < END_CHECK_MERGES or self._is_paused(project) or self._stopping():
                 continue
             if not self._reachable(project.machine):
                 self.store.record("check_skipped", project=project.name, machine=project.machine)
@@ -1380,8 +1395,10 @@ class Supervisor:
             self.store.record("project_checked", project=project.name, passed=not problems, detail="; ".join(problems))
 
     def _drive(self, task):
-        """Moves one task as far as it can go now. Every step is read back from GitHub first."""
-        if self._is_paused(task.project):
+        """Moves one task as far as it can go now. Every step is read back from GitHub first.
+
+        A pause or a stop lets the step that runs finish, and starts no other: no run, merge or deploy."""
+        if self._is_paused(task.project) or self._stopping():
             return
         pr = self.github.find_pr(task.repo, task.number)
         if self._closed_elsewhere(task, pr):
@@ -1408,7 +1425,7 @@ class Supervisor:
         task.branch = pr["headRefName"]  # Worked out from the title, which may have changed since.
         worked, tries = False, 1
         while True:
-            if self._is_paused(task.project):
+            if self._is_paused(task.project) or self._stopping():
                 return  # The step that was running has finished. The next cycle after a resume picks it up here.
             if pr["state"] == "MERGED":
                 self._land(task)
@@ -1592,6 +1609,9 @@ class Supervisor:
         settings = self.config.settings.supervisor
         if not settings.queen or self.halt_reason is not None:
             return False
+        if self._stopping():
+            return False
+        self._carry_out_held()
         items = list(self._board_items())
         backlog = self._startable(items)
         keys = [f"{item.repo}#{item.number}" for _, item in backlog]
@@ -1639,11 +1659,26 @@ class Supervisor:
             self.store.record("queen_finished", run_id=run_id, brief=f"{queen.COULD_NOT_FINISH}: {e}.",
                               backlog=keys, by_hand=hand_keys, splits=split_keys)
             return True
-        refused, released = self._carry_out(report["decisions"], events)
-        brief = "\n".join([report["brief"], *[f"Refused: {reason}" for reason in refused]])
+        if self._stopping():
+            # Stop came while she looked: her decisions wait, recorded, until the user resumes Kandu.
+            self.store.record("queen_held", run_id=run_id, brief=report["brief"], decisions=report["decisions"],
+                              backlog=keys, by_hand=hand_keys, splits=split_keys)
+            return False
+        self._finish_look(run_id, report["brief"], report["decisions"], events, keys, hand_keys, split_keys)
+        return True
+
+    def _finish_look(self, run_id, brief, decisions, events, keys, hand_keys, split_keys):
+        refused, released = self._carry_out(decisions, events)
+        brief = "\n".join([brief, *[f"Refused: {reason}" for reason in refused]])
         self.store.record("queen_finished", run_id=run_id, brief=brief, backlog=[k for k in keys if k not in released],
                           by_hand=hand_keys, splits=split_keys)
-        return True
+
+    def _carry_out_held(self):
+        """Her look that a stop held back is carried out on the first cycle after the resume, on a fresh board."""
+        held = queen.held_look(self.store)
+        if held is not None:
+            self._finish_look(held["run_id"], held["brief"], held["decisions"], queen.all_events(self.store),
+                              held["backlog"], held["by_hand"], held["splits"])
 
     def _carry_out(self, decisions, events):
         """Code checks every decision here, on a fresh board: she may have taken minutes.
@@ -1952,7 +1987,7 @@ class Supervisor:
             while pending or running or self._waits_for_retry():
                 self.halt_reason = self.halt_reason or (self._queen_limit() if pending else None)
                 for task in list(pending):
-                    if self.halt_reason is not None:
+                    if self.halt_reason is not None or self._stopping():
                         break
                     if building(task):
                         if sum(1 for t in running.values() if building(t)) >= limit:
@@ -1983,7 +2018,9 @@ class Supervisor:
         self._give_up_retries()
 
     def cycle(self):
-        """Runs one cycle and returns why it ended."""
+        """Runs one cycle and returns why it ended. While the user has Kandu stopped, none starts."""
+        if self._stopping():
+            return self._stay_stopped()
         woke = self.now()
         self.merged.clear()
         self.held.clear()
@@ -2016,11 +2053,21 @@ class Supervisor:
         self._tell_open_flights()
         self._clean(clean_since)
         self._watch_machines()
+        if self._stopping():
+            reason = STOPPED_BY_USER  # the runs at work finished their step; the user stopped the rest
         if self.queen_trouble is not None:
             reason = f"{reason}; the queen could not look: {self.queen_trouble}"
         self.store.record("supervisor_slept", reason=reason, next_wake=self.next_wake)
-        self._snapshot("stopped" if self.stop_file.exists() else "asleep", reason, self.next_wake)
+        self._snapshot("stopped" if self._stopping() else "asleep", reason, self.next_wake)
         return reason
+
+    def _stay_stopped(self):
+        """A wake while stopped starts no cycle. The stop is recorded once, so the user hears of it once."""
+        last = self.store.last_event("supervisor_slept")
+        if last is None or last["reason"] != STOPPED_BY_USER:
+            self.store.record("supervisor_slept", reason=STOPPED_BY_USER, next_wake=None)
+        self._snapshot("stopped", STOPPED_BY_USER)
+        return STOPPED_BY_USER
 
     def _clean(self, since):
         """After the work: a merged task's folders and branches go. It costs no tokens, so no limit holds it back."""
@@ -2077,7 +2124,8 @@ def main():
     args = parser.parse_args()
     store = StateStore()
     if args.command == "status":
-        print(json.dumps(store.read_current() | {"stop_requested": store.stop_file.exists()}, ensure_ascii=False, indent=2))
+        print(json.dumps(store.read_current() | {"stop_requested": store.stop_file.exists(),
+                                                 "stopping": store.stopping()}, ensure_ascii=False, indent=2))
         return 0
     if args.command == "stop":
         store.request_stop()

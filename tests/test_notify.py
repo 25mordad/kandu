@@ -323,5 +323,28 @@ class EventLogTest(Base):
         self.assertFalse(queen.worth_a_look(before, news, [], self.store.today()))
 
 
+    def look(self, kind, run_id):
+        self.store.record(kind, run_id=run_id, brief="b", backlog=[], by_hand=[], splits=[],
+                          **({"decisions": []} if kind == "queen_held" else {}))
+
+    def test_a_task_that_finishes_while_her_look_is_held_is_still_news_after_the_resume(self):
+        self.look("queen_finished", "r0")
+        self.look("queen_held", "r1")
+        self.finished("failed")  # a bee finished its step while Kandu was stopping
+        self.look("queen_finished", "r1")  # her held look carried out on the resume
+        before, news = queen.since_last_look(self.store)
+        self.assertIn(("task_finished", "failed"), [(e["type"], e.get("outcome")) for e in news])
+        self.assertNotIn("queen_finished", [e["type"] for e in news])
+        self.assertEqual(before[-1]["run_id"], "r1")  # the held look still counts as her last one
+        self.assertTrue(queen.worth_a_look(before, news, [], self.store.today()))
+
+    def test_nothing_new_after_a_held_look_is_carried_out_does_not_wake_her(self):
+        self.look("queen_held", "r1")
+        self.look("queen_finished", "r1")
+        before, news = queen.since_last_look(self.store)
+        self.assertEqual(news, [])
+        self.assertFalse(queen.worth_a_look(before, news, [], self.store.today()))
+
+
 if __name__ == "__main__":
     unittest.main()

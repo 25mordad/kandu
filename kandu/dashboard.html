@@ -661,9 +661,11 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "stop_now": "Stop now",
   "stop_ask": "Stop Kandu?",
   "stop_none": "No bee is at work.",
-  "stop_one": "{n} bee stops now.",
-  "stop_many": "{n} bees stop now.",
-  "stop_kept": "Work in progress stays on its branch, and nothing new starts until you resume Kandu.",
+  "stop_one": "{n} bee finishes its step, then rests.",
+  "stop_many": "{n} bees finish their step, then rest.",
+  "stop_kept": "No bee is cut off: what each one makes is kept. No new run, merge or deploy starts until you resume Kandu.",
+  "stopping_one": "Stopping · {n} bee still at work",
+  "stopping_many": "Stopping · {n} bees still at work",
   "restart_ask": "Restart Kandu?",
   "restart_why": "Kandu takes its config again, sets its timer again and restarts the dashboard. A cycle that is running finishes.",
   "restart_now": "Restart now",
@@ -1123,6 +1125,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "today_bee_flying": "{n} bee flying",
   "today_bees_flying": "{n} bees flying",
   "today_stopped": "nothing starts until you resume",
+  "today_stopping": "the bees at work finish their step; nothing new starts until you resume",
   "today_session_limit": "At the 5-hour limit",
   "today_week_limit": "At the weekly limit",
   "today_checks_again": "Kandu checks it again at {at}",
@@ -1175,9 +1178,11 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "stop_now": "همین حالا متوقف کن",
   "stop_ask": "کندو متوقف شود؟",
   "stop_none": "هیچ زنبوری سر کار نیست.",
-  "stop_one": "{n} زنبور همین حالا می‌ایستد.",
-  "stop_many": "{n} زنبور همین حالا می‌ایستند.",
-  "stop_kept": "کار نیمه‌تمام روی شاخه‌ی خودش می‌ماند، و تا کندو را ادامه ندهی هیچ کار تازه‌ای شروع نمی‌شود.",
+  "stop_one": "{n} زنبور قدمش را تمام می‌کند و بعد می‌ایستد.",
+  "stop_many": "{n} زنبور قدمشان را تمام می‌کنند و بعد می‌ایستند.",
+  "stop_kept": "کار هیچ زنبوری نیمه‌کاره قطع نمی‌شود و هر چه بسازد می‌ماند. تا کندو را ادامه ندهی هیچ اجرا، ادغام یا استقرار تازه‌ای شروع نمی‌شود.",
+  "stopping_one": "در حال توقف · {n} زنبور هنوز سر کار است",
+  "stopping_many": "در حال توقف · {n} زنبور هنوز سر کار هستند",
   "restart_ask": "کندو ری‌استارت شود؟",
   "restart_why": "کندو تنظیماتش را دوباره می‌خواند، تایمرش را دوباره تنظیم می‌کند و داشبورد را دوباره راه می‌اندازد. چرخه‌ای که در حال اجراست تمام می‌شود.",
   "restart_now": "همین حالا ری‌استارت کن",
@@ -1637,6 +1642,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "today_bee_flying": "{n} زنبور در پرواز",
   "today_bees_flying": "{n} زنبور در پرواز",
   "today_stopped": "تا ادامه ندهی چیزی شروع نمی‌شود",
+  "today_stopping": "زنبورهای سر کار قدمشان را تمام می‌کنند؛ تا ادامه ندهی چیز تازه‌ای شروع نمی‌شود",
   "today_session_limit": "در سقف مصرف پنج‌ساعته",
   "today_week_limit": "در سقف مصرف هفتگی",
   "today_checks_again": "کندو ساعت {at} دوباره نگاه می‌کند",
@@ -1753,6 +1759,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "stopped by the user": "کاربر متوقف کرد",
   "cycle time is up": "زمان چرخه تمام شد",
   "stopped while an agent was running": "در میانه کار یک ایجنت متوقف شد",
+  "cycle time ran out while an agent was running": "زمان چرخه در میانه کار یک ایجنت تمام شد",
   "nothing ready": "چیزی آماده نیست",
   "waiting for a machine": "در انتظار یک ماشین",
   "tasks ran out": "تسک‌ها تمام شد",
@@ -1772,6 +1779,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "over_budget": "رسیدن به سقف روزانه",
   "the queen reached her daily token limit": "ملکه به سقف روزانهٔ توکن خود رسید",
   "queen_finished": "ملکه نگاه کرد",
+  "queen_held": "ملکه نگاه کرد؛ تصمیم‌هایش تا ادامه‌ی کندو می‌مانند",
   "stopped_by_user": "کاربر متوقف کرد",
   "retry": "تلاش دوباره",
   "ask_user": "پرسش از کاربر",
@@ -2689,7 +2697,7 @@ function waitView(items, key) {
 function todaySentence(s, items) {
   const usage = s.usage || {}, limits = s.limits || {};
   const wakes = !s.timer_on ? t("chip_timer_off") : s.next_wake ? fillIn("chip_wakes", {at: clock(s.next_wake)}) : "";
-  if (s.stop_requested) return [{text: t("chip_stopped"), tone: "red"}, {text: t("today_stopped")}];
+  if (s.stop_requested) return [{text: stopWord(s), tone: "red"}, {text: t(s.stopping ? "today_stopping" : "today_stopped")}];
   const over = ["session", "week"].filter(name => usage[name] >= limits[name]);
   if (over.length) {
     const resets = name => usage[`${name}_resets`] || "";
@@ -2852,14 +2860,20 @@ function renderToday() {
 
 // The frame: the header's chip and usage bars, Didban beside them, the count on Today, More, and Stop.
 
-// The header's chip: stopped, holding at a usage limit, awake or asleep, with the next wake; on a phone only awake
+// After Stop, the bees at work finish their step: Kandu says it is stopping, and how many still work, then stopped.
+function stopWord(s) {
+  if (!s.stop_requested) return "";
+  return s.stopping ? t(s.stopping === 1 ? "stopping_one" : "stopping_many").replace("{n}", num(s.stopping)) : t("chip_stopped");
+}
+
+// The header's chip: stopping or stopped, holding at a usage limit, awake or asleep, with the next wake; on a phone only awake
 // or asleep. While GitHub refuses Kandu for a rate limit, it says so first. Why Kandu last slept shows on hover.
 function stateChip(s) {
   const refused = githubRefused(s);
   const usage = s.usage || {}, limits = s.limits || {};
   const holding = usage.session >= limits.session || usage.week >= limits.week;
   const kind = s.stop_requested ? "stopped" : refused ? "refused" : holding ? "holding" : s.supervisor === "awake" ? "awake" : "asleep";
-  const short = t(s.stop_requested ? "chip_stopped" : s.supervisor === "awake" ? "chip_awake" : s.supervisor ? "chip_asleep" : "chip_never");
+  const short = s.stop_requested ? stopWord(s) : t(s.supervisor === "awake" ? "chip_awake" : s.supervisor ? "chip_asleep" : "chip_never");
   const next = s.stop_requested ? "" : !s.timer_on ? t("chip_timer_off") : s.next_wake ? t("chip_wakes").replace("{at}", clock(s.next_wake)) : "";
   return {kind, short, long: [refused, holding && !s.stop_requested ? t("chip_holding") : short, next].filter(Boolean).join(" · ")};
 }
@@ -2963,7 +2977,8 @@ async function chooseMore(button) {
   $("moremenu").close();
 }
 
-// What Stop does, said before it is done: how many bees stop now, and that their work stays.
+// What Stop does, said before it is done: how many bees finish their step, that their work stays, and that
+// nothing new starts.
 function stopText(s) {
   const n = (s.workers || []).length;
   return `${n ? t(n === 1 ? "stop_one" : "stop_many").replace("{n}", num(n)) : t("stop_none")} ${t("stop_kept")}`;

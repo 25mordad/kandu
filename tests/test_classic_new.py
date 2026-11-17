@@ -194,3 +194,33 @@ class ServedClassicNewTest(Served):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StoppingInTheClassicLooksTest(unittest.TestCase):
+    """After Stop, both classic looks say Kandu is stopping, with the bees still at work, and then stopped."""
+
+    PAGES = {"classic": read(dashboard.CLASSIC_PAGE), "classic-new": PAGE}
+
+    @unittest.skipUnless(NODE, "needs node to run the page's script")
+    def test_the_state_says_stopping_with_how_many_bees_still_work_then_stopped(self):
+        for name, page in self.PAGES.items():
+            for lang, words_of in (("en", ("Stopping · 2 bees still at work", "Stopping · 1 bee still at work", "stopped")),
+                                   ("fa", ("در حال توقف · ۲ زنبور هنوز سر کار هستند", "در حال توقف · ۱ زنبور هنوز سر کار است",
+                                           "متوقف"))):
+                seen = run_js(f"const TEXT = {json.dumps(words(page))};\nlet lang = {json.dumps(lang)};\n"
+                              + line(page, "const t = ") + line(page, "const num = ") + line(page, "const faDigits = ")
+                              + function(page, "tr") + function(page, "stopWord")
+                              + """console.log(JSON.stringify([{stop_requested: true, stopping: 2}, {stop_requested: true, stopping: 1},
+                                     {stop_requested: true, stopping: 0}, {stop_requested: false, stopping: 0}].map(stopWord)));""")
+                self.assertEqual(seen, [*words_of, ""], f"{name} {lang}")
+            self.assertIn("(stopWord(s) || tr(name))", function(page, "refreshState"), name)
+
+    def test_the_stop_and_stop_the_queen_hints_say_the_bees_finish_their_step(self):
+        for name, page in self.PAGES.items():
+            text = words(page)
+            self.assertIn("finish their step", text["en"]["hint_stop"], name)
+            self.assertIn("قدمشان را تمام می‌کنند", text["fa"]["hint_stop"], name)
+        self.assertIn("finish their step, nothing new starts", TEXT["en"]["hint_stop_queen"])
+        self.assertNotIn("the running cycle ends", TEXT["en"]["hint_stop_queen"])
+        self.assertIn("قدمشان را تمام می‌کنند", TEXT["fa"]["hint_stop_queen"])
+        self.assertIn('$("stop").title = t("hint_stop");', function(self.PAGES["classic"], "refreshState"))
