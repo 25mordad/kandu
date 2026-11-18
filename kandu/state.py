@@ -8,6 +8,8 @@ a caller must never pass a prompt, command output or a secret in one.
 import fcntl
 import json
 import os
+import time
+import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -166,6 +168,7 @@ class StateStore:
         self.didban_dir = self.root / "didban"
         self.flights_dir = self.root / "flights"
         self.flown_dir = self.root / "flown"
+        self.reports_dir = self.root / "zanbourdar-reports"  # Zanbourdar's reports waiting for Didban's next start.
         self.bazras_file = self.root / "bazras.json"
         self.by_hand_labelled_file = self.root / "by-hand-labelled"  # The one-time `by-hand` backfill ran.
         self.clean_since_file = self.root / "clean-since"  # Only a task merged after this is cleaned up.
@@ -536,6 +539,25 @@ class StateStore:
     def forget_flight(self, key):
         for name in (f"{key}.json", f"{key}.md", f"{key}.sock"):
             (self.flights_dir / name).unlink(missing_ok=True)
+
+    def keep_report(self, text):
+        """Keeps a report of Zanbourdar's until Didban's next start takes it."""
+        name = f"{time.time_ns():020d}-{uuid.uuid4().hex[:8]}.txt"
+        return self._write_private(self.reports_dir, name, text)
+
+    def take_reports(self):
+        """The waiting reports, oldest first, each given once: one is forgotten as it is taken."""
+        if not self.reports_dir.exists():
+            return []
+        taken = []
+        for path in sorted(self.reports_dir.glob("*.txt")):
+            text = path.read_text(encoding="utf-8")
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue  # Another start took it first.
+            taken.append(text)
+        return taken
 
     def write_flown(self, summary):
         self._write_private(self.flown_dir, f"{summary['id']}.json", json.dumps(summary, ensure_ascii=False))

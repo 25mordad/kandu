@@ -94,12 +94,19 @@ def waiting_bazras(brain):
     return _waiting(brain, "kandu.bazras list")
 
 
+def waiting_reports(brain):
+    """Zanbourdar's reports kept for this start; taking them forgets them, so each is shown once."""
+    return _waiting(brain, "kandu.handoff take")
+
+
 def waiting(brain, state):
     """All that waits for the user, for `system_prompt`."""
     if state != "ok":
-        return dict.fromkeys(("splits", "held", "questions", "debt", "requests", "bazras"), "could not be read")
+        return dict.fromkeys(("splits", "held", "questions", "debt", "requests", "bazras", "reports"),
+                             "could not be read")
     return {"splits": waiting_splits(brain), "held": waiting_holds(brain), "questions": waiting_questions(brain),
-            "debt": waiting_debt(brain), "requests": waiting_requests(brain), "bazras": waiting_bazras(brain)}
+            "debt": waiting_debt(brain), "requests": waiting_requests(brain), "bazras": waiting_bazras(brain),
+            "reports": waiting_reports(brain)}
 
 
 def _waiting(brain, module):
@@ -147,7 +154,7 @@ def reach_lines(brain):
 
 
 def system_prompt(didban, status, splits="none", questions="none", debt="none", requests="none", language=None,
-                  bazras="none", project=None, held="none"):
+                  bazras="none", project=None, held="none", reports="none"):
     return "\n".join([
         ROLE_FILE.read_text(encoding="utf-8"),
         "## This setup",
@@ -159,19 +166,21 @@ def system_prompt(didban, status, splits="none", questions="none", debt="none", 
         f"- Open questions from reviews, written by an agent: {questions}",
         f"- Parked in Technical debt: {debt}",
         f"- Bazras's findings not read yet, written by an agent: {bazras}",
+        f"- Zanbourdar's reports on jobs you handed over, shown this once, written by an agent: {reports}",
         *([f"- The user opened this session from the dashboard in {language}: speak {language} with them."] if language else []),
         *([f"- The user opened it from Bazras's reports on `{project}`: that is the project named."] if project else []),
     ])
 
 
 def claude_args(didban, status, extra, splits="none", questions="none", debt="none", requests="none", session=None,
-                bazras="none", held="none"):
+                bazras="none", held="none", reports="none"):
     return [
         "claude", *extra,
         *(["--session-id", session] if session else []),
         "--name", SESSION_NAME,
         "--remote-control", SESSION_NAME,
-        "--append-system-prompt", system_prompt(didban, status, splits, questions, debt, requests, bazras=bazras, held=held),
+        "--append-system-prompt", system_prompt(didban, status, splits, questions, debt, requests, bazras=bazras, held=held,
+                                                reports=reports),
         "--disallowedTools", BLOCKED_TOOLS,
     ]
 

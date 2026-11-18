@@ -11,6 +11,7 @@ state/
   didban/<session>.json   what one Didban session spent and did
   flights/<key>.json      a session opened from the dashboard: its link, with its tmux socket and prompt beside it
   flown/<session>.json    what one free flight or Zanbourdar session spent and did, after it ended
+  zanbourdar-reports/*.txt  a report of Zanbourdar's for Didban's next start, forgotten once it is shown
   gh/2026-11-03.jsonl     each gh call Kandu and its agents made that day, and samples of GitHub's limit
   renames.json            each project rename, oldest first: `old`, `new` and `at`
 ```

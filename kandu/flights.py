@@ -99,10 +99,34 @@ class Flights:
         self._open(DIDBAN, {"kind": "didban", "task": None, "project": project},
                    lambda session: self._didban(session, language, project))
 
-    def open_zanbourdar(self, language):
-        """One at a time, tied to no task: the page shows the open one's link."""
+    def open_zanbourdar(self, language, first=None):
+        """One at a time, tied to no task: the page shows the open one's link.
+
+        `first` is its first message, a job Didban hands over (DESIGN §13); with none it waits for the user."""
         self._open(ZANBOURDAR, {"kind": "zanbourdar", "task": None, "project": None},
-                   lambda session: self._zanbourdar(session, language))
+                   lambda session: self._zanbourdar(session, language, first))
+
+    def ready(self, key):
+        """The session's record once it runs and its link is in, so it takes typed input; else None."""
+        with self._lock:
+            record = self.store.flight(key)
+            if record is None or key in self._opening or not self.alive(key):
+                return None
+            looked = self._look(record)
+        return looked if looked and looked["status"] == "open" else None
+
+    def type_into(self, key, text):
+        """Types `text` into the session as one pasted message and sends it, as the user would.
+
+        Claude Code holds a message sent while it works as queued input and takes it once the work in hand ends,
+        so this never interrupts. Returns whether tmux took every step."""
+        steps = (("set-buffer", "-b", "kandu-handoff", "--", text),
+                 ("paste-buffer", "-p", "-d", "-b", "kandu-handoff", "-t", "main"),
+                 ("send-keys", "-t", "main", "Enter"))
+        for step in steps:
+            if self._tmux(key, *step).returncode != 0:
+                return False
+        return True
 
     def open_task(self, project, repo, number, language):
         task = f"{repo}#{number}"
@@ -113,8 +137,10 @@ class Flights:
         with self._lock:
             if key in self._opening or self.alive(key):
                 return
-            self._opening.add(key)
             earlier = self.store.flight(key)
+            if earlier is not None and self.starting_elsewhere(earlier):
+                return  # Another process is starting it: its record and prompt stay.
+            self._opening.add(key)
             if earlier is not None:
                 self._land(earlier)
         self.spawn(lambda: self._launch(key, fields, prepare))
@@ -123,7 +149,7 @@ class Flights:
         session = str(uuid.uuid4())
         record = fields | {"key": key, "session": session, "started": now_iso(), "epoch": self.clock(), "url": "",
                            "error": ""}
-        self.store.write_flight(record)
+        self.store.write_flight(record | {"opener": os.getpid()})
         try:
             args, prompt, cwd, first = prepare(session)
             path = self.store.write_flight_prompt(key, prompt)
@@ -154,7 +180,7 @@ class Flights:
                 "--remote-control", didban.SESSION_NAME, "--disallowedTools", didban.BLOCKED_TOOLS]
         return args, prompt, didban.REPO_DIR, None
 
-    def _zanbourdar(self, session, language):
+    def _zanbourdar(self, session, language, first=None):
         name = "Kandu Zanbourdar"
         args = ["claude", "--dangerously-skip-permissions", "--session-id", session, "--name", name,
                 "--remote-control", name]
@@ -163,7 +189,7 @@ class Flights:
                  f"- Its run logs: `{self.logs_dir}`.",
                  f"- Kandu's API: `{api_url(self.config)}`.",
                  f"- Speak {LANGUAGES[language]} with the user."]
-        return args, "\n".join(lines), didban.REPO_DIR, None
+        return args, "\n".join(lines), didban.REPO_DIR, first
 
     def _task(self, session, project, repo, number, language):
         task = f"{repo}#{number}"
@@ -226,6 +252,23 @@ class Flights:
         lines += ["", "## Its state, by Kandu's records", *state_lines(state)]
         return "\n".join(lines)
 
+    @staticmethod
+    def starting_elsewhere(record):
+        """Whether another process, such as `kandu.handoff` opening Zanbourdar, is still starting this session.
+
+        That process writes the record and the prompt before tmux answers, so landing the record here would delete
+        the prompt the session is about to read. Its record names it as `opener` until the start ends."""
+        pid = record.get("opener")
+        if not pid:
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False  # It died while starting the session: the record is landed as any other.
+        except PermissionError:
+            pass
+        return True
+
     def _look(self, record):
         """Returns what the page shows, or None once the session has ended."""
         key = record["key"]
@@ -234,8 +277,11 @@ class Flights:
         if record["error"]:
             return record | {"status": "failed"}
         if not self.alive(key):
+            if self.starting_elsewhere(record):
+                return record | {"status": "opening"}
             self._land(record)
             return None
+        record.pop("opener", None)  # It runs: what this writes back must not hold it as still starting.
         if record["url"]:
             return record | {"status": "open"}
         screen = self._tmux(key, "capture-pane", "-p", "-J", "-t", "main").stdout
