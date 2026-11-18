@@ -762,6 +762,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "token_required": "A valid token is required.",
   "request_failed": "The request failed.",
   "api_unreachable": "The dashboard API cannot be reached.",
+  "view_not_found": "Not found: Kandu no longer knows the task, project or run this address named.",
   "not_read_yet": "not read yet",
   "limit": "limit",
   "session": "5-hour",
@@ -1288,6 +1289,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "token_required": "توکن معتبر لازم است.",
   "request_failed": "درخواست انجام نشد.",
   "api_unreachable": "به API داشبورد دسترسی نیست.",
+  "view_not_found": "پیدا نشد: کندو دیگر کار، پروژه یا اجرایی را که این نشانی نام می‌برد نمی‌شناسد.",
   "not_read_yet": "هنوز خوانده نشده",
   "limit": "سقف",
   "session": "پنج‌ساعته",
@@ -2090,6 +2092,7 @@ function showTab(chosen) {
   chosen = OLD_TABS[chosen] || chosen;
   tab = document.querySelector(`[data-panel="${chosen}"]`) ? chosen : "today";
   save(TAB_KEY, tab);
+  markView();
   document.body.dataset.page = tab;  // not `data-tab`, which marks what opens a tab
   for (const el of document.querySelectorAll("[data-tab]")) el.setAttribute("aria-selected", el.dataset.tab === tab);
   for (const el of document.querySelectorAll("[data-panel]")) el.hidden = el.dataset.panel !== tab;
@@ -3347,6 +3350,7 @@ function openSettings(name) {
   const row = (lastState?.project_settings || []).find(p => p.name === name);
   if (!row) return;
   setEdit = {name, was: settingsDraft(row), now: settingsDraft(row), refused: [], asking: false};
+  markView();
   drawSettings();
   $("setsheet").showModal();
   $("setbody").scrollTop = 0;
@@ -3708,6 +3712,7 @@ function openModal(title) {
 
 async function showRun(runId) {  // over the task's sheet, when opened from it
   shownRun = runId;
+  markView();
   const {actions} = await get("/runs/" + encodeURIComponent(runId));
   if (shownRun !== runId) return;
   openModal(`${t("run")} ${bdi(runId)}`);
@@ -3940,6 +3945,7 @@ function sheetFoot(v) {
 
 async function showTask(task) {
   shownTask = task;
+  markView();
   const [repo, number] = task.split("#");
   const item = queued(task);
   const [review, proposal, info] = await Promise.all([get(`/reviews/${repo}/${number}`).catch(() => null),
@@ -4019,9 +4025,83 @@ document.addEventListener("toggle", e => {
   folded[name] = !e.target.open;
   save(FOLDED_KEY, JSON.stringify(folded));
 }, true);
-$("modal").addEventListener("close", () => { shownRun = null; });
-$("sheet").addEventListener("close", () => { shownTask = null; confirming = sendingBack = false; });
-$("setsheet").addEventListener("close", () => { setEdit = null; });
+// Every view has its own address: its tab, then what is open over it, as task/<owner>/<repo>/<number>, project/<name>
+// and run/<id>. Opening or closing a view adds it to the browser's history, so a reload, Back and Forward and a copied
+// link open the same view, in any look; the look and the language stay each browser's own. The Classic looks' first two
+// tabs go by Kandu Clean's names, so one address opens the same page in all three.
+const TAB_ADDRESS = {meadow: "today", work: "tasks"};
+function viewAddress() {
+  const parts = [TAB_ADDRESS[tab] || tab];
+  if (shownTask) parts.push("task", ...shownTask.replace("#", "/").split("/"));
+  if (setEdit) parts.push("project", setEdit.name);
+  if (shownRun) parts.push("run", shownRun);
+  return "/" + parts.map(encodeURIComponent).join("/");
+}
+function readAddress(path) {
+  const parts = path.split("/").filter(Boolean).map(part => { try { return decodeURIComponent(part); } catch { return part; } });
+  const view = {tab: parts.shift() || null, task: null, project: null, run: null, lost: false};
+  while (parts.length && !view.lost) {
+    const kind = parts.shift();
+    if (kind === "task" && parts.length >= 3 && /^\d+$/.test(parts[2])) view.task = `${parts.shift()}/${parts.shift()}#${parts.shift()}`;
+    else if (kind === "project" && parts.length) view.project = parts.shift();
+    else if (kind === "run" && parts.length) view.run = parts.shift();
+    else view.lost = true;
+  }
+  return view;
+}
+// A view the user opens goes into the history; one opened from the address is already there.
+function markView() {
+  if (markView.held) return;
+  const address = viewAddress();
+  if (address !== location.pathname) history.pushState(null, "", address);
+}
+const until = async (ready, most) => { for (let waited = 0; !ready() && waited < most; waited += 100) await new Promise(r => setTimeout(r, 100)); };
+// Opens the view the address names. What Kandu no longer knows opens the first page with a short note.
+async function openAddress() {
+  const view = readAddress(location.pathname), turn = openAddress.turn = (openAddress.turn || 0) + 1;
+  markView.held = true;
+  try {
+    showTab(view.tab || tab);
+    let lost = view.lost || Boolean(view.tab) && (TAB_ADDRESS[view.tab] || view.tab) !== (TAB_ADDRESS[tab] || tab);
+    if (!view.run && shownRun) { shownRun = null; $("modal").close(); }
+    if (!view.project && setEdit) { setEdit = null; $("setsheet").close(); }
+    if (!view.task && shownTask) { shownTask = null; $("sheet").close(); }
+    if (!lost && (view.task || view.project || view.run)) {
+      await until(() => lastState, 15000);
+      if (view.task && view.task !== shownTask) {
+        await until(() => lastQueue, 5000);
+        const [repo, number] = view.task.split("#");
+        const info = queued(view.task) ? {} : await get(`/tasks/${repo}/${number}`).catch(() => null);
+        if (turn !== openAddress.turn) return;
+        lost = !info || !queued(view.task) && !info.issue && !info.steps?.length;
+        if (!lost) { confirming = sendingBack = false; await showTask(view.task).catch(() => {}); }
+      }
+      if (!lost && view.project && view.project !== setEdit?.name) {
+        lost = !(lastState?.project_settings || []).some(p => p.name === view.project);
+        if (!lost) openSettings(view.project);
+      }
+      if (!lost && view.run && view.run !== shownRun) {
+        lost = !await get("/runs/" + encodeURIComponent(view.run)).catch(() => null);
+        if (turn !== openAddress.turn) return;
+        if (!lost) await showRun(view.run).catch(() => {});
+      }
+    }
+    if (turn !== openAddress.turn) return;
+    if (lost) {
+      shownRun = shownTask = setEdit = null;
+      for (const box of ["modal", "setsheet", "sheet"]) if ($(box).open) $(box).close();
+      showTab("today");
+      toast(t("view_not_found"));
+    }
+    history.replaceState(null, "", viewAddress());
+  } finally {
+    if (turn === openAddress.turn) markView.held = false;
+  }
+}
+addEventListener("popstate", () => { openAddress(); });
+$("modal").addEventListener("close", () => { shownRun = null; markView(); });
+$("sheet").addEventListener("close", () => { shownTask = null; confirming = sendingBack = false; markView(); });
+$("setsheet").addEventListener("close", () => { setEdit = null; markView(); });
 $("stop").onclick = askStop;
 $("stopnow").onclick = e => confirmed(e.currentTarget, "/stop", "stopbox");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
@@ -4157,7 +4237,7 @@ function setCalm(on) {
 $("calm").onclick = () => setCalm(!calm);
 applyLanguage();
 applyCalm();
-showTab(tab);
+openAddress();
 renderLive();
 document.addEventListener("visibilitychange", () => { follow(); if (calm && !document.hidden) refresh(); });
 follow();

@@ -40,6 +40,10 @@ TOKEN_ENV = "KANDU_DASHBOARD_TOKEN"
 MAX_BODY = 16384  # a POST's form body; a longer one is refused whole, never cut, as a cut form would save half a command
 BODY_ONLY = ("token", "chat_id")  # secrets a POST takes only from its body, so no URL or log ever holds one
 API = "/api/v1"
+# Every view of the dashboard has its own address: a tab, then what is open over it, as the page reads it. Each answers
+# with the page, so a reload, Back and Forward or a copied link open the same view; what it names is the page's to find.
+VIEW_TABS = ("today", "tasks", "bazras", "settings", "days", "activity", "meadow", "work")  # the Classic looks' own names last
+VIEW = re.compile(rf"/(?:{'|'.join(VIEW_TABS)})(?:/.*)?")
 QUEUE_CACHE_SECONDS = 900  # GitHub's hourly limit is shared with all else on the account, however many pages are open.
 QUEUE_FRESH_SECONDS = 60
 QUEUE_RETRY_SECONDS = 300
@@ -1543,7 +1547,7 @@ def make_handler(api):
 
         def do_GET(self):
             path = urlparse(self.path).path
-            if path == "/":
+            if path == "/" or VIEW.fullmatch(path):
                 api.refresh_config()  # a default look changed by hand counts at once
                 page = page_for(self.headers.get("Cookie"), api.config.settings.dashboard.look)
                 self._send(200, page.read_bytes(), "text/html; charset=utf-8", cache=False)

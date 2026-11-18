@@ -121,7 +121,7 @@ async function run() {
     await send("Emulation.setDeviceMetricsOverride", {width: c.width, height: c.height, deviceScaleFactor: 1, mobile: c.mobile});
     await load(() => send("Page.navigate", {url: base + "/"}));
     await evaluate(`localStorage.setItem("kandu-language", ${JSON.stringify(c.lang)}); localStorage.setItem("kandu-tab", "meadow");`);
-    await load(() => send("Page.reload"));
+    await load(() => send("Page.navigate", {url: base + "/"}));  // "/" opens the saved tab; a view's own address would win
     const steps = {look: await evaluate("document.documentElement.dataset.look")};
 
     // On the meadow: the flower of a stuck task with a PR.

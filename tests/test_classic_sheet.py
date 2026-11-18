@@ -35,7 +35,7 @@ class ClassicSheetTest(unittest.TestCase):
         self.assertIn('if (review) { confirming = false; sendingBack = false; showTask(review.dataset.review); }', self.page)
         self.assertIn('if (hit("close-sheet")) { $("sheet").close(); return; }', self.page)
         self.assertIn('if (e.target === $("sheet")) $("sheet").close();', self.page)
-        self.assertIn('$("sheet").addEventListener("close", () => { shownTask = null; confirming = sendingBack = false; });', self.page)
+        self.assertIn('$("sheet").addEventListener("close", () => { shownTask = null; confirming = sendingBack = false; markView(); });', self.page)
 
     def test_its_code_is_the_kandu_clean_looks(self):
         for name in SAME:

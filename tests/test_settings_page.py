@@ -208,7 +208,7 @@ return settingsFoot({{was: settingsDraft(r), now: {{...settingsDraft(r), auto_me
         handler = self.page.split('document.addEventListener("click", e => {')[1].split("\n});\n")[0]
         self.assertIn('if (hit("set-no")) { setEdit.asking = false; drawSettings(); return; }', handler)
         self.assertIn('if (hit("set-cancel")) { $("setsheet").close(); return; }', handler)
-        self.assertIn('$("setsheet").addEventListener("close", () => { setEdit = null; });', self.page)
+        self.assertIn('$("setsheet").addEventListener("close", () => { setEdit = null; markView(); });', self.page)
         self.assertIn("now: settingsDraft(row)", self.function("openSettings"))
 
     # The pop-up at work: its own functions on stand-ins for the page, the server and the controls.
@@ -219,7 +219,8 @@ return settingsFoot({{was: settingsDraft(r), now: {{...settingsDraft(r), auto_me
         and clicks it; `type(value)` types in the daily tokens."""
         page = "".join(self.function(name) for name in ("openSettings", "drawSettings", "changeDraft", "saveSettings"))
         return self.run_js(self.line("let setEdit = ") + page + f"""
-let token = {json.dumps(TOKEN)}, lastState = {{project_settings: {json.dumps(ROWS)}}}, server = () => true;
+const markView = () => {{}};  // the page's address, which this pop-up alone has no part in (#94)
+let token ={json.dumps(TOKEN)}, lastState = {{project_settings: {json.dumps(ROWS)}}}, server = () => true;
 const sent = [], toasts = [], els = {{setbody: {{innerHTML: "", scrollTop: 0}}, setfoot: {{innerHTML: ""}}, setsheet: {{open: false}}}};
 els.setsheet.showModal = () => {{ els.setsheet.open = true; }};
 els.setsheet.close = () => {{ els.setsheet.open = false; setEdit = null; }};  // as the page's close listener does

@@ -59,3 +59,4 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Token gauge** | In the Classic new look, the small gauge under a project's name on the meadow: its tokens today against its daily token limit, red once it reaches the limit |
 | **Kandu Clean look** | The dashboard built to the Kandu Clean design. Avoid: new look, redesign |
 | **Calm** | A switch in every look's header, each browser's own choice: nothing moves, the live stream closes and the state is read once a minute. Avoid: quiet mode, low-power mode |
+| **View address** | A dashboard view's own URL, the same in every look: its tab, then the task's sheet, project's settings pop-up or run's log open over it, as `/tasks/task/<owner>/<repo>/<number>`. Avoid: route, deep link |
