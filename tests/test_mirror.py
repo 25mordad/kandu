@@ -110,8 +110,9 @@ class FakeRemote:
             if item.number == number:
                 item.blocked_by = [b for b in item.blocked_by if not gone(b)]
 
-    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False):
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False, assignee=""):
         self._call("create_issue", title, by_hand, spec)
+        self.assigned = assignee
         return f"https://github.com/{repo}/issues/9"
 
     def merge_pr(self, repo, number, head_sha):

@@ -95,7 +95,7 @@ class FakeGitHub:
         return {"kind": "issue", "repo": repo, "number": number, "title": issue.title, "state": "OPEN",
                 "labels": [{"name": n} for n in issue.labels], "url": issue.url, "body": issue.body, "comments": []}
 
-    def create_issue(self, repo, title, body, by_hand=False, tokens=False):
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False, assignee=""):
         self.created.append((repo, title, body))
         return f"https://github.com/{repo}/issues/{900 + len(self.created)}"
 

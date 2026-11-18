@@ -32,7 +32,7 @@ def add(config, github, project_name, repo, title, body, local_dir):
     if not body.strip():
         raise TaskError("say in a few words what this task is")
     check_text(github, repo, title, body, local_dir)
-    url = github.create_issue(repo, title, body)
+    url = github.create_issue(repo, title, body, assignee=project.board.assignee)
     github.add_to_board(project.board, url)
     github.set_status(project.board, url, TECHNICAL_DEBT)
     return url

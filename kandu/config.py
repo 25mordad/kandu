@@ -11,7 +11,7 @@ import shutil
 import sys
 import tempfile
 import types
-from dataclasses import MISSING, dataclass, field, fields, is_dataclass
+from dataclasses import MISSING, dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
 from typing import Union, get_args, get_origin, get_type_hints
 
@@ -182,6 +182,7 @@ class Board:
     owner: str
     number: int
     columns: dict[str, str] = field(default_factory=dict)  # Kandu's column name -> this board's, if different
+    assignee: str = ""             # set by Kandu from `multi_user`, never by hand: only cards assigned to it are seen
 
 
 @dataclass
@@ -242,6 +243,8 @@ class Project:
     frozen: bool = False
     split_approval: str = "user"     # who accepts this project's split proposals (SPLIT_APPROVALS)
     queen_answers_one_way: bool = False   # the queen's yes to a head answers its one-way door and its questions
+    multi_user: bool = False         # several people share the board, each with a Kandu of their own: this install
+                                     # sees only the cards assigned to its `github.account`; off, assignees do not matter
     allowed_tools: list[str] = field(default_factory=list)   # added to the worker's and live check's rules, if they have any
     reports: list[str] = field(default_factory=list)   # files on its machine that `kandu.brief show` reads, read-only
 
@@ -437,7 +440,7 @@ def _check_backup(enabled, at, destination, keep, problems):
 def _check_projects(projects, s, problems):
     machines = [m.name for m in s.machines]
     seen = set()
-    family_boards = {}
+    family_boards, family_multi = {}, {}
     for i, p in enumerate(projects):
         where = f"projects[{i}] ({p.name})"
         if p.name in seen:
@@ -459,6 +462,13 @@ def _check_projects(projects, s, problems):
                     problems.append(f"{where}.board.columns: unknown column {column!r}")
             if family_boards.setdefault(p.family, p.board) != p.board:
                 problems.append(f"{where}.board: family {p.family!r} already has another board; one board per family")
+            if p.board.assignee:
+                problems.append(f"{where}.board.assignee: set by Kandu; set multi_user: true instead")
+            if family_multi.setdefault(p.family, p.multi_user) != p.multi_user:
+                problems.append(f"{where}.multi_user: the projects of family {p.family!r} share a board, "
+                                "so they must all be multi_user or none")
+        elif p.multi_user:
+            problems.append(f"{where}.multi_user: needs a board")
         _check_one_of(p.run, RUN_MODES, f"{where}.run", problems)
         if p.machine not in machines:
             problems.append(f"{where}.machine: unknown machine {p.machine!r}")
@@ -779,7 +789,7 @@ def set_default_look(look, local_dir=DEFAULT_LOCAL_DIR):
 
 
 # What the dashboard's settings tab changes in a project's entry, and the kind of each value. The next cycle uses them.
-REGISTRY_SETTINGS = {"priority": int, "daily_token_limit": int, "auto_merge": bool, "frozen": bool}
+REGISTRY_SETTINGS = {"priority": int, "daily_token_limit": int, "auto_merge": bool, "frozen": bool, "multi_user": bool}
 # The supervisor's pace in `kandu.yaml`. A new wake interval reaches the timer on "Restart Kandu".
 PACE_SETTINGS = ("wake_every_minutes", "max_cycle_minutes")
 
@@ -839,7 +849,7 @@ def _set_project_values(text, name, values):
 
 
 def set_project_values(name, values, local_dir=DEFAULT_LOCAL_DIR):
-    """Changes a project's priority, daily tokens, auto-merge or freeze in `projects.yaml`, line by line.
+    """Changes a project's priority, daily tokens, auto-merge, freeze or multi_user in `projects.yaml`, line by line.
 
     The whole config is checked on a copy first, so nothing is written if any value is wrong.
     """
@@ -913,6 +923,9 @@ def load_config(local_dir=DEFAULT_LOCAL_DIR):
     _check_upstream(settings, registry.projects, problems)
     if problems:
         raise ConfigError(problems)
+    for project in registry.projects:
+        if project.multi_user:
+            project.board = replace(project.board, assignee=settings.github.account)
     return Config(settings=settings, projects=registry.projects)
 
 

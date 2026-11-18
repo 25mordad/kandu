@@ -918,6 +918,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "setting_tokens_hint": "Kandu starts no more work in this project once it has used this many tokens today",
   "setting_auto_merge": "Merges itself",
   "setting_frozen": "Frozen",
+  "set_multi_user": "Shared by several people",
+  "set_multi_user_hint": "On: this Kandu works only the tasks assigned to its own GitHub account. Off: who a task is assigned to does not matter.",
   "less": "Less",
   "more": "More",
   "mode_auto": "merges itself",
@@ -1411,6 +1413,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "setting_tokens_hint": "وقتی این پروژه امروز این‌قدر توکن مصرف کرد، کندو کار تازه‌ای در آن شروع نمی‌کند",
   "setting_auto_merge": "ادغام خودکار",
   "setting_frozen": "یخ‌زده",
+  "set_multi_user": "چندنفره",
+  "set_multi_user_hint": "روشن: این کندو فقط تسک‌هایی را انجام می‌دهد که به اکانت GitHub خودش اساین شده‌اند. خاموش: اینکه تسک به چه کسی اساین شده مهم نیست.",
   "less": "کمتر",
   "more": "بیشتر",
   "mode_auto": "ادغام خودکار",
@@ -2854,7 +2858,7 @@ function renderSettings(s) {
 
 // A project's pop-up shows every setting it has, in its groups. Nothing changes until Save, and then each change
 // goes through the call it always had, so it is checked and logged as before.
-const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]]];
+const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit", "multi_user"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]]];
 
 function settingsDraft(row) {
   return {name: row.name, ...Object.fromEntries(SETTING_GROUPS.flatMap(([, keys]) => keys).map(key => [key, row[key]]))};
@@ -2900,8 +2904,8 @@ async function applySettings(name, edit, send) {
   return edit.refused;
 }
 
-const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by"};
-const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint"};
+const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by", multi_user: "set_multi_user"};
+const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint", multi_user: "set_multi_user_hint"};
 
 // One setting's control, drawn from the draft. A pause set in the config shows and cannot move.
 function settingControl(key, row, now) {

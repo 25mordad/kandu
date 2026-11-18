@@ -9,6 +9,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Queen** | The one LLM that runs the cycle for all projects: she releases tasks from `Backlog` and judges what stopped; code checks each decision, and she cannot merge |
 | **Worker** | An agent that does one task in its own `git worktree` |
 | **Technical debt** | The column for tasks the user parked without refining them; no agent reads it, and Didban brings them up |
+| **Multi-user project** | A project whose board several people share, each with a Kandu of their own (`multi_user`); an install works only the tasks assigned to its own GitHub account |
 | **Splitter** | A read-only agent that sizes every task in `Backlog` against the scale and proposes how to split a `Large` one |
 | **Queen answers one-way merges** | A project's switch, off by default: on, the queen's yes to a merge answers its one-way door and the review's questions for the user; off, those wait for the user's yes |
 | **Split approval** | Who accepts a project's split proposals, the user or the queen; the user by default, set in the registry or the dashboard's settings section |

@@ -21,7 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DEADLINE_FIELD
-from .github import AGENT_LABEL, BY_HAND_LABEL, TOKENS_LABEL, BoardItem, GitHub, GitHubError, closure, is_companion, transient
+from .github import (AGENT_LABEL, BY_HAND_LABEL, TOKENS_LABEL, BoardItem, GitHub, GitHubError, closure, for_assignee,
+                     is_companion, transient)
 
 MIRROR_DIR = Path(__file__).resolve().parent.parent / "state" / "mirror"
 FRESH_SECONDS = 60            # a copy younger than this is not read again: a burst of wakes costs GitHub one read
@@ -151,7 +152,7 @@ class Mirror:
             return None
 
     def board_items(self, board):
-        return [BoardItem(**item) for item in self._board(board)["items"]]
+        return for_assignee(board, [BoardItem(**item) for item in self._board(board)["items"]])
 
     def set_status(self, board, url, status):
         self._queue_card(board, url, "Status", status)
@@ -171,7 +172,8 @@ class Mirror:
             if not any(item["url"] == url for item in data["items"]):
                 data["items"].append(asdict(BoardItem(repo, int(number), issue.get("title", ""), url, "",
                                                       issue.get("labels", []), issue.get("body", ""), item_id=item_id,
-                                                      blocked_by=issue.get("blocked_by", []))))
+                                                      blocked_by=issue.get("blocked_by", []),
+                                                      assignees=issue.get("assignees", []))))
                 self._store(path, data)
 
     def board_layout(self, board):
@@ -379,8 +381,8 @@ class Mirror:
 
     # Writes that go at once.
 
-    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False):
-        url = self.remote.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens, spec=spec)
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False, assignee=""):
+        url = self.remote.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens, spec=spec, assignee=assignee)
         number = int(url.rstrip("/").split("/")[-1])
         if spec:
             labels = []
@@ -389,7 +391,8 @@ class Mirror:
         else:
             labels = [AGENT_LABEL, *([TOKENS_LABEL] if tokens else [])]
         self._put(repo, "issues", number, {"number": number, "title": title, "body": body, "url": url,
-                                           "state": "OPEN", "labels": labels, "updatedAt": _now_iso(self.clock)})
+                                           "state": "OPEN", "labels": labels, "updatedAt": _now_iso(self.clock),
+                                           "assignees": [assignee] if assignee else []})
         return url
 
     def merge_pr(self, repo, number, head_sha):
@@ -725,8 +728,8 @@ def _without(blocked_by, blocker):
 class _BoardRef:
     """A board as the queue stores it: enough to name its copy and its columns."""
 
-    def __init__(self, owner, number, columns=None):
-        self.owner, self.number, self.columns = owner, number, columns or {}
+    def __init__(self, owner, number, columns=None, assignee=""):
+        self.owner, self.number, self.columns, self.assignee = owner, number, columns or {}, assignee
 
 
 def open_github(config, root=MIRROR_DIR, refresh=False):

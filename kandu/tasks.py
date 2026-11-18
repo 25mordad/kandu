@@ -272,7 +272,7 @@ def create_task(config, github, project_name, repo, title, body, local_dir, prio
     if tokens and by_hand:
         raise TaskError("a task done by hand runs no worker, so it takes no tokens")
     check_task(github, repo, title, body, local_dir, priority, kind, size, deadline)
-    url = github.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens)
+    url = github.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens, assignee=_assignee(project))
     key = f"{repo}#{int(url.rstrip().rsplit('/', 1)[1])}"
     if spec is not None:
         store.record("spec_named", task=key, project=project.name, spec=spec)
@@ -284,6 +284,11 @@ def create_task(config, github, project_name, repo, title, body, local_dir, prio
         created(url)
     place_task(github, project.board, url, priority, kind, size, deadline)
     return url
+
+
+def _assignee(project):
+    """The login a new task of this project is assigned to: its board's, so the install that made it still sees it."""
+    return project.board.assignee if project.board is not None else ""
 
 
 def place_task(github, board, url, priority, kind, size, deadline=None):

@@ -55,7 +55,7 @@ BOARD_QUERY = costed(f"""query($owner: String!, $number: Int!, $after: String) {
       kind: fieldValueByName(name: "Kind") {{ {SELECT_VALUE} }}
       size: fieldValueByName(name: "Size") {{ {SELECT_VALUE} }}
       deadline: fieldValueByName(name: "{DEADLINE_FIELD}") {{ ... on ProjectV2ItemFieldDateValue {{ date }} }}
-      content {{ ... on Issue {{ number title url body closedAt repository {{ nameWithOwner }} labels(first: 50) {{ nodes {{ name }} }} {BLOCKED_BY_NODE} }} }}
+      content {{ ... on Issue {{ number title url body closedAt repository {{ nameWithOwner }} labels(first: 50) {{ nodes {{ name }} }} assignees(first: 20) {{ nodes {{ login }} }} {BLOCKED_BY_NODE} }} }}
     }}
   }} }} }} }}
 }}""")
@@ -107,6 +107,15 @@ class GitHubError(Exception):
     pass
 
 
+def for_assignee(board, items):
+    """The cards this install may see. On a board with an `assignee` (a board several people share, each with an
+    install of their own) only the cards assigned to that login, compared without case; on any other board all."""
+    login = (board.assignee or "").lower()
+    if not login:
+        return items
+    return [item for item in items if login in (name.lower() for name in item.assignees)]
+
+
 @dataclass
 class BoardItem:
     repo: str
@@ -123,6 +132,7 @@ class BoardItem:
     closed_at: str = ""
     item_id: str = ""              # the card's own id on the board, which a write needs
     blocked_by: list = field(default_factory=list)  # GitHub's "blocked by" relationships: [{"repo", "number"}]
+    assignees: list = field(default_factory=list)   # the GitHub logins the issue is assigned to
 
     @property
     def by_hand(self):
@@ -295,7 +305,7 @@ class GitHub:
         return self._json(args)
 
     def board_items(self, board):
-        return self.read_board(board)[0]
+        return for_assignee(board, self.read_board(board)[0])
 
     def read_board(self, board):
         """Returns the issues on a board, and what a write needs: the board's id and its fields' ids.
@@ -325,7 +335,8 @@ class GitHub:
                                        body=content.get("body") or "", priority=value("priority"), kind=value("kind"),
                                        size=value("size"), deadline=value("deadline", "date"),
                                        closed_at=content.get("closedAt") or "", item_id=node.get("id", ""),
-                                       blocked_by=_blocked_by(content)))
+                                       blocked_by=_blocked_by(content),
+                                       assignees=[a["login"] for a in (content.get("assignees") or {}).get("nodes", [])]))
             if not page["pageInfo"]["hasNextPage"] or len(items) >= BOARD_ITEM_LIMIT:
                 return items, meta
             after = ["-f", f"after={page['pageInfo']['endCursor']}"]
@@ -455,9 +466,10 @@ class GitHub:
                  "{ clientMutationId } }" % (json.dumps(status["id"]), ", ".join(kept + added)))
         self._run(["api", "graphql", "-f", f"query={query}"])
 
-    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False):
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False, assignee=""):
         """Creates an issue through the REST API and returns its URL. It is labelled `agent` unless a person will
-        do it, and then `by-hand`.
+        do it, and then `by-hand`. An `assignee` (the board's) is given the issue, so the install that made it
+        still sees it.
 
         `tokens` also labels it `uses-tokens`, which gives its worker the project's `task_tokens`.
         A `spec` is never work, by hand or not, so it gets no label.
@@ -480,6 +492,8 @@ class GitHub:
         args = ["api", f"repos/{repo}/issues", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}"]
         for label in labels:
             args += ["-f", f"labels[]={label}"]
+        if assignee:
+            args += ["-f", f"assignees[]={assignee}"]
         try:
             return self._json(args)["html_url"]
         except (GitHubError, ValueError, KeyError) as e:

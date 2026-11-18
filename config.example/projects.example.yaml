@@ -40,6 +40,8 @@ projects:
                                        # Today every proposal waits for the user's yes either way
     queen_answers_one_way: false       # true: the queen's yes to a merge answers its one-way door and the review's
                                        # questions for the user; off, those wait for the user's yes. The dashboard's switch wins
+    multi_user: false                  # true: several people share this board, each with a Kandu of their own; this
+                                       # install works only the tasks assigned to its github.account. Off: assignees do not matter
     priority: 1                        # 1 = highest
     max_parallel_workers: 2
     daily_token_limit: 2000000         # no new task starts past this; cache reads do not count
