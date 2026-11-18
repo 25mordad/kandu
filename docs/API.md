@@ -24,6 +24,7 @@ Reads are open on the bound address. Every `POST` needs `Authorization: Bearer <
 | GET | `/api/v1/flights` | the sessions opened from this page, each with its status (`opening`, `open`, `failed`) and link, and the last free flights that ended, with tokens; counted in no limit |
 | POST | `/api/v1/flights/didban` | open Didban on the brain, or keep the one already open; `?language=en` or `fa` is the language it speaks; `&project=NAME` opens it on that project, for Bazras's reports |
 | POST | `/api/v1/flights/zanbourdar` | open Zanbourdar on the brain: a session with full access tied to no task, or keep the one already open; `?language=` as above |
+| POST | `/api/v1/flights/kanduban/{project}` | open a Kanduban on that project's machine, in a new worktree, with full access, or keep the one already open; `?language=` as above. `404` for an unknown project; `503` with the reason when its machine does not answer, and then no session is recorded |
 | POST | `/api/v1/flights/tasks/{owner}/{repo}/{number}` | open a free flight on a task, with full access, or keep the one already open; `?language=` as above |
 | POST | `/api/v1/flights/{key}/close` | end one of those sessions |
 | GET | `/api/v1/events` | a page of events; `day` (default: the last) and `after` (default: 0) |

@@ -1,15 +1,18 @@
-"""Sessions the user opens from the dashboard: Didban, Zanbourdar, and a free flight on a task (DESIGN §13).
+"""Sessions the user opens from the dashboard: Didban, Zanbourdar, a free flight on a task and a Kanduban on a
+project (DESIGN §13).
 
-Each runs on the brain in its own tmux, started by systemd, so restarting the dashboard
-leaves it running. Remote Control is on, and its link is read from the session's screen.
+Each runs in its own tmux on the brain, started by systemd, so restarting the dashboard
+leaves it running. A Kanduban's `claude` runs on its project's machine, over SSH when that is not the brain. Remote Control is on, and its link is read from the session's screen.
 A session that has not been spoken to costs nothing. When one ends, its transcript is
 summed up here, by code, and counted against no project's limits.
 """
 import hashlib
 import os
+import posixpath
 import re
 import shlex
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -19,10 +22,11 @@ from pathlib import Path
 from . import didban, ghmeter, merge, queen, questions, sessions
 from .config import DidbanBrain, DidbanConfig
 from .github import GitHubError
-from .runner import DEFAULT_LOGS_DIR, repo_path
+from .runner import DEFAULT_LOGS_DIR, SSH_FAILED, Host, repo_path
 
 ROLE_FILE = didban.REPO_DIR / "prompts" / "flight.md"
 ZANBOURDAR_FILE = didban.REPO_DIR / "prompts" / "zanbourdar.md"
+KANDUBAN_FILE = didban.REPO_DIR / "prompts" / "kanduban.md"
 READING_FILE = didban.REPO_DIR / "prompts" / "reading.md"
 CARDS_FILE = didban.REPO_DIR / "prompts" / "cards.md"  # Not for Didban, which stays off board state.
 LANGUAGES = {"en": "English", "fa": "Persian"}
@@ -35,6 +39,8 @@ IDLE_SECONDS = 12 * 3600  # a task's session with no activity this long closes b
 NO_LINK = "the session's link did not come in time"
 COMMAND_TIMEOUT_SECONDS = 15
 START_TIMEOUT_SECONDS = 30
+PROBE_TIMEOUT_SECONDS = 10
+GIT_TIMEOUT_SECONDS = 120
 # Kandu's own records say a task is in trouble for these reasons. Code decides, never the model.
 FAILED_RUN, CHANGES_ASKED, CHECKS_FAIL, CONFLICT, WAITS = (
     "its last run failed", "its review asked for changes", "its PR's checks fail", "its PR has a merge conflict",
@@ -47,6 +53,15 @@ CHECK_NAME = re.compile(r"[^\w .:/()\[\]-]")
 def task_key(task):
     """A short name for the tmux socket, whose path has a length limit."""
     return "t-" + hashlib.sha256(task.encode()).hexdigest()[:12]
+
+
+def kanduban_key(project):
+    """One Kanduban per project: its key comes from the project's name alone."""
+    return "k-" + hashlib.sha256(project.encode()).hexdigest()[:12]
+
+
+class KandubanError(Exception):
+    """A Kanduban could not start: its machine did not answer, or its worktree could not be made."""
 
 
 def now_iso():
@@ -106,6 +121,43 @@ class Flights:
         self._open(ZANBOURDAR, {"kind": "zanbourdar", "task": None, "project": None},
                    lambda session: self._zanbourdar(session, language, first))
 
+    def open_kanduban(self, project, language):
+        """One per project, each in a worktree of its own on a new branch of the project's copy. Returns its key.
+
+        A Kanduban already open stays the one, and the page shows its link. The project's machine is asked first:
+        one that does not answer raises `KandubanError`, and no record is written."""
+        key = kanduban_key(project.name)
+        with self._lock:
+            if key in self._opening or self.alive(key):
+                return key
+        machine = self.config.machine(project.machine)
+        host = Host(machine)
+        if not self._answers(host):
+            raise KandubanError(f"{machine.name} did not answer: the Kanduban did not start")
+        self._open(key, {"kind": "kanduban", "task": None, "project": project.name, "machine": machine.name},
+                   lambda session: self._kanduban(session, project, machine, host, language))
+        return key
+
+    def _answers(self, host):
+        try:
+            return self.run(host.argv(["true"]), capture_output=True, text=True, timeout=PROBE_TIMEOUT_SECONDS,
+                            stdin=subprocess.DEVNULL).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    def _on(self, host, command, cwd=None, given=None):
+        """Runs `command` on the host's machine and returns its output; a failure raises `KandubanError`."""
+        try:
+            done = self.run(host.argv(command, cwd), capture_output=True, text=True, timeout=GIT_TIMEOUT_SECONDS,
+                            **({"input": given} if given is not None else {"stdin": subprocess.DEVNULL}))
+        except (OSError, subprocess.SubprocessError) as e:
+            raise KandubanError(f"{command[0]} did not finish on {host.name}: {e}") from None
+        if host.ssh_target is not None and done.returncode == SSH_FAILED:
+            raise KandubanError(f"{host.name} did not answer over SSH")
+        if done.returncode != 0:
+            raise KandubanError(f"{' '.join(command[:3])} failed on {host.name}: {(done.stderr or '').strip()[:200]}")
+        return done.stdout
+
     def ready(self, key):
         """The session's record once it runs and its link is in, so it takes typed input; else None."""
         with self._lock:
@@ -151,11 +203,13 @@ class Flights:
                            "error": ""}
         self.store.write_flight(record | {"opener": os.getpid()})
         try:
-            args, prompt, cwd, first = prepare(session)
+            args, prompt, cwd, first, *wrap = prepare(session)
             path = self.store.write_flight_prompt(key, prompt)
             line = f'{shlex.join(args)} --append-system-prompt "$(cat {shlex.quote(str(path))})"'
             if first:  # The session starts on its own; with none it waits for the user and spends nothing.
                 line += f" {shlex.quote(first)}"
+            if wrap and wrap[0]:  # a Kanduban on another machine: the line is made to run there
+                line = wrap[0]()
             tmux = ["tmux", "-S", str(self.store.flight_socket(key)), "new-session", "-d", "-s", "main",
                     "-x", "200", "-y", "50", "-c", str(cwd), line]
             # Type=forking: tmux's client exits once its server is up, and the server keeps the unit alive.
@@ -165,7 +219,7 @@ class Flights:
                                capture_output=True, text=True, timeout=START_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL)
             if started.returncode != 0 or not self.alive(key):
                 record["error"] = (started.stderr or "the session did not start").strip()[:300]
-        except (OSError, subprocess.SubprocessError) as e:
+        except (OSError, subprocess.SubprocessError, KandubanError) as e:
             record["error"] = str(e)[:300]
         self.store.write_flight(record)
         self._opening.discard(key)
@@ -190,6 +244,62 @@ class Flights:
                  f"- Kandu's API: `{api_url(self.config)}`.",
                  f"- Speak {LANGUAGES[language]} with the user."]
         return args, "\n".join(lines), didban.REPO_DIR, first
+
+    def _kanduban(self, session, project, machine, host, language):
+        """A new worktree on a new branch of the project's copy, made on the project's machine, and `claude` there.
+
+        With several repos it starts in the first one's copy. On another machine the prompt is written beside the
+        worktree there, and the line reaches it over SSH, as the workers do, with Kandu's API carried back to the
+        brain so the session reads GitHub from Kandu's copy."""
+        name = f"Kandu Kanduban {project.name}"
+        args = ["claude", "--dangerously-skip-permissions", "--session-id", session, "--name", name,
+                "--remote-control", name]
+        repo = project.repos[0]
+        copy = self._absolute(host, repo_path(project, repo))
+        stamp = datetime.fromtimestamp(self.clock(), timezone.utc).strftime("%Y%m%d-%H%M%S")
+        folder = f"{copy.rstrip('/')}.kandu-worktrees/kanduban-{stamp}"
+        branch = f"kanduban/{stamp}"
+        self._on(host, ["git", "fetch", "origin"], cwd=copy)
+        base = self._base(host, copy, repo)
+        self._on(host, ["git", "worktree", "add", "-b", branch, folder, base], cwd=copy)
+        dashboard = self.config.settings.dashboard
+        lines = [KANDUBAN_FILE.read_text(encoding="utf-8"), reading(self.config), "## This setup",
+                 f"- Project: `{project.name}`, on machine `{machine.name}`. Its repos: "
+                 + ", ".join(f"`{r}` at `{repo_path(project, r)}`" for r in project.repos) + ".",
+                 f"- Your worktree: `{folder}`, of `{repo}`'s copy, on the new branch `{branch}`, made from `{base}`.",
+                 f"- Kandu's API: `{api_url(self.config)}`.",
+                 f"- Speak {LANGUAGES[language]} with the user."]
+        prompt = "\n".join(lines)
+        if host.ssh_target is None:
+            return args, prompt, Path(folder).expanduser(), None
+        there = f"{folder}.prompt.md"
+        self._on(host, ["sh", "-c", 'umask 077; cat > "$1"', "sh", there], given=prompt)
+        script = (f'{ghmeter.path_line()}; cd {didban.remote_path(folder)} && exec {shlex.join(args)} '
+                  f'--append-system-prompt "$(cat {didban.remote_path(there)})"')
+        ssh = ["ssh", "-t", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ExitOnForwardFailure=no",
+               "-R", f"{dashboard.port}:{dashboard.bind}:{dashboard.port}", host.ssh_target, script]
+        return args, prompt, didban.REPO_DIR, None, lambda: shlex.join(ssh)
+
+    def _absolute(self, host, path):
+        """`path` with a leading `~` expanded on the host's machine, as `Host.absolute` does: arguments reach git
+        quoted, so a `~` left in them would name a folder called `~`."""
+        if not path.startswith("~/"):
+            return path
+        home = self._on(host, ["sh", "-c", 'printf %s "$HOME"']).strip()
+        if not home.startswith("/"):
+            raise KandubanError(f"the home folder on {host.name} could not be read")
+        return posixpath.join(home, path[2:])
+
+    def _base(self, host, copy, repo):
+        """What the new branch starts from: the copy's own record of GitHub's default branch, or else Kandu's copy."""
+        try:
+            return self._on(host, ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=copy).strip()
+        except KandubanError:
+            pass
+        try:
+            return f"origin/{self.github.default_branch(repo)}"
+        except (GitHubError, OSError, KeyError, TypeError, AttributeError):
+            raise KandubanError(f"the default branch of {repo} could not be read") from None
 
     def _task(self, session, project, repo, number, language):
         task = f"{repo}#{number}"
@@ -357,10 +467,9 @@ class Flights:
 
     def _land(self, record):
         """Keeps what the session spent. One nobody spoke to spent nothing, and leaves no row."""
-        path = sessions.transcript(record["session"], self.projects_dir)
         try:
-            summary = sessions.summarize(record["session"], path) if path else None
-        except (OSError, KeyError, AttributeError, TypeError):
+            summary = self._summary(record)
+        except (OSError, KeyError, AttributeError, TypeError, ValueError, subprocess.SubprocessError):
             summary = None
         if summary and any(summary["tokens"].values()):
             if record["kind"] == "didban":
@@ -368,6 +477,22 @@ class Flights:
             else:
                 self.store.write_flown(summary | {"task": record["task"], "project": record["project"]})
         self.store.forget_flight(record["key"])
+
+    def _summary(self, record):
+        """The session's summary, from its transcript; a Kanduban on another machine has it there, read over SSH."""
+        machine = self.config.machine(record["machine"]) if record.get("machine") else None
+        if machine is None or machine.reach == "local":
+            path = sessions.transcript(record["session"], self.projects_dir)
+            return sessions.summarize(record["session"], path) if path else None
+        host = Host(machine)
+        done = self.run(host.argv(["sh", "-c", 'cat "$HOME"/.claude/projects/*/"$1".jsonl', "sh", record["session"]]),
+                        capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL)
+        if done.returncode != 0 or not done.stdout:
+            return None
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".jsonl") as file:
+            file.write(done.stdout)
+            file.flush()
+            return sessions.summarize(record["session"], file.name)
 
 
 def facts(events, task, column, pr, asked=()):

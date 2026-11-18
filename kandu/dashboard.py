@@ -701,6 +701,16 @@ class Api:
         self.flights.open_zanbourdar(self._language(query))
         return {"opening": flights.ZANBOURDAR}
 
+    def open_kanduban(self, query, name):
+        """Asks the project's machine first, then answers: the session's link appears in `GET /flights`."""
+        project = next((p for p in self.config.projects if p.name == name), None)
+        if project is None:
+            raise ApiError(404, "no such project")
+        try:
+            return {"opening": self.flights.open_kanduban(project, self._language(query))}
+        except flights.KandubanError as e:
+            raise ApiError(503, str(e)) from None
+
     def open_flight(self, query, owner, repo, number):
         task = self._split_task(owner, repo, number)
         full = f"{owner}/{repo}"
@@ -1370,6 +1380,7 @@ ROUTES = [
     ("GET", "/flights", Api.list_flights),
     ("POST", "/flights/didban", Api.open_didban),
     ("POST", "/flights/zanbourdar", Api.open_zanbourdar),
+    ("POST", "/flights/kanduban/{project}", Api.open_kanduban),
     ("POST", "/flights/tasks/{owner}/{repo}/{number}", Api.open_flight),
     ("POST", "/flights/{key}/close", Api.close_flight),
     ("GET", "/events", Api.events),

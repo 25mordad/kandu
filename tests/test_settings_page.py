@@ -21,7 +21,7 @@ from tests.test_today import NODE, QUEUE, ROOT, Page, state
 LINES = ("const SETTING_GROUPS = ", "const SETTING_LABELS = ", "const SETTING_HINTS = ", "const LIMIT_STEP = ")
 FUNCTIONS = ("settingsProjects", "settingsProjectsHtml", "settingsDraft", "settingsCalls", "mergeOnAsked", "saveStep",
              "applySettings", "settingsBody", "settingsFoot", "settingControl", "stepper", "limitsHtml", "machinesHtml",
-             "kanduHtml", "switchRow", "defaultLookHtml")
+             "kanduHtml", "switchRow", "defaultLookHtml", "kandubanOf", "flightControls", "kandubanControls")
 TOKEN = "secret-token"
 
 

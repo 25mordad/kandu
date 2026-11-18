@@ -418,6 +418,9 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
 .mark-text { fill:#3a2608; font:700 9.5px var(--sans); text-anchor:middle; }
 .wait-ring { fill:none; stroke:#e8590c; stroke-width:4; }
 .patch-name { fill:var(--ink); font:600 15px var(--sans); text-anchor:middle; }
+.kanduban-mark circle { fill:var(--surface); stroke:var(--ink); stroke-width:1.5; }
+.kanduban-mark text { fill:var(--ink); font:700 11px var(--sans); text-anchor:middle; }
+.kanduban-mark.open circle { fill:#e9b949; }
 .flower-number { fill:var(--ink); font:600 13px var(--sans); text-anchor:middle; }
 .meadow-note { fill:var(--ink); font:15px var(--sans); text-anchor:middle; }
 .band { fill:var(--hive); stroke:var(--hive-dark); stroke-width:2; }
@@ -887,6 +890,11 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "no_didban_sessions": "No Didban session reported yet",
   "open_didban": "Open Didban",
   "open_zanbourdar": "Open Zanbourdar",
+  "kanduban": "Kanduban",
+  "open_kanduban": "Open a Kanduban",
+  "go_kanduban": "Go to the Kanduban",
+  "close_kanduban": "Close the Kanduban",
+  "kanduban_hint": "A full-access session on this project's machine, in a worktree of its own, that works only in this project and brings its change in through a PR",
   "zanbourdar": "Zanbourdar",
   "open_flight": "Open a free flight",
   "flight_opening": "Opening…",
@@ -1408,6 +1416,11 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "no_didban_sessions": "هنوز جلسه‌ای از دیدبان گزارش نشده",
   "open_didban": "باز کردن دیدبان",
   "open_zanbourdar": "باز کردن زنبوردار",
+  "kanduban": "کاندوبان",
+  "open_kanduban": "باز کردن کاندوبان",
+  "go_kanduban": "رفتن به کاندوبان",
+  "close_kanduban": "بستن کاندوبان",
+  "kanduban_hint": "یک جلسه با دسترسی کامل روی ماشین این پروژه، در worktree خودش، که فقط در همین پروژه کار می‌کند و تغییرش را با یک PR می‌آورد",
   "zanbourdar": "زنبوردار",
   "open_flight": "باز کردن پرواز آزاد",
   "flight_opening": "در حال باز شدن…",
@@ -2405,6 +2418,17 @@ function placePatches(projects, narrow) {
   return Math.max(...columns.map(c => c.y));
 }
 
+// A Kanduban on the project: a small mark beside the patch's name, on the side the switch is not. It is filled while
+// the project's Kanduban is open, and then it opens that one's link.
+function kandubanMark(patch) {
+  return `<g class="kanduban-mark clickable${kandubanOf(patch.name)?.status === "open" ? " open" : ""}" data-fly="kanduban:${esc(patch.name)}" data-kanduban-for="${esc(patch.name)}">
+    <title>${esc(`${t("open_kanduban")}: ${t("kanduban_hint")}`)}</title><circle r="9"/><text y="4">K</text></g>`;
+}
+
+function kandubanOf(name) {
+  return flights.open.find(f => f.kind === "kanduban" && f.project === name);
+}
+
 // The switch sits beside the patch's name; a project paused in the config has none, since only the config resumes it.
 function patchSwitch(patch) {
   if (lastState.paused_in_config.includes(patch.name)) return "";
@@ -2440,7 +2464,7 @@ function renderScene(state, queue) {
     const middle = patch.x + patch.width / 2;
     const limit = patch.over ? `<title>${esc(`${t("over_limit")} · ${limitText(patch.over)}`)}</title>` : "";
     return `<ellipse class="soil${patch.paused ? " off" : ""}${patch.over ? " over" : ""}" cx="${middle}" cy="${patch.y + patch.height / 2 + 8}" rx="${patch.width / 2}" ry="${patch.height / 2}">${limit}</ellipse>
-      <g class="${patch.paused ? "patch-off" : ""}"><text class="patch-name" data-name="${esc(patch.name)}" x="${middle}" y="${patch.y + patch.height - 8}">\u2066${esc(patch.name)}\u2069${patch.paused ? ` · <tspan class="patch-paused">${t("project_on_pause")}</tspan>` : ""}${mergeMark(patch)}</text>${flowers}</g>${patchSwitch(patch)}`;
+      <g class="${patch.paused ? "patch-off" : ""}"><text class="patch-name" data-name="${esc(patch.name)}" x="${middle}" y="${patch.y + patch.height - 8}">\u2066${esc(patch.name)}\u2069${patch.paused ? ` · <tspan class="patch-paused">${t("project_on_pause")}</tspan>` : ""}${mergeMark(patch)}</text>${flowers}</g>${patchSwitch(patch)}${kandubanMark(patch)}`;
   }).join("");
   const bees = (state.workers || []).map((worker, i) => spots[worker.task] ? flight(worker, beeKind(worker.phase), spots[worker.task], {x: home.x, y: home.y + 20}, i) : "").join("")
     + inspectorBee(looking, projects);
@@ -2459,9 +2483,11 @@ function renderScene(state, queue) {
     <path class="hill" d="M0 125 Q${width * .4} 75 ${width} 120 V${height} H0z"/>
     ${hive(home.x, home.y, asleep, state.queen_run)}${patches}${bees}${talk}${note}</svg>`;
   for (const name of box.querySelectorAll(".patch-name")) {  // Only the drawn name knows how wide it is.
+    const b = name.getBBox();
+    const mark = [...box.querySelectorAll(".kanduban-mark")].find(g => g.dataset.kandubanFor === name.dataset.name);
+    mark?.setAttribute("transform", `translate(${lang === "fa" ? b.x + b.width + 16 : b.x - 16} ${b.y + b.height / 2})`);
     const toggle = [...box.querySelectorAll(".switch")].find(g => g.dataset.for === name.dataset.name);
     if (!toggle) continue;
-    const b = name.getBBox();
     toggle.setAttribute("transform", `translate(${lang === "fa" ? b.x - 28 : b.x + b.width + 28} ${b.y + b.height / 2})`);
   }
   if (stopped) box.firstElementChild.pauseAnimations();
@@ -3305,6 +3331,7 @@ function settingsBody(row, edit) {
     `<li>${esc(t(SETTING_LABELS[r.setting]))}: <span dir="auto">${esc(r.why)}</span></li>`).join("")}</ul></div>` : "";
   return `<div class="sheet-grip"></div><div class="sheet-head"><div class="sheet-who"><div class="muted">${t("tab_settings")}</div><h2>${bdi(row.name)}</h2></div>
     <button type="button" class="sheet-close" data-set-cancel aria-label="${esc(t("close"))}">✕</button></div>${refused}<section class="set-group">${settingControl("name", row, edit.now)}</section>${groups}
+    <section class="set-group"><h3>${t("kanduban")}</h3><p class="muted">${t("kanduban_hint")}</p><div class="actions" id="setkanduban">${kandubanControls(row.name)}</div></section>
     <section class="set-danger"><h3>${t("set_danger")}</h3><p class="muted">${t("remove_project_hint")}</p><div class="actions"><button type="button" class="btn danger" data-remove="${esc(row.name)}">${t("remove_project")}</button></div></section>`;
 }
 
@@ -3562,11 +3589,23 @@ function flightControls(flight, target, label, go = t("flight_go"), close = t("f
   return `<button class="btn" data-fly="${esc(target)}">${label}</button>`;
 }
 
+function kandubanControls(name) {
+  return flightControls(kandubanOf(name), `kanduban:${name}`, t("open_kanduban"), t("go_kanduban"), t("close_kanduban"));
+}
+
+// A Kanduban is named by its project; Zanbourdar is the free flight with neither a task nor a project.
+function flightName(s) {
+  if (s.task) return `<button class="textlink" data-review="${esc(s.task)}">${bdi(repoOf(s.task))} ${numberOf(s.task)}</button>`;
+  return s.project ? `${esc(t("kanduban"))} ${bdi(s.project)}` : esc(t("zanbourdar"));
+}
+
 function renderFlights() {
+  if ($("setkanduban") && setEdit) $("setkanduban").innerHTML = kandubanControls(setEdit.name);
+  for (const mark of document.querySelectorAll(".kanduban-mark")) mark.classList.toggle("open", kandubanOf(mark.dataset.kandubanFor)?.status === "open");
   $("didbanbox").innerHTML = didbanHead(flights.open.find(f => f.kind === "didban"));
   if ($("moremenu").open) renderMore();
   if ($("taskflight") && shownTask) $("taskflight").innerHTML = flightControls(flights.open.find(f => f.task === shownTask), shownTask, t("open_flight"));
-  const task = s => !s.task ? esc(t("zanbourdar")) : `<button class="textlink" data-review="${esc(s.task)}">${bdi(repoOf(s.task))} ${numberOf(s.task)}</button>`;
+  const task = flightName;
   const open = flights.open.filter(f => f.kind !== "didban" && f.status === "open").map(f => `<tr><td class="fit number">${esc(when(f.started))}</td><td>${task(f)}</td>
     <td dir="auto"><a class="textlink" href="${esc(f.url)}" target="_blank" rel="noopener">${t("flight_go")} ↗</a> <button class="btn small" data-land="${esc(f.key)}">${t("flight_close")}</button></td><td class="fit end">${t("flight_open_now")}</td></tr>`);
   const flown = flights.flown.map(s => `<tr><td class="fit number">${esc(s.started ? when(s.started) : "—")}</td><td>${task(s)}</td><td dir="auto">${esc(s.title || "—")}</td>
@@ -3589,7 +3628,12 @@ async function refreshFlights() {
 
 async function openFlight(button) {
   const target = button.dataset.fly;
-  const path = ["didban", "zanbourdar"].includes(target) ? `/flights/${target}` : `/flights/tasks/${target.replace("#", "/")}`;
+  const project = target.startsWith("kanduban:") ? target.slice("kanduban:".length) : null;
+  const shown = project && kandubanOf(project);
+  if (shown?.status === "open") { window.open(shown.url, "_blank", "noopener"); return; }  // One per project: its link.
+  if (shown) return;  // still opening
+  const path = project ? `/flights/kanduban/${encodeURIComponent(project)}`
+    : ["didban", "zanbourdar"].includes(target) ? `/flights/${target}` : `/flights/tasks/${target.replace("#", "/")}`;
   const focus = button.dataset.focus ? `&project=${encodeURIComponent(button.dataset.focus)}` : "";
   await act(button, `${path}?language=${lang}${focus}`, t("flight_opening"));
   await refreshFlights();
