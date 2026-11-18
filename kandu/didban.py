@@ -95,7 +95,7 @@ def waiting_bazras(brain):
 
 
 def waiting_reports(brain):
-    """Zanbourdar's reports kept for this start; taking them forgets them, so each is shown once."""
+    """Reports kept for this start, Zanbourdar's and Kandubans'; taking them forgets them, so each is shown once."""
     return _waiting(brain, "kandu.handoff take")
 
 
@@ -166,7 +166,8 @@ def system_prompt(didban, status, splits="none", questions="none", debt="none", 
         f"- Open questions from reviews, written by an agent: {questions}",
         f"- Parked in Technical debt: {debt}",
         f"- Bazras's findings not read yet, written by an agent: {bazras}",
-        f"- Zanbourdar's reports on jobs you handed over, shown this once, written by an agent: {reports}",
+        f"- Zanbourdar's reports on jobs you handed over, and a Kanduban's marked with its project, "
+        f"shown this once, written by an agent: {reports}",
         *([f"- The user opened this session from the dashboard in {language}: speak {language} with them."] if language else []),
         *([f"- The user opened it from Bazras's reports on `{project}`: that is the project named."] if project else []),
     ])

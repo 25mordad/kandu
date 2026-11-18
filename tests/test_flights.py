@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shlex
 import subprocess
 import tempfile
@@ -45,6 +46,16 @@ class FakeHost:
 
     def started_line(self):
         return next(c for c in self.commands if c[0] == "systemd-run")[-1]
+
+
+def first_said(line):
+    """The first message the started line gives the session, read from its file, or None if it waits for the user."""
+    words = shlex.split(line)
+    after = words[words.index("--append-system-prompt") + 2:]
+    if not after:
+        return None
+    found = re.fullmatch(r'\$\(cat (.+)\)', after[0])
+    return Path(shlex.split(found.group(1))[0]).read_text(encoding="utf-8") if found else after[0]
 
 
 class FlightsTest(unittest.TestCase):
@@ -311,9 +322,7 @@ class FlightOnATaskTest(unittest.TestCase):
 
     def first_message(self):
         """What the session is started with, or None if it waits for the user."""
-        words = shlex.split(self.host.started_line())
-        after = words[words.index("--append-system-prompt") + 2:]
-        return after[0] if after else None
+        return first_said(self.host.started_line())
 
     def record(self, event_type, **fields):
         self.store.record(event_type, task="acme-org/website#6", project="website", **fields)
@@ -535,9 +544,7 @@ class FlightOnATaskTest(unittest.TestCase):
         self.assertNotIn("in trouble", self.first_message_of_last_start())
 
     def first_message_of_last_start(self):
-        line = [c for c in self.host.commands if c[0] == "systemd-run"][-1][-1]
-        words = shlex.split(line)
-        return words[words.index("--append-system-prompt") + 2]
+        return first_said([c for c in self.host.commands if c[0] == "systemd-run"][-1][-1])
 
     def test_each_kind_of_trouble_is_named(self):
         cases = [
@@ -582,9 +589,7 @@ class FlightOnATaskTest(unittest.TestCase):
         self.assertIsNone(self.first_message_of_last_start_or_none())
 
     def first_message_of_last_start_or_none(self):
-        words = shlex.split([c for c in self.host.commands if c[0] == "systemd-run"][-1][-1])
-        after = words[words.index("--append-system-prompt") + 2:]
-        return after[0] if after else None
+        return first_said([c for c in self.host.commands if c[0] == "systemd-run"][-1][-1])
 
     def test_a_flight_that_started_on_its_own_keeps_its_tokens(self):
         self.record("task_finished", outcome="failed")

@@ -526,6 +526,10 @@ class StateStore:
     def write_flight_prompt(self, key, text):
         return self._write_private(self.flights_dir, f"{key}.md", text)
 
+    def write_flight_first(self, key, text):
+        """The session's first message, read from a file as its prompt is: tmux refuses a long command line."""
+        return self._write_private(self.flights_dir, f"{key}.first.md", text)
+
     def flight(self, key):
         path = self.flights_dir / f"{key}.json"
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
@@ -537,7 +541,7 @@ class StateStore:
         return sorted(found, key=lambda f: f["started"])
 
     def forget_flight(self, key):
-        for name in (f"{key}.json", f"{key}.md", f"{key}.sock"):
+        for name in (f"{key}.json", f"{key}.md", f"{key}.first.md", f"{key}.sock"):
             (self.flights_dir / name).unlink(missing_ok=True)
 
     def keep_report(self, text):

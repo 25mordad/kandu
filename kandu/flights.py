@@ -121,8 +121,10 @@ class Flights:
         self._open(ZANBOURDAR, {"kind": "zanbourdar", "task": None, "project": None},
                    lambda session: self._zanbourdar(session, language, first))
 
-    def open_kanduban(self, project, language):
+    def open_kanduban(self, project, language, first=None):
         """One per project, each in a worktree of its own on a new branch of the project's copy. Returns its key.
+
+        `first` is its first message, a job Didban hands over (DESIGN §13); with none it waits for the user.
 
         A Kanduban already open stays the one, and the page shows its link. The project's machine is asked first:
         one that does not answer raises `KandubanError`, and no record is written."""
@@ -135,7 +137,7 @@ class Flights:
         if not self._answers(host):
             raise KandubanError(f"{machine.name} did not answer: the Kanduban did not start")
         self._open(key, {"kind": "kanduban", "task": None, "project": project.name, "machine": machine.name},
-                   lambda session: self._kanduban(session, project, machine, host, language))
+                   lambda session: self._kanduban(session, project, machine, host, language, first))
         return key
 
     def _answers(self, host):
@@ -207,7 +209,8 @@ class Flights:
             path = self.store.write_flight_prompt(key, prompt)
             line = f'{shlex.join(args)} --append-system-prompt "$(cat {shlex.quote(str(path))})"'
             if first:  # The session starts on its own; with none it waits for the user and spends nothing.
-                line += f" {shlex.quote(first)}"
+                # From a file, as the prompt is: quoted into the line, a long job would pass tmux's ~16 KB limit.
+                line += f' "$(cat {shlex.quote(str(self.store.write_flight_first(key, first)))})"'
             if wrap and wrap[0]:  # a Kanduban on another machine: the line is made to run there
                 line = wrap[0]()
             tmux = ["tmux", "-S", str(self.store.flight_socket(key)), "new-session", "-d", "-s", "main",
@@ -245,7 +248,7 @@ class Flights:
                  f"- Speak {LANGUAGES[language]} with the user."]
         return args, "\n".join(lines), didban.REPO_DIR, first
 
-    def _kanduban(self, session, project, machine, host, language):
+    def _kanduban(self, session, project, machine, host, language, first=None):
         """A new worktree on a new branch of the project's copy, made on the project's machine, and `claude` there.
 
         With several repos it starts in the first one's copy. On another machine the prompt is written beside the
@@ -268,14 +271,22 @@ class Flights:
                  + ", ".join(f"`{r}` at `{repo_path(project, r)}`" for r in project.repos) + ".",
                  f"- Your worktree: `{folder}`, of `{repo}`'s copy, on the new branch `{branch}`, made from `{base}`.",
                  f"- Kandu's API: `{api_url(self.config)}`.",
+                 f"- A job from Didban ends with `.venv/bin/python -m kandu.handoff report --project {shlex.quote(project.name)}`, "
+                 f"run in Kandu's live install on the brain, `{didban.REPO_DIR}`"
+                 + (f", from machine `{machine.name}` if the brain can be reached from there; if it cannot, end with "
+                    "the report as your last message and say it did not reach Didban." if host.ssh_target else "."),
                  f"- Speak {LANGUAGES[language]} with the user."]
         prompt = "\n".join(lines)
         if host.ssh_target is None:
-            return args, prompt, Path(folder).expanduser(), None
+            return args, prompt, Path(folder).expanduser(), first
         there = f"{folder}.prompt.md"
         self._on(host, ["sh", "-c", 'umask 077; cat > "$1"', "sh", there], given=prompt)
         script = (f'{ghmeter.path_line()}; cd {didban.remote_path(folder)} && exec {shlex.join(args)} '
                   f'--append-system-prompt "$(cat {didban.remote_path(there)})"')
+        if first:  # Beside the prompt, for the same reason: quoted twice into the line, a job grows past tmux's limit.
+            said = f"{folder}.first.md"
+            self._on(host, ["sh", "-c", 'umask 077; cat > "$1"', "sh", said], given=first)
+            script += f' "$(cat {didban.remote_path(said)})"'
         ssh = ["ssh", "-t", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ExitOnForwardFailure=no",
                "-R", f"{dashboard.port}:{dashboard.bind}:{dashboard.port}", host.ssh_target, script]
         return args, prompt, didban.REPO_DIR, None, lambda: shlex.join(ssh)
