@@ -2725,7 +2725,7 @@ async function changeStep(button) {
 // What each column of the project table does, shown on hover over its head.
 const HEAD_HINTS = {setting_workers: "setting_workers_hint", setting_priority: "setting_priority_hint", setting_tokens: "setting_tokens_hint",
                     setting_auto_merge: "mode_auto_hint", setting_frozen: "mode_frozen_hint", queen_accepts_splits: "queen_accepts_splits_hint",
-                    queen_answers_one_way: "queen_answers_one_way_hint"};
+                    queen_answers_one_way: "queen_answers_one_way_hint", set_multi_user: "set_multi_user_hint"};
 // Telegram: which kinds of news Kandu sends, as `notify.events` in the config; the bot's token and the chat stay in
 // local/.env and never reach the page. The kinds go in the order a user meets them; one the page does not know yet
 // comes last, by its name.
@@ -2841,6 +2841,7 @@ function renderSettings(s) {
     <td class="fit"><input type="number" class="tokens-field" min="1" step="100000" dir="ltr" value="${p.daily_token_limit}" data-setting-tokens="${esc(p.name)}" title="${esc(t("setting_tokens_hint"))}" aria-label="${esc(`${p.name} · ${t("setting_tokens")}`)}"></td>
     <td class="fit"><label title="${esc(t("mode_auto_hint"))}"><input type="checkbox" data-setting-auto-merge="${esc(p.name)}"${p.auto_merge ? " checked" : ""} aria-label="${esc(t("setting_auto_merge"))}"></label></td>
     <td class="fit"><label title="${esc(t("mode_frozen_hint"))}"><input type="checkbox" data-setting-frozen="${esc(p.name)}"${p.frozen ? " checked" : ""} aria-label="${esc(t("setting_frozen"))}"></label></td>
+    <td class="fit"><label title="${esc(t("set_multi_user_hint"))}"><input type="checkbox" data-setting-multi-user="${esc(p.name)}"${p.multi_user ? " checked" : ""} aria-label="${esc(t("set_multi_user"))}"></label></td>
     <td class="fit"><label title="${esc(t("queen_accepts_splits_hint"))}"><input type="checkbox" data-setting-splits="${esc(p.name)}"${p.split_approval === "queen" ? " checked" : ""} aria-label="${esc(t("queen_accepts_splits"))}"></label></td>
     <td class="fit"><label title="${esc(t("queen_answers_one_way_hint"))}"><input type="checkbox" data-setting-one-way="${esc(p.name)}"${p.queen_answers_one_way ? " checked" : ""} aria-label="${esc(t("queen_answers_one_way"))}"></label></td>
     <td class="fit"><button class="btn small danger" data-remove="${esc(p.name)}" title="${esc(`${t("remove_project")}: ${t("remove_project_hint")}`)}" aria-label="${esc(t("remove_project"))}">🗑</button></td></tr>`).join("");
@@ -2852,7 +2853,7 @@ function renderSettings(s) {
 `;
   $("cleanmerged").innerHTML = `<label title="${esc(t("clean_merged_hint"))}"><input type="checkbox" data-clean-merged${s.clean_merged ? " checked" : ""}> ${t("clean_merged")}</label>`;
   $("defaultlook").innerHTML = defaultLookHtml(s.default_look);
-  const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "queen_accepts_splits", "queen_answers_one_way"];
+  const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "set_multi_user", "queen_accepts_splits", "queen_answers_one_way"];
   $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th>${heads.map(h => `<th class="fit" title="${esc(t(HEAD_HINTS[h] || h))}">${t(h)}</th>`).join("")}<th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
@@ -3034,12 +3035,13 @@ async function changeCleanMerged(box) {
 
 async function changeSetting(box) {
   const d = box.dataset;
-  const name = d.settingPause ?? d.settingSplits ?? d.settingOneWay ?? d.settingAutoMerge ?? d.settingFrozen ?? d.settingTokens;
+  const name = d.settingPause ?? d.settingSplits ?? d.settingOneWay ?? d.settingAutoMerge ?? d.settingFrozen ?? d.settingMultiUser ?? d.settingTokens;
   const settings = `/projects/${encodeURIComponent(name)}/settings?`;
   const path = d.settingPause !== undefined ? `/projects/${encodeURIComponent(name)}/${box.checked ? "pause" : "resume"}`
     : d.settingSplits !== undefined ? `${settings}split_approval=${box.checked ? "queen" : "user"}`
     : d.settingAutoMerge !== undefined ? `${settings}auto_merge=${box.checked}`
     : d.settingFrozen !== undefined ? `${settings}frozen=${box.checked}`
+    : d.settingMultiUser !== undefined ? `${settings}multi_user=${box.checked}`
     : d.settingTokens !== undefined ? `${settings}daily_token_limit=${encodeURIComponent(box.value)}`
     : `${settings}queen_answers_one_way=${box.checked}`;
   renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
@@ -3622,7 +3624,7 @@ document.addEventListener("input", e => {
   if (setEdit && e.target.matches?.("input[data-draft]")) changeDraft(e.target);
 });
 document.addEventListener("change", e => {
-  if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way], [data-setting-auto-merge], [data-setting-frozen], [data-setting-tokens]")) changeSetting(e.target);
+  if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way], [data-setting-auto-merge], [data-setting-frozen], [data-setting-multi-user], [data-setting-tokens]")) changeSetting(e.target);
   if (e.target.matches?.("[data-clean-merged]")) changeCleanMerged(e.target);
   if (e.target.matches?.("[data-default-look]")) changeDefaultLook(e.target);
 });

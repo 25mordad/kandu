@@ -218,7 +218,7 @@ class ClassicPageTest(unittest.TestCase):
 
     def test_its_settings_tab_changes_each_setting_at_once(self):
         render = function(self.page, "renderSettings")
-        for control in ("data-setting-pause", "data-setting-tokens", "data-setting-auto-merge", "data-setting-frozen",
+        for control in ("data-setting-pause", "data-setting-tokens", "data-setting-auto-merge", "data-setting-frozen", "data-setting-multi-user",
                         "data-setting-splits", "data-setting-one-way", "data-remove", "?priority={n}", "/parallel?project=",
                         "/pace?wake_every_minutes={n}", "/pace?max_cycle_minutes={n}"):
             self.assertIn(control, render, control)
