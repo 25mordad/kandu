@@ -725,9 +725,23 @@ class Supervisor:
         to_fix = self._to_fix(task, last)
         if not to_fix:
             return "approved_with_notes"
-        if review.fix_tried(pr, account, pr["headRefOid"]):
+        if review.fix_tried(pr, account, pr["headRefOid"]) and not self._resumed_since_no_commit(task):
             return self._settle(task, pr, to_fix, "the fix round changed no code")
         return None
+
+    def _resumed_since_no_commit(self, task):
+        """True if the user sent the task back to work after its last round that pushed nothing. Their «Back to
+        work» buys one more fix round on the same head, since what held the round back may be gone (a blocker merged
+        since). That round, if it pushes nothing too, is recorded again and settles the task as before."""
+        for day in reversed(self.store.days()):
+            for event in reversed(self.store.events(day)):
+                if event.get("task") != task.key:
+                    continue
+                if event["type"] == "user_resumed":
+                    return True
+                if event["type"] == "decision" and event.get("decision") == "round_no_commit":
+                    return False
+        return False
 
     def _fix(self, task, pr, reviews):
         """One fix round by a fresh worker on the same branch."""

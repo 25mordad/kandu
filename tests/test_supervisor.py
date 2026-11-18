@@ -1986,6 +1986,34 @@ class ReviewRoundsTest(Base):
         found = [e["reason"] for e in self.events("decision") if e["decision"] == "round_no_commit"]
         self.assertEqual(found[:1], ["fix round 1: the API key is missing"])
 
+    def stuck_then_sent_back(self):
+        """A fix round pushes nothing and blocks the task; then the user presses «Back to work»."""
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]),
+                             lambda: '{"status": "blocked", "reason": "waits for another PR"}']
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.github.statuses[self.github.items[0].url] = "Ready"
+        self.store.record("user_resumed", task=f"{REPO}#1", project="website", to="Ready")
+
+    def test_back_to_work_after_a_round_that_pushed_nothing_runs_one_more_fix_round(self):
+        self.stuck_then_sent_back()
+        self.runner.steps = [self.worker_pushes(SHA2), report(SHA2, earlier=[{"n": 1, "result": "fixed", "body": "ok"}])]
+        self.cycle()
+        self.assertIn("This breaks.", self.runner.runs[3].prompt)
+        self.assertEqual([e["head_sha"] for e in self.events("review_finished")], [SHA1, SHA2])
+        self.assertNotEqual(self.github.status(1), "Blocked")
+
+    def test_that_round_pushing_nothing_again_blocks_the_task_until_the_next_back_to_work(self):
+        self.stuck_then_sent_back()
+        self.runner.steps = [lambda: '{"status": "blocked", "reason": "still waits"}']
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 4)
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.github.statuses[self.github.items[0].url] = "Ready"
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 4)  # no resume since: no worker runs again on that head
+        self.assertEqual(self.github.status(1), "Blocked")
+
     def test_a_fix_round_may_replace_the_description(self):
         def fixes_the_text():
             self.github.prs[(REPO, 1)]["headRefOid"] = SHA2
