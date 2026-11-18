@@ -43,6 +43,7 @@ LANDING_FAILED = ("deploy_failed", "live_check_failed")
 BROKEN_REPLY = (agents.ReplyError, review.ReportError, split.ReportError)
 BASE_MOVED = "Base branch was modified"  # another merge landed first; GitHub asks to try once more
 MERGE_TRIES = 3  # Kandu's own trouble is tried this often in a row before the task stops for a look.
+CHECKOUT_TRIES = 2  # a Codex review that changed its checkout runs once more; the second time the task stops
 MERGE_RETRY_WAITS = (10, 30, 60)  # seconds before each quick new try of a merge GitHub refused for a moment
 MERGE_RETRY_EVERY = 60  # then one try about this often, until the cycle ends
 RETRY_POLL_SECONDS = 5  # how often a wait for the next try looks for a stop or a yes
@@ -499,8 +500,10 @@ class Supervisor:
             self._decide(task, "codex_unavailable", f"Codex on {machine}: {why}")
             raise CycleStop(f"Codex on {machine}: {why}")
 
-    def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None, resume=None, cli=CLAUDE):
-        """Runs one agent for `task` with the agent CLI `cli`; Claude Code unless a caller names another."""
+    def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None, resume=None, cli=CLAUDE,
+               temp_files=False):
+        """Runs one agent for `task` with the agent CLI `cli`; Claude Code unless a caller names another.
+        With `temp_files`, a Codex run that may change no file still writes temp files (`Runner.run_agent`)."""
         if self._stopping():
             raise CycleStop(STOPPED_BY_USER)  # not kept for the cycle: a resume lets the rest go on
         self._wait_for_usage(cli)
@@ -517,7 +520,7 @@ class Supervisor:
         model = self._model(role) if cli == CLAUDE else None
         result = self.runner.run_agent(task.project.machine, cwd, prompt, allowed, denied, run_id,
                                        lambda: self._hard_stop() or stop_one.exists(), model, tokens,
-                                       schema, resume, cli=cli)
+                                       schema, resume, cli=cli, temp_files=temp_files)
         self.store.record("run_finished", task=task.key, project=task.project.name, run_id=run_id, role=role,
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
         if stop_one.exists():
@@ -530,9 +533,9 @@ class Supervisor:
             raise KanduTrouble(f"{role} run {run_id} ended with an error")
         return result
 
-    def _reply(self, task, role, cwd, tools, result, read, tokens=None, schema=None):
+    def _reply(self, task, role, cwd, tools, result, read, tokens=None, schema=None, temp_files=False):
         """Returns `read(text)`. A reply it cannot read is asked for once more, in the same session: the work is
-        done, and only its last message is missing. It goes to the CLI that ran it."""
+        done, and only its last message is missing. It goes to the CLI that ran it, in the same sandbox."""
         try:
             return read(result.text)
         except BROKEN_REPLY as e:
@@ -540,7 +543,7 @@ class Supervisor:
                 raise
             self._decide(task, "reply_reasked", f"{role}: {e}")
             again = self._agent(task, role, cwd, agents.reask_prompt(e), tools, new_run_id(self.now()), tokens,
-                                schema, resume=result.session_id, cli=result.cli)
+                                schema, resume=result.session_id, cli=result.cli, temp_files=temp_files)
             return read(again.text)
 
     def _worktree(self, task, base):
@@ -678,8 +681,6 @@ class Supervisor:
         self._phase(task, f"review round {round_number}")
         to_fix = self._to_fix(task, reviews[-1]) if reviews else []
         language = self.config.settings.language
-        run_id = new_run_id(self.now())
-        cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
         # A second review checks the first one's findings, so it runs on the same agent CLI; a first one on the choice.
         cli = reviews[-1].get("cli", CLAUDE) if to_fix else self._cli(task.project, "reviewer")
         if cli not in AGENT_CLIS:
@@ -695,16 +696,32 @@ class Supervisor:
                                             companions, criteria, first_n, self.github.default_branch(task.repo),
                                             local_dir=self.local_dir, copy=self._copy(task.project))
         tools = agents.reviewer_tools(task.project, self._rules("reviewer"), self._remote(task.project), cli)
-        result = self._agent(task, "reviewer", cwd, prompt, tools, run_id, schema=review.REPORT_SCHEMA, cli=cli)
-
+        # A Codex reviewer may write temp files to run the tests, so code checks it left its checkout as it was.
+        codex = cli == CODEX
         stale = []
 
         def read(text):
             report = review.parse_report(text)
             stale[:] = review.validate_report(report, to_fix, second=bool(to_fix))
             return report
+        for _ in range(CHECKOUT_TRIES):
+            run_id = new_run_id(self.now())
+            cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)  # back to the head as pushed
+            result = self._agent(task, "reviewer", cwd, prompt, tools, run_id, schema=review.REPORT_SCHEMA, cli=cli,
+                                 temp_files=codex)
+            try:
+                report = self._reply(task, "reviewer", cwd, tools, result, read, schema=review.REPORT_SCHEMA,
+                                     temp_files=codex)
+            except review.ReportError as e:
+                raise KanduTrouble(f"reviewer run {run_id}: {e}") from e
+            changed = self.runner.checkout_changed(task.project, cwd, head) if codex else None
+            if changed is None:
+                break
+            # Not posted: a review counts only for the head as it was pushed.
+            self._decide(task, "review_changed_checkout", f"reviewer run {run_id}: {changed}")
+        else:
+            raise TaskFailed(f"the Codex review changed its checkout {CHECKOUT_TRIES} times: {changed}")
         try:
-            report = self._reply(task, "reviewer", cwd, tools, result, read, schema=review.REPORT_SCHEMA)
             dropped = (review.carry_over(report, reviews[-1], to_fix) if to_fix else
                        review.hold_to_scope(report, criteria, [f["path"] for f in pr["files"]]))
         except review.ReportError as e:

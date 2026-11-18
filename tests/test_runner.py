@@ -826,13 +826,52 @@ class CodexTest(GitCase):
         self.assertEqual(self.args()[self.args().index("--sandbox") + 1], "read-only")
         self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", self.args())
 
-    def test_a_codex_reviewer_runs_read_only_whatever_its_rules_allow(self):
+    def test_a_codex_reviewer_writes_only_its_checkout_and_temp_files_with_no_network(self):
         for rules in (None, Rules(allow=["Read", "Edit", "Write(**)", "NotebookEdit"], deny=["Read(**/.env)"])):
             allowed, denied = agents.reviewer_tools(self.project(), rules, cli="codex")
-            self.runner.run_agent("box", str(self.home), "review", allowed, denied, "r-1", lambda: False, cli="codex")
+            self.runner.run_agent("box", str(self.home), "review", allowed, denied, "r-1", lambda: False, cli="codex",
+                                  temp_files=True)
             args = self.args()
-            self.assertEqual(args[args.index("--sandbox") + 1], "read-only", rules)
+            self.assertEqual(args[args.index("--sandbox") + 1], "workspace-write", rules)
+            # The network stays off, as in the read-only sandbox it had, whatever Codex's own config says.
+            self.assertIn("sandbox_workspace_write.network_access=false", args)
+            self.assertNotIn("sandbox_workspace_write.network_access=true", args)
+            # Its checkout and the temp folders, and nothing more: not the copy's git folder, no other root.
+            self.assertIn("sandbox_workspace_write.writable_roots=[]", args)
+            self.assertIn("sandbox_workspace_write.exclude_tmpdir_env_var=false", args)
+            self.assertIn("sandbox_workspace_write.exclude_slash_tmp=false", args)
+            self.assertNotIn("--add-dir", args)
             self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", args)
+
+    def test_a_codex_worker_that_may_change_no_file_stays_read_only(self):
+        allowed, denied = agents.reviewer_tools(self.project(), None, cli="codex")
+        self.runner.run_agent("box", str(self.home), "work", allowed, denied, "r-1", lambda: False, cli="codex")
+        self.assertEqual(self.args()[self.args().index("--sandbox") + 1], "read-only")
+
+    def review_with(self, script):
+        """A fake Codex review that runs `script` in its checkout of a pushed head; returns what code finds there."""
+        self.push_commit("kandu/1-a", ".gitignore", "build/\n")
+        head = self.push_commit("kandu/1-a", "src/a.py")
+        cwd = self.runner.prepare_review(self.project(), "o/site", "kandu/1-a", head)
+        install(self.home / ".local" / "bin" / "codex", FAKE_CODEX.replace("#!/bin/sh\n", "#!/bin/sh\n" + script))
+        allowed, denied = agents.reviewer_tools(self.project(), None, cli="codex")
+        self.runner.run_agent("box", cwd, "review", allowed, denied, "r-1", lambda: False, cli="codex",
+                              temp_files=True)
+        return self.runner.checkout_changed(self.project(), cwd, head)
+
+    def test_a_codex_review_that_changes_a_tracked_file_changed_its_checkout(self):
+        self.assertEqual(self.review_with('echo changed >> src/a.py\n'), "tracked files changed: src/a.py")
+
+    def test_a_codex_review_that_only_writes_temp_files_left_its_checkout_as_it_was(self):
+        # A test suite's temp folder, a new file in the checkout and a file git ignores do not count.
+        self.assertIsNone(self.review_with('d=$(TMPDIR="$HOME" mktemp -d) && echo x > "$d/t" && mkdir -p .cache build '
+                                           '&& echo x > .cache/t && echo x > build/out\n'))
+
+    def test_a_codex_review_that_moves_its_checkout_changed_it(self):
+        first = self.push_commit("kandu/1-a", "src/first.py")
+        found = self.review_with(f'git checkout --quiet --detach {first}\n')
+        self.assertEqual(found.split(" from ")[0], "the checkout moved")
+        self.assertIn(first, found)
 
     def test_a_run_that_may_edit_writes_its_checkout_and_commits_and_pushes(self):
         worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")

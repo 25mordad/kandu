@@ -222,12 +222,21 @@ class _ClaudeReply:
                            session_id=result.get("session_id"))
 
 
-def _codex_limits(host, cwd, allowed):
+# A run that may change no file but writes temp files, such as a reviewer's tests: it writes its checkout and the
+# temp folders alone, with the network as read-only has it, off, whatever Codex's own config says. Code checks after
+# the run that the checkout is unchanged (`Runner.checkout_changed`).
+TEMP_FILES_LIMITS = ["--sandbox", "workspace-write", "-c", "sandbox_workspace_write.network_access=false",
+                     "-c", "sandbox_workspace_write.writable_roots=[]",
+                     "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=false",
+                     "-c", "sandbox_workspace_write.exclude_slash_tmp=false"]
+
+
+def _codex_limits(host, cwd, allowed, temp_files=False):
     """Codex's sandbox for a run's allow list. Codex cannot deny single rules: code checks what a run changed."""
     if allowed is None:
         return ["--dangerously-bypass-approvals-and-sandbox"]
     if not any(rule.split("(")[0] in EDIT_TOOLS for rule in allowed):
-        return ["--sandbox", "read-only"]
+        return list(TEMP_FILES_LIMITS) if temp_files else ["--sandbox", "read-only"]
     limits = ["--sandbox", "workspace-write", "-c", "sandbox_workspace_write.network_access=true"]
     # A worktree's commits go to its copy's git folder, outside the checkout.
     found = host.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=cwd)
@@ -615,6 +624,17 @@ class Runner:
         host.check(["git", "branch", "-D", branch], cwd=path)
         return REMOVED
 
+    def checkout_changed(self, project, cwd, head_sha):
+        """Why the checkout in `cwd` is no longer `head_sha` as it was handed, or None: its head moved, or a tracked
+        file changed, staged or not. New files, untracked or ignored, such as a test cache, do not count."""
+        host = self.hosts[project.machine]
+        at = host.check(["git", "rev-parse", "--verify", "HEAD"], cwd=cwd).strip()
+        if at != head_sha:
+            return f"the checkout moved from {head_sha} to {at}"
+        status = host.check(["git", "status", "--porcelain", "--untracked-files=no"], cwd=cwd)
+        paths = [line[3:] for line in status.splitlines() if line.strip()]
+        return "tracked files changed: " + ", ".join(paths) if paths else None
+
     def run_command(self, project, cwd, command, log_name, secrets=False, scoped=True):
         """Runs a project's command in `cwd` and returns its exit code. Its output stays in a local log.
 
@@ -676,7 +696,7 @@ class Runner:
         return code
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
-                  schema=None, resume=None, cli=CLAUDE):
+                  schema=None, resume=None, cli=CLAUDE, temp_files=False):
         """Runs one agent process to its end, with the agent CLI `cli`; `should_stop` is polled while it runs.
 
         The run is in its own scope (`Host.scoped`): when it ends, or is
@@ -687,6 +707,8 @@ class Runner:
         missing the run ends with an error. With a `schema`, the CLI holds the
         reply to that JSON Schema, and the text is the object it returns.
         With `resume`, the prompt goes to that earlier session in `cwd`.
+        With `temp_files`, a Codex run that may change no file still writes
+        temp files (`TEMP_FILES_LIMITS`); a Claude run is as without it.
         """
         if cli not in AGENT_CLIS:
             raise RunnerError(f"not an agent CLI: {cli!r}")
@@ -698,7 +720,7 @@ class Runner:
             else:
                 schema_file = _put_schema(host, strict_schema(schema)) if schema else None
                 programs = held_programs(denied)
-                command = _codex_command(_codex_limits(host, cwd, allowed), model, schema_file, resume,
+                command = _codex_command(_codex_limits(host, cwd, allowed, temp_files), model, schema_file, resume,
                                          held=bool(programs))
                 if programs:
                     held = _put_held(host, programs)

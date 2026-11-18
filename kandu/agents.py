@@ -128,7 +128,8 @@ def worker_tools(project, branch, rules=None, remote=False):
 def reviewer_tools(project, rules=None, remote=False, cli=None):
     """Returns (allowed, denied) for a reviewer, which runs the project's tests and commands itself and reads the
     diff with git in its checkout. A Codex reviewer (`cli`) changes no file, whatever its rules allow: its allow list
-    keeps no edit rule, even with no rules in the config, so Codex's sandbox is read-only."""
+    keeps no edit rule, even with no rules in the config. Its sandbox lets its tests write temp files, so code
+    checks after the review that its checkout is unchanged (`Runner.checkout_changed`)."""
     if rules is None:
         allowed, denied = _limits(None)
     else:

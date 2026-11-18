@@ -275,8 +275,14 @@ class FakeRunner:
         self.commands.append((command, secrets))
         return 1 if command in self.failing else 0
 
+    def checkout_changed(self, project, cwd, head):
+        """What a review changed in its checkout: the next of `self.changes`, or nothing."""
+        self.checked = getattr(self, "checked", []) + [(cwd, head)]
+        changes = getattr(self, "changes", [])
+        return changes.pop(0) if changes else None
+
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
-                  schema=None, resume=None, cli="claude"):
+                  schema=None, resume=None, cli="claude", temp_files=False):
         with self.lock:
             self.running += 1
             self.most_running = max(self.most_running, self.running)
@@ -285,7 +291,7 @@ class FakeRunner:
             step = next(each for task, each in step.items() if task in prompt)
         self.runs.append(SimpleNamespace(machine=machine, cwd=cwd, prompt=prompt, allowed=allowed, denied=denied,
                                          model=model, tokens=tokens, schema=schema, resume=resume,
-                                         cli=cli))
+                                         cli=cli, temp_files=temp_files))
         result = step() if callable(step) else step
         with self.lock:
             self.running -= 1
@@ -1956,7 +1962,7 @@ class CodexReviewerTest(Base):
         reviewer = self.runner.runs[1]
         self.assertEqual(reviewer.cli, "codex")
         edits = [rule for rule in reviewer.allowed if rule.split("(")[0] in ("Edit", "Write", "NotebookEdit", "MultiEdit")]
-        self.assertEqual(edits, [])  # an allow list with no edit rule: Codex's sandbox is read-only
+        self.assertEqual(edits, [])  # an allow list with no edit rule: code checks its checkout after
         return reviewer
 
     def test_a_codex_reviewer_with_no_rules_in_the_config_may_change_no_file(self):
@@ -2071,6 +2077,57 @@ class CodexReviewerTest(Base):
         self.runner.steps = [report(SHA1)]
         self.cycle()
         self.assertEqual(self.clis(), ["claude", "codex"])
+
+    def test_only_a_codex_review_may_write_temp_files(self):
+        self.config.projects[0].agent_cli = {"worker": "codex", "reviewer": "codex"}
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual([(run.cli, run.temp_files) for run in self.runner.runs], [("codex", False), ("codex", True)])
+
+    def test_a_codex_review_that_left_its_checkout_as_it_was_is_posted(self):
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.runner.checked, [(f"/review/{SHA1}", SHA1)])
+        self.assertEqual(len(self.comments()), 1)
+        self.assertEqual(self.changed_checkout(), [])
+
+    def changed_checkout(self):
+        return [e["reason"] for e in self.events("decision") if e["decision"] == "review_changed_checkout"]
+
+    def test_a_codex_review_that_changed_its_checkout_is_not_posted_and_runs_once_more(self):
+        self.runner.changes = ["tracked files changed: a.py"]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]), report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.clis(), ["claude", "codex", "codex"])
+        self.assertEqual(len(self.runner.checked), 2)
+        [why] = self.changed_checkout()
+        self.assertIn("tracked files changed: a.py", why)
+        # Only the second review is posted: the first one's blocker is nowhere.
+        self.assertEqual(len(self.comments()), 1)
+        self.assertNotIn("This breaks.", self.comments()[0]["body"])
+        self.assertEqual([e["findings"] for e in self.events("review_finished")], [0])
+
+    def test_a_codex_review_that_changes_its_checkout_twice_stops_the_task_for_the_user(self):
+        self.runner.changes = ["tracked files changed: a.py", "the checkout moved from a to b"]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1), report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.clis(), ["claude", "codex", "codex"])
+        self.assertEqual(len(self.changed_checkout()), 2)
+        self.assertEqual(self.comments(), [])
+        self.assertEqual(self.events("review_finished"), [])
+        self.assertEqual(self.github.status(1), "Blocked")
+        failed = [e["reason"] for e in self.events("decision") if e["decision"] == "failed"]
+        self.assertEqual(len(failed), 1)
+        self.assertIn("the checkout moved from a to b", failed[0])
+
+    def test_a_claude_review_is_not_checked_as_a_codex_one(self):
+        self.config.projects[0].agent_cli = {"worker": "codex"}
+        self.runner.changes = ["tracked files changed: a.py"]
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        self.assertEqual([(run.cli, run.temp_files) for run in self.runner.runs], [("codex", False), ("claude", False)])
+        self.assertFalse(hasattr(self.runner, "checked"))
+        self.assertEqual(len(self.comments()), 1)
 
     def test_a_codex_review_gets_no_claude_model(self):
         self.config.settings.claude.models = {"worker": "claude-model", "reviewer": "claude-model"}
