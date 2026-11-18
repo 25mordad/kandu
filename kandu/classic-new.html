@@ -205,10 +205,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .sign-text { fill:#3a2608; font:700 14px var(--sans); text-anchor:middle; }
 .mark { fill:#fffdf5; stroke:#3a2608; stroke-width:1; }
 .mark.ask { fill:#f2a65a; }
-.mark.yours { fill:#e8590c; animation:blink 1.6s ease-in-out infinite; }
-@keyframes blink { 50% { opacity:.45; } }
+.mark.yours { fill:#e8590c; }
 .mark-text { fill:#3a2608; font:700 9.5px var(--sans); text-anchor:middle; }
-.wait-ring { fill:none; stroke:#e8590c; stroke-width:4; transform-box:fill-box; transform-origin:center; animation:halo 1.8s ease-out infinite; }
+.wait-ring { fill:none; stroke:#e8590c; stroke-width:4; }
 .patch-name { fill:var(--ink); font:600 15px var(--sans); text-anchor:middle; }
 .tgauge-row { display:flex; align-items:center; justify-content:center; height:100%; }  /* the token gauge under a patch's name */
 .flower-number { fill:var(--ink); font:600 13px var(--sans); text-anchor:middle; }
@@ -216,14 +215,10 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .band { fill:var(--hive); stroke:var(--hive-dark); stroke-width:2; }
 .door { fill:#3a2608; }
 .asleep .band { filter:saturate(.55) brightness(.75); }
-.zzz { fill:var(--ink); font:700 20px var(--sans); animation:rise 3.5s ease-in-out infinite; }
-.zzz.two { animation-delay:1.2s; } .zzz.three { animation-delay:2.4s; }
-@keyframes rise { 0% { opacity:0; transform:translateY(8px); } 30% { opacity:.9; } 100% { opacity:0; transform:translateY(-26px); } }
-.sway { transform-box:fill-box; transform-origin:50% 100%; animation:sway 5s ease-in-out infinite; }
-.sway.alt { animation-delay:-2.4s; }
+.zzz { fill:var(--ink); font:700 20px var(--sans); opacity:.8; }
 @keyframes spin { to { transform:rotate(360deg); } }
-@keyframes sway { 0%,100% { transform:rotate(-2.5deg); } 50% { transform:rotate(2.5deg); } }
-.wing { fill:#fff; opacity:.75; stroke:#7c6238; stroke-width:.6; transform-box:fill-box; transform-origin:50% 100%; animation:flap .16s ease-in-out infinite alternate; }
+.wing { fill:#fff; opacity:.75; stroke:#7c6238; stroke-width:.6; transform-box:fill-box; transform-origin:50% 100%; }
+.flying .wing { animation:flap .16s ease-in-out infinite alternate; }  /* only a bee whose agent runs flaps */
 .wing.low { transform-origin:50% 0; }
 @keyframes flap { from { transform:scaleY(1); } to { transform:scaleY(.45); } }
 .body { fill:#f5b301; stroke:#3a2608; stroke-width:1; } .stripe { fill:#3a2608; } .head { fill:#3a2608; }
@@ -237,6 +232,9 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .speech text { fill:#3a2608; font:600 13px var(--sans); text-anchor:middle; unicode-bidi:plaintext; }
 .speech.back rect, .speech.back path { fill:#fde2c4; stroke:#b4580f; }
 .paused * { animation-play-state:paused !important; }
+/* Calm, this browser's choice: nothing moves, as with reduced motion. */
+[data-calm="on"] *, [data-calm="on"] *::before, [data-calm="on"] *::after { animation:none !important; transition:none !important; }
+#calm[aria-pressed="true"] { box-shadow:inset 0 0 0 2px currentColor; }
 
 .merge-mark { font-weight:500; font-size:13px; }
 .merge-dot.auto { fill:#2f8a4e; color:#2f8a4e; } .merge-dot.waits { fill:#e8590c; color:#e8590c; } .merge-dot.frozen { fill:#3d8fb8; color:#3d8fb8; }
@@ -244,7 +242,7 @@ dialog::backdrop { background:#0000006b; backdrop-filter:blur(2px); }
 .stepper b { min-width:2.2em; text-align:center; }
 .pace-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 0; }
 .tokens-field { width:9em; }
-@media (prefers-reduced-motion: reduce) { .sway, .wing, .zzz, .halo, .wait-ring, .btn.busy::before { animation:none; } .btn, .meter i { transition:none; } }
+@media (prefers-reduced-motion: reduce) { .flying .wing, .halo, .btn.busy::before { animation:none; } .btn, .meter i { transition:none; } }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } }
 #projectsettings { overflow-x:auto; }
@@ -277,7 +275,7 @@ dialog.menu { margin-top:44px; }
 .top .pulse { flex:0 1 auto; min-width:8px; }
 .top .btn { gap:5px; }
 @media (max-width: 1560px) { .top .pulse > span { display:none; } }
-@media (max-width: 1400px) { .top #reload .lbl, .top #restart .lbl, .top #look .lbl { display:none; } .top #reload, .top #restart { width:32px; padding:0; } }
+@media (max-width: 1400px) { .top #reload .lbl, .top #restart .lbl, .top #calm .lbl, .top #look .lbl { display:none; } .top #reload, .top #restart, .top #calm { width:32px; padding:0; } }
 @media (max-width: 1080px) { .top #wakelabel { display:none; } .top .tab { padding-inline:7px; } }
 @media (max-width: 760px) { .top .bar { flex-wrap:wrap; row-gap:0; } .top .tabs { order:10; flex:1 0 100%; } .top .spacer { flex:1; } }
 .cells { direction:ltr; }
@@ -477,6 +475,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
     <span id="didbanbox" class="flightbox"></span>
     <span id="zanbourdarbox" class="flightbox"></span>
     <button id="telegram" class="btn plain icon" aria-haspopup="dialog" data-hint="hint_telegram" data-t-attr="aria-label" data-t="telegram" hidden><svg class="tg-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11"/><path d="M5.4 11.6 17.3 7c.6-.2 1 .1.9.9l-2 9.5c-.1.7-.6.9-1.2.5l-3.1-2.3-1.5 1.5c-.2.2-.4.3-.7.3l.2-3.2 5.8-5.2c.3-.2-.1-.4-.4-.2l-7.2 4.5-3.1-1c-.7-.2-.7-.7.1-1z"/></svg></button>
+    <button id="calm" class="btn plain" aria-pressed="false" data-hint="hint_calm"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5z"/></svg><span class="lbl" data-t="calm"></span></button>
     <button id="look" class="btn plain" aria-haspopup="dialog" data-hint="look_hint"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-1 2-2 0-1.3-1-1.6-1-2.8 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10" cy="7" r="1.2" fill="currentColor"/><circle cx="14.5" cy="7" r="1.2" fill="currentColor"/></svg><span class="lbl" data-t="look"></span> ▾</button>
     <button id="lang" class="btn plain" lang="" data-hint="hint_lang" data-t="other_language_short"></button>
   </div>
@@ -593,6 +592,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "bee_scout": "Scout bee",
   "other_language": "فارسی",
   "look": "Look",
+  "calm": "Calm",
+  "hint_calm": "Stops all motion and live updates; the state is read once a minute. This browser keeps your choice.",
   "look_hint": "This browser keeps the look you choose.",
   "loading": "loading",
   "github_refused": "GitHub refuses calls: Kandu tries again at {at}",
@@ -1088,6 +1089,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "bee_scout": "زنبور پیشاهنگ",
   "other_language": "English",
   "look": "نما",
+  "calm": "آرام",
+  "hint_calm": "همهٔ حرکت‌ها و به‌روزرسانی زنده را می‌ایستاند و وضعیت را دقیقه‌ای یک بار می‌خواند. این مرورگر انتخابت را نگه می‌دارد.",
   "look_hint": "این مرورگر نمایی را که انتخاب کنی نگه می‌دارد.",
   "loading": "در حال بارگذاری",
   "github_refused": "GitHub تماس‌ها را رد می‌کند: کندو ساعت {at} دوباره امتحان می‌کند",
@@ -1871,7 +1874,7 @@ const get = path => fetch("/api/v1" + path).then(r => r.ok ? r.json() : Promise.
 const FIELD_KEY = "kandu-field", LANGUAGE_KEY = "kandu-language", TAB_KEY = "kandu-tab", CLOSED_KEY = "kandu-closed-projects";
 const TEXT = JSON.parse($("text").textContent);
 const LIVE_LINES = 200;
-const STILL = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // What needs the user comes first.
 const COLUMN_ORDER = ["Stuck", "Your approval", "Needs info", "Needs split", "Approved", "In review", "In progress", "waiting", "Ready", "Blocked", "Backlog", "Technical debt", "Done"];
 let flights = {open: [], flown: []};
@@ -1880,6 +1883,11 @@ let field = "active", lang = "en", tab = "meadow", shownRun = null, shownTask = 
 let lastState = null, lastQueue = null, sceneKey = null, listKey = null, briefOpen = false, closed = new Set();
 const saved = key => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
+// Calm: this browser's choice to stop all motion and live updates, kept in its storage. Nothing flies then, as with
+// reduced motion.
+const CALM_KEY = "kandu-calm";
+let calm = saved(CALM_KEY) === "on", stateReadAt = 0;
+const still = () => REDUCED || calm;
 if (saved(LANGUAGE_KEY) === "fa") lang = "fa";
 if (saved(TAB_KEY)) tab = saved(TAB_KEY);
 if (["active", "off", "all"].includes(saved(FIELD_KEY))) field = saved(FIELD_KEY);
@@ -1963,7 +1971,15 @@ function showTab(chosen) {
   for (const el of document.querySelectorAll("[data-tab]")) el.setAttribute("aria-selected", el.dataset.tab === tab);
   for (const el of document.querySelectorAll("[data-panel]")) el.hidden = el.dataset.panel !== tab;
   sceneKey = null;
-  if (lastState) renderScene(lastState, lastQueue);
+  if (lastState) drawTab();
+}
+
+// A refresh draws only the tab on show, and a tab is drawn, with what it reads of its own, when it is opened.
+function drawTab() {
+  if (tab === "meadow") { renderScene(lastState, lastQueue); }
+  if (tab === "work") { renderProjects(); renderBees(lastState); renderQueen(lastState); refreshRequests().catch(() => {}); }
+  if (tab === "settings") renderSettings(lastState);
+  refreshShown().catch(() => {});
 }
 
 function toast(text) {
@@ -2171,15 +2187,15 @@ function beeKind(phase) {
 function flight(worker, kind, spot, hive, index) {
   const label = `<title>${esc(worker.task)} · ${esc(tr(worker.phase))}</title>`;
   const run = worker.run_id ? ` class="clickable" data-run="${esc(worker.run_id)}"` : "";
-  if (STILL) return `<g${run} transform="translate(${spot.x} ${spot.y - 26})">${label}${bee(kind)}</g>`;
+  if (still()) return `<g${run} transform="translate(${spot.x} ${spot.y - 26})">${label}${bee(kind)}</g>`;
   if (kind !== "worker") {
     const circle = `M${spot.x - 26} ${spot.y} a26 26 0 1 1 52 0 a26 26 0 1 1 -52 0`;
-    return `<g${run}>${label}${bee(kind)}<animateMotion dur="${5 + index}s" repeatCount="indefinite" rotate="auto" path="${circle}"/></g>`;
+    return `<g${run}>${label}<g class="flying">${bee(kind)}</g><animateMotion dur="${5 + index}s" repeatCount="indefinite" rotate="auto" path="${circle}"/></g>`;
   }
   const midY = Math.min(hive.y, spot.y) - 70;
   const midX = (hive.x + spot.x) / 2;
   const path = `M${hive.x} ${hive.y} Q${midX} ${midY} ${spot.x} ${spot.y - 18} Q${midX} ${midY + 150} ${hive.x} ${hive.y}`;
-  return `<g${run}>${label}${bee(kind)}<animateMotion dur="${9 + index * 2}s" repeatCount="indefinite" rotate="auto" calcMode="linear"
+  return `<g${run}>${label}<g class="flying">${bee(kind)}</g><animateMotion dur="${9 + index * 2}s" repeatCount="indefinite" rotate="auto" calcMode="linear"
     keyTimes="0;0.4;0.65;1" keyPoints="0;0.5;0.5;1" path="${path}"/></g>`;
 }
 
@@ -2191,9 +2207,9 @@ function inspectorBee(looking, projects) {
   const said = t(looking.judging ? "bazras_judging" : "bazras_looking");
   const run = looking.judging ? ` class="clickable" data-run="${esc(looking.run_id)}"` : "";
   const label = `<title>${esc(looking.project)} · ${esc(said)}</title>`;
-  if (STILL) return `<g${run} transform="translate(${x} ${y})">${label}${bee("inspector")}</g>${speech(x, y - 22, said)}`;
+  if (still()) return `<g${run} transform="translate(${x} ${y})">${label}${bee("inspector")}</g>${speech(x, y - 22, said)}`;
   const circle = `M${x - 60} ${y} a60 22 0 1 1 120 0 a60 22 0 1 1 -120 0`;
-  return `<g${run}>${label}${bee("inspector")}<animateMotion dur="7s" repeatCount="indefinite" rotate="auto" path="${circle}"/></g>${speech(x, y - 30, said)}`;
+  return `<g${run}>${label}<g class="flying">${bee("inspector")}</g><animateMotion dur="7s" repeatCount="indefinite" rotate="auto" path="${circle}"/></g>${speech(x, y - 30, said)}`;
 }
 
 function hive(x, y, asleep, queenRun) {
@@ -2201,7 +2217,7 @@ function hive(x, y, asleep, queenRun) {
   const bands = widths.map((w, i) => `<rect class="band" x="${-w / 2}" y="${-96 + i * 25}" width="${w}" height="27" rx="13"/>`).join("");
   const naps = asleep ? `<text class="zzz" x="56" y="-92">z</text><text class="zzz two" x="70" y="-108">z</text><text class="zzz three" x="84" y="-124">z</text>` : "";
   return `<g class="${asleep ? "asleep" : ""}" transform="translate(${x} ${y})"><title>${t("hive")}</title>${bands}<path class="door" d="M-16 29 a16 16 0 0 1 32 0z"/>
-    <g${queenRun ? ` class="clickable" data-run="${esc(queenRun)}"` : ""} transform="translate(0 -44) rotate(-90)">${queenRun ? '<circle class="halo" r="38"/><circle class="halo" r="38" style="animation-delay:.9s"/>' : ""}${bee("queen", 1.5)}</g>
+    <g${queenRun ? ` class="clickable" data-run="${esc(queenRun)}"` : ""} transform="translate(0 -44) rotate(-90)">${queenRun ? '<circle class="halo" r="38"/><circle class="halo" r="38" style="animation-delay:.9s"/>' : ""}${queenRun ? `<g class="flying">${bee("queen", 1.5)}</g>` : bee("queen", 1.5)}</g>
     <path d="M-10 -80 l5 8 5 -8 5 8 5 -8 v12 h-20z" fill="#f5b301" stroke="#3a2608"/>${naps}${queenRun ? speech(0, -112, t("queen_deciding")) : ""}</g>`;
 }
 
@@ -2453,7 +2469,7 @@ function schip(label, value, {title = "", attrs = "", tone = "", bar = null, hre
 function hiveChip(s) {
   const asleep = s.stop_requested || s.supervisor !== "awake";
   const said = stopWord(s) || tr(s.supervisor || "never ran");
-  const ring = asleep || STILL ? "" : '<circle class="awake-ring" cy="-34" r="62"/><circle class="awake-ring" cy="-34" r="62" style="animation-delay:1.2s"/>';
+  const ring = asleep || still() ? "" : '<circle class="awake-ring" cy="-34" r="62"/><circle class="awake-ring" cy="-34" r="62" style="animation-delay:1.2s"/>';
   const queen = s.queen_run ? '<circle class="halo" cy="-44" r="38"/><circle class="halo" cy="-44" r="38" style="animation-delay:.9s"/>' : "";
   const run = s.queen_run ? ` data-run="${esc(s.queen_run)}" title="${esc(t("queen_deciding"))}"` : ` title="${esc(t("hive"))} · ${esc(said)}"`;
   return `<span class="hivechip ${asleep ? "asleep" : "awake"}"${run}><svg viewBox="-100 -150 200 205" aria-hidden="true"${s.stop_requested ? ' class="paused"' : ""}>${ring}${hive(0, 0, asleep, null)}${queen}</svg><b>${esc(said)}</b></span>`;
@@ -2571,6 +2587,7 @@ function changeBackup(button) {
 }
 
 function renderBees(s) {
+  if (tab !== "work") return;
   const workers = s.workers || [];
   $("workers").innerHTML = workers.map(w => `<div class="bee-row"><div class="bee-who"><button class="textlink" data-review="${esc(w.task)}">${bdi(repoOf(w.task))} ${numberOf(w.task)}</button>
       <div>${esc(tr(w.phase))} · ${bdi(w.machine)} · ${esc(clock(w.started))}</div></div>
@@ -2584,7 +2601,7 @@ function renderQueen(s) {
   if (!s.queen) return;
   const cost = [s.queen.tokens, s.queen.today, s.queen.limit].map(short).join(" / ");
   const long = s.queen.brief.length > 420;
-  $("queen").innerHTML = `<div class="meta">${esc(when(s.queen.ts))} · ${t("queen_cost")}: ${esc(cost)}</div>
+  if (tab === "work") $("queen").innerHTML = `<div class="meta">${esc(when(s.queen.ts))} · ${t("queen_cost")}: ${esc(cost)}</div>
     <div dir="auto" class="brief${long && !briefOpen ? " clamp" : ""}">${esc(s.queen.brief)}</div>
     ${long ? `<button class="btn plain small" data-brief>${t(briefOpen ? "show_less" : "show_more")}</button>` : ""}`;
   $("asks").innerHTML = s.queen.questions.map(q => `<div class="ask"><div class="ask-text"><div class="ask-who">${t("queen_asks")} · ${bdi(repoOf(q.task))} ${numberOf(q.task)}</div><div dir="auto">${esc(q.question)}</div></div>
@@ -2611,6 +2628,7 @@ function stopWord(s) {
 }
 
 async function refreshState() {
+  stateReadAt = Date.now();
   const s = await get("/state");
   lastState = s;
   if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
@@ -2636,7 +2654,7 @@ async function refreshState() {
   renderScene(s, lastQueue);
   renderProjects();
   renderSettings(s);
-  refreshRequests().catch(() => {});
+  if (tab === "work") refreshRequests().catch(() => {});
   return s;
 }
 
@@ -2829,6 +2847,7 @@ async function saveTelegram(button) {
 }
 
 function renderSettings(s) {
+  if (tab !== "settings") return;
   const rows = s.project_settings || [];
   const key = JSON.stringify([lang, rows, s.clean_merged, s.default_look, s.pace, s.parallel?.total]);
   if (key === renderSettings.key) return;
@@ -3055,7 +3074,7 @@ function rank(name) {
 }
 
 function renderProjects() {
-  if (!lastState) return;
+  if (!lastState || tab !== "work") return;
   const words = $("search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const projects = fields(lastState, lastQueue);
   const key = JSON.stringify([lang, words, projects, lastState.paused_projects, lastState.over_limit]);
@@ -3742,13 +3761,26 @@ $("lang").onclick = () => setLanguage(lang === "fa" ? "en" : "fa");
 $("look").onclick = openLooks;
 addEventListener("resize", () => { if (lastState) renderScene(lastState, lastQueue); });
 
+// The reads a tab needs of its own, only while it shows; it reads them again when it is opened.
+async function refreshShown() {
+  if (tab === "days") await refreshDays();
+  if (tab === "bazras") await refreshBazras();
+}
+
 async function refresh() {
-  try { const s = await refreshState(); await refreshQueue(s); await refreshDays(); await refreshFlights(); await refreshBazras(); }
+  try { const s = await refreshState(); await refreshQueue(s); await refreshFlights(); await refreshShown(); }
   catch { toast(t("api_unreachable")); }
 }
-let stream = null;
-function follow() {  // A page nobody is looking at asks for nothing, and catches up when it is seen again.
-  if (document.hidden) {
+// A burst of stream events reads the state at most once every STATE_GAP: the first at once, the rest together once
+// the gap has passed. The stream's own lines show at once.
+const STATE_GAP = 5000, LIVE_EVERY = 30000, CALM_EVERY = 60000;
+let stream = null, stateSoon = null;
+function stateLater() {
+  if (stateSoon) return;
+  stateSoon = setTimeout(() => { stateSoon = null; refreshState().catch(() => {}); }, Math.max(0, stateReadAt + STATE_GAP - Date.now()));
+}
+function follow() {  // A page nobody is looking at asks for nothing, and catches up when it is seen again. A calm one never streams.
+  if (document.hidden || calm) {
     stream?.close();
     stream = null;
   } else if (!stream) {
@@ -3756,19 +3788,40 @@ function follow() {  // A page nobody is looking at asks for nothing, and catche
     stream.onmessage = m => {
       live = [JSON.parse(m.data), ...live].slice(0, LIVE_LINES);
       renderLive();
-      refreshState();
+      stateLater();
     };
     loadLive().catch(() => {});
     refresh();
   }
 }
+function tick() {  // everything again every 30 seconds, or once a minute while calm
+  clearTimeout(tick.timer);
+  tick.timer = setTimeout(() => { if (!document.hidden) refresh(); tick(); }, calm ? CALM_EVERY : LIVE_EVERY);
+}
+function applyCalm() {
+  document.documentElement.dataset.calm = calm ? "on" : "off";
+  $("calm").setAttribute("aria-pressed", calm);
+}
+// Calm on: nothing moves, the stream closes and the state is read once a minute. Off brings both back.
+function setCalm(on) {
+  calm = on;
+  save(CALM_KEY, on ? "on" : "off");
+  applyCalm();
+  sceneKey = null;
+  if (lastState) { renderStats(lastState); drawTab(); }
+  follow();
+  tick();
+}
+$("calm").onclick = () => setCalm(!calm);
 applyLanguage();
+applyCalm();
 showTab(tab);
 renderLive();
-document.addEventListener("visibilitychange", follow);
+document.addEventListener("visibilitychange", () => { follow(); if (calm && !document.hidden) refresh(); });
 follow();
-setInterval(() => { if (!document.hidden) refresh(); }, 30000);
-setInterval(() => { if (shownRun && !document.hidden) showRun(shownRun).catch(() => {}); }, 5000);
+if (calm) refresh();
+tick();
+setInterval(() => { if (shownRun && !document.hidden && !calm) showRun(shownRun).catch(() => {}); }, 5000);
 </script>
 </body>
 </html>

@@ -1537,7 +1537,7 @@ const pick = items => items.map(i => i.label);
 console.log(JSON.stringify({{phone: pick(moreItems([], false)), wide: pick(moreItems([], true)),
   phoneOpen: moreItems({json.dumps(open_)}, false), wideOpen: pick(moreItems({json.dumps(open_)}, true))}}));""")
         self.assertEqual(menus["phone"], ["Wake the queen", "Read the board", "Restart Kandu", "Open Didban", "Open Zanbourdar",
-                                          "Bazras", "Daily usage", "Live stream", "Look", "فارسی"])
+                                          "Bazras", "Daily usage", "Live stream", "Calm", "Look", "فارسی"])
         self.assertEqual(menus["wide"], ["Read the board", "Restart Kandu", "Open Zanbourdar", "Bazras", "Daily usage",
                                          "Live stream", "Look", "فارسی"])
         self.assertEqual(menus["wideOpen"], ["Read the board", "Restart Kandu", "Close Didban", "Go to Zanbourdar",

@@ -57,3 +57,4 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Classic new look** | Classic made compact: one header row, the numbers as a strip of chips, an explanation on every part. Avoid: new classic, classic 2 |
 | **Token gauge** | In the Classic new look, the small gauge under a project's name on the meadow: its tokens today against its daily token limit, red once it reaches the limit |
 | **Kandu Clean look** | The dashboard built to the Kandu Clean design. Avoid: new look, redesign |
+| **Calm** | A switch in every look's header, each browser's own choice: nothing moves, the live stream closes and the state is read once a minute. Avoid: quiet mode, low-power mode |
