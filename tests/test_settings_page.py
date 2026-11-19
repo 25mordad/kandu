@@ -18,7 +18,7 @@ from tests import test_tasks_page as tasks
 from tests import test_today as today
 from tests.test_today import NODE, QUEUE, ROOT, Page, state
 
-LINES = ("const SETTING_GROUPS = ", "const SETTING_LABELS = ", "const SETTING_HINTS = ", "const LIMIT_STEP = ")
+LINES = ("const MODEL_KEYS = ", "const SETTING_GROUPS = ", "const SETTING_LABELS = ", "const SETTING_HINTS = ", "const LIMIT_STEP = ")
 FUNCTIONS = ("settingsProjects", "settingsProjectsHtml", "settingsDraft", "settingsCalls", "mergeOnAsked", "saveStep",
              "applySettings", "settingsBody", "settingsFoot", "settingControl", "stepper", "limitsHtml", "machinesHtml",
              "kanduHtml", "switchRow", "defaultLookHtml", "kandubanOf", "flightControls", "kandubanControls")
@@ -28,10 +28,12 @@ TOKEN = "secret-token"
 def row(name, **fields):
     return {"name": name, "paused": False, "paused_in_config": False, "max_parallel_workers": 1,
             "split_approval": "user", "queen_answers_one_way": False, "priority": 1, "daily_token_limit": 2000000,
-            "auto_merge": False, "frozen": False} | fields
+            "auto_merge": False, "frozen": False, "model_worker": "", "model_reviewer": "", "model_splitter": "",
+            "model_live_check": "", "model_bazras": "",
+            "global_models": {"worker": "", "reviewer": "", "splitter": "claude-sonnet-5-5", "live_check": "", "bazras": ""}} | fields
 
 
-ROWS = [row("website", max_parallel_workers=2, auto_merge=True), row("blog", paused=True),
+ROWS = [row("website", max_parallel_workers=2, auto_merge=True, model_worker="claude-opus-5-5"), row("blog", paused=True),
         row("shop", split_approval="queen", frozen=True)]
 MACHINES = [{"name": "hive-box", "always_on": True, "down_since": None},
             {"name": "studio", "always_on": False, "down_since": "2026-11-15T12:00:00+00:00"}]
@@ -104,6 +106,42 @@ class SettingsPageTest(unittest.TestCase, Page):
             self.assertIn(f'data-draft="{setting}"', queen, setting)
         self.assertIn('value="2000000"', work)  # its daily tokens
         self.assertIn('<b class="number">2</b>', work)  # two workers at most
+
+    def test_the_models_group_shows_each_role_its_own_model_or_the_global_one_marked_as_global(self):
+        html = self.body(ROWS[0])
+        self.assertEqual(self.text["en"]["set_group_models"], "Models")
+        models = html[html.index(">Models<"):html.index('class="set-group"><h3>' + self.text["en"]["kanduban"])]
+        for role in ("worker", "reviewer", "splitter", "live_check", "bazras"):
+            self.assertIn(f'data-draft="model_{role}"', models, role)
+        self.assertNotIn("model_queen", html)  # the queen's model is global only
+        field = lambda key: re.search(rf'<input[^>]*data-draft="{key}"[^>]*>', models).group(0)
+        self.assertIn('value="claude-opus-5-5"', field("model_worker"))  # its own
+        self.assertIn('value=""', field("model_splitter"))
+        self.assertIn('placeholder="claude-sonnet-5-5"', field("model_splitter"))  # the global one shows through
+        self.assertIn("Same as global: claude-sonnet-5-5", models)
+        self.assertIn("Same as global: Claude&#39;s default", models)  # neither names one
+        self.assertIn("Its own model · global: Claude&#39;s default", models)
+        self.assertEqual(models.count('class="model-global"'), 4)  # all but the worker come from the global setting
+        same = re.search(r'<button[^>]*data-draft="model_worker" data-value=""[^>]*>', models).group(0)
+        self.assertNotIn("disabled", same)
+        self.assertIn("disabled", re.search(r'<button[^>]*data-draft="model_reviewer" data-value=""[^>]*>', models).group(0))
+
+    def test_the_models_group_reads_in_persian(self):
+        html = self.body(ROWS[0], "fa")
+        for key in ("set_group_models", "set_model_worker", "set_model_bazras", "set_model_from_global", "set_model_same"):
+            self.assertIn(self.text["fa"][key], html, key)
+
+    def test_typing_a_model_or_same_as_global_changes_the_draft_and_save_sets_or_clears_it(self):
+        result = self.popup("""
+const field = key => controls().find(c => c.dataset.draft === key && c.dataset.value === undefined);
+const reviewer = field("model_reviewer"); reviewer.value = " claude-haiku-5-5 "; changeDraft(reviewer);
+press("model_worker", "");
+return {now: {...setEdit.now}, calls: settingsCalls("website", setEdit.was, setEdit.now), sent: [...sent]};""")
+        self.assertEqual((result["now"]["model_reviewer"], result["now"]["model_worker"]), ("claude-haiku-5-5", ""))
+        self.assertEqual(result["sent"], [])  # nothing is sent before Save
+        self.assertEqual(result["calls"], [
+            {"setting": "model_worker", "path": "/projects/website/settings?model_worker=global"},
+            {"setting": "model_reviewer", "path": "/projects/website/settings?model_reviewer=claude-haiku-5-5"}])
 
     def test_the_pop_up_draws_the_draft_not_the_saved_values(self):
         html = self.body(ROWS[0], edit='{now: {...settingsDraft(r), priority: 3, auto_merge: false}}')
@@ -560,9 +598,11 @@ class SaveThroughTheApiTest(unittest.TestCase):
         now = {k: v for k, v in was.items() if k != "paused_in_config"} | {
             "paused": True, "max_parallel_workers": was["max_parallel_workers"] + 1, "priority": was["priority"] + 1,
             "daily_token_limit": 300000, "auto_merge": not was["auto_merge"], "frozen": not was["frozen"],
-            "split_approval": "queen", "queen_answers_one_way": not was["queen_answers_one_way"]}
+            "split_approval": "queen", "queen_answers_one_way": not was["queen_answers_one_way"],
+            "model_worker": "claude-haiku-5-5"}
         page = Page()
-        script = page.function("settingsDraft") + page.function("settingsCalls") + page.line("const SETTING_GROUPS = ")
+        script = (page.function("settingsDraft") + page.function("settingsCalls") + page.line("const MODEL_KEYS = ")
+                  + page.line("const SETTING_GROUPS = "))
         done = subprocess.run([NODE, "-"], input=script + f"console.log(JSON.stringify(settingsCalls('website', settingsDraft({json.dumps(was)}), {json.dumps(now)})));",
                               capture_output=True, text=True, timeout=30)
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -573,7 +613,8 @@ class SaveThroughTheApiTest(unittest.TestCase):
         changed = {e["setting"]: (e["old"], e["new"]) for e in self.store.events(self.store.today())
                    if e["type"] == "project_setting_changed"}
         self.assertEqual(set(changed), {"priority", "daily_token_limit", "auto_merge", "frozen", "split_approval",
-                                        "queen_answers_one_way"})
+                                        "queen_answers_one_way", "model_worker"})
+        self.assertEqual(changed["model_worker"], (None, "claude-haiku-5-5"))
         self.assertEqual(changed["priority"], (was["priority"], was["priority"] + 1))
         self.assertEqual(self.store.last_event("parallel_changed")["projects"], {"website": was["max_parallel_workers"] + 1})
         self.assertEqual(self.store.last_event("project_paused")["project"], "website")

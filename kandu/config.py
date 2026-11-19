@@ -22,6 +22,7 @@ SSH_REACH = re.compile(r"ssh \w[\w.@-]*")
 RUN_MODES = ("clone", "in-place")  # where a project runs: always set by the user, never inferred
 ROLES = ("worker", "reviewer", "splitter", "live_check", "queen")
 MODEL_ROLES = ROLES + ("bazras",)  # Bazras's tools are fixed in code, so it has no `permissions` entry.
+PROJECT_MODEL_ROLES = tuple(role for role in MODEL_ROLES if role != "queen")  # the queen works for every project at once
 CLOCK = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 MODEL = re.compile(r"[a-z][\w.\[\]-]*")  # It reaches `claude --model`, so it cannot be a flag.
 GIT_NAME = re.compile(r"\w[\w./-]*")  # a remote or branch that reaches git as an argument, so never a flag
@@ -247,6 +248,8 @@ class Project:
                                      # sees only the cards assigned to its `github.account`; off, assignees do not matter
     allowed_tools: list[str] = field(default_factory=list)   # added to the worker's and live check's rules, if they have any
     reports: list[str] = field(default_factory=list)   # files on its machine that `kandu.brief show` reads, read-only
+    models: dict[str, str] = field(default_factory=dict)   # role -> model for this project; a role not named here
+                                                           # runs on `claude.models`, and without it on Claude's default
 
 
 @dataclass
@@ -289,6 +292,13 @@ class Config:
 
     def machine(self, name):
         return next(m for m in self.settings.machines if m.name == name)
+
+    def model_for(self, project, role):
+        """The model `role` runs on for `project`: its own entry, then `claude.models`, then None, Claude's default.
+        The queen works for every project at once, so only `claude.models` names hers."""
+        if project is not None and role != "queen" and role in project.models:
+            return project.models[role]
+        return self.settings.claude.models.get(role)
 
     def auto_merge_for(self, project):
         if project.auto_merge is not None:
@@ -505,6 +515,10 @@ def _check_projects(projects, s, problems):
         if p.deploy is not None:
             _check_one_of(p.deploy.mode, ("direct", "preview"), f"{where}.deploy.mode", problems)
         _check_one_of(p.split_approval, SPLIT_APPROVALS, f"{where}.split_approval", problems)
+        for role, model in p.models.items():
+            _check_one_of(role, PROJECT_MODEL_ROLES, f"{where}.models", problems)
+            if not MODEL.fullmatch(model):
+                problems.append(f"{where}.models.{role}: not a model name: {model!r}")
         _check_positive(p.priority, f"{where}.priority", problems)
         _check_positive(p.max_parallel_workers, f"{where}.max_parallel_workers", problems)
         _check_positive(p.daily_token_limit, f"{where}.daily_token_limit", problems)
@@ -863,6 +877,71 @@ def set_project_values(name, values, local_dir=DEFAULT_LOCAL_DIR):
     text = _set_project_values(path.read_text(encoding="utf-8"), name, values)
     _check_on_copy(local_dir, "projects.yaml", text)
     _replace_file(path, text)
+
+
+def set_project_model(name, role, model, local_dir=DEFAULT_LOCAL_DIR):
+    """Sets the model one role runs on for one project, in its entry's `models` block in `projects.yaml`, line by
+    line; None takes the line out, so the role runs on `claude.models` again. The next run uses it.
+
+    The whole config is checked on a copy first, so nothing is written if the role or the model is wrong.
+    """
+    problems = []
+    _check_one_of(role, PROJECT_MODEL_ROLES, f"{name}.models", problems)
+    if model is not None and not MODEL.fullmatch(model):
+        problems.append(f"{name}.models.{role}: not a model name: {model!r}")
+    if problems:
+        raise ConfigError(problems)
+    path = Path(local_dir) / "projects.yaml"
+    text = _set_project_map_value(path.read_text(encoding="utf-8"), name, "models", role,
+                                  None if model is None else json.dumps(model))
+    config = _check_on_copy(local_dir, "projects.yaml", text)
+    project = next(p for p in config.projects if p.name == name)
+    if project.models.get(role) != model:
+        raise ConfigError([f"{name}.models.{role}: could not be written; change it in projects.yaml by hand"])
+    _replace_file(path, text)
+
+
+def _set_project_map_value(text, name, block, key, value):
+    """Sets `key: value` under the `block:` of this project's entry, adding the block when it is missing; a value of
+    None takes the key out, and the block with it once nothing is left in it."""
+    lines = text.split("\n")
+    starts = [i for i, l in enumerate(lines) if re.match(r"^\s*- name:", l)]
+    start = next((i for i in starts if re.fullmatch(rf"\s*- name:\s*[\"']?{re.escape(name)}[\"']?\s*(#.*)?", lines[i])), None)
+    if start is None:
+        raise ConfigError([f"projects: no entry named {name!r} in projects.yaml"])
+    end = next((i for i in starts if i > start), len(lines))
+    key_indent = lines[start].index("name:")
+    found = [i for i in range(start + 1, end) if re.match(rf"^ {{{key_indent}}}{block}:", lines[i])]
+    if not found:
+        if value is None:
+            return text
+        while end > start + 1 and (not lines[end - 1].strip() or lines[end - 1].lstrip().startswith("#")
+                                   and len(lines[end - 1]) - len(lines[end - 1].lstrip()) <= key_indent):
+            end -= 1  # The block goes after the entry's last key, before blank lines and the next entry's comment.
+        pad = " " * key_indent
+        return "\n".join(lines[:end] + [f"{pad}{block}:", f"{pad}  {key}: {value}"] + lines[end:])
+    head = found[0]
+    if re.match(rf"^ {{{key_indent}}}{block}:\s*[^\s#]", lines[head]):
+        raise ConfigError([f"{name}.{block}: written on one line; change it in projects.yaml by hand"])
+    block_end = head + 1
+    while block_end < end and (not lines[block_end].strip()
+                               or len(lines[block_end]) - len(lines[block_end].lstrip()) > key_indent):
+        block_end += 1
+    children = [i for i in range(head + 1, block_end) if lines[i].strip() and not lines[i].lstrip().startswith("#")]
+    child = " " * (len(lines[children[0]]) - len(lines[children[0]].lstrip())) if children else " " * (key_indent + 2)
+    hit = next((i for i in children if re.match(rf"^{child}{re.escape(key)}:", lines[i])), None)
+    if value is None:
+        if hit is None:
+            return text
+        if len(children) == 1:
+            del lines[head:hit + 1]  # the block goes with its last key; a blank line after it stays
+        else:
+            del lines[hit]
+    elif hit is None:
+        lines.insert(head + 1, f"{child}{key}: {value}")
+    else:
+        lines[hit] = f"{child}{key}: {value}"  # Its old comment goes: it spoke of the old value.
+    return "\n".join(lines)
 
 
 def set_pace(values, local_dir=DEFAULT_LOCAL_DIR):

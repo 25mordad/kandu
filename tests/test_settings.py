@@ -133,6 +133,43 @@ class ApiTest(Base):
         self.assertEqual(self.store.project_settings(), {})
         self.assertIsNone(self.store.last_event("project_setting_changed"))
 
+    def test_each_role_shows_the_projects_own_model_or_none_beside_the_global_one(self):
+        own, other = self.row("internal-tool"), self.row("website")
+        self.assertEqual({k: own[k] for k in own if k.startswith("model_")},
+                         {"model_worker": "claude-opus-5-5", "model_reviewer": "", "model_splitter": "",
+                          "model_live_check": "", "model_bazras": ""})
+        self.assertEqual(other["model_worker"], "")
+        self.assertEqual(own["global_models"], {"worker": "", "reviewer": "", "splitter": "claude-sonnet-5-5",
+                                                "live_check": "claude-sonnet-5-5", "bazras": ""})
+        self.assertNotIn("model_queen", own)  # the queen's model is global only
+
+    def test_a_model_is_set_and_set_back_to_the_global_one_and_each_change_is_logged(self):
+        status, body = self.post("/api/v1/projects/website/settings?model_worker=claude-sonnet-5-5&model_splitter=claude-haiku-5-5")
+        self.assertEqual((status, body), (200, {"model_worker": "claude-sonnet-5-5", "model_splitter": "claude-haiku-5-5"}))
+        self.assertEqual(self.project().models, {"worker": "claude-sonnet-5-5", "splitter": "claude-haiku-5-5"})
+        self.assertEqual(self.row()["model_worker"], "claude-sonnet-5-5")
+        self.assertEqual(self.project("internal-tool").models, {"worker": "claude-opus-5-5"})  # the other keeps its own
+        self.assertEqual(self.api.config.model_for(self.api.config.projects[0], "worker"), "claude-sonnet-5-5")
+        status, body = self.post("/api/v1/projects/website/settings?model_splitter=global")
+        self.assertEqual((status, body), (200, {"model_splitter": ""}))
+        self.assertEqual(self.project().models, {"worker": "claude-sonnet-5-5"})
+        self.assertEqual(self.row()["model_splitter"], "")
+        self.assertEqual(self.api.config.model_for(self.api.config.projects[0], "splitter"), "claude-sonnet-5-5")
+        changes = [(e["setting"], e["old"], e["new"]) for e in self.store.events(self.store.today())
+                   if e["type"] == "project_setting_changed"]
+        self.assertEqual(changes, [("model_worker", None, "claude-sonnet-5-5"), ("model_splitter", None, "claude-haiku-5-5"),
+                                   ("model_splitter", "claude-haiku-5-5", None)])
+
+    def test_a_wrong_role_or_model_changes_nothing(self):
+        before = self.registry()
+        for query in ("model_queen=claude-sonnet-5-5", "model_wroker=claude-sonnet-5-5", "model_worker=--yolo",
+                      "priority=2&model_worker=--yolo"):
+            status, body = self.post(f"/api/v1/projects/website/settings?{query}")
+            self.assertEqual(status, 400, query)
+            self.assertIn("website.models", body["error"], query)
+        self.assertEqual(self.registry(), before)
+        self.assertIsNone(self.store.last_event("project_setting_changed"))
+
     def test_the_pace_changes_and_shows_in_the_state(self):
         self.assertEqual(dispatch(self.api, "GET", "/api/v1/state")[1]["pace"],
                          {"wake_every_minutes": 60, "max_cycle_minutes": 50})

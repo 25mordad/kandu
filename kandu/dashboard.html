@@ -458,6 +458,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
 .pace-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 0; }
 .tokens-field { width:9em; }
 .name-field { width:100%; }
+.model-row { display:flex; gap:8px; align-items:center; min-width:0; }
+.model-row .name-field { flex:1; min-width:0; }
 @media (prefers-reduced-motion: reduce) { .flying .wing, .halo, .btn.busy::before { animation:none; } .btn, .meter i { transition:none; } }
 
 @media (max-width: 980px) { .layout { grid-template-columns:minmax(0,1fr); } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
@@ -986,6 +988,17 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "set_group_work": "Work",
   "set_group_merge": "Merge",
   "set_group_queen": "The queen",
+  "set_group_models": "Models",
+  "set_model_own": "Its own model",
+  "set_model_global": "global",
+  "set_model_from_global": "Same as global",
+  "set_model_same": "Same as global",
+  "set_model_default": "Claude's default",
+  "set_model_worker": "Worker",
+  "set_model_reviewer": "Reviewer",
+  "set_model_splitter": "Splitter",
+  "set_model_live_check": "Live check",
+  "set_model_bazras": "Bazras",
   "set_run_label": "Bees work on it",
   "set_split_by": "When a task is too big, the split is accepted by",
   "set_one_way_by": "A hard-to-undo merge is answered by",
@@ -1526,6 +1539,17 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "set_group_work": "کار",
   "set_group_merge": "ادغام",
   "set_group_queen": "ملکه",
+  "set_group_models": "مدل‌ها",
+  "set_model_own": "مدل خود این پروژه",
+  "set_model_global": "سراسری",
+  "set_model_from_global": "همان سراسری",
+  "set_model_same": "همان سراسری",
+  "set_model_default": "پیش‌فرض Claude",
+  "set_model_worker": "کارگر",
+  "set_model_reviewer": "بازبین",
+  "set_model_splitter": "اندازه‌گیر",
+  "set_model_live_check": "بررسی زنده",
+  "set_model_bazras": "بازرس",
   "set_run_label": "زنبورها رویش کار می‌کنند",
   "set_split_by": "وقتی تسکی بزرگ است، شکستنش را می‌پذیرد",
   "set_one_way_by": "به ادغامی که برگشتش سخت است جواب می‌دهد",
@@ -3362,7 +3386,9 @@ function settingsProjectsHtml(projects) {
 
 // A project's pop-up shows every setting it has, in its groups. Nothing changes until Save, and then each change
 // goes through the call it always had, so it is checked and logged as before.
-const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit", "multi_user"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]]];
+// Each role a project may give a model of its own; the queen's is global only. An empty draft is "same as global".
+const MODEL_KEYS = ["model_worker", "model_reviewer", "model_splitter", "model_live_check", "model_bazras"];
+const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit", "multi_user"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]], ["set_group_models", MODEL_KEYS]];
 
 function settingsDraft(row) {
   return {name: row.name, ...Object.fromEntries(SETTING_GROUPS.flatMap(([, keys]) => keys).map(key => [key, row[key]]))};
@@ -3374,7 +3400,7 @@ function settingsCalls(name, was, now) {
   const project = encodeURIComponent(name);
   const path = (key, value) => key === "paused" ? `/projects/${project}/${value ? "pause" : "resume"}`
     : key === "max_parallel_workers" ? `/parallel?project=${encodeURIComponent(`${name}:${value}`)}`
-    : `/projects/${project}/settings?${key}=${encodeURIComponent(value)}`;
+    : `/projects/${project}/settings?${key}=${encodeURIComponent(MODEL_KEYS.includes(key) && !value ? "global" : value)}`;
   return [...SETTING_GROUPS.flatMap(([, keys]) => keys), "name"].filter(key => now[key] !== was[key]).map(key => ({setting: key, path: path(key, now[key])}));
 }
 
@@ -3408,7 +3434,7 @@ async function applySettings(name, edit, send) {
   return edit.refused;
 }
 
-const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by", multi_user: "set_multi_user"};
+const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by", multi_user: "set_multi_user", model_worker: "set_model_worker", model_reviewer: "set_model_reviewer", model_splitter: "set_model_splitter", model_live_check: "set_model_live_check", model_bazras: "set_model_bazras"};
 const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint", multi_user: "set_multi_user_hint"};
 
 // One setting's control, drawn from the draft. A pause set in the config shows and cannot move.
@@ -3424,6 +3450,14 @@ function settingControl(key, row, now) {
   if (key === "split_approval") return seg([["user", "set_me"], ["queen", "set_the_queen"]]);
   if (key === "queen_answers_one_way") return seg([["false", "set_me"], ["true", "set_the_queen"]]);
   if (key === "name") return `<div class="set-field stack">${head}<input type="text" class="name-field" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" data-draft="${key}" value="${esc(value)}" aria-label="${esc(label)}"></div>`;
+  if (MODEL_KEYS.includes(key)) {
+    // Its own model, or the global one marked as global; Claude's default when neither names one.
+    const global = row.global_models?.[key.slice(6)] || t("set_model_default");
+    const note = value ? `${t("set_model_own")} · ${t("set_model_global")}: ${global}` : `${t("set_model_from_global")}: ${global}`;
+    return `<div class="set-field stack"><div class="set-label"><span>${label}</span><small class="${value ? "" : "model-global"}" dir="auto">${esc(note)}</small></div>
+      <div class="model-row"><input type="text" class="name-field" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" data-draft="${key}" value="${esc(value)}" placeholder="${esc(global)}" aria-label="${esc(label)}">
+      <button type="button" class="btn small" data-draft="${key}" data-value=""${value ? "" : " disabled"}>${t("set_model_same")}</button></div></div>`;
+  }
   if (key === "daily_token_limit") return `<div class="set-field">${head}<input type="number" class="tokens-field" min="1" step="100000" dir="ltr" inputmode="numeric" data-draft="${key}" value="${esc(value)}" aria-label="${esc(label)}"></div>`;
   return key === "max_parallel_workers" || key === "priority" ? step() : flip();
 }
@@ -3468,7 +3502,7 @@ function changeDraft(control) {
   if (control.dataset.by) now[key] = Math.max(1, now[key] + Number(control.dataset.by));
   else if (control.dataset.value !== undefined) now[key] = {true: true, false: false}[control.dataset.value] ?? control.dataset.value;
   else if (control.getAttribute("role") === "switch") now[key] = !now[key];
-  else { now[key] = key === "name" ? control.value.trim() : control.value.trim() === "" ? "" : Number(control.value); setEdit.asking = false; $("setfoot").innerHTML = settingsFoot(setEdit); return; }
+  else { now[key] = key === "name" || MODEL_KEYS.includes(key) ? control.value.trim() : control.value.trim() === "" ? "" : Number(control.value); setEdit.asking = false; $("setfoot").innerHTML = settingsFoot(setEdit); return; }
   setEdit.asking = false;
   drawSettings();
 }

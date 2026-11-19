@@ -8,7 +8,7 @@ from unittest import mock
 
 import yaml
 
-from kandu.config import NOTIFY_EVENTS, ROLES, ConfigError, load_config, main, set_parallel
+from kandu.config import NOTIFY_EVENTS, ROLES, ConfigError, load_config, main, set_parallel, set_project_model
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "config.example"
 
@@ -182,6 +182,45 @@ class ConfigTest(unittest.TestCase):
         self.edit("kandu.yaml", lambda d: d["claude"].update(models={"worker": "--dangerously-skip-permissions"}))
         self.assertIn("claude.models.worker: not a model name", self.problems())
 
+    def test_a_projects_own_model_wins_then_the_global_one_then_claudes_default(self):
+        self.edit("kandu.yaml", lambda d: d["claude"].update(models={"worker": "global-worker", "queen": "global-queen"}))
+        self.edit("projects.yaml", lambda d: (d["projects"][0].update(models={"worker": "own-worker", "reviewer": "own-reviewer"}),
+                                              d["projects"][1].pop("models", None)))
+        config = load_config(self.local)
+        website, other = config.projects
+        self.assertEqual(config.model_for(website, "worker"), "own-worker")
+        self.assertEqual(config.model_for(website, "reviewer"), "own-reviewer")
+        self.assertEqual(config.model_for(other, "worker"), "global-worker")  # not named by the project: the global one
+        self.assertIsNone(config.model_for(other, "reviewer"))                  # named nowhere: Claude's default
+        self.assertIsNone(config.model_for(website, "splitter"))
+        self.assertEqual(config.model_for(website, "queen"), "global-queen")    # the queen's is global only
+        self.assertEqual(config.model_for(None, "queen"), "global-queen")
+
+    def test_a_project_with_no_models_runs_as_before(self):
+        self.edit("projects.yaml", lambda d: [p.pop("models", None) for p in d["projects"]])
+        config = load_config(self.local)
+        for project in config.projects:
+            self.assertEqual(project.models, {})
+            for role in ("worker", "reviewer", "splitter", "live_check", "bazras", "queen"):
+                self.assertEqual(config.model_for(project, role), config.settings.claude.models.get(role), role)
+
+    def test_a_projects_model_needs_a_role_it_may_name_and_a_real_name(self):
+        for role in ("worker", "reviewer", "splitter", "live_check", "bazras"):
+            self.edit("projects.yaml", lambda d: d["projects"][0].update(models={role: "claude-sonnet-5-5"}))
+            self.assertEqual(load_config(self.local).projects[0].models, {role: "claude-sonnet-5-5"})
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(models={"queen": "claude-sonnet-5-5"}))
+        self.assertIn("projects[0] (website).models: must be one of worker, reviewer, splitter, live_check, bazras, "
+                      "got 'queen'", self.problems())
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(models={"wroker": "claude-sonnet-5-5"}))
+        self.assertIn("projects[0] (website).models: must be one of", self.problems())
+        self.assertIn("got 'wroker'", self.problems())
+        self.edit("projects.yaml", lambda d: d["projects"][0].update(models={"worker": "--dangerously-skip-permissions"}))
+        self.assertIn("projects[0] (website).models.worker: not a model name: '--dangerously-skip-permissions'",
+                      self.problems())
+
+    def test_the_example_shows_a_projects_own_model(self):
+        self.assertEqual(load_config(self.local).projects[1].models, {"worker": "claude-opus-5-5"})
+
     def test_unknown_key_catches_typos(self):
         self.edit("kandu.yaml", lambda d: d["supervisor"].update(auto_merg=True))
         self.assertIn("supervisor.auto_merg: unknown key", self.problems())
@@ -334,6 +373,58 @@ class SetParallelTest(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 set_parallel(total, projects, self.local)
         self.assertEqual((self.text("kandu.yaml"), self.text("projects.yaml")), before)
+
+
+class SetProjectModelTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.local = Path(tmp.name)
+        shutil.copy(EXAMPLES / "kandu.example.yaml", self.local / "kandu.yaml")
+        shutil.copy(EXAMPLES / "projects.example.yaml", self.local / "projects.yaml")
+
+    def text(self):
+        return (self.local / "projects.yaml").read_text(encoding="utf-8")
+
+    def models(self):
+        return {p.name: p.models for p in load_config(self.local).projects}
+
+    def test_a_project_without_a_block_gets_one_and_the_other_project_keeps_its_own(self):
+        set_project_model("website", "worker", "claude-sonnet-5-5", self.local)
+        self.assertEqual(self.models(), {"website": {"worker": "claude-sonnet-5-5"},
+                                         "internal-tool": {"worker": "claude-opus-5-5"}})
+        set_project_model("website", "reviewer", "opus[1m]", self.local)
+        self.assertEqual(self.models()["website"], {"worker": "claude-sonnet-5-5", "reviewer": "opus[1m]"})
+        self.assertIn("# one board per family", self.text())
+
+    def test_a_value_is_changed_in_place_and_the_blocks_comment_stays(self):
+        set_project_model("internal-tool", "worker", "claude-sonnet-5-5", self.local)
+        set_project_model("internal-tool", "splitter", "claude-haiku-5-5", self.local)
+        self.assertEqual(self.models()["internal-tool"], {"worker": "claude-sonnet-5-5", "splitter": "claude-haiku-5-5"})
+        self.assertIn("# optional; this project's own model", self.text())
+
+    def test_clearing_takes_the_line_out_and_the_block_with_its_last_line(self):
+        set_project_model("internal-tool", "reviewer", "claude-sonnet-5-5", self.local)
+        set_project_model("internal-tool", "worker", None, self.local)
+        self.assertEqual(self.models()["internal-tool"], {"reviewer": "claude-sonnet-5-5"})
+        set_project_model("internal-tool", "reviewer", None, self.local)
+        self.assertEqual(self.models()["internal-tool"], {})
+        self.assertNotIn("    models:", self.text())
+        before = self.text()
+        set_project_model("website", "worker", None, self.local)  # nothing to clear: nothing changes
+        self.assertEqual(self.text(), before)
+
+    def test_a_wrong_role_model_or_project_writes_nothing_and_says_which(self):
+        before = self.text()
+        for name, role, model, says in (
+                ("website", "queen", "claude-sonnet-5-5", "website.models: must be one of"),
+                ("website", "wroker", "claude-sonnet-5-5", "website.models: must be one of"),
+                ("website", "worker", "--dangerously-skip-permissions", "website.models.worker: not a model name"),
+                ("nobody", "worker", "claude-sonnet-5-5", "no entry named 'nobody'")):
+            with self.assertRaises(ConfigError) as caught:
+                set_project_model(name, role, model, self.local)
+            self.assertIn(says, caught.exception.problems[0])
+        self.assertEqual(self.text(), before)
 
 
 class MainTest(unittest.TestCase):

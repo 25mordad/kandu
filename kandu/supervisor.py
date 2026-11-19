@@ -412,8 +412,8 @@ class Supervisor:
 
     # Running agents.
 
-    def _model(self, role):
-        return self.config.settings.claude.models.get(role)
+    def _model(self, role, project=None):
+        return self.config.model_for(project, role)
 
     def _rules(self, role):
         return getattr(self.config.settings.permissions, role)
@@ -443,7 +443,7 @@ class Supervisor:
         self._snapshot("awake")
         stop_one = self.store.worker_stop_file(run_id)
         result = self.runner.run_agent(task.project.machine, cwd, prompt, allowed, denied, run_id,
-                                       lambda: self._hard_stop() or stop_one.exists(), self._model(role), tokens,
+                                       lambda: self._hard_stop() or stop_one.exists(), self._model(role, task.project), tokens,
                                        schema, resume)
         self.store.record("run_finished", task=task.key, project=task.project.name, run_id=run_id, role=role,
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)

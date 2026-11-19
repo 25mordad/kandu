@@ -13,7 +13,9 @@ from tests.test_looks import NODE, ROOT, Served, browser, function, line, read, 
 CLEAN = read(dashboard.PAGE)
 FUNCTIONS = ("settingsDraft", "settingsCalls", "mergeOnAsked", "saveStep", "applySettings", "settingControl", "settingsBody",
              "settingsFoot", "openSettings", "drawSettings", "changeDraft", "saveSettings", "closeSettings")
-KEYS = ("set_open", "set_open_hint", "set_group_work", "set_group_merge", "set_group_queen", "set_name", "set_name_hint",
+KEYS = ("set_group_models", "set_model_own", "set_model_global", "set_model_from_global", "set_model_same",
+        "set_model_default", "set_model_worker", "set_model_reviewer", "set_model_splitter", "set_model_live_check",
+        "set_model_bazras", "set_open", "set_open_hint", "set_group_work", "set_group_merge", "set_group_queen", "set_name", "set_name_hint",
         "set_run_label", "set_running", "set_me", "set_the_queen", "set_split_by", "set_one_way_by", "set_refused",
         "set_danger", "set_merge_ask", "set_merge_no", "set_merge_yes", "set_saved")
 
@@ -42,7 +44,7 @@ class ClassicSettingsPopupTest(unittest.TestCase):
             if name == "settingControl":
                 clean = clean.replace('class="switch" role="switch"', 'class="flip" role="switch"')
             self.assertEqual(classic, clean, name)
-        for start in ("const SETTING_GROUPS = ", "const SETTING_LABELS = ", "const SETTING_HINTS = "):
+        for start in ("const MODEL_KEYS = ", "const SETTING_GROUPS = ", "const SETTING_LABELS = ", "const SETTING_HINTS = "):
             self.assertEqual(line(self.page, start), line(CLEAN, start), start)
 
     def test_its_words_are_in_both_languages_and_the_same_as_in_kandu_clean(self):
@@ -59,7 +61,7 @@ class ClassicSettingsPopupTest(unittest.TestCase):
 
     @unittest.skipUnless(NODE, "needs node to run the page's script")
     def test_save_sends_each_change_as_the_settings_page_always_did_and_the_new_name_last(self):
-        calls = run_js(line(self.page, "const SETTING_GROUPS = ") + function(self.page, "settingsDraft") + function(self.page, "settingsCalls")
+        calls = run_js(line(self.page, "const MODEL_KEYS = ") + line(self.page, "const SETTING_GROUPS = ") + function(self.page, "settingsDraft") + function(self.page, "settingsCalls")
                        + 'const row = {name: "website", paused: false, max_parallel_workers: 1, priority: 2, daily_token_limit: 5, auto_merge: false,'
                        ' frozen: false, split_approval: "user", queen_answers_one_way: false};'
                        'const was = settingsDraft(row), now = {...was, name: "site", paused: true, max_parallel_workers: 3, priority: 1,'
@@ -83,7 +85,8 @@ class ClassicSettingsBrowserTest(Served):
         report = json.loads(done.stdout)
         self.assertEqual(report["errors"], [])
         every = ["name", "paused", "max_parallel_workers", "priority", "daily_token_limit", "multi_user", "auto_merge", "frozen",
-                 "split_approval", "queen_answers_one_way"]
+                 "split_approval", "queen_answers_one_way", "model_worker", "model_reviewer", "model_splitter", "model_live_check",
+                 "model_bazras"]
         for case in report["results"]:
             name, steps = f'{case["lang"]} at {case["width"]}px', case["steps"]
             self.assertEqual(steps["look"], "classic", name)

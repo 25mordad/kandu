@@ -20,8 +20,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, rename, review, sessions, split,
                tasks, timer, tries, upstream, version, waits)
-from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, REGISTRY_SETTINGS, TECHNICAL_DEBT, ConfigError, Inspect,
-                     load_config, set_backup, set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_pace,
+from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, PROJECT_MODEL_ROLES, REGISTRY_SETTINGS,
+                     TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_pace,
                      set_default_look, set_notify_events, set_parallel, set_project_values, set_show_requests,
                      set_telegram_buttons)
 from .github import AGENT_LABEL, GitHubError, task_blockers
@@ -50,6 +50,7 @@ QUEUE_FRESH_SECONDS = 60
 QUEUE_RETRY_SECONDS = 300
 STREAM_POLL_SECONDS = 2
 EVENT_PAGE = 500
+SAME_AS_GLOBAL = "global"  # `model_ROLE=global`: the project's role runs on `claude.models` again
 RUN_ID = re.compile(r"r-[\w-]+")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 MERGEABLE_COLUMNS = ("Ready", "In progress", "In review")  # the columns a cycle picks up
@@ -1320,6 +1321,8 @@ class Api:
                  "max_parallel_workers": p.max_parallel_workers}
                 | {setting: self.store.project_setting(p, setting) for setting in PROJECT_SETTINGS}
                 | {setting: self._registry_value(p, setting) for setting in REGISTRY_SETTINGS}
+                | {f"model_{role}": p.models.get(role, "") for role in PROJECT_MODEL_ROLES}
+                | {"global_models": {role: self.config.settings.claude.models.get(role, "") for role in PROJECT_MODEL_ROLES}}
                 for p in self.config.projects]
 
     @staticmethod
@@ -1341,6 +1344,9 @@ class Api:
         `auto_merge` and `frozen` are written in its entry in `projects.yaml`, and the next cycle uses them. Nothing
         is changed if any value is wrong.
 
+        `model_ROLE` names the model ROLE runs on for this project, in its entry's `models`; `model_ROLE=global`
+        takes it out, so the role runs on `claude.models` again. The next run uses it; a run at work keeps its model.
+
         `name` renames the project, in a call of its own (`kandu.rename`): Kandu then knows it only by the new name.
         """
         project = self._project(name)
@@ -1349,8 +1355,16 @@ class Api:
             raise ApiError(400, "give a setting, such as split_approval=user")
         if "name" in given:
             return self._rename(project, given)
-        changes, registry = {}, {}
+        changes, registry, models = {}, {}, {}
         for setting, text in given.items():
+            if setting.startswith("model_"):
+                role, model = setting.removeprefix("model_"), None if text == SAME_AS_GLOBAL else text
+                if role not in PROJECT_MODEL_ROLES:
+                    raise ApiError(400, f"{project.name}.models: not a role with a model of its own: {role}")
+                if model is not None and not MODEL.fullmatch(model):
+                    raise ApiError(400, f"{project.name}.models.{role}: not a model name: {model!r}")
+                models[role] = model
+                continue
             if setting in REGISTRY_SETTINGS:
                 registry[setting] = self._read_value(REGISTRY_SETTINGS[setting], setting, text)
                 continue
@@ -1369,11 +1383,21 @@ class Api:
             for setting, value in registry.items():
                 self.store.record("project_setting_changed", project=project.name, setting=setting,
                                   old=old[setting], new=value)
+        for role, model in models.items():
+            old = project.models.get(role)
+            try:
+                with self._add_lock:
+                    set_project_model(project.name, role, model, self.local_dir)
+            except ConfigError as e:
+                raise ApiError(400, e.problems[0]) from None
+            self.refresh_config()
+            self.store.record("project_setting_changed", project=project.name, setting=f"model_{role}", old=old, new=model)
+            project = self._project(project.name)
         for setting, value in changes.items():
             old = self.store.project_setting(project, setting)
             self.store.set_project_setting(project.name, setting, value)
             self.store.record("project_setting_changed", project=project.name, setting=setting, old=old, new=value)
-        return changes | registry
+        return changes | registry | {f"model_{role}": model or "" for role, model in models.items()}
 
     def _rename(self, project, given):
         if len(given) > 1:

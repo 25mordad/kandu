@@ -82,4 +82,7 @@ projects:
     priority: 2
     max_parallel_workers: 1
     daily_token_limit: 1000000
+    models:                            # optional; this project's own model for worker, reviewer, splitter, live_check
+      worker: claude-opus-5-5          # or bazras. A role not named here runs on claude.models in kandu.yaml, then on
+                                       # Claude's default; the queen's model is set there only. The dashboard changes it
     paused: false

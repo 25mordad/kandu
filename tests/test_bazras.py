@@ -308,7 +308,7 @@ class FakeRunner:
         return self.test_code if command == project.test else self.check_code
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, schema=None, **_):
-        self.agents.append(SimpleNamespace(cwd=cwd, prompt=prompt, allowed=allowed, denied=denied, schema=schema))
+        self.agents.append(SimpleNamespace(cwd=cwd, prompt=prompt, allowed=allowed, denied=denied, schema=schema, model=model))
         self.during()
         if should_stop():  # the real runner kills the run here, and what it made is lost
             return AgentResult(stopped=True)
@@ -355,6 +355,15 @@ class LookTest(Base):
         self.assertNotIn("FAILED test_x", text)
         runs = [e for e in self.store.events(self.store.today()) if e["type"] == "run_finished"]
         self.assertEqual((runs[0]["role"], runs[0]["task"], runs[0]["project"]), ("bazras", None, self.project.name))
+
+    def test_the_judge_runs_on_the_projects_own_model_then_the_global_one(self):
+        self.config.settings.claude.models = {"bazras": "global-bazras"}
+        for own, expected in (({"bazras": "own-bazras"}, "own-bazras"), ({}, "global-bazras")):
+            self.project.models = own
+            runner = self.runner(test_code=1)
+            runner.reply = AgentResult(is_error=False, text='{"findings": []}')
+            self.inspect(runner)
+            self.assertEqual(runner.agents[0].model, expected)
 
     def test_a_stop_while_the_judge_works_lets_it_finish_and_its_report_is_kept(self):
         runner = self.runner(test_code=1)

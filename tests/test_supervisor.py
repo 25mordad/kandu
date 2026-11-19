@@ -1,3 +1,4 @@
+import dataclasses
 import fcntl
 import io
 import contextlib
@@ -587,6 +588,22 @@ class PausedOnTheDashboardTest(Base):
         self.sup._agent(task, "live_check", "/tmp", "prompt", ((), ()), "r-1")
         self.sup._agent(task, "worker", "/tmp", "prompt", ((), ()), "r-2")
         self.assertEqual([run.model for run in self.runner.runs], ["claude-sonnet-5-5", None])
+
+    def test_a_projects_own_model_wins_for_its_runs_only(self):
+        self.config.settings.claude.models = {"worker": "global-worker", "reviewer": "global-reviewer",
+                                              "queen": "global-queen"}
+        self.config.projects[0].models = {"worker": "own-worker"}
+        self.config.projects[1].models = {}
+        self.github.add(1)
+        task = read_tasks(self.config, self.github)[0]
+        other = dataclasses.replace(task, project=self.config.projects[1])
+        self.sup.workers[task.key] = {}
+        self.runner.steps = ["one", "two", "three"]
+        self.sup._agent(task, "worker", "/tmp", "prompt", ((), ()), "r-1")
+        self.sup._agent(task, "reviewer", "/tmp", "prompt", ((), ()), "r-2")
+        self.sup._agent(other, "worker", "/tmp", "prompt", ((), ()), "r-3")
+        self.assertEqual([run.model for run in self.runner.runs], ["own-worker", "global-reviewer", "global-worker"])
+        self.assertEqual(self.sup._model("queen"), "global-queen")
 
     def test_no_new_agent_starts_once_it_is_paused(self):
         self.github.add(1)
