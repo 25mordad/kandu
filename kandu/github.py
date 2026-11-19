@@ -717,6 +717,20 @@ class GitHub:
                 return None
             raise
 
+    def release(self, repo, tag):
+        """The GitHub release of a tag, or None when the tag has none."""
+        try:
+            return self._json(["api", f"repos/{repo}/releases/tags/{tag}"])
+        except GitHubError as e:
+            if "Not Found" in str(e) or "HTTP 404" in str(e):
+                return None
+            raise
+
+    def create_release(self, repo, tag, title, notes):
+        """Publishes a release of a tag that is already on GitHub. Returns its URL."""
+        return self._json(["api", f"repos/{repo}/releases", "-X", "POST", "-f", f"tag_name={tag}",
+                           "-f", f"name={title}", "-f", f"body={notes}"])["html_url"]
+
     def delete_branch(self, repo, branch):
         self._run(["api", "-X", "DELETE", f"repos/{repo}/git/refs/heads/{branch}"])
 

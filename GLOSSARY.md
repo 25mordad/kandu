@@ -41,6 +41,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Release** | A new version of Kandu: a PR on the private copy that `kandu.release` opens on the user's yes, with the next `VERSION` and its changelog entry |
 | **Changelog** | `CHANGELOG.md`, one entry for each release, newest first, its changes grouped as Breaking, Features, Fixes and Other |
 | **Breaking mark** | The `breaking` label, given to a task when it is defined (`kandu.tasks --breaking`) and carried to its PR, so a merged PR still says it was a breaking change |
+| **Publish** | The last step of Kandu's own deploy, `kandu.publish`: once a release is live and `main` is on the public upstream, it tags it `vX.Y.Z` there and creates its GitHub release with the changelog entry, after the private guard checked both |
 | **Ready task** | An `agent` task in `Ready` whose blockers are all done |
 | **Slice** | A task that delivers a complete path that can be verified alone |
 | **Blocker** | A review finding that the worker fixes and that stops the merge until it is gone |
