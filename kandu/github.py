@@ -98,6 +98,14 @@ ISSUE_QUERY = costed(f"""query($owner: String!, $name: String!, $number: Int!) {
 PR_QUERY = costed(f"""query($owner: String!, $name: String!, $number: Int!) {{
   repository(owner: $owner, name: $name) {{ pullRequest(number: $number) {{ {PR_NODE} {PR_DEEP} }} }}
 }}""")
+# A merged PR as a change of a release: its marks, and the Kind of the issue it closed on that issue's board.
+CHANGE_QUERY = costed(f"""query($owner: String!, $name: String!, $number: Int!) {{
+  repository(owner: $owner, name: $name) {{ pullRequest(number: $number) {{
+    number title labels(first: 30) {{ nodes {{ name }} }}
+    closingIssuesReferences(first: 10) {{ nodes {{ number labels(first: 30) {{ nodes {{ name }} }}
+      projectItems(first: 10) {{ nodes {{ kind: fieldValueByName(name: "Kind") {{ {SELECT_VALUE} }} }} }} }} }}
+  }} }}
+}}""")
 REPO_ISSUE_LIMIT = 500
 OPEN_PR_LIMIT = 100
 CONTENT_QUERY = costed("query($url: URI!) { resource(url: $url) { ... on Issue { id } ... on PullRequest { id } } }")
@@ -575,6 +583,67 @@ class GitHub:
         found = self._json(["api", f"repos/{repo}/pulls?state=open&head={owner}:{branch}"])
         if found:
             return found[0]["html_url"]
+        return self._json(["api", f"repos/{repo}/pulls", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}",
+                           "-f", f"head={branch}", "-f", f"base={base}"])["html_url"]
+
+    def branch_head(self, repo, branch):
+        """The SHA `branch` points at on GitHub."""
+        return self._json(["api", f"repos/{repo}/git/ref/heads/{branch}"])["object"]["sha"]
+
+    def last_commit_to(self, repo, path, ref):
+        """The SHA of the newest commit reachable from `ref` that changed `path`, or None when none did."""
+        found = self._json(["api", f"repos/{repo}/commits?sha={ref}&path={path}&per_page=1"])
+        return found[0]["sha"] if found else None
+
+    def commits_between(self, repo, base, head):
+        """The commits in `head` that `base` lacks, oldest first, as {"sha", "subject"}."""
+        commits, page = [], 1
+        while True:
+            data = self._json(["api", f"repos/{repo}/compare/{base}...{head}?per_page=100&page={page}"])
+            got = data.get("commits") or []
+            commits += [{"sha": c["sha"], "subject": c["commit"]["message"].split("\n", 1)[0]} for c in got]
+            if not got or len(commits) >= data.get("total_commits", 0):
+                return commits
+            page += 1
+
+    def file_at(self, repo, path, ref):
+        """The text of `path` at `ref`, or None when it is not there."""
+        try:
+            data = self._json(["api", f"repos/{repo}/contents/{path}?ref={ref}"])
+        except GitHubError as e:
+            if "Not Found" in str(e) or "404" in str(e):
+                return None
+            raise
+        return base64.b64decode(data["content"]).decode("utf-8")
+
+    def merged_change(self, repo, number):
+        """A merged PR as a change: its title, whether it or the issue it closes carries the breaking mark, and the
+        `Kind` of that issue on its board (None when no closed issue has one)."""
+        owner, name = repo.split("/")
+        pr = self._graphql(CHANGE_QUERY, owner=owner, name=name, number=int(number))["data"]["repository"]["pullRequest"]
+        if pr is None:
+            return None
+        issues = pr["closingIssuesReferences"]["nodes"]
+        kinds = [(item.get("kind") or {}).get("name") for issue in issues for item in issue["projectItems"]["nodes"]]
+        return {"number": pr["number"], "title": pr["title"],
+                "breaking": any(is_breaking({"labels": node["labels"]["nodes"]}) for node in [pr, *issues]),
+                "kind": next((kind for kind in kinds if kind), None)}
+
+    def files_pr(self, repo, branch, base, base_sha, files, title, body):
+        """Opens a PR into `base` from a new `branch` made on GitHub at `base_sha`, with `files` ({path: text})
+        written there: no copy of the repo is touched and nothing is pushed to `base`. Returns the PR's URL."""
+        self._run(["api", f"repos/{repo}/git/refs", "-X", "POST", "-f", f"ref=refs/heads/{branch}", "-f", f"sha={base_sha}"])
+        for path, text in files.items():
+            try:
+                existing = self._json(["api", f"repos/{repo}/contents/{path}?ref={branch}"]).get("sha")
+            except GitHubError as e:
+                if "Not Found" not in str(e) and "404" not in str(e):
+                    raise
+                existing = None
+            encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
+            put = ["api", f"repos/{repo}/contents/{path}", "-X", "PUT", "-f", f"message={title}: {path}",
+                   "-f", f"content={encoded}", "-f", f"branch={branch}"]
+            self._run(put + (["-f", f"sha={existing}"] if existing else []))
         return self._json(["api", f"repos/{repo}/pulls", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}",
                            "-f", f"head={branch}", "-f", f"base={base}"])["html_url"]
 
