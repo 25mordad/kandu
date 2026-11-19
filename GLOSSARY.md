@@ -20,6 +20,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Free flight** | A session the user opens on a task from the dashboard, with full access; Kandu's agents keep running beside it |
 | **Zanbourdar** | Persian for "beekeeper": a session the user opens beside Didban from the dashboard, with full access and tied to no task; it may change Kandu itself |
 | **Kanduban** | A session the user opens on one project from the dashboard, with full access, on the project's own machine in a worktree of its own; it works only in that project and brings its change in through a PR |
+| **Version badge** | The header's mark of the install's version, in every look, and whether it is the newest release of the public upstream, read once a day; it never updates the install |
 | **Handoff** | A job Didban hands to Zanbourdar, or to a project's Kanduban, on the user's yes, typed into that session by `kandu.handoff`, and the short report it sends back to Didban |
 | **Brief** | One short private file per project, `local/brief/<project>.md`, that Didban reads when the user names the project; it changes only through `kandu.brief` |
 | **Repo note** | `KANDU.md` in a project's repo, rendered by `kandu.note`: it says Kandu changes the repo, where its tasks are and how a breakage goes back to Kandu |

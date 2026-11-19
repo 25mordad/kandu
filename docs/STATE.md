@@ -112,6 +112,8 @@ state/
 | `backup_changed` | `enabled`, `at`, `destination`, `keep` |
 | `upstream_checked` | `remote`, `branch`, `behind`, `ahead`: the install's `main` counted against the upstream branch |
 | `upstream_check_failed` | `remote`, `branch`, `reason`: git could not fetch or count; the reason holds no password |
+| `release_read` | `repo`, `tag`, `url`: the upstream's newest release, read once a day for the header's version badge |
+| `release_read_failed` | `repo`, `reason`: GitHub could not say, or the upstream has no release yet |
 | `upstream_task_created` | `task`, `project`, `url`, `behind`: the one task "Bring in updates" made |
 | `task_finished` | `task`, `project`, `outcome` |
 

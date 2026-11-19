@@ -41,6 +41,10 @@ input, select { font:400 14px/1.4 var(--sans); min-height:36px; padding:6px 12px
 .brand { display:flex; align-items:center; gap:9px; font-size:18px; font-weight:700; }
 .brand::before { content:""; width:20px; height:18px; background:var(--honey); clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%); }
 .pulse { display:inline-flex; align-items:center; gap:7px; min-width:0; font-size:13px; color:var(--muted); }
+.version { min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:600; color:var(--muted); background:var(--sunken); border:1px solid var(--line); border-radius:999px; padding:2px 9px; text-decoration:none; }
+.version.latest { color:var(--good); }
+.version.newer { color:var(--accent); border-color:var(--honey); }
+a.version[href]:hover { text-decoration:underline; }
 .pulse i { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:none; }
 .pulse.awake i { background:var(--good); box-shadow:0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent); }
 .pulse.stopped i, .pulse.refused i { background:var(--bad); }
@@ -354,6 +358,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
 <header class="top">
   <div class="bar">
     <span class="brand" data-t="brand"></span>
+    <a id="version" class="version" hidden></a>
     <span id="pulse" class="pulse"><i></i><span id="state" dir="auto" data-t="loading"></span></span>
     <span class="spacer"></span>
     <button id="stop" class="btn danger" data-t="stop"></button>
@@ -484,6 +489,12 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
 {
  "en": {
   "brand": "Kandu",
+  "version_latest": "{v} · latest",
+  "version_newer": "{v} · {latest} is out",
+  "version_unknown": "{v} · latest not known, {tried}",
+  "version_tried": "last tried {at}",
+  "version_never_tried": "never tried",
+  "version_no_version": "no version",
   "hive": "The hive",
   "empty_meadow": "The meadow is empty: no task is on a board yet.",
   "bee_worker": "Worker bee",
@@ -954,6 +965,12 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
  },
  "fa": {
   "brand": "کندو",
+  "version_latest": "{v} · آخرین نسخه",
+  "version_newer": "{v} · نسخهٔ {latest} آمده",
+  "version_unknown": "{v} · آخرین نسخه معلوم نیست، {tried}",
+  "version_tried": "آخرین تلاش {at}",
+  "version_never_tried": "هنوز تلاش نشده",
+  "version_no_version": "بی‌نسخه",
   "hive": "کندو",
   "empty_meadow": "مرغزار خالی است: هنوز تسکی روی هیچ بوردی نیست.",
   "bee_worker": "زنبور کارگر",
@@ -1623,6 +1640,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "backup_changed": "تنظیم پشتیبان تغییر کرد",
   "upstream_checked": "فاصله با مخزن اصلی بررسی شد",
   "upstream_check_failed": "فاصله با مخزن اصلی بررسی نشد",
+  "release_read": "تازه‌ترین نسخهٔ مخزن اصلی خوانده شد",
+  "release_read_failed": "تازه‌ترین نسخهٔ مخزن اصلی خوانده نشد",
   "upstream_task_created": "تسک آوردن به‌روزرسانی‌ها ساخته شد",
   "the upstream check is off: turn it on in kandu.yaml": "بررسی مخزن اصلی خاموش است: در kandu.yaml روشنش کن",
   "no change since the last release: there is nothing to release": "از آخرین انتشار تغییری نیامده: چیزی برای انتشار نیست",
@@ -2448,11 +2467,35 @@ function stopWord(s) {
   return s.stopping ? t(s.stopping === 1 ? "stopping_one" : "stopping_many").replace("{n}", num(s.stopping)) : tr("stopped");
 }
 
+// The header's version badge, from Kandu's own log: the install's version, and whether it is the newest release of
+// the public upstream. Behind, a click opens that release's changes. The page never asks GitHub.
+function renderVersion(v) {
+  const box = $("version");
+  if (!v) { box.hidden = true; return; }
+  const mine = v.installed || t("version_no_version");
+  const tried = v.tried_at ? t("version_tried").replace("{at}", when(v.tried_at)) : t("version_never_tried");
+  const said = v.up_to_date === true ? t("version_latest").replace("{v}", mine)
+    : v.up_to_date === false ? t("version_newer").replace("{v}", mine).replace("{latest}", v.latest)
+    : t("version_unknown").replace("{v}", mine).replace("{tried}", tried);
+  box.textContent = said;
+  box.title = said;
+  box.className = `version ${v.up_to_date === true ? "latest" : v.up_to_date === false ? "newer" : "unknown"}`;
+  if (v.up_to_date === false && v.url) {
+    box.href = v.url;
+    box.target = "_blank";
+    box.rel = "noopener";
+  } else {
+    box.removeAttribute("href");
+  }
+  box.hidden = false;
+}
+
 async function refreshState() {
   stateReadAt = Date.now();
   const s = await get("/state");
   lastState = s;
   if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
+  renderVersion(s.version_badge);
   const name = s.stop_requested ? "stopped" : (s.supervisor || "never ran");
   const refused = githubRefused(s);
   $("pulse").className = `pulse ${s.stop_requested ? "stopped" : refused ? "refused" : s.supervisor === "awake" ? "awake" : ""}`;

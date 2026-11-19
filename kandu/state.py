@@ -102,6 +102,8 @@ EVENT_FIELDS = {
     "machine_added": ("machine",),
     "upstream_checked": ("remote", "branch", "behind", "ahead"),
     "upstream_check_failed": ("remote", "branch", "reason"),
+    "release_read": ("repo", "tag", "url"),
+    "release_read_failed": ("repo", "reason"),
     "upstream_task_created": TASK_FIELDS + ("url", "behind"),
 }
 # Each setting a project may have in the dashboard's settings section, with its values. One there wins over the registry.

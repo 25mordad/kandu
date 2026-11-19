@@ -311,6 +311,9 @@ class Mirror:
     def repo_is_public(self, repo):
         return self.remote.repo_is_public(repo)
 
+    def latest_release(self, repo):
+        return self.remote.latest_release(repo)  # read once a day by `version.Releases`, which keeps it in the log
+
     def offer_file_pr(self, repo, branch, path, content, title, body):
         return self.remote.offer_file_pr(repo, branch, path, content, title, body)
 

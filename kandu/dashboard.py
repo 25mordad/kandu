@@ -299,6 +299,7 @@ class Api:
         self.restart_kandu = restart
         self.backup_timer = backup_timer
         self.upstream = upstream.Upstream(install_dir)
+        self.releases = version.Releases(install_dir)
         self.release_command = release or (lambda args: run_release(install_dir, args))
         self._release_lock = threading.Lock()  # one release at a time
         self.bot = telegram_bot.Bot(self, self._approve_from_telegram)  # it takes presses only once main() starts it
@@ -362,6 +363,7 @@ class Api:
             "looks": list(LOOKS),
             "clean_merged": self.config.settings.supervisor.clean_merged,
             "upstream": self._upstream(),
+            "version_badge": self.releases.status(self.store, self.config.settings.upstream),
             "github_refused": self._github_refused(),
             "version": version.read(),
         }
@@ -399,9 +401,15 @@ class Api:
         return self._upstream()
 
     def upstream_tick(self, now=None):
-        """The dashboard's own clock: checks when `upstream.every_hours` passed since the last try."""
+        """The dashboard's own clock: checks when `upstream.every_hours` passed since the last try, and reads the
+        upstream's newest release when a day passed since the last read. Returns True when it checked."""
         self.refresh_config()
-        return self.upstream.tick(self.store, self.config.settings.upstream, now)
+        settings = self.config.settings.upstream
+        try:
+            self.releases.tick(self.store, self.github, settings, now)
+        except Exception:  # A failed read is logged by the tick; anything else must not stop the count.
+            pass
+        return self.upstream.tick(self.store, settings, now)
 
     def bring_in_updates(self, query):
         """Creates one task on the board of Kandu's own project to bring the commits in through a PR.
@@ -1661,7 +1669,7 @@ def main():
     api = Api(config, StateStore(), open_github(config), DEFAULT_LOGS_DIR, os.environ.get(TOKEN_ENV), local_dir=args.local)
     bind, port = config.settings.dashboard.bind, config.settings.dashboard.port
     ghmeter.sample_forever()  # the limit as GitHub sees it, beside the calls the meter counts
-    upstream.tick_forever(api.upstream_tick)  # does nothing while `upstream.enabled` is off
+    upstream.tick_forever(api.upstream_tick)  # does nothing while `upstream.enabled` is off; reads releases daily
     threading.Thread(target=api.bot.run_forever, daemon=True).start()  # Telegram's buttons; idle without a token
     server = ThreadingHTTPServer((bind, port), make_handler(api))
     print(f"dashboard: http://{bind}:{port}")

@@ -674,6 +674,11 @@ class GitHub:
         self._run(["label", "create", label, "--repo", repo, "--force", "--description", description])
         self._run(["api", f"repos/{repo}/issues/{number}/labels", "-X", "POST", "-f", f"labels[]={label}"])
 
+    def latest_release(self, repo):
+        """The newest published release of `repo`, as {"tag", "url"}. Raises GitHubError when it has none."""
+        data = self._json(["api", f"repos/{repo}/releases/latest"])
+        return {"tag": data["tag_name"], "url": data["html_url"]}
+
     def default_branch(self, repo):
         data = self._json(["repo", "view", repo, "--json", "defaultBranchRef"])
         return data["defaultBranchRef"]["name"]

@@ -46,6 +46,10 @@ input, select { font:400 14px/1.4 var(--sans); min-height:36px; padding:6px 12px
 .bar { display:flex; align-items:center; gap:10px 14px; max-width:1240px; margin:auto; padding:12px 24px; flex-wrap:wrap; }
 .brand { display:flex; align-items:center; gap:10px; font-size:20px; font-weight:800; }
 .mark { flex:none; width:22px; height:25px; background:var(--honey); clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); }
+.version { min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:600; color:var(--ink2); background:var(--surface2); border-radius:999px; padding:3px 9px; text-decoration:none; }
+.version.latest { color:var(--green); background:var(--green-soft); }
+.version.newer { color:var(--amber); background:var(--amber-soft); }
+a.version[href]:hover { text-decoration:underline; }
 .chip { display:inline-flex; align-items:center; gap:7px; min-width:0; max-width:100%; padding:5px 12px; border-radius:99px; background:var(--surface2); color:var(--ink2); font-size:13px; font-weight:600; }
 .chip i { width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
 .chip.awake { background:var(--green-soft); color:var(--green); }
@@ -503,6 +507,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
 <header class="top">
   <div class="bar">
     <span class="brand"><span class="mark" aria-hidden="true"></span><span data-t="brand"></span></span>
+    <a id="version" class="version" hidden></a>
     <span id="pulse" class="chip"><i></i><span id="state" class="chip-long" dir="auto" data-t="loading"></span><span id="stateshort" class="chip-short"></span></span>
     <span id="gauges" class="gauges head-wide"></span>
     <span class="spacer"></span>
@@ -661,6 +666,12 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
 {
  "en": {
   "brand": "Kandu",
+  "version_latest": "{v} · latest",
+  "version_newer": "{v} · {latest} is out",
+  "version_unknown": "{v} · latest not known, {tried}",
+  "version_tried": "last tried {at}",
+  "version_never_tried": "never tried",
+  "version_no_version": "no version",
   "tab_today": "Today",
   "tabs_label": "Pages",
   "keep_running": "Keep running",
@@ -1195,6 +1206,12 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
  },
  "fa": {
   "brand": "کندو",
+  "version_latest": "{v} · آخرین نسخه",
+  "version_newer": "{v} · نسخهٔ {latest} آمده",
+  "version_unknown": "{v} · آخرین نسخه معلوم نیست، {tried}",
+  "version_tried": "آخرین تلاش {at}",
+  "version_never_tried": "هنوز تلاش نشده",
+  "version_no_version": "بی‌نسخه",
   "tab_today": "امروز",
   "tabs_label": "صفحه‌ها",
   "keep_running": "بگذار کار کند",
@@ -1921,6 +1938,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "backup_changed": "تنظیم پشتیبان تغییر کرد",
   "upstream_checked": "فاصله با مخزن اصلی بررسی شد",
   "upstream_check_failed": "فاصله با مخزن اصلی بررسی نشد",
+  "release_read": "تازه‌ترین نسخهٔ مخزن اصلی خوانده شد",
+  "release_read_failed": "تازه‌ترین نسخهٔ مخزن اصلی خوانده نشد",
   "upstream_task_created": "تسک آوردن به‌روزرسانی‌ها ساخته شد",
   "the upstream check is off: turn it on in kandu.yaml": "بررسی مخزن اصلی خاموش است: در kandu.yaml روشنش کن",
   "no change since the last release: there is nothing to release": "از آخرین انتشار تغییری نیامده: چیزی برای انتشار نیست",
@@ -3106,11 +3125,35 @@ async function confirmed(button, path, box) {
   $(box).close();
 }
 
+// The header's version badge, from Kandu's own log: the install's version, and whether it is the newest release of
+// the public upstream. Behind, a click opens that release's changes. The page never asks GitHub.
+function renderVersion(v) {
+  const box = $("version");
+  if (!v) { box.hidden = true; return; }
+  const mine = v.installed || t("version_no_version");
+  const tried = v.tried_at ? t("version_tried").replace("{at}", when(v.tried_at)) : t("version_never_tried");
+  const said = v.up_to_date === true ? t("version_latest").replace("{v}", mine)
+    : v.up_to_date === false ? t("version_newer").replace("{v}", mine).replace("{latest}", v.latest)
+    : t("version_unknown").replace("{v}", mine).replace("{tried}", tried);
+  box.textContent = said;
+  box.title = said;
+  box.className = `version ${v.up_to_date === true ? "latest" : v.up_to_date === false ? "newer" : "unknown"}`;
+  if (v.up_to_date === false && v.url) {
+    box.href = v.url;
+    box.target = "_blank";
+    box.rel = "noopener";
+  } else {
+    box.removeAttribute("href");
+  }
+  box.hidden = false;
+}
+
 async function refreshState() {
   stateReadAt = Date.now();
   const s = await get("/state");
   lastState = s;
   if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
+  renderVersion(s.version_badge);
   const chip = stateChip(s);
   $("pulse").className = `chip ${chip.kind}`;
   $("pulse").title = s.last_reason ? tr(s.last_reason) : "";
