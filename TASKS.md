@@ -100,6 +100,8 @@ Every task is designed and checked against harness, context and memory (§14).
 95. [x] Kandu has a version, `1.0.0` in the repo's `VERSION` file, that the install reads and reports in `GET /state`; a task defined with `kandu.tasks --breaking` gets the `breaking` label, and its PR gets the same at each review round, so a merged PR still says it was breaking. Releases, tags and publishing come later, in item 52 (§2, §12)
 96. [x] `python -m kandu.release` lists the changes merged since the last release, proposes the next version (MAJOR for a breaking one, else MINOR for a Feature, else PATCH, counting from `1.0.0`) and prints its changelog entry; only on the user's yes does it open a PR on the private copy with the new `VERSION` and `CHANGELOG.md`, pushing nothing to `main` or the public upstream. Tags and publishing still come later, in item 52 (§12)
 
+97. [x] «Cut a release» on the dashboard, in every look, and in Didban: it shows the proposed version, the changes and the changelog entry from `python -m kandu.release` without changing anything, says so and offers no confirm when nothing changed since the last release, and opens the release PR only on the user's yes to the proposal shown. Tags and publishing still come later, in item 52 (§12, §13)
+
 ## Technical debt
 38. [ ] News of a paused project can be lost: if another project wakes the queen during the pause, her look moves past that news, and after a resume she never judges it. A failed task then stays `Blocked` until the user sees it on the board (§5, §7)
 39. [x] An open dashboard spent GitHub's hourly limit: one heavy board read a minute. It now shares one light read every 15 minutes, and a hidden page asks for nothing (§7)

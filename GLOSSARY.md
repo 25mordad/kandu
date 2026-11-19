@@ -37,6 +37,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Task** | A GitHub issue on a board; only those with the label `agent` enter the loop |
 | **Token task** | An `agent` task labelled `uses-tokens`; its worker gets the project's `task_tokens` |
 | **Version** | Kandu's version number, such as `1.0.0`, held in the repo's `VERSION` file; the install reads it and reports it in `GET /state` |
+| **Cut a release** | The dashboard's action, in every look, and Didban's flow that show the next release's proposal, its version and changelog entry, and open the release PR only on the user's yes |
 | **Release** | A new version of Kandu: a PR on the private copy that `kandu.release` opens on the user's yes, with the next `VERSION` and its changelog entry |
 | **Changelog** | `CHANGELOG.md`, one entry for each release, newest first, its changes grouped as Breaking, Features, Fixes and Other |
 | **Breaking mark** | The `breaking` label, given to a task when it is defined (`kandu.tasks --breaking`) and carried to its PR, so a merged PR still says it was a breaking change |

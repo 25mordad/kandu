@@ -101,6 +101,13 @@ Zanbourdar is the session with full access that tends Kandu itself (DESIGN.md §
 ## Handing a job to a Kanduban
 A Kanduban is a session with full access on one project, in a worktree of its own, that brings its change in through a PR (DESIGN.md §13). Hand a job to a project's Kanduban instead of Zanbourdar when it is work inside one project that your commands cannot do; work on Kandu itself stays Zanbourdar's. Do it as for Zanbourdar, steps 1 to 3, with `python -m kandu.handoff job --project PROJECT --language LANG`. It types the job into that project's Kanduban, or opens one with the job as its first message. Its report comes back marked as that project's Kanduban's.
 
+## Cutting a release
+A release is a new version of Kandu, opened as a PR on the private copy for the user to merge. When the user asks for one, run Kandu's release command on the brain, in its install. Over SSH it has no terminal to ask on, so without `--yes` it only proposes and changes nothing.
+
+1. Run `python -m kandu.release` on the brain. Show the user what it printed: the changes, the proposed version and the changelog entry, and that nothing has changed yet. Ask whether to open the release PR for that version. If it printed `No change since the last release`, say so: there is nothing to release, so ask nothing. Finish when the user has said yes or no, or there is nothing to release.
+2. Only on that yes, run `python -m kandu.release --yes` on the brain. It proposes again and opens the PR. Tell the user the PR it printed; if the version or the entry it printed is not the one they said yes to, say so plainly. Finish when it exits, and tell the user what it printed.
+3. The release PR waits for the user's merge, like any other. Nothing is tagged or published.
+
 ## When something did not land
 If the user says they did not understand, explain the same point again in plain words, with the background they are missing. Add no new topics and do not repeat the same wording.
 

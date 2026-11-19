@@ -587,6 +587,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
 <dialog id="setsheet" class="sheet" data-t-attr="aria-label" data-t="tab_settings"><div id="setbody" class="sheet-body"></div><div id="setfoot" class="sheet-foot"></div></dialog>
 <dialog id="sheet" class="sheet" data-t-attr="aria-label" data-t="task_sheet"><div id="sheetbody" class="sheet-body"></div><div id="sheetfoot" class="sheet-foot"></div></dialog>
 <dialog id="modal"><div class="dialog-head"><h2 id="modaltitle"></h2><button class="btn plain small" data-close data-t-attr="aria-label" data-t="close">×</button></div><div id="modalbody" class="dialog-body"></div></dialog>
+<dialog id="releasebox" class="small"><form method="dialog" class="dialog-body">
+  <h2 id="releasehead"></h2><p id="releasewhy" class="muted" data-t="release_why"></p><pre id="releasetext" class="log" dir="ltr"></pre>
+  <div class="actions confirm-actions"><button class="btn" value="no" data-t="close"></button><button type="button" id="releasenow" class="btn primary" data-t="release_open"></button></div>
+</form></dialog>
 <dialog id="tokenbox" class="small"><form method="dialog" class="dialog-body" id="tokenform">
   <h2 data-t="control_token"></h2><p class="muted" data-t="token_why"></p>
   <input id="token" type="password" autocomplete="off" dir="ltr" data-t-attr="aria-label" data-t="control_token">
@@ -942,6 +946,13 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "upstream_task_open": "Open task",
   "upstream_task_made": "A task brings the updates in: it waits on the board",
   "upstream_task_there": "A task for the updates is already open",
+  "release_version": "Version",
+  "release_cut": "Cut a release",
+  "release_ask": "Release {to}? Kandu is at {from} now",
+  "release_why": "This is only the proposal: nothing has changed. Opening the release PR is the yes; it changes only VERSION and CHANGELOG.md through that PR, and nothing is tagged or published.",
+  "release_none": "No change since the last release",
+  "release_open": "Open the release PR",
+  "release_opened": "The release PR for {v} is open: it waits for your merge",
   "limits_title": "Usage limits",
   "parallel_title": "Workers at once",
   "parallel_why": "How many workers build at the same time. A review or a sizing takes no worker's place. The next cycle uses these.",
@@ -1469,6 +1480,13 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "upstream_task_open": "تسک باز",
   "upstream_task_made": "یک تسک به‌روزرسانی‌ها را می‌آورد: روی برد منتظر است",
   "upstream_task_there": "تسکی برای به‌روزرسانی‌ها از قبل باز است",
+  "release_version": "نسخه",
+  "release_cut": "انتشار نسخهٔ تازه",
+  "release_ask": "نسخهٔ {to} منتشر شود؟ کندو الان {from} است",
+  "release_why": "این فقط پیشنهاد است: چیزی تغییر نکرده. باز کردن PR انتشار یعنی بله؛ فقط VERSION و CHANGELOG.md را از راه همان PR تغییر می‌دهد و چیزی تگ یا منتشر نمی‌شود.",
+  "release_none": "از آخرین انتشار تغییری نیامده",
+  "release_open": "باز کردن PR انتشار",
+  "release_opened": "PR انتشار {v} باز شد: منتظر ادغام توست",
   "limits_title": "سقف مصرف",
   "parallel_title": "کارگرهای هم‌زمان",
   "parallel_why": "چند کارگر هم‌زمان کار بسازند. بازبینی و اندازه‌گیری جای کارگر را نمی‌گیرند. چرخهٔ بعدی از این عددها استفاده می‌کند.",
@@ -1905,6 +1923,9 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "upstream_check_failed": "فاصله با مخزن اصلی بررسی نشد",
   "upstream_task_created": "تسک آوردن به‌روزرسانی‌ها ساخته شد",
   "the upstream check is off: turn it on in kandu.yaml": "بررسی مخزن اصلی خاموش است: در kandu.yaml روشنش کن",
+  "no change since the last release: there is nothing to release": "از آخرین انتشار تغییری نیامده: چیزی برای انتشار نیست",
+  "the proposal changed since it was shown: look at it again": "پیشنهاد از وقتی نشان داده شد عوض شده: دوباره نگاهش کن",
+  "the release command printed no proposal": "فرمان انتشار پیشنهادی نداد",
   "main lacks no upstream commit at the last good check: check again first": "در آخرین بررسی موفق، main کامیتی از مخزن اصلی کم نداشت: اول دوباره بررسی کن",
   "bazras": "بازرس",
   "group_closed": "گروه بسته شد",
@@ -2157,6 +2178,35 @@ async function busy(button, work, text = t("working")) {
     button.classList.remove("busy");
     if (!drawn) button.textContent = label;
   }
+}
+
+// «Cut a release» (DESIGN §12): the action only reads the proposal, which `python -m kandu.release` prints with no
+// yes and changes nothing. The dialog shows it and asks; only its confirm, the user's yes, opens the release PR, and
+// only for the proposal shown. With no change since the last release it says so and offers no confirm.
+async function showRelease() {
+  const r = await fetch("/api/v1/release").catch(() => null);
+  const p = r ? await r.json().catch(() => ({})) : {};
+  if (!r?.ok) { toast(tr(p.error) || t("request_failed")); return; }
+  drawRelease(p);
+  if (!$("releasebox").open) $("releasebox").showModal();
+}
+
+function drawRelease(p) {
+  $("releasehead").textContent = p.next ? t("release_ask").replace("{to}", p.next).replace("{from}", p.version) : t("release_none");
+  $("releasewhy").hidden = !p.next;
+  $("releasetext").textContent = p.text || "";
+  $("releasenow").hidden = !p.next;
+  $("releasenow").dataset.proposal = p.next ? p.proposal : "";
+}
+
+async function cutRelease(button) {
+  const answer = await act(button, "/release?proposal=" + encodeURIComponent(button.dataset.proposal));
+  if (answer) {
+    $("releasehead").textContent = t("release_opened").replace("{v}", answer.version);
+    $("releasewhy").hidden = true;
+    $("releasetext").innerHTML = answer.url ? `<a href="${esc(answer.url)}" target="_blank" rel="noopener">${esc(answer.url)} ↗</a>` : "";
+    $("releasenow").hidden = true;
+  } else if (post.failed && "next" in post.failed) drawRelease(post.failed);  // it changed: the new proposal, to look at again
 }
 
 async function act(button, path, text) {
@@ -2561,7 +2611,13 @@ function renderStats(s) {
   const wake = `<div class="card stat"><div class="stat-label">${t("next_wake")}</div><div class="stat-value stat-small">${wakeText(s)}</div></div>`;
   const parked = debtCount();
   const debt = `<div class="card stat"><div class="stat-label">${t("debt")}</div><div class="stat-value${lastQueue ? "" : " muted"}">${lastQueue ? num(parked) : "—"}</div></div>`;
-  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + yours + debt + wake + backupCard(s.backup) + upstreamCard(s.upstream) + dropCard(s.drop_blockers) + requestsCard(s.show_requests);
+  $("stats").innerHTML = meter(t("session"), s.usage?.session, s.limits.session) + meter(t("week"), s.usage?.week, s.limits.week) + bees + yours + debt + wake + backupCard(s.backup) + upstreamCard(s.upstream) + dropCard(s.drop_blockers) + requestsCard(s.show_requests) + releaseCard(s.version);
+}
+
+// Kandu's version, and «Cut a release», which shows the proposal first.
+function releaseCard(v) {
+  return `<div class="card stat"><div class="stat-label">${t("release_version")}</div><div class="stat-value stat-small"><bdi dir="ltr">${esc(v || "—")}</bdi></div>
+    <small><button class="textlink limit-edit" data-release>${t("release_cut")}</button></small></div>`;
 }
 
 // Whether open requests show with their decision maps: off until the user turns it on here.
@@ -3984,6 +4040,7 @@ document.addEventListener("click", e => {
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }
   if (hit("backup")) { changeBackup(hit("backup")); return; }
+  if (hit("release")) { showRelease(); return; }
   if (hit("upstream-check")) { act(hit("upstream-check"), "/upstream/check").then(() => refreshState()).catch(() => {}); return; }
   if (hit("upstream-bring")) { act(hit("upstream-bring"), "/upstream/bring-in").then(answer => { if (answer) toast(t(answer.created ? "upstream_task_made" : "upstream_task_there")); return refreshState(); }).catch(() => {}); return; }
   if (hit("requests")) { act(hit("requests"), `/requests?enabled=${hit("requests").dataset.requests}`).then(() => refreshState()).catch(() => {}); return; }
@@ -4107,6 +4164,7 @@ $("stop").onclick = askStop;
 $("stopnow").onclick = e => confirmed(e.currentTarget, "/stop", "stopbox");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
 $("restartnow").onclick = e => confirmed(e.currentTarget, "/restart", "restartbox");
+$("releasenow").onclick = e => cutRelease(e.currentTarget);
 $("more").onclick = $("morenav").onclick = openMore;
 $("look").onclick = openLooks;
 

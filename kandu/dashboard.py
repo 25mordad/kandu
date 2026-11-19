@@ -4,6 +4,7 @@ The page has two looks, Kandu Clean in dashboard.html and Classic in classic.htm
 all it shows is open to any other system. Reads are open on the bound address; controls need a token.
 """
 import argparse
+import hashlib
 import hmac
 import json
 import os
@@ -283,7 +284,7 @@ class ApiError(Exception):
 class Api:
     def __init__(self, config, store, github, logs_dir, token=None, clock=time.monotonic, start_cycle=timer.start_cycle,
                  local_dir=DEFAULT_LOCAL_DIR, timer_on=timer.timer_on, flights_=None, restart=timer.restart,
-                 backup_timer=timer.enable_backup, install_dir=upstream.INSTALL_DIR, gate=None):
+                 backup_timer=timer.enable_backup, install_dir=upstream.INSTALL_DIR, gate=None, release=None):
         self.config = config
         self.gate = gate or ghlimit.GATE
         self.store = store
@@ -298,6 +299,8 @@ class Api:
         self.restart_kandu = restart
         self.backup_timer = backup_timer
         self.upstream = upstream.Upstream(install_dir)
+        self.release_command = release or (lambda args: run_release(install_dir, args))
+        self._release_lock = threading.Lock()  # one release at a time
         self.bot = telegram_bot.Bot(self, self._approve_from_telegram)  # it takes presses only once main() starts it
         self._config_stamp = config_stamp(local_dir)
         self._config_lock = threading.Lock()
@@ -414,6 +417,54 @@ class Api:
             raise ApiError(409, str(e)) from None
         self._queue_time = None
         return {"task": task, "url": url, "created": created}
+
+    def release(self, query):
+        """What the next release would be, from `python -m kandu.release` with no yes: it changes nothing.
+
+        Answers `version`, the version now; `next`, the proposed one, or null when nothing changed since the last
+        release; `text`, what the command printed: the changes and the changelog entry; and `proposal`, the
+        fingerprint of that text, which the confirm must send back.
+        """
+        return self._propose()
+
+    def cut_release(self, query):
+        """Opens the release PR, with `python -m kandu.release --yes`, only for the proposal the user saw.
+
+        The proposal is read again first: when it is not the one whose fingerprint came back, because something
+        reached `main` since, nothing is opened and the page shows the new one. Nothing here tags or publishes.
+        """
+        seen = (query.get("proposal") or [""])[0]
+        with self._release_lock:
+            proposal = self._propose()
+            if proposal["next"] is None:
+                raise ApiError(409, "no change since the last release: there is nothing to release", proposal)
+            if not seen or seen != proposal["proposal"]:
+                raise ApiError(409, "the proposal changed since it was shown: look at it again", proposal)
+            out = self._release_run(["--yes"])
+        found = RELEASE_PR.search(out)
+        return {"version": proposal["next"], "url": found.group(1) if found else None}
+
+    def _propose(self):
+        out = self._release_run([])
+        none = RELEASE_NONE.search(out)
+        proposed = RELEASE_NEXT.search(out)
+        if none:
+            text, version_now, nxt = none.group(0), none.group(1), None
+        elif proposed:
+            text = RELEASE_ASKED.sub("", out).strip()
+            version_now = (RELEASE_SINCE.search(out) or proposed).group(1)
+            nxt = proposed.group(1)
+        else:
+            raise ApiError(502, "the release command printed no proposal")
+        return {"version": version_now, "next": nxt, "text": text,
+                "proposal": hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]}
+
+    def _release_run(self, args):
+        code, out, err = self.release_command(args)
+        if code != 0:
+            said = (err or out or "").strip().splitlines()
+            raise ApiError(502, said[-1].removeprefix("release: ") if said else "the release command failed")
+        return out
 
     def _open_marks(self, marks):
         """The log's marks, with «waits for you» kept only on a task that is still open: its card on a board, not
@@ -1426,7 +1477,28 @@ ROUTES = [
     ("POST", "/backup", Api.change_backup),
     ("POST", "/upstream/check", Api.check_upstream),
     ("POST", "/upstream/bring-in", Api.bring_in_updates),
+    ("GET", "/release", Api.release),
+    ("POST", "/release", Api.cut_release),
 ]
+
+
+# What `python -m kandu.release` prints (DESIGN §12): the dashboard reads its words, and never imports it.
+RELEASE_NONE = re.compile(r"^No change since the last release \(([^)\s]+)\).*$", re.MULTILINE)
+RELEASE_SINCE = re.compile(r"^Changes since (\S+?):", re.MULTILINE)
+RELEASE_NEXT = re.compile(r"^Proposed version: (\S+)", re.MULTILINE)
+RELEASE_ASKED = re.compile(r"^Nothing changed\.\s*$", re.MULTILINE)
+RELEASE_PR = re.compile(r"^Release PR: (\S+)", re.MULTILINE)
+RELEASE_SECONDS = 180
+
+
+def run_release(install_dir, args):
+    """Runs the install's `python -m kandu.release` with no terminal, so without `--yes` it only proposes."""
+    try:
+        done = subprocess.run([sys.executable, "-m", "kandu.release", *args], cwd=install_dir, stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=RELEASE_SECONDS)
+    except subprocess.TimeoutExpired:
+        return 1, "", "the release command took too long"
+    return done.returncode, done.stdout, done.stderr
 
 
 def _pattern(template):
