@@ -200,13 +200,14 @@ class Runner:
         host.check(["gh", "repo", "clone", repo, path])
         return path
 
-    def prepare_worktree(self, project, repo, branch, base, cleaned=None):
+    def prepare_worktree(self, project, repo, branch, base, cleaned=None, settled=None):
         """Returns the worker's worktree on `branch`, reusing it if an earlier run left one.
 
         A merge, rebase or cherry-pick an earlier run left unfinished there is cancelled first, and `cleaned` is
         called with what was cancelled. A reused worktree behind the pushed branch is fast-forwarded; one ahead
-        keeps its commits. If the folder holds commits that are not on GitHub beside an unfinished operation, or
-        its branch has drifted from the pushed one, it is left as it is and `LocalWork` is raised.
+        keeps its commits. One whose branch has drifted from the pushed one is settled, and `settled` is called
+        with how (see `_settle`). If the folder holds commits that are not on GitHub beside an unfinished
+        operation, or a drift cannot be settled safely, it is left as it is and `LocalWork` is raised.
         """
         host = self.hosts[project.machine]
         with self._repo_locks[(host.name, repo)]:
@@ -217,30 +218,69 @@ class Runner:
             if host.succeeds(["test", "-d", directory]):
                 self._cancel_unfinished(host, directory, branch, cleaned)
                 if pushed:
-                    self._catch_up(host, directory, branch)
+                    self._catch_up(host, directory, branch, settled)
                 return directory
             host.check(["git", "worktree", "prune"], cwd=path)
             start = f"origin/{branch}" if pushed else f"origin/{base}"
             host.check(["git", "worktree", "add", "-B", branch, directory, start], cwd=path)
         return directory
 
-    @staticmethod
-    def _catch_up(host, directory, branch):
+    @classmethod
+    def _catch_up(cls, host, directory, branch, settled):
         """Fast-forwards a reused worktree to the pushed `branch` when it is behind. A worktree that already holds
         the pushed head (equal or ahead) keeps its commits, for the worker to push. One that has drifted apart
-        is left as it is and `LocalWork` is raised: Kandu does not settle the two itself."""
+        is settled by `_settle`."""
         remote = f"origin/{branch}"
         if host.succeeds(["git", "merge-base", "--is-ancestor", remote, "HEAD"], cwd=directory):
             return
         if host.succeeds(["git", "merge-base", "--is-ancestor", "HEAD", remote], cwd=directory):
             host.check(["git", "merge", "--ff-only", remote], cwd=directory)
             return
+        cls._settle(host, directory, branch, settled)
+
+    @staticmethod
+    def _settle(host, directory, branch, settled):
+        """Settles a local `branch` that has drifted from the pushed one, keeping every commit of both sides.
+
+        When each commit only on GitHub has a copy with the same change in the folder, as after a rebase onto a
+        newer base, the folder's branch replaces GitHub's with `--force-with-lease`, so a push made meanwhile is
+        never overwritten. Otherwise the pushed head is merged into the folder's branch, for the worker to push.
+        A merge in conflict, uncommitted changes in its way, or a refused lease leave the folder as it was and
+        raise `LocalWork`."""
+        remote = f"origin/{branch}"
+        head = host.check(["git", "rev-parse", "HEAD"], cwd=directory).strip()
+        theirs = host.check(["git", "rev-parse", remote], cwd=directory).strip()
         local = host.check(["git", "rev-list", "--count", "HEAD", "--not", remote], cwd=directory).strip()
-        theirs = host.check(["git", "rev-list", "--count", remote, "--not", "HEAD"], cwd=directory).strip()
-        raise LocalWork(f"The task's branch {branch} on {host.name} has drifted from the one on GitHub: {local} "
-                        f"commit(s) only in the task's folder and {theirs} only on GitHub. Kandu cannot settle the "
-                        f"branches itself, so it left the folder as it is and nothing is lost: rebase or merge the "
-                        f"two there, push the result, then send the task back.")
+        missing = host.check(["git", "rev-list", "--count", "--cherry-pick", "--right-only", f"HEAD...{remote}"],
+                             cwd=directory).strip()
+
+        def stop(why):
+            return LocalWork(f"The task's branch {branch} on {host.name} has drifted from the one on GitHub, and "
+                             f"Kandu cannot settle the two safely: {why}. It left the folder as it is and nothing is "
+                             f"lost: rebase or merge the two there, push the result, then send the task back.")
+
+        if missing == "0":  # merges never count as copied, so a branch with one is merged, never forced
+            if not host.succeeds(["git", "push", f"--force-with-lease=refs/heads/{branch}:{theirs}", "origin",
+                                  f"HEAD:refs/heads/{branch}"], cwd=directory):
+                raise stop(f"GitHub's branch moved from {theirs[:12]} meanwhile, so pushing over it was refused")
+            if settled is not None:
+                settled(f"the folder's branch held a rebased copy of every commit on GitHub, so Kandu pushed it "
+                        f"({head[:12]}) over GitHub's {theirs[:12]} with --force-with-lease")
+            return
+        if host.check(["git", "status", "--porcelain", "--untracked-files=no"], cwd=directory).strip():
+            raise stop(f"merging the {missing} commit(s) only on GitHub needs the folder's uncommitted changes "
+                       f"out of the way")
+        message = f"Merge the pushed {branch} into the task's folder"
+        if not host.succeeds(["git", "merge", "--no-ff", "-m", message, remote], cwd=directory):
+            conflicts = host.check(["git", "diff", "--name-only", "--diff-filter=U"], cwd=directory).split()
+            merge_head = host.check(["git", "rev-parse", "--git-path", "MERGE_HEAD"], cwd=directory).strip()
+            if host.succeeds(["test", "-e", merge_head], cwd=directory):
+                host.check(["git", "merge", "--abort"], cwd=directory)
+            raise stop(f"merging GitHub's head {theirs[:12]} conflicts in {', '.join(conflicts)}" if conflicts
+                       else f"merging GitHub's head {theirs[:12]} failed")
+        if settled is not None:
+            settled(f"the folder's branch ({local} commit(s) of its own) and GitHub's ({missing} of its own) had "
+                    f"drifted apart, so Kandu merged GitHub's head {theirs[:12]} into the folder's {head[:12]}")
 
     @staticmethod
     def _cancel_unfinished(host, directory, branch, cleaned):

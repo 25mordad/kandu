@@ -254,7 +254,7 @@ class FakeRunner:
     def reachable(self, machine):
         return machine not in self.down
 
-    def prepare_worktree(self, project, repo, branch, base, cleaned=None):
+    def prepare_worktree(self, project, repo, branch, base, cleaned=None, settled=None):
         return "/worktree"
 
     def prepare_review(self, project, repo, branch, head):
@@ -1767,7 +1767,7 @@ class FirstRunTest(Base):
         self.assertEqual(self.github.status(1), "Blocked")
 
     def test_a_cleaned_worktree_is_recorded_once(self):
-        def prepare(project, repo, branch, base, cleaned=None):
+        def prepare(project, repo, branch, base, cleaned=None, settled=None):
             cleaned("cancelled a merge an earlier run left unfinished in the task's folder")
             return "/worktree"
         self.runner.prepare_worktree = prepare
@@ -1776,6 +1776,17 @@ class FirstRunTest(Base):
         cleanups = [e for e in self.events("decision") if e["decision"] == "worktree_cleaned"]
         self.assertEqual(len(cleanups), 1)
         self.assertIn("merge", cleanups[0]["reason"])
+        self.assertEqual(self.github.status(1), "In review")
+
+    def test_a_drifted_branch_settled_on_pickup_is_logged_and_the_task_goes_on(self):
+        def prepare(project, repo, branch, base, cleaned=None, settled=None):
+            settled("Kandu merged GitHub's head abc into the folder's def")
+            return "/worktree"
+        self.runner.prepare_worktree = prepare
+        self.runner.steps = [self.worker_makes_pr(), report(SHA1)]
+        self.cycle()
+        settles = [e for e in self.events("decision") if e["decision"] == "worktree_settled"]
+        self.assertEqual([e["reason"] for e in settles], ["Kandu merged GitHub's head abc into the folder's def"])
         self.assertEqual(self.github.status(1), "In review")
 
     def test_unpushed_work_in_the_folder_stops_the_task_with_a_plain_message(self):

@@ -225,17 +225,154 @@ class RunnerTest(GitCase):
         self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), later)
         self.assertEqual(git("rev-parse", "HEAD~1", cwd=worktree), first)
 
-    def test_a_worktree_drifted_from_its_pushed_branch_stops_the_task_and_nothing_is_lost(self):
+    def identity(self):
+        names = {k: "t" for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")}
+        names |= {k: "t@example.com" for k in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL")}
+        env = mock.patch.dict(os.environ, names)
+        env.start()
+        self.addCleanup(env.stop)
+
+    def test_a_local_branch_rebased_onto_a_new_base_with_an_extra_commit_is_pushed_with_a_lease(self):
+        # The drift in #105: the worker rebased its pushed work onto a newer main, added a commit, and stopped
+        # before it pushed. GitHub still has the old head.
+        self.identity()
+        self.push_commit("kandu/1-a", "pushed.txt")
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        pushed = git("rev-parse", "HEAD", cwd=worktree)
+        self.push_commit("main", "newer-main.txt")
+        git("fetch", "origin", cwd=worktree)
+        git("rebase", "origin/main", cwd=worktree)
+        local = self.commit_here(worktree, "extra.txt")
+        settled = []
+        self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main", settled=settled.append)
+        self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), local)
+        self.assertEqual(git("rev-parse", "kandu/1-a", cwd=str(self.origin)), local)
+        self.assertEqual(git("diff", "--name-only", f"{pushed}", local, cwd=worktree).split(),
+                         ["extra.txt", "newer-main.txt"])  # the pushed work is still there, rebased
+        self.assertEqual(len(settled), 1)
+        self.assertIn("force-with-lease", settled[0])
+        self.assertIn(pushed[:12], settled[0])  # the replaced head can still be found from the log
+
+    def test_a_drifted_branch_that_is_not_a_rebase_gets_the_pushed_head_merged_in_and_keeps_both_sides(self):
+        self.identity()
         self.push_commit("kandu/1-a", "pushed.txt")
         worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
         local = self.commit_here(worktree, "mine.txt")
         remote = self.push_commit("kandu/1-a", "theirs.txt")
+        settled = []
+        self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main", settled=settled.append)
+        self.assertEqual(git("rev-parse", "HEAD^1", cwd=worktree), local)
+        self.assertEqual(git("rev-parse", "HEAD^2", cwd=worktree), remote)
+        self.assertEqual(git("status", "--porcelain", cwd=worktree), "")
+        self.assertEqual(git("rev-parse", "kandu/1-a", cwd=str(self.origin)), remote)  # the worker pushes it
+        self.assertEqual(len(settled), 1)
+        self.assertIn("merged", settled[0])
+        git("push", "origin", "kandu/1-a", cwd=worktree)  # a plain push now goes through
+
+    def test_a_rebase_that_lost_part_of_the_pushed_work_is_merged_not_forced(self):
+        self.identity()
+        self.push_commit("kandu/1-a", "pushed.txt")
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        self.push_commit("main", "newer-main.txt")
+        git("fetch", "origin", cwd=worktree)
+        git("rebase", "origin/main", cwd=worktree)
+        local = self.commit_here(worktree, "extra.txt")
+        remote = self.push_commit("kandu/1-a", "theirs.txt")  # pushed after the rebase: local lacks it
+        settled = []
+        self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main", settled=settled.append)
+        self.assertEqual(git("rev-parse", "kandu/1-a", cwd=str(self.origin)), remote)
+        self.assertEqual(git("rev-parse", "HEAD^1", cwd=worktree), local)
+        self.assertEqual(git("rev-parse", "HEAD^2", cwd=worktree), remote)
+        self.assertIn("merged", settled[0])
+
+    def test_a_pushed_merge_commit_is_never_forced_over(self):
+        self.identity()
+        self.push_commit("kandu/1-a", "pushed.txt")
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        self.push_commit("main", "newer-main.txt")
+        git("fetch", "origin", cwd=worktree)
+        git("merge", "--no-ff", "-m", "Merge main", "origin/main", cwd=worktree)
+        merged = git("rev-parse", "HEAD", cwd=worktree)
+        git("push", "origin", "kandu/1-a", cwd=worktree)
+        git("reset", "--hard", "HEAD^1", cwd=worktree)
+        git("rebase", "origin/main", cwd=worktree)  # every change is in the folder, but not the merge itself
+        local = git("rev-parse", "HEAD", cwd=worktree)
+        settled = []
+        self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main", settled=settled.append)
+        self.assertEqual(git("rev-parse", "kandu/1-a", cwd=str(self.origin)), merged)
+        self.assertEqual(git("rev-parse", "HEAD^1", cwd=worktree), local)
+        self.assertEqual(git("rev-parse", "HEAD^2", cwd=worktree), merged)
+        self.assertIn("merged", settled[0])
+
+    def test_a_drift_whose_merge_conflicts_stops_the_task_and_leaves_the_folder_as_it_was(self):
+        self.identity()
+        self.push_commit("kandu/1-a", "same.txt", "first\n")
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        local = self.commit_here(worktree, "same.txt")
+        remote = self.push_commit("kandu/1-a", "same.txt", "theirs\n")
+        settled = []
         with self.assertRaises(LocalWork) as stop:
-            self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+            self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main", settled=settled.append)
         self.assertIn("cannot settle", str(stop.exception))
+        self.assertIn("same.txt", str(stop.exception))
+        self.assertEqual(settled, [])
         self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), local)
         self.assertEqual(git("status", "--porcelain", cwd=worktree), "")
+        self.assertEqual((Path(worktree) / "same.txt").read_text(), "local")
         self.assertEqual(git("rev-parse", "kandu/1-a", cwd=str(self.origin)), remote)
+
+    def test_a_drift_with_uncommitted_changes_stops_the_task_and_leaves_them(self):
+        self.identity()
+        self.push_commit("kandu/1-a", "pushed.txt")
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        local = self.commit_here(worktree, "mine.txt")
+        (Path(worktree) / "mine.txt").write_text("not committed")
+        remote = self.push_commit("kandu/1-a", "theirs.txt")
+        with self.assertRaises(LocalWork) as stop:
+            self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main", settled=[].append)
+        self.assertIn("uncommitted", str(stop.exception))
+        self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), local)
+        self.assertEqual((Path(worktree) / "mine.txt").read_text(), "not committed")
+        self.assertEqual(git("rev-parse", "kandu/1-a", cwd=str(self.origin)), remote)
+
+    def test_a_drift_whose_merge_git_refuses_to_start_stops_the_task_and_keeps_the_untracked_file(self):
+        self.identity()
+        self.push_commit("kandu/1-a", "pushed.txt")
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        local = self.commit_here(worktree, "mine.txt")
+        (Path(worktree) / "theirs.txt").write_text("untracked here")
+        remote = self.push_commit("kandu/1-a", "theirs.txt", "tracked on GitHub")
+        settled = []
+        with self.assertRaises(LocalWork) as stop:
+            self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main", settled=settled.append)
+        self.assertIn("failed", str(stop.exception))
+        self.assertEqual(settled, [])
+        self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), local)
+        self.assertEqual((Path(worktree) / "theirs.txt").read_text(), "untracked here")
+        self.assertEqual(git("rev-parse", "kandu/1-a", cwd=str(self.origin)), remote)
+
+    def test_a_lease_that_github_refuses_stops_the_task_and_leaves_both_branches(self):
+        self.identity()
+        self.push_commit("kandu/1-a", "pushed.txt")
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        self.push_commit("main", "newer-main.txt")
+        git("fetch", "origin", cwd=worktree)
+        git("rebase", "origin/main", cwd=worktree)
+        local = self.commit_here(worktree, "extra.txt")
+        host = self.runner.hosts["box"]
+        real = host.run
+        moved = {}
+
+        def run(argv, *args, **kwargs):  # someone pushes to the branch between Kandu's fetch and its push
+            if argv[:2] == ["git", "push"] and not moved:
+                moved["sha"] = self.push_commit("kandu/1-a", "late.txt")
+            return real(argv, *args, **kwargs)
+        with mock.patch.object(host, "run", side_effect=run):
+            with self.assertRaises(LocalWork) as stop:
+                self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main", settled=[].append)
+        self.assertIn("cannot settle", str(stop.exception))
+        self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), local)
+        self.assertEqual(git("rev-parse", "kandu/1-a", cwd=str(self.origin)), moved["sha"])
 
     def conflict_in(self, worktree):
         """Leaves `worktree` with a commit of its own: main and the branch changed one file apart."""

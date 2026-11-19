@@ -473,10 +473,12 @@ class Supervisor:
             return read(again.text)
 
     def _worktree(self, task, base):
-        """The task's worktree, with whatever an earlier run left unfinished there cancelled."""
+        """The task's worktree, with whatever an earlier run left unfinished there cancelled and a branch that drifted
+        from GitHub's settled."""
         try:
             return self.runner.prepare_worktree(task.project, task.repo, task.branch, base,
-                                                cleaned=lambda what: self._decide(task, "worktree_cleaned", what))
+                                                cleaned=lambda what: self._decide(task, "worktree_cleaned", what),
+                                                settled=lambda how: self._decide(task, "worktree_settled", how))
         except LocalWork as e:
             raise TaskFailed(str(e)) from e  # a later try would only meet the same commits again
 
