@@ -15,7 +15,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from kandu import flights, dashboard, queen, review, sessions, split
+from kandu import flights, dashboard, queen, review, sessions, split, version
 from kandu.config import load_config
 from kandu.dashboard import Api, actions_in, dispatch, make_handler, new_events, recommendation
 from kandu.github import BoardItem, GitHubError
@@ -562,6 +562,11 @@ class TimerStateTest(Base):
         self.assertIs(self.api.state({})["timer_on"], True)
         self.api.timer_on = lambda: False
         self.assertIs(self.api.state({})["timer_on"], False)
+
+
+class VersionStateTest(Base):
+    def test_state_reports_the_installs_version(self):
+        self.assertEqual(self.api.state({})["version"], version.read())
 
 
 class ReviewPageTest(Base):

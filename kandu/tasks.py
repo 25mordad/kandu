@@ -251,13 +251,14 @@ def set_fields(github, board, url, priority, kind, size, deadline):
 
 
 def create_task(config, github, project_name, repo, title, body, local_dir, priority, kind, size, deadline=None,
-                by_hand=False, tokens=False, created=None, store=None, rewritten=None, spec=None):
+                by_hand=False, tokens=False, created=None, store=None, rewritten=None, spec=None, breaking=False):
     """Creates the issue, puts it on the board in `Backlog` and returns its URL.
 
     `created(url)` runs as soon as the issue exists, so a caller can record it before the
     board steps, which can fail on their own. With the local log in `store`, a blocker that
     was split is replaced by its last slice, logged, and passed to `rewritten(old, new)`.
     `spec` names the spec issue the task belongs to (`with_spec`); it needs `store`.
+    `breaking` marks a breaking change: the issue gets the `breaking` label, and so does its PR.
     """
     project, repo = find_project(config, project_name, repo)
     rewrites = []
@@ -272,7 +273,8 @@ def create_task(config, github, project_name, repo, title, body, local_dir, prio
     if tokens and by_hand:
         raise TaskError("a task done by hand runs no worker, so it takes no tokens")
     check_task(github, repo, title, body, local_dir, priority, kind, size, deadline)
-    url = github.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens, assignee=_assignee(project))
+    url = github.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens, assignee=_assignee(project),
+                              breaking=breaking)
     key = f"{repo}#{int(url.rstrip().rsplit('/', 1)[1])}"
     if spec is not None:
         store.record("spec_named", task=key, project=project.name, spec=spec)
@@ -382,6 +384,8 @@ def main():
     parser.add_argument("--deadline", help="the date it must be done by, YYYY-MM-DD")
     parser.add_argument("--by-hand", action="store_true", help="a person does this: no `agent` label")
     parser.add_argument("--tokens", action="store_true", help="its worker gets the project's task_tokens")
+    parser.add_argument("--breaking", action="store_true",
+                        help="a breaking change: the issue and its PR get the `breaking` label")
     parser.add_argument("--label-by-hand", action="store_true",
                         help="give each open by-hand task the `by-hand` label; a second run changes nothing")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
@@ -393,7 +397,7 @@ def main():
     if not args.place and not (args.title and args.body_file):
         parser.error("a new task needs --title and --body-file")
     if args.spec_issue:
-        given = [name for name in ("place", "spec", "priority", "kind", "size", "deadline", "by_hand", "tokens")
+        given = [name for name in ("place", "spec", "priority", "kind", "size", "deadline", "by_hand", "tokens", "breaking")
                  if getattr(args, name)]
         if given:
             print(f"tasks: a spec is not sized and is not work, so it takes no --{given[0].replace('_', '-')}",
@@ -414,7 +418,8 @@ def main():
             body = Path(args.body_file).read_text(encoding="utf-8")
             url = create_task(config, github, args.project, args.repo, args.title, body, args.local, args.priority,
                               args.kind, args.size, args.deadline, args.by_hand, args.tokens, created=created.append,
-                              store=StateStore(), rewritten=tell_rewrite, spec=args.spec)
+                              store=StateStore(), rewritten=tell_rewrite, spec=args.spec,
+                              breaking=args.breaking)
     except ConfigError as e:
         print(f"tasks: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1

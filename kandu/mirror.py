@@ -21,8 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DEADLINE_FIELD
-from .github import (AGENT_LABEL, BY_HAND_LABEL, TOKENS_LABEL, BoardItem, GitHub, GitHubError, closure, for_assignee,
-                     is_companion, transient)
+from .github import (AGENT_LABEL, BREAKING_DESCRIPTION, BREAKING_LABEL, BY_HAND_LABEL, TOKENS_LABEL, BoardItem, GitHub,
+                     GitHubError, closure, for_assignee, is_breaking, is_companion, transient)
 
 MIRROR_DIR = Path(__file__).resolve().parent.parent / "state" / "mirror"
 FRESH_SECONDS = 60            # a copy younger than this is not read again: a burst of wakes costs GitHub one read
@@ -381,8 +381,9 @@ class Mirror:
 
     # Writes that go at once.
 
-    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False, assignee=""):
-        url = self.remote.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens, spec=spec, assignee=assignee)
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False, assignee="", breaking=False):
+        url = self.remote.create_issue(repo, title, body, by_hand=by_hand, tokens=tokens, spec=spec, assignee=assignee,
+                                       breaking=breaking)
         number = int(url.rstrip("/").split("/")[-1])
         if spec:
             labels = []
@@ -390,6 +391,8 @@ class Mirror:
             labels = [BY_HAND_LABEL]
         else:
             labels = [AGENT_LABEL, *([TOKENS_LABEL] if tokens else [])]
+        if breaking and not spec:
+            labels.append(BREAKING_LABEL)
         self._put(repo, "issues", number, {"number": number, "title": title, "body": body, "url": url,
                                            "state": "OPEN", "labels": labels, "updatedAt": _now_iso(self.clock),
                                            "assignees": [assignee] if assignee else []})
@@ -503,6 +506,11 @@ class Mirror:
         if any(label["name"] == "kandu" for label in pr["labels"]):
             return
         self._queue_issue("label", repo, pr["number"], label="kandu", description="Work done by Kandu")
+
+    def mark_breaking(self, repo, pr):
+        if is_breaking(pr):
+            return
+        self._queue_issue("label", repo, pr["number"], label=BREAKING_LABEL, description=BREAKING_DESCRIPTION)
 
     # The queue on top of what GitHub said. Called with the copy's lock and the queue's lock held.
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from kandu import ghmeter
 from kandu.config import Board
 from kandu.ghlimit import FIRST_WAIT_SECONDS, LONGEST_WAIT_SECONDS, Gate, main as ghlimit_main, spent_limit_reset
-from kandu.github import BOARD_QUERY, REPO_QUERY, run_gh, PR_FIELDS, PR_NODE, GitHub, GitHubError, blockers_in, task_blockers, branch_for, is_companion, slugify, transient
+from kandu.github import BOARD_QUERY, REPO_QUERY, run_gh, PR_FIELDS, PR_NODE, GitHub, GitHubError, blockers_in, task_blockers, branch_for, is_companion, slugify, transient, is_breaking
 
 BOARD = Board(owner="acme", number=1)
 ISSUE = {"number": 3, "title": "t", "url": "u", "body": "b", "repository": {"nameWithOwner": "o/r"},
@@ -316,6 +316,32 @@ class GitHubTest(unittest.TestCase):
         gh = FakeGh(None, {"html_url": "https://github.com/o/r/issues/5"})
         GitHub(gh).create_issue("o/r", "T", "B")
         self.assertFalse(any("labels[]=by-hand" in call or "by-hand" in call for call in gh.calls))
+
+    def test_a_breaking_task_is_labelled_breaking(self):
+        gh = FakeGh(None, None, {"html_url": "https://github.com/o/r/issues/5"})
+        GitHub(gh).create_issue("o/r", "T", "B", breaking=True)
+        self.assertIn(["label", "create", "breaking"], [call[:3] for call in gh.calls])
+        self.assertIn("labels[]=breaking", gh.calls[-1])
+        self.assertIn("labels[]=agent", gh.calls[-1])
+
+    def test_a_task_without_the_mark_gets_no_breaking_label(self):
+        gh = FakeGh(None, {"html_url": "https://github.com/o/r/issues/5"})
+        GitHub(gh).create_issue("o/r", "T", "B")
+        self.assertFalse(any("breaking" in arg for call in gh.calls for arg in call))
+
+    def test_a_breaking_pr_is_marked_once(self):
+        gh = FakeGh(None, None)
+        GitHub(gh).mark_breaking("o/r", {"number": 7, "labels": [{"name": "breaking"}]})
+        self.assertEqual(gh.calls, [])
+        GitHub(gh).mark_breaking("o/r", {"number": 7, "labels": []})
+        self.assertEqual(gh.calls[0][:3], ["label", "create", "breaking"])
+        self.assertEqual(gh.calls[1][1], "repos/o/r/issues/7/labels")
+
+    def test_the_mark_is_read_back_from_a_merged_pr(self):
+        self.assertTrue(is_breaking({"state": "MERGED", "labels": [{"name": "kandu"}, {"name": "breaking"}]}))
+        self.assertTrue(is_breaking({"labels": ["breaking"]}))
+        self.assertFalse(is_breaking({"state": "MERGED", "labels": [{"name": "kandu"}]}))
+        self.assertFalse(is_breaking({}))
 
     def test_a_spec_gets_no_label(self):
         gh = FakeGh({"html_url": "https://github.com/o/r/issues/5"})

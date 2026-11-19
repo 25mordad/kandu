@@ -24,7 +24,7 @@ from pathlib import Path
 from . import agents, clean, debt, merge, queen, questions, review, show, sizing, split, tasks, waits
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .flights import Flights
-from .github import TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
+from .github import BREAKING_LABEL, TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
 from .mirror import open_github
 from .notify import CHECK_NOT_RUN, LIVE_DOWN, TESTS_FAIL_IN, notifier_for
 from .runner import DEFAULT_LOGS_DIR, LocalWork, Runner, RunnerError, Unreachable
@@ -67,6 +67,7 @@ class Task:
     branch: str
     priority: str = ""
     tokens: bool = False           # labelled `uses-tokens`: its worker gets the project's task_tokens
+    breaking: bool = False         # labelled `breaking`: its PR carries the same mark
 
     @property
     def key(self):
@@ -155,7 +156,7 @@ def read_tasks(config, github, paused=()):
 def _task(project, item):
     return Task(project, item.repo, item.number, item.title, item.url, item.status,
                 branch_for(item.number, item.title), item.priority,
-                TOKENS_LABEL in item.labels and bool(project.task_tokens))
+                TOKENS_LABEL in item.labels and bool(project.task_tokens), BREAKING_LABEL in item.labels)
 
 
 def _can_start(github, item):
@@ -600,6 +601,8 @@ class Supervisor:
         if task.status != IN_REVIEW:
             self._move(task, IN_REVIEW)
         self.github.mark_pr(task.repo, pr)
+        if task.breaking:  # before any merge, so the merged PR still says it was breaking
+            self.github.mark_breaking(task.repo, pr)
         head = pr["headRefOid"]
         round_number = len(reviews) + 1
         self._phase(task, f"review round {round_number}")

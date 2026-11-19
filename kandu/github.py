@@ -15,6 +15,8 @@ AGENT_LABEL = "agent"
 TOKENS_LABEL = "uses-tokens"
 BY_HAND_LABEL = "by-hand"
 BY_HAND_DESCRIPTION = "A person does this; Kandu leaves it alone"
+BREAKING_LABEL = "breaking"
+BREAKING_DESCRIPTION = "A breaking change: it may need its users to change something"
 FALLBACK_SLUG = "task"
 TIMEOUT_SECONDS = 60
 LOOK_AGAIN_SECONDS = 5  # after a lost answer to a create, before looking whether the issue was made
@@ -213,6 +215,12 @@ def closure(issue):
     if issue["state"] == "OPEN":
         return None
     return {"reason": issue.get("stateReason"), "by": issue.get("closedBy")}
+
+
+def is_breaking(item):
+    """Whether an issue or a PR, open or merged, carries the breaking mark. Labels may be names or `{"name": ...}`."""
+    return any((label.get("name") if isinstance(label, dict) else label) == BREAKING_LABEL
+               for label in item.get("labels") or [])
 
 
 def run_gh(args, gate=None, run=subprocess.run, meter_log=None):
@@ -466,12 +474,13 @@ class GitHub:
                  "{ clientMutationId } }" % (json.dumps(status["id"]), ", ".join(kept + added)))
         self._run(["api", "graphql", "-f", f"query={query}"])
 
-    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False, assignee=""):
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False, assignee="", breaking=False):
         """Creates an issue through the REST API and returns its URL. It is labelled `agent` unless a person will
         do it, and then `by-hand`. An `assignee` (the board's) is given the issue, so the install that made it
         still sees it.
 
         `tokens` also labels it `uses-tokens`, which gives its worker the project's `task_tokens`.
+        `breaking` also labels it `breaking`, a mark its PR carries too.
         A `spec` is never work, by hand or not, so it gets no label.
         """
         labels = []
@@ -489,6 +498,10 @@ class GitHub:
             self._run(["label", "create", TOKENS_LABEL, "--repo", repo, "--force",
                        "--description", "Its worker gets the project's task_tokens"])
             labels.append(TOKENS_LABEL)
+        if breaking and not spec:
+            self._run(["label", "create", BREAKING_LABEL, "--repo", repo, "--force",
+                       "--description", BREAKING_DESCRIPTION])
+            labels.append(BREAKING_LABEL)
         args = ["api", f"repos/{repo}/issues", "-X", "POST", "-f", f"title={title}", "-f", f"body={body}"]
         for label in labels:
             args += ["-f", f"labels[]={label}"]
@@ -643,6 +656,12 @@ class GitHub:
         if any(label["name"] == KANDU_LABEL for label in pr["labels"]):
             return
         self.add_label(repo, pr["number"], KANDU_LABEL, "Work done by Kandu")
+
+    def mark_breaking(self, repo, pr):
+        """Adds the `breaking` label to the PR of a breaking task, creating it in the repo if needed."""
+        if is_breaking(pr):
+            return
+        self.add_label(repo, pr["number"], BREAKING_LABEL, BREAKING_DESCRIPTION)
 
     def companions(self, repo, pr, repos):
         """Returns the open companion PRs of `pr` in `repos`, as (repo, number) pairs."""

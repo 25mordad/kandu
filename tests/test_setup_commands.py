@@ -65,6 +65,15 @@ class TaskTest(unittest.TestCase):
                           by_hand=True)
         self.assertTrue(self.github.create_issue.call_args.kwargs["by_hand"])
 
+    def test_a_breaking_task_says_so(self):
+        tasks.create_task(self.config, self.github, "site", None, "T", BODY, self.local, "High", "Bug", "Small",
+                          breaking=True)
+        self.assertTrue(self.github.create_issue.call_args.kwargs["breaking"])
+
+    def test_a_task_without_the_mark_is_not_breaking(self):
+        self.create()
+        self.assertFalse(self.github.create_issue.call_args.kwargs.get("breaking", False))
+
     def test_goes_on_the_board_in_backlog(self):
         self.assertEqual(self.create(), "https://x/1")
         self.github.add_to_board.assert_called_once()

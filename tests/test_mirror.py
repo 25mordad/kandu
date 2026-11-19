@@ -110,8 +110,9 @@ class FakeRemote:
             if item.number == number:
                 item.blocked_by = [b for b in item.blocked_by if not gone(b)]
 
-    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False, assignee=""):
+    def create_issue(self, repo, title, body, by_hand=False, tokens=False, spec=False, assignee="", breaking=False):
         self._call("create_issue", title, by_hand, spec)
+        self.breaking = breaking
         self.assigned = assignee
         return f"https://github.com/{repo}/issues/9"
 
@@ -481,6 +482,13 @@ class MirrorTest(unittest.TestCase):
         self.assertEqual(item.labels, ["by-hand"])
         self.assertTrue(item.by_hand)
 
+    def test_a_breaking_task_shows_its_mark_in_the_copy(self):
+        url = self.mirror.create_issue(REPO, "Breaking", "body", breaking=True)
+        self.mirror.add_to_board(BOARD, url)
+        item = next(i for i in self.open().board_items(BOARD) if i.number == 9)
+        self.assertEqual(item.labels, ["agent", "breaking"])
+        self.assertTrue(self.remote.breaking)
+
     def test_a_spec_shows_no_label_in_the_copy(self):
         self.mirror.add_to_board(BOARD, self.mirror.create_issue(REPO, "Spec", "body", by_hand=True, spec=True))
         self.assertEqual(next(i for i in self.open().board_items(BOARD) if i.number == 9).labels, [])
@@ -535,6 +543,12 @@ class MirrorTest(unittest.TestCase):
         self.remote.prs = {7: pr()}
         self.mirror.mark_pr(REPO, self.mirror.pr(REPO, 7))
         self.mirror.mark_pr(REPO, self.mirror.pr(REPO, 7))
+        self.assertEqual(len(self.mirror.outbox()), 1)
+
+    def test_marking_a_pr_breaking_twice_queues_it_once(self):
+        self.remote.prs = {7: pr()}
+        self.mirror.mark_breaking(REPO, self.mirror.pr(REPO, 7))
+        self.mirror.mark_breaking(REPO, self.mirror.pr(REPO, 7))
         self.assertEqual(len(self.mirror.outbox()), 1)
 
     # One item, as `kandu.show` prints it.
