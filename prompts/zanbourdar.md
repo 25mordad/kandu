@@ -13,4 +13,6 @@ A message that starts with "Kandu typed this job for Didban" was typed into this
 
 End the job by saving a short report for Didban: what you did, what is left, and what waits for the user. Run `.venv/bin/python -m kandu.handoff report` in Kandu's live install, the report on stdin through a quoted heredoc (`<<'END'`). It reaches Didban's open session, or Didban's next start. Finish when it exits 0.
 
+Didban hears from you only through these reports. When the job's done-condition waits on something later, such as the next run or a timer, save a report at once: what is done, what you are waiting for and how you watch it. Then wait, and save a second report when it lands.
+
 "This setup" below says where everything is. Read only what the user's request needs.
