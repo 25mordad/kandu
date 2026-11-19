@@ -194,6 +194,49 @@ class RunnerTest(GitCase):
         self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
         self.assertTrue((Path(worktree) / "pushed.txt").exists())
 
+    def commit_here(self, worktree, name):
+        (Path(worktree) / name).write_text("local")
+        git("add", ".", cwd=worktree)
+        git("commit", "-m", f"local {name}", cwd=worktree)
+        return git("rev-parse", "HEAD", cwd=worktree)
+
+    def test_a_worktree_ahead_of_its_pushed_branch_keeps_its_commits_and_can_push_them(self):
+        pushed = self.push_commit("kandu/1-a", "pushed.txt")
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        local = self.commit_here(worktree, "ahead.txt")
+        again = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        self.assertEqual(again, worktree)
+        self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), local)
+        self.assertEqual(git("rev-parse", "HEAD~1", cwd=worktree), pushed)
+        git("push", "origin", "kandu/1-a", cwd=worktree)  # a plain push, as a worker's, still goes through
+        self.assertEqual(git("rev-parse", "kandu/1-a", cwd=str(self.origin)), local)
+
+    def test_a_worktree_equal_to_its_pushed_branch_stays_there(self):
+        pushed = self.push_commit("kandu/1-a", "pushed.txt")
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), pushed)
+
+    def test_a_worktree_behind_its_pushed_branch_is_fast_forwarded(self):
+        first = self.push_commit("kandu/1-a", "pushed.txt")
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        later = self.push_commit("kandu/1-a", "later.txt")
+        self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), later)
+        self.assertEqual(git("rev-parse", "HEAD~1", cwd=worktree), first)
+
+    def test_a_worktree_drifted_from_its_pushed_branch_stops_the_task_and_nothing_is_lost(self):
+        self.push_commit("kandu/1-a", "pushed.txt")
+        worktree = self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        local = self.commit_here(worktree, "mine.txt")
+        remote = self.push_commit("kandu/1-a", "theirs.txt")
+        with self.assertRaises(LocalWork) as stop:
+            self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main")
+        self.assertIn("cannot settle", str(stop.exception))
+        self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), local)
+        self.assertEqual(git("status", "--porcelain", cwd=worktree), "")
+        self.assertEqual(git("rev-parse", "kandu/1-a", cwd=str(self.origin)), remote)
+
     def conflict_in(self, worktree):
         """Leaves `worktree` with a commit of its own: main and the branch changed one file apart."""
         self.push_commit("main", "same.txt")

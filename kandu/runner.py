@@ -204,8 +204,9 @@ class Runner:
         """Returns the worker's worktree on `branch`, reusing it if an earlier run left one.
 
         A merge, rebase or cherry-pick an earlier run left unfinished there is cancelled first, and `cleaned` is
-        called with what was cancelled. If the folder holds commits that are not on GitHub, it is left as it is
-        and `LocalWork` is raised.
+        called with what was cancelled. A reused worktree behind the pushed branch is fast-forwarded; one ahead
+        keeps its commits. If the folder holds commits that are not on GitHub beside an unfinished operation, or
+        its branch has drifted from the pushed one, it is left as it is and `LocalWork` is raised.
         """
         host = self.hosts[project.machine]
         with self._repo_locks[(host.name, repo)]:
@@ -216,12 +217,30 @@ class Runner:
             if host.succeeds(["test", "-d", directory]):
                 self._cancel_unfinished(host, directory, branch, cleaned)
                 if pushed:
-                    host.check(["git", "merge", "--ff-only", f"origin/{branch}"], cwd=directory)
+                    self._catch_up(host, directory, branch)
                 return directory
             host.check(["git", "worktree", "prune"], cwd=path)
             start = f"origin/{branch}" if pushed else f"origin/{base}"
             host.check(["git", "worktree", "add", "-B", branch, directory, start], cwd=path)
         return directory
+
+    @staticmethod
+    def _catch_up(host, directory, branch):
+        """Fast-forwards a reused worktree to the pushed `branch` when it is behind. A worktree that already holds
+        the pushed head (equal or ahead) keeps its commits, for the worker to push. One that has drifted apart
+        is left as it is and `LocalWork` is raised: Kandu does not settle the two itself."""
+        remote = f"origin/{branch}"
+        if host.succeeds(["git", "merge-base", "--is-ancestor", remote, "HEAD"], cwd=directory):
+            return
+        if host.succeeds(["git", "merge-base", "--is-ancestor", "HEAD", remote], cwd=directory):
+            host.check(["git", "merge", "--ff-only", remote], cwd=directory)
+            return
+        local = host.check(["git", "rev-list", "--count", "HEAD", "--not", remote], cwd=directory).strip()
+        theirs = host.check(["git", "rev-list", "--count", remote, "--not", "HEAD"], cwd=directory).strip()
+        raise LocalWork(f"The task's branch {branch} on {host.name} has drifted from the one on GitHub: {local} "
+                        f"commit(s) only in the task's folder and {theirs} only on GitHub. Kandu cannot settle the "
+                        f"branches itself, so it left the folder as it is and nothing is lost: rebase or merge the "
+                        f"two there, push the result, then send the task back.")
 
     @staticmethod
     def _cancel_unfinished(host, directory, branch, cleaned):
