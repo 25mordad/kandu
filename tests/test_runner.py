@@ -699,10 +699,6 @@ class RunnerTest(GitCase):
         self.assertTrue(result.stopped)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class CleanTaskTest(GitCase):
     """Only inside a temporary folder: the copy, its worktrees and its origin are all made here."""
 
@@ -858,3 +854,185 @@ class SetupTest(GitCase):
         self.project_.setup.command = f"echo ran >> {self.runs}"
         self.assertEqual(self.checked()[0], 0)
         self.assertEqual(self.setups(), 2)
+
+
+# Over SSH the remote script runs here: options and the host are skipped, the script goes to sh, as sshd would.
+FAKE_SSH = """#!/bin/sh
+while [ "$1" = -o ]; do shift 2; done
+shift
+exec sh -c "$1"
+"""
+SEE_TMP = 'echo "$TMPDIR" > "$HOME/seen.tmpdir"; echo hi > "$TMPDIR/left.txt"'
+
+
+class RunFolderTest(GitCase):
+    """A run temporary folder (#120): each scoped run on a machine with the option on has its own, removed at its end."""
+
+    def setUp(self):
+        super().setUp()
+        self.base = self.home / "run-tmp"
+        self.system_tmp = self.root / "system-tmp"
+        self.system_tmp.mkdir()
+        ssh_bin = self.root / "ssh-bin"
+        ssh_bin.mkdir()
+        install(ssh_bin / "ssh", FAKE_SSH)
+        env = mock.patch.dict(os.environ, {"TMPDIR": str(self.system_tmp), "PATH": f"{ssh_bin}:{os.environ['PATH']}"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def use(self, reach="local", on=True):
+        self.machine = Machine("box", reach, True, run_tmp=on, run_tmp_dir="~/run-tmp" if on else None)
+        self.runner = Runner(Config(settings=mock.Mock(machines=[self.machine]), projects=[]), self.root / "logs")
+
+    def seen(self):
+        return (self.home / "seen.tmpdir").read_text().strip()
+
+    def left(self):
+        return sorted(p.name for p in self.base.iterdir()) if self.base.exists() else []
+
+    def assert_had_its_own_folder_now_gone(self):
+        seen = Path(self.seen())
+        self.assertEqual(seen.parent, self.base)
+        self.assertTrue(seen.name.startswith("kandu-"))
+        self.assertFalse(seen.exists())
+        self.assertEqual(self.left(), [])
+
+    def test_off_a_command_keeps_the_system_temporary_folder(self):
+        for reach in ("local", "ssh box"):
+            self.use(reach, on=False)
+            self.assertEqual(self.runner.run_command(self.project(), str(self.home), SEE_TMP, "run-off"), 0)
+            self.assertEqual(self.seen(), str(self.system_tmp))
+            self.assertFalse(self.base.exists())
+
+    def test_off_the_script_is_as_before(self):
+        self.use(on=False)
+        with mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run, \
+                mock.patch("kandu.runner.scope_name", return_value="kandu-u"):
+            self.runner.run_command(self.project(), "/w", "make test", "run-off")
+        argv = run.call_args_list[0].args[0]
+        self.assertEqual(argv, Host(self.machine).argv(Host.scoped(["sh", "-c", "make test"], "kandu-u"), "/w"))
+        self.assertNotIn("TMPDIR", " ".join(argv))
+
+    def test_on_a_test_has_its_own_folder_removed_when_it_ends(self):
+        for reach in ("local", "ssh box"):
+            with self.subTest(reach=reach):
+                self.use(reach)
+                self.assertEqual(self.runner.run_command(self.project(), str(self.home), SEE_TMP, "run-on"), 0)
+                self.assert_had_its_own_folder_now_gone()
+
+    def test_each_run_has_a_fresh_folder(self):
+        self.use()
+        self.runner.run_command(self.project(), str(self.home), SEE_TMP, "run-a")
+        first = self.seen()
+        self.runner.run_command(self.project(), str(self.home), SEE_TMP, "run-a")
+        self.assertNotEqual(self.seen(), first)
+
+    def test_a_failing_command_loses_its_folder_too(self):
+        for reach in ("local", "ssh box"):
+            with self.subTest(reach=reach):
+                self.use(reach)
+                self.assertEqual(self.runner.run_command(self.project(), str(self.home), SEE_TMP + "; exit 3", "run-f"), 3)
+                self.assert_had_its_own_folder_now_gone()
+
+    def test_a_command_that_times_out_loses_its_folder(self):
+        self.use()
+        with mock.patch("kandu.runner.COMMAND_TIMEOUT_SECONDS", 2), self.assertRaises(RunnerError):
+            self.runner.run_command(self.project(), str(self.home), SEE_TMP + "; exec sleep 30", "run-t")
+        self.assert_had_its_own_folder_now_gone()
+
+    def test_a_setup_has_its_own_folder_too(self):
+        self.use()
+        project = self.project()
+        cwd = self.runner.prepare_worktree(project, "o/site", "kandu/1-x", "main")
+        project.setup = Setup(command=SEE_TMP.replace("seen.tmpdir", "setup.tmpdir"))
+        project.test = SEE_TMP
+        self.assertEqual(self.runner.run_test(project, cwd, "run-s"), 0)
+        setup = Path((self.home / "setup.tmpdir").read_text().strip())
+        self.assertEqual(setup.parent, self.base)
+        self.assertNotEqual(str(setup), self.seen())
+        self.assert_had_its_own_folder_now_gone()
+
+    def test_a_deploy_gets_no_run_folder(self):
+        self.use()
+        self.assertEqual(self.runner.run_command(self.project(), str(self.home), SEE_TMP, "run-d", scoped=False), 0)
+        self.assertEqual(self.seen(), str(self.system_tmp))
+        self.assertEqual(self.left(), [])
+
+    def claude_sees(self):
+        install(self.home / ".local" / "bin" / "claude",
+                '#!/bin/sh\necho "$TMPDIR $CLAUDE_CODE_TMPDIR" > "$HOME/seen.tmpdir"\n' + FAKE_CLAUDE.split("\n", 1)[1])
+
+    def agent(self, should_stop=lambda: False):
+        return self.runner.run_agent("box", str(self.home), "p", ["Read"], ["Edit"], "r-1", should_stop)
+
+    def test_on_an_agent_run_has_its_own_folder_for_both_variables(self):
+        self.claude_sees()
+        for reach in ("local", "ssh box"):
+            with self.subTest(reach=reach):
+                self.use(reach)
+                self.assertFalse(self.agent().is_error)
+                tmpdir, claude_tmpdir = self.seen().split()
+                self.assertEqual(tmpdir, claude_tmpdir)
+                self.assertEqual(Path(tmpdir).parent, self.base)
+                self.assertFalse(Path(tmpdir).exists())
+                self.assertEqual(self.left(), [])
+
+    def test_off_an_agent_run_keeps_the_system_temporary_folder(self):
+        self.claude_sees()
+        self.use(on=False)
+        self.agent()
+        self.assertEqual(self.seen(), str(self.system_tmp))
+
+    def test_a_failed_agent_run_loses_its_folder(self):
+        install(self.home / ".local" / "bin" / "claude", '#!/bin/sh\necho "$TMPDIR" > "$HOME/seen.tmpdir"\nexit 1\n')
+        self.use()
+        self.assertTrue(self.agent().is_error)
+        self.assert_had_its_own_folder_now_gone()
+
+    def test_a_stopped_agent_run_loses_its_folder(self):
+        install(self.home / ".local" / "bin" / "claude",
+                '#!/bin/sh\necho "$TMPDIR" > "$HOME/seen.tmpdir"\necho x > "$TMPDIR/f"\nexec sleep 60\n')
+        for reach in ("local", "ssh box"):
+            with self.subTest(reach=reach):
+                self.use(reach)
+                with mock.patch("kandu.runner.POLL_SECONDS", 0.01), mock.patch("kandu.runner.STOP_GRACE_SECONDS", 0.5):
+                    result = self.agent(should_stop=lambda: (self.home / "seen.tmpdir").exists())
+                self.assertTrue(result.stopped)
+                self.assert_had_its_own_folder_now_gone()
+                (self.home / "seen.tmpdir").unlink()
+
+    def old_folder(self, name, owner=None, days=2):
+        folder = self.base / name
+        folder.mkdir(parents=True)
+        (folder / "junk").write_text("x")
+        if owner is not None:
+            (folder / ".kandu-run").write_text(f"{owner}\n")
+        then = time.time() - days * 86400
+        os.utime(folder, (then, then))
+        return folder
+
+    def test_a_stale_folder_no_run_owns_goes_before_the_next_run(self):
+        self.use()
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        orphan = self.old_folder("kandu-left-1")
+        dead_owner = self.old_folder("kandu-left-2", owner=gone.pid)
+        running = self.old_folder("kandu-running", owner=os.getpid())
+        recent = self.old_folder("kandu-recent", days=0.5)
+        other = self.old_folder("not-kandus")
+        self.assertEqual(self.runner.run_command(self.project(), str(self.home), "true", "run-n"), 0)
+        self.assertFalse(orphan.exists())
+        self.assertFalse(dead_owner.exists())
+        self.assertTrue(running.exists())
+        self.assertTrue(recent.exists())
+        self.assertTrue(other.exists())
+
+    def test_over_ssh_the_stale_folders_go_on_that_machine_too(self):
+        self.use("ssh box")
+        orphan = self.old_folder("kandu-left-1")
+        self.assertEqual(self.runner.run_command(self.project(), str(self.home), "true", "run-n"), 0)
+        self.assertFalse(orphan.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

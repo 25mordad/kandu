@@ -615,6 +615,12 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   <h3 class="card-title" data-t="parallel_per_project"></h3><div id="parallelprojects"></div>
   <div class="actions"><button class="btn primary" value="yes" data-t="save"></button><button class="btn" value="no" formnovalidate data-t="cancel"></button></div>
 </form></dialog>
+<dialog id="runtmpbox" class="small"><form method="dialog" class="dialog-body">
+  <h2><span data-t="run_tmp_title"></span> · <bdi id="runtmpmachine"></bdi></h2><p class="muted" data-t="run_tmp_why"></p>
+  <label class="limit-field"><span data-t="run_tmp_on"></span><input id="runtmpon" type="checkbox"></label>
+  <label class="limit-field"><span data-t="run_tmp_folder"></span><input id="runtmpfolder" type="text" dir="ltr" placeholder="~/kandu-tmp"></label>
+  <div class="actions"><button class="btn primary" value="yes" data-t="save"></button><button class="btn" value="no" formnovalidate data-t="cancel"></button></div>
+</form></dialog>
 <dialog id="backupbox" class="small"><form method="dialog" class="dialog-body">
   <h2 data-t="backup_title"></h2><p class="muted" data-t="backup_why"></p>
   <label class="limit-field"><span data-t="backup_on"></span><input id="backupon" type="checkbox"></label>
@@ -934,6 +940,14 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "change": "change",
   "save": "Save",
   "backup": "Backup",
+  "run_tmp": "Run temporary folder",
+  "run_tmp_off": "off",
+  "run_tmp_title": "Run temporary folder",
+  "run_tmp_why": "On: each agent run, test and setup on this machine gets its own temporary folder inside this folder, on the machine's own disk, and Kandu removes it when the run ends. Off: runs use the machine's system temporary folder, as before. A deploy never gets one.",
+  "run_tmp_on": "On",
+  "run_tmp_folder": "Folder on the machine's disk",
+  "run_tmp_saved_on": "Runs on {machine} get their own temporary folder in {folder}",
+  "run_tmp_saved_off": "Runs on {machine} use its system temporary folder",
   "backup_title": "Daily backup",
   "backup_why": "Once a day Kandu copies its config and state folders, which Git cannot rebuild, into a folder on this machine. The run logs are left out. A failed copy leaves the earlier ones as they were and is told to you.",
   "backup_on": "On",
@@ -1485,6 +1499,14 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "change": "تغییر",
   "save": "ذخیره",
   "backup": "پشتیبان",
+  "run_tmp": "پوشهٔ موقت اجرا",
+  "run_tmp_off": "خاموش",
+  "run_tmp_title": "پوشهٔ موقت اجرا",
+  "run_tmp_why": "روشن: هر اجرای عامل، تست و setup روی این ماشین پوشهٔ موقت خودش را درون این پوشه، روی دیسک خود ماشین، می‌گیرد و کندو وقتی اجرا تمام شد آن را پاک می‌کند. خاموش: اجراها مثل قبل از پوشهٔ موقت سیستم استفاده می‌کنند. deploy هرگز پوشه نمی‌گیرد.",
+  "run_tmp_on": "روشن",
+  "run_tmp_folder": "پوشه روی دیسک ماشین",
+  "run_tmp_saved_on": "اجراها روی {machine} پوشهٔ موقت خودشان را در {folder} می‌گیرند",
+  "run_tmp_saved_off": "اجراها روی {machine} از پوشهٔ موقت سیستم استفاده می‌کنند",
   "backup_title": "پشتیبان روزانه",
   "backup_why": "کندو روزی یک بار پوشه‌های تنظیمات و وضعیتش را، که از گیت دوباره ساخته نمی‌شوند، در پوشه‌ای روی همین ماشین کپی می‌کند. لاگ اجراها کنار می‌ماند. کپیِ ناموفق کپی‌های قبلی را دست نمی‌زند و به تو خبر داده می‌شود.",
   "backup_on": "روشن",
@@ -1976,6 +1998,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "clean_kept": "بعد از ادغام نگه داشته شد",
   "clean_finished": "پاک‌سازی بعد از ادغام تمام شد",
   "clean_merged_changed": "پاک‌سازی بعد از ادغام روشن یا خاموش شد",
+  "run_tmp_changed": "پوشهٔ موقت اجرای یک ماشین روشن، خاموش یا عوض شد",
   "flight_ended": "پرواز آزاد خودش بسته شد",
   "flight_left_open": "تسک بدون ادغام بسته شد و پرواز آزادش هنوز باز است",
   "its PR was merged and nothing was written in the session for 120 minutes": "PR آن ادغام شد و ۱۲۰ دقیقه چیزی در جلسه نوشته نشد",
@@ -2724,6 +2747,27 @@ function upstreamCard(u) {
     : !u.failed && u.behind ? `<button class="textlink limit-edit" data-upstream-bring>${t("upstream_bring_in")}</button>` : "";
   return `<div class="card stat"><div class="stat-label">${t("upstream")} · <bdi dir="ltr">${esc(u.remote)}/${esc(u.branch)}</bdi></div><div class="stat-value stat-small${u.failed ? " over" : ""}">${esc(said)}</div>
     <small>${esc(note)}<button class="textlink limit-edit" data-upstream-check>${t("upstream_check_now")}</button>${task}</small></div>`;
+}
+
+// A machine's run temporary folder: on, each run there gets its own folder inside it, removed when the run ends.
+function changeRunTmp(button) {
+  const name = button.dataset.runTmp, m = (lastState.machines || []).find(x => x.name === name);
+  if (!m) return;
+  const box = $("runtmpbox");
+  $("runtmpmachine").textContent = name;
+  $("runtmpon").checked = Boolean(m.run_tmp);
+  $("runtmpfolder").value = m.run_tmp_dir || "";
+  box.returnValue = "no";
+  box.addEventListener("close", async () => {
+    if (box.returnValue !== "yes") return;
+    const on = $("runtmpon").checked, folder = $("runtmpfolder").value.trim();
+    const query = new URLSearchParams({enabled: on, ...(folder ? {folder} : {})});
+    if (await act(button, `/machines/${encodeURIComponent(name)}/run-tmp?${query}`)) {
+      toast(t(on ? "run_tmp_saved_on" : "run_tmp_saved_off").replace("{machine}", name).replace("{folder}", folder));
+      refreshState().catch(() => {});
+    }
+  }, {once: true});
+  box.showModal();
 }
 
 function changeBackup(button) {
@@ -3569,9 +3613,14 @@ function limitsHtml(s) {
 function machinesHtml(s) {
   const rows = (s.machines || []).map(m => {
     const tone = m.down_since ? "red" : "green";
-    return `<div class="side-row"><i class="mdot tone-${tone}"></i><span class="side-label"><b>${bdi(m.name)}</b></span><span class="tone-${tone}">${esc(m.down_since ? fillIn("machine_silent", {since: when(m.down_since)}) : t("machine_answers"))}</span></div>`;
+    return `<div class="side-row"><i class="mdot tone-${tone}"></i><span class="side-label"><b>${bdi(m.name)}</b></span><span class="tone-${tone}">${esc(m.down_since ? fillIn("machine_silent", {since: when(m.down_since)}) : t("machine_answers"))}</span></div>${runTmpRow(m)}`;
   });
   return `<div class="side-head"><b>${t("machines_title")}</b><span class="spacer"></span><button type="button" class="textbtn" data-add-machine>${t("add_machine_short")}</button></div>${rows.join("")}`;
+}
+
+// A machine's run temporary folder, off or the folder it uses; Change opens its pop-up.
+function runTmpRow(m) {
+  return `<div class="side-row"><span class="side-label">${t("run_tmp")}</span><span class="muted">${m.run_tmp ? `<bdi dir="ltr">${esc(m.run_tmp_dir)}</bdi>` : esc(t("run_tmp_off"))}</span><button type="button" class="textbtn" data-run-tmp="${esc(m.name)}">${t("change")}</button></div>`;
 }
 
 // A switch for all of Kandu: a press sends the other value at once.
@@ -4117,6 +4166,7 @@ document.addEventListener("click", e => {
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }
   if (hit("backup")) { changeBackup(hit("backup")); return; }
+  if (hit("run-tmp")) { changeRunTmp(hit("run-tmp")); return; }
   if (hit("release")) { showRelease(); return; }
   if (hit("upstream-check")) { act(hit("upstream-check"), "/upstream/check").then(() => refreshState()).catch(() => {}); return; }
   if (hit("upstream-bring")) { act(hit("upstream-bring"), "/upstream/bring-in").then(answer => { if (answer) toast(t(answer.created ? "upstream_task_made" : "upstream_task_there")); return refreshState(); }).catch(() => {}); return; }

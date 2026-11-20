@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, rename, review, sessions, split,
                tasks, timer, tries, upstream, version, waits)
 from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, PROJECT_MODEL_ROLES, REGISTRY_SETTINGS,
-                     TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_inspect, set_limits, set_pace,
+                     TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_run_tmp, set_inspect, set_limits, set_pace,
                      set_default_look, set_notify_events, set_parallel, set_project_values, set_show_requests,
                      set_telegram_buttons)
 from .github import AGENT_LABEL, GitHubError, task_blockers
@@ -1174,12 +1174,31 @@ class Api:
         try:
             with self._add_lock:
                 result = add.add_machine(self._field(query, "name"), self._field(query, "ssh"),
-                                         self._field(query, "always_on") == "true", self.local_dir)
+                                         self._field(query, "always_on") == "true", self.local_dir,
+                                         run_tmp_dir=self._field(query, "run_tmp_dir") or None)
         except (add.AddError, ConfigError) as e:
             raise ApiError(400, str(e)) from None
         self.refresh_config()
         self.store.record("machine_added", machine=result["machine"])
         return result
+
+    def change_run_tmp(self, query, name):
+        """Turns a machine's run temporary folder on or off, and sets its folder, through the config. The next run on
+        that machine uses it."""
+        if not any(m.name == name for m in self.config.settings.machines):
+            raise ApiError(404, f"no machine named {name}")
+        enabled = query.get("enabled", [""])[0]
+        if enabled not in ("true", "false"):
+            raise ApiError(400, "give enabled=true or enabled=false")
+        folder = query.get("folder", [""])[0].strip() or None
+        try:
+            set_run_tmp(name, enabled == "true", folder, self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        machine = self.config.machine(name)
+        machine.run_tmp, machine.run_tmp_dir = enabled == "true", folder or machine.run_tmp_dir
+        self.store.record("run_tmp_changed", machine=name, enabled=machine.run_tmp, folder=machine.run_tmp_dir)
+        return next(m for m in self._machines() if m["name"] == name)
 
     def detect_project(self, query):
         """What the copy at a path says about itself, as a proposed entry. Changes nothing."""
@@ -1416,7 +1435,8 @@ class Api:
     def _machines(self):
         """Each machine, and since when it has not answered, as the supervisor last saw it, or null while it does."""
         down = {m["machine"]: m["since"] for m in self.store.read_current().get("unreachable_machines") or []}
-        return [{"name": m.name, "always_on": m.always_on, "down_since": down.get(m.name)}
+        return [{"name": m.name, "always_on": m.always_on, "down_since": down.get(m.name),
+                 "run_tmp": m.run_tmp, "run_tmp_dir": m.run_tmp_dir}
                 for m in self.config.settings.machines]
 
     def _project_tokens(self):
@@ -1497,6 +1517,7 @@ ROUTES = [
     ("POST", "/pace", Api.change_pace),
     ("POST", "/restart", Api.restart),
     ("POST", "/machines", Api.add_machine),
+    ("POST", "/machines/{name}/run-tmp", Api.change_run_tmp),
     ("POST", "/projects/detect", Api.detect_project),
     ("POST", "/projects", Api.add_project),
     ("POST", "/wake", Api.wake),

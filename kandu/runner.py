@@ -31,6 +31,10 @@ STOP_GRACE_SECONDS = 10
 # Kandu stops that scope, which ends every process the run left behind (a dev server, a test browser).
 SCOPE_PROBE = "command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1"
 COMMAND_TIMEOUT_SECONDS = 30 * 60
+# A run temporary folder (DESIGN §9): where the machine's option is on, each scoped run gets its own folder, named
+# like its scope, in the machine's `run_tmp_dir`. Its first line says which process owns it.
+RUN_FOLDER_OWNER = ".kandu-run"
+STALE_RUN_FOLDER_MINUTES = 24 * 60  # an older folder whose owner is gone was left when Kandu itself was stopped
 SECRET_PREFIX = "KANDU_"
 SETUP_MARK = "kandu-setup"  # in a checkout's git folder: what its last setup was for (`Runner.run_test`)
 # What `Runner.clean_task` says of each folder and branch it finds: removed, or why it stays.
@@ -85,6 +89,7 @@ class Host:
     def __init__(self, machine):
         self.name = machine.name
         self.ssh_target = None if machine.reach == "local" else machine.reach.split()[1]
+        self.run_tmp_dir = machine.run_tmp_dir if getattr(machine, "run_tmp", False) else None
         self._home = None
 
     def argv(self, command, cwd=None):
@@ -106,6 +111,39 @@ class Host:
         try:
             self.run(["sh", "-c", f"if {SCOPE_PROBE}; then systemctl --user stop {shlex.quote(unit + '.scope')}; fi"],
                      timeout=PROBE_TIMEOUT_SECONDS)
+        except RunnerError:
+            pass
+
+    def run_folder(self, unit):
+        """The run temporary folder of the run in scope `unit`, or None where the machine's option is off."""
+        if self.run_tmp_dir is None:
+            return None
+        return posixpath.join(self.absolute(self.run_tmp_dir), unit)
+
+    @staticmethod
+    def in_run_folder(command, folder, claude=False):
+        """`command` with its own fresh `folder` as its temporary directory, and Claude's too for an agent run.
+
+        First, every folder beside it older than a day whose owning process is gone is removed: what a run left when
+        Kandu itself was stopped. Then `folder` is made, and this shell, which becomes `command`, is named its owner.
+        """
+        base = shlex.quote(posixpath.dirname(folder))
+        names = "TMPDIR CLAUDE_CODE_TMPDIR" if claude else "TMPDIR"
+        script = (f'base={base}; mkdir -p "$base" || {{ echo "kandu: cannot make the run folder in $base" >&2; exit 1; }}; '
+                  f'for old in "$base"/kandu-*; do [ -d "$old" ] || continue; '
+                  f'[ -n "$(find "$old" -maxdepth 0 -mmin +{STALE_RUN_FOLDER_MINUTES})" ] || continue; '
+                  f'owner=$(head -n 1 "$old/{RUN_FOLDER_OWNER}" 2>/dev/null); '
+                  f'case "$owner" in ""|*[!0-9]*) ;; *) kill -0 "$owner" 2>/dev/null && continue ;; esac; '
+                  f'rm -rf "$old"; done; '
+                  f'dir={shlex.quote(folder)}; mkdir -m 700 "$dir" || {{ echo "kandu: cannot make the run folder $dir" >&2; exit 1; }}; echo $$ > "$dir/{RUN_FOLDER_OWNER}"; '
+                  + "; ".join(f'{name}="$dir"; export {name}' for name in names.split())
+                  + '; exec "$@"')
+        return ["sh", "-c", script, "sh", *command]
+
+    def remove_run_folder(self, folder):
+        """Removes a run's temporary folder once the run has ended. One a dropped connection leaves goes later."""
+        try:
+            self.run(["rm", "-rf", "--", folder], timeout=PROBE_TIMEOUT_SECONDS)
         except RunnerError:
             pass
 
@@ -445,15 +483,21 @@ class Runner:
     def run_command(self, project, cwd, command, log_name, secrets=False, scoped=True):
         """Runs a project's command in `cwd` and returns its exit code. Its output stays in a local log.
 
-        With `scoped`, what the command leaves running is ended with it. A deploy passes False: it may start
-        what must keep running.
+        With `scoped`, what the command leaves running is ended with it, and where the machine's option is on it
+        gets its own run temporary folder, removed when it ends. A deploy passes False: it may start what must
+        keep running, so it gets neither.
         """
         host = self.hosts[project.machine]
         script = command
         if secrets and project.secrets_from:
             script = f"set -a; . {shlex.quote(host.absolute(project.secrets_from))}; set +a; {command}"
         unit = scope_name(log_name) if scoped else None
-        argv = Host.scoped(["sh", "-c", script], unit) if unit else ["sh", "-c", script]
+        folder = host.run_folder(unit) if unit else None
+        argv = ["sh", "-c", script]
+        if folder:
+            argv = Host.in_run_folder(argv, folder)
+        if unit:
+            argv = Host.scoped(argv, unit)
         self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd = os.open(self.logs_dir / f"{log_name}.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as log:
@@ -465,6 +509,8 @@ class Runner:
             finally:
                 if unit:
                     host.stop_scope(unit)
+                if folder:
+                    host.remove_run_folder(folder)
         # 255 is ssh's own code, but a project's command may exit with it too: a machine that still
         # answers says the command did, so only a machine that is gone makes it a drop
         if host.ssh_target is not None and code == SSH_FAILED and not self.reachable(project.machine):
@@ -508,7 +554,8 @@ class Runner:
 
         The run is in its own scope (`Host.scoped`): when it ends, or is
         stopped, every process it started on the machine ends with it, over
-        SSH too. With no `model`,
+        SSH too. Where the machine's option is on, the run has its own run
+        temporary folder, removed when it ends. With no `model`,
         `claude` picks its own default. `tokens` is (file, names): those
         values alone reach this process, in its environment. If one is
         missing the run ends with an error. With a `schema`, `claude` holds the
@@ -533,6 +580,9 @@ class Runner:
         fd = os.open(self.logs_dir / f"{run_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         host = self.hosts[machine]
         unit = scope_name(run_id)
+        folder = host.run_folder(unit)
+        if folder:
+            command = Host.in_run_folder(command, folder, claude=True)
         process = subprocess.Popen(host.argv(Host.scoped(command, unit), cwd), stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=child_env(run_id))
         stopped = threading.Event()
@@ -549,6 +599,8 @@ class Runner:
         finally:
             # Ends what the run left behind, and over SSH a stopped run's `claude` at once.
             host.stop_scope(unit)
+            if folder:
+                host.remove_run_folder(folder)
         if result is None:
             return AgentResult(stopped=stopped.is_set())
         usage = usage_from_result(result)

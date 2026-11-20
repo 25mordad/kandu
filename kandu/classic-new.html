@@ -508,7 +508,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   </section>
   <section data-panel="meadow" class="card meadow" hidden><div id="fieldtabs" class="fieldtabs"></div><div id="scene"></div><div id="comb" class="comb"></div><div id="legend" class="legend"></div></section>
   <section data-panel="bazras" class="list" hidden><div id="bazrasreports" class="list"></div></section>
-  <section data-panel="settings" class="list" hidden><div class="setgrid"><div class="card add-open"><div class="set-head"><button id="addopen" class="btn primary small" data-t="add_project" data-hint="add_why"></button><span class="info" data-hint="settings_about">ⓘ</span></div></div><div id="pacesettings" class="card"></div><div id="cleanmerged" class="card"></div><div id="defaultlook" class="card"></div></div><div id="projectsettings" class="card"></div></section>
+  <section data-panel="settings" class="list" hidden><div class="setgrid"><div class="card add-open"><div class="set-head"><button id="addopen" class="btn primary small" data-t="add_project" data-hint="add_why"></button><span class="info" data-hint="settings_about">ⓘ</span></div></div><div id="pacesettings" class="card"></div><div id="runtmpsettings" class="card"></div><div id="cleanmerged" class="card"></div><div id="defaultlook" class="card"></div></div><div id="projectsettings" class="card"></div></section>
   <section data-panel="days" class="list" hidden>
     <div class="card pad usage"><div class="toolbar"><h2 class="card-title" data-t="usage_title"></h2>
       <div class="usage-range"><select id="usagerange" data-t-attr="aria-label" data-t="usage_title"><option value="today" data-t="range_today"></option><option value="week" data-t="range_week"></option><option value="last7" data-t="range_last7"></option><option value="month" data-t="range_month"></option><option value="custom" data-t="range_custom"></option></select>
@@ -545,6 +545,12 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   <h2 data-t="parallel_title"></h2><p class="muted" data-t="parallel_why"></p>
   <label class="limit-field"><strong data-t="parallel_total"></strong><input id="paralleltotal" type="number" min="1" required></label>
   <h3 class="card-title" data-t="parallel_per_project"></h3><div id="parallelprojects"></div>
+  <div class="actions"><button class="btn primary" value="yes" data-t="save"></button><button class="btn" value="no" formnovalidate data-t="cancel"></button></div>
+</form></dialog>
+<dialog id="runtmpbox" class="small"><form method="dialog" class="dialog-body">
+  <h2><span data-t="run_tmp_title"></span> · <bdi id="runtmpmachine"></bdi></h2><p class="muted" data-t="run_tmp_why"></p>
+  <label class="limit-field"><span data-t="run_tmp_on"></span><input id="runtmpon" type="checkbox"></label>
+  <label class="limit-field"><span data-t="run_tmp_folder"></span><input id="runtmpfolder" type="text" dir="ltr" placeholder="~/kandu-tmp"></label>
   <div class="actions"><button class="btn primary" value="yes" data-t="save"></button><button class="btn" value="no" formnovalidate data-t="cancel"></button></div>
 </form></dialog>
 <dialog id="backupbox" class="small"><form method="dialog" class="dialog-body">
@@ -853,6 +859,14 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "change": "change",
   "save": "Save",
   "backup": "Backup",
+  "run_tmp": "Run temporary folder",
+  "run_tmp_off": "off",
+  "run_tmp_title": "Run temporary folder",
+  "run_tmp_why": "On: each agent run, test and setup on this machine gets its own temporary folder inside this folder, on the machine's own disk, and Kandu removes it when the run ends. Off: runs use the machine's system temporary folder, as before. A deploy never gets one.",
+  "run_tmp_on": "On",
+  "run_tmp_folder": "Folder on the machine's disk",
+  "run_tmp_saved_on": "Runs on {machine} get their own temporary folder in {folder}",
+  "run_tmp_saved_off": "Runs on {machine} use its system temporary folder",
   "backup_title": "Daily backup",
   "backup_why": "Once a day Kandu copies its config and state folders, which Git cannot rebuild, into a folder on this machine. The run logs are left out. A failed copy leaves the earlier ones as they were and is told to you.",
   "backup_on": "On",
@@ -1380,6 +1394,14 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "change": "تغییر",
   "save": "ذخیره",
   "backup": "پشتیبان",
+  "run_tmp": "پوشهٔ موقت اجرا",
+  "run_tmp_off": "خاموش",
+  "run_tmp_title": "پوشهٔ موقت اجرا",
+  "run_tmp_why": "روشن: هر اجرای عامل، تست و setup روی این ماشین پوشهٔ موقت خودش را درون این پوشه، روی دیسک خود ماشین، می‌گیرد و کندو وقتی اجرا تمام شد آن را پاک می‌کند. خاموش: اجراها مثل قبل از پوشهٔ موقت سیستم استفاده می‌کنند. deploy هرگز پوشه نمی‌گیرد.",
+  "run_tmp_on": "روشن",
+  "run_tmp_folder": "پوشه روی دیسک ماشین",
+  "run_tmp_saved_on": "اجراها روی {machine} پوشهٔ موقت خودشان را در {folder} می‌گیرند",
+  "run_tmp_saved_off": "اجراها روی {machine} از پوشهٔ موقت سیستم استفاده می‌کنند",
   "backup_title": "پشتیبان روزانه",
   "backup_why": "کندو روزی یک بار پوشه‌های تنظیمات و وضعیتش را، که از گیت دوباره ساخته نمی‌شوند، در پوشه‌ای روی همین ماشین کپی می‌کند. لاگ اجراها کنار می‌ماند. کپیِ ناموفق کپی‌های قبلی را دست نمی‌زند و به تو خبر داده می‌شود.",
   "backup_on": "روشن",
@@ -1867,6 +1889,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "clean_kept": "بعد از ادغام نگه داشته شد",
   "clean_finished": "پاک‌سازی بعد از ادغام تمام شد",
   "clean_merged_changed": "پاک‌سازی بعد از ادغام روشن یا خاموش شد",
+  "run_tmp_changed": "پوشهٔ موقت اجرای یک ماشین روشن، خاموش یا عوض شد",
   "flight_ended": "پرواز آزاد خودش بسته شد",
   "flight_left_open": "تسک بدون ادغام بسته شد و پرواز آزادش هنوز باز است",
   "its PR was merged and nothing was written in the session for 120 minutes": "PR آن ادغام شد و ۱۲۰ دقیقه چیزی در جلسه نوشته نشد",
@@ -2695,6 +2718,32 @@ function upstreamCard(u) {
     <small>${esc(note)}<button class="textlink limit-edit" data-upstream-check>${t("upstream_check_now")}</button>${task}</small></div>`;
 }
 
+// A machine's run temporary folder: on, each run there gets its own folder inside it, removed when the run ends.
+function runTmpCard(machines) {
+  const rows = machines.map(m => `<div class="pace-row"><span>${bdi(m.name)}</span><span class="muted">${m.run_tmp ? `<bdi dir="ltr">${esc(m.run_tmp_dir)}</bdi>` : esc(t("run_tmp_off"))}</span><button class="btn small" data-run-tmp="${esc(m.name)}">${t("change")}</button></div>`);
+  return `<h2 class="card-title" title="${esc(t("run_tmp_why"))}">${t("run_tmp")}</h2>${rows.join("")}`;
+}
+
+function changeRunTmp(button) {
+  const name = button.dataset.runTmp, m = (lastState.machines || []).find(x => x.name === name);
+  if (!m) return;
+  const box = $("runtmpbox");
+  $("runtmpmachine").textContent = name;
+  $("runtmpon").checked = Boolean(m.run_tmp);
+  $("runtmpfolder").value = m.run_tmp_dir || "";
+  box.returnValue = "no";
+  box.addEventListener("close", async () => {
+    if (box.returnValue !== "yes") return;
+    const on = $("runtmpon").checked, folder = $("runtmpfolder").value.trim();
+    const query = new URLSearchParams({enabled: on, ...(folder ? {folder} : {})});
+    if (await act(button, `/machines/${encodeURIComponent(name)}/run-tmp?${query}`)) {
+      toast(t(on ? "run_tmp_saved_on" : "run_tmp_saved_off").replace("{machine}", name).replace("{folder}", folder));
+      refreshState().catch(() => {});
+    }
+  }, {once: true});
+  box.showModal();
+}
+
 function changeBackup(button) {
   const box = $("backupbox"), b = lastState.backup;
   $("backupon").checked = b.enabled;
@@ -2998,7 +3047,7 @@ async function saveTelegram(button) {
 function renderSettings(s) {
   if (tab !== "settings") return;
   const rows = s.project_settings || [];
-  const key = JSON.stringify([lang, rows, s.clean_merged, s.default_look, s.pace, s.parallel?.total]);
+  const key = JSON.stringify([lang, rows, s.clean_merged, s.default_look, s.pace, s.parallel?.total, s.machines]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
   const name = p => encodeURIComponent(p.name);
@@ -3021,6 +3070,7 @@ function renderSettings(s) {
 `;
   $("cleanmerged").innerHTML = `<label title="${esc(t("clean_merged_hint"))}"><input type="checkbox" data-clean-merged${s.clean_merged ? " checked" : ""}> ${t("clean_merged")}</label>`;
   $("defaultlook").innerHTML = defaultLookHtml(s.default_look);
+  $("runtmpsettings").innerHTML = runTmpCard(s.machines || []);
   const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "set_multi_user", "queen_accepts_splits", "queen_answers_one_way"];
   $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th>${heads.map(h => `<th class="fit" title="${esc(t(HEAD_HINTS[h] || h))}">${t(h)}</th>`).join("")}<th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
 }
@@ -3792,6 +3842,7 @@ document.addEventListener("click", e => {
   if (hit("limits")) { changeLimits(hit("limits")); return; }
   if (hit("parallel")) { changeParallel(hit("parallel")); return; }
   if (hit("backup")) { changeBackup(hit("backup")); return; }
+  if (hit("run-tmp")) { changeRunTmp(hit("run-tmp")); return; }
   if (hit("release")) { showRelease(); return; }
   if (hit("upstream-check")) { act(hit("upstream-check"), "/upstream/check").then(() => refreshState()).catch(() => {}); return; }
   if (hit("upstream-bring")) { act(hit("upstream-bring"), "/upstream/bring-in").then(answer => { if (answer) toast(t(answer.created ? "upstream_task_made" : "upstream_task_there")); return refreshState(); }).catch(() => {}); return; }

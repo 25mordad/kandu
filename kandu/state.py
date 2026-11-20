@@ -92,6 +92,7 @@ EVENT_FIELDS = {
     "flight_ended": TASK_FIELDS + ("reason",),  # a quiet free flight on a merged task, ended by the cleanup
     "flight_left_open": TASK_FIELDS + ("session",),  # a task closed without a merge while its free flight is open
     "clean_merged_changed": ("enabled",),
+    "run_tmp_changed": ("machine", "enabled", "folder"),
     "project_added": ("project",),
     "project_removed": ("project",),
     "project_renamed": ("old", "new"),

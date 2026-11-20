@@ -141,8 +141,9 @@ def _write(path, text):
     temporary.replace(path)
 
 
-def machine_text(text, name, ssh_alias, always_on):
-    """`kandu.yaml` with one more machine at the end of its `machines:` list."""
+def machine_text(text, name, ssh_alias, always_on, run_tmp_dir=None):
+    """`kandu.yaml` with one more machine at the end of its `machines:` list; with `run_tmp_dir`, its run temporary
+    folder is on there."""
     lines = text.splitlines(keepends=True)
     start = next((i for i, line in enumerate(lines) if re.match(r"machines:\s*(#.*)?$", line)), None)
     if start is None:
@@ -159,13 +160,18 @@ def machine_text(text, name, ssh_alias, always_on):
                 indent = item.group(1)
     entry = (f"{indent}- name: {name}\n{indent}  reach: ssh {ssh_alias}\n"
              f"{indent}  always_on: {'true' if always_on else 'false'}\n")
+    if run_tmp_dir:
+        entry += f"{indent}  run_tmp: true\n{indent}  run_tmp_dir: {json.dumps(run_tmp_dir)}\n"
     if not lines[end].endswith("\n"):
         lines[end] += "\n"
     return "".join(lines[:end + 1]) + entry + "".join(lines[end + 1:])
 
 
-def add_machine(name, ssh_alias, always_on=False, local_dir=DEFAULT_LOCAL_DIR, probe=None):
-    """Adds a machine reached by an SSH alias on the brain. Answers whether it answered."""
+def add_machine(name, ssh_alias, always_on=False, local_dir=DEFAULT_LOCAL_DIR, probe=None, run_tmp_dir=None):
+    """Adds a machine reached by an SSH alias on the brain. Answers whether it answered.
+
+    With `run_tmp_dir`, each run there gets its own run temporary folder inside it; without, the option stays off.
+    """
     name, ssh_alias = name.strip(), ssh_alias.strip()
     if not MACHINE_NAME.fullmatch(name):
         raise AddError("a machine name is letters, digits, '.', '_' or '-'")
@@ -175,10 +181,12 @@ def add_machine(name, ssh_alias, always_on=False, local_dir=DEFAULT_LOCAL_DIR, p
     config = load_config(local_dir)
     if any(m.name == name for m in config.settings.machines):
         raise AddError(f"there is already a machine named {name!r}")
-    text = machine_text(path.read_text(encoding="utf-8"), name, ssh_alias, always_on)
+    run_tmp_dir = (run_tmp_dir or "").strip() or None
+    text = machine_text(path.read_text(encoding="utf-8"), name, ssh_alias, always_on, run_tmp_dir)
     _validate_copy(local_dir, kandu_text=text)
     _write(path, text)
-    machine = Machine(name=name, reach=f"ssh {ssh_alias}", always_on=always_on)
+    machine = Machine(name=name, reach=f"ssh {ssh_alias}", always_on=always_on, run_tmp=bool(run_tmp_dir),
+                      run_tmp_dir=run_tmp_dir)
     return {"machine": name, "reachable": (probe or _answers)(machine)}
 
 
@@ -428,6 +436,8 @@ def main():
     m.add_argument("--name", required=True)
     m.add_argument("--ssh", required=True, help="the alias in ~/.ssh/config")
     m.add_argument("--always-on", action="store_true")
+    m.add_argument("--run-tmp-dir", help="a folder on that machine's own disk: each run gets its own temporary "
+                                         "folder inside it, removed when it ends (default: off)")
     p = sub.add_parser("project", help="a project from its machine, path and repo")
     p.add_argument("--machine", required=True)
     p.add_argument("--path", required=True)
@@ -438,7 +448,8 @@ def main():
     args = parser.parse_args()
     try:
         if args.what == "machine":
-            print(json.dumps(add_machine(args.name, args.ssh, args.always_on, args.local)))
+            print(json.dumps(add_machine(args.name, args.ssh, args.always_on, args.local,
+                                         run_tmp_dir=args.run_tmp_dir)))
             return 0
         config = load_config(args.local)
         found = detect(config, args.machine, args.path, args.repo)

@@ -20,6 +20,9 @@ machines:
   - name: laptop
     reach: ssh laptop          # SSH alias from ~/.ssh/config
     always_on: false           # checked at the start of each cycle; skipped when unreachable
+    run_tmp: false             # optional; true = each agent run, test and setup here gets its own temporary folder
+                               # inside run_tmp_dir, removed when the run ends. Off until you turn it on, here or in the dashboard
+    run_tmp_dir: ~/kandu-tmp   # a folder on that machine's own disk, for a machine whose /tmp is small or in memory
 
 claude:
   auth: subscription           # subscription | api_key (api_key: set ANTHROPIC_API_KEY in local/.env)

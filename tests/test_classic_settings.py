@@ -108,3 +108,25 @@ class ClassicSettingsBrowserTest(Served):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClassicRunTmpTest(unittest.TestCase):
+    """Each Classic look lists the machines' run temporary folders (#120); Change opens the same pop-up as Kandu Clean."""
+
+    def test_each_machine_shows_its_folder_and_change_opens_its_pop_up(self):
+        machines = [{"name": "hive-box", "run_tmp": True, "run_tmp_dir": "~/kandu-tmp"},
+                    {"name": "studio", "run_tmp": False, "run_tmp_dir": None}]
+        for page in (read(dashboard.CLASSIC_PAGE), read(dashboard.CLASSIC_NEW_PAGE)):
+            text = words(page)
+            script = (f"const TEXT = {json.dumps(text)}; let lang = 'en';\n" + line(page, "const t = ")
+                      + line(page, "const esc = ") + line(page, "const bdi = ") + function(page, "runTmpCard")
+                      + f"\nconsole.log(JSON.stringify(runTmpCard({json.dumps(machines)})));")
+            html = run_js(script)
+            self.assertIn('<bdi dir="ltr">~/kandu-tmp</bdi>', html)
+            self.assertIn(text["en"]["run_tmp_off"], html)
+            self.assertIn('data-run-tmp="studio"', html)
+            self.assertIn('if (hit("run-tmp")) { changeRunTmp(hit("run-tmp")); return; }', page)
+            self.assertIn('id="runtmpsettings"', page)
+            self.assertEqual(function(page, "changeRunTmp"), function(CLEAN, "changeRunTmp"))
+            self.assertEqual({k: v for k, v in text["fa"].items() if k.startswith("run_tmp")},
+                             {k: v for k, v in words(CLEAN)["fa"].items() if k.startswith("run_tmp")})

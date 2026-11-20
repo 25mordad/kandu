@@ -35,6 +35,8 @@ DEADLINE_FIELD = "Deadline"
 NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "task_done", "usage_limit", "claude_login",
                  "machine_unreachable")
 NOTIFY_LANGUAGES = ("en", "fa")
+# A run temporary folder's parent: absolute or under ~, with no `..` and no space, and never the root or ~ itself.
+RUN_TMP_DIR = re.compile(r"(/|~/)[\w.@+/-]*[\w@+-][\w.@+/-]*")
 LOOKS = ("classic", "classic-new", "clean")  # the dashboard's looks: Classic, Classic new and Kandu Clean
 
 
@@ -68,6 +70,10 @@ class Machine:
     name: str
     reach: str
     always_on: bool
+    # A run temporary folder (DESIGN §9): each agent run, test and setup command on this machine gets its own
+    # folder inside `run_tmp_dir` as its temporary directory, removed when the run ends. Off until the owner turns it on.
+    run_tmp: bool = False
+    run_tmp_dir: str | None = None   # a folder on the machine's own disk: absolute, or starting with ~/
 
 
 @dataclass
@@ -394,6 +400,7 @@ def _check_settings(s, problems):
     for i, m in enumerate(s.machines):
         if m.reach != "local" and not SSH_REACH.fullmatch(m.reach):
             problems.append(f"machines[{i}].reach: must be 'local' or 'ssh <alias>', got {m.reach!r}")
+        _check_run_tmp(m.run_tmp, m.run_tmp_dir, f"machines[{i}]", problems)
 
     brain = next((m for m in s.machines if m.name == s.brain.machine), None)
     if brain is None:
@@ -434,6 +441,13 @@ def _check_settings(s, problems):
     if not 1 <= s.dashboard.port <= 65535:
         problems.append(f"dashboard.port: must be between 1 and 65535, got {s.dashboard.port}")
     _check_one_of(s.dashboard.look, LOOKS, "dashboard.look", problems)
+
+
+def _check_run_tmp(enabled, folder, where, problems):
+    if folder is not None and (not RUN_TMP_DIR.fullmatch(folder) or ".." in folder.split("/")):
+        problems.append(f"{where}.run_tmp_dir: must be a folder that is absolute or starts with ~/, got {folder!r}")
+    if enabled and folder is None:
+        problems.append(f"{where}.run_tmp_dir: required when run_tmp is true")
 
 
 def _check_backup(enabled, at, destination, keep, problems):
@@ -776,6 +790,41 @@ def set_clean_merged(enabled, local_dir=DEFAULT_LOCAL_DIR):
     if ((yaml.safe_load(text) or {}).get("supervisor") or {}).get("clean_merged") is not enabled:
         raise ConfigError(["supervisor.clean_merged: could not be written; change it in kandu.yaml by hand"])
     _replace_file(path, text)
+
+
+def set_run_tmp(machine, enabled, folder=None, local_dir=DEFAULT_LOCAL_DIR):
+    """Turns a machine's run temporary folder on or off, and sets its folder when one is given, in that machine's
+    entry under `machines:` in `kandu.yaml`, line by line. The whole config is checked on a copy first, so nothing is
+    written if a value is wrong. The next run on the machine uses it."""
+    problems = []
+    if folder is not None:
+        _check_run_tmp(enabled, folder, f"{machine}", problems)
+    if problems:
+        raise ConfigError(problems)
+    path = Path(local_dir) / "kandu.yaml"
+    values = {"run_tmp": enabled, **({"run_tmp_dir": json.dumps(folder)} if folder is not None else {})}
+    text = _set_machine_values(path.read_text(encoding="utf-8"), machine, values)
+    config = _check_on_copy(local_dir, "kandu.yaml", text)
+    written = next(m for m in config.settings.machines if m.name == machine)
+    if written.run_tmp is not enabled or (folder is not None and written.run_tmp_dir != folder):
+        raise ConfigError([f"{machine}.run_tmp: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
+def _set_machine_values(text, name, values):
+    """Sets each `key: value` in the entry of machine `name` under the top-level `machines:` only."""
+    lines = text.split("\n")
+    head = next((i for i, l in enumerate(lines) if re.fullmatch(r"machines:[ \t]*(#.*)?", l)), None)
+    if head is None:
+        raise ConfigError(["machines: not in kandu.yaml as a list; change it there by hand"])
+    end = head + 1
+    while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t#-"):
+        end += 1
+    block = "\n".join(lines[head:end])
+    if not re.search(rf"^\s*- name:\s*[\"']?{re.escape(name)}[\"']?\s*(#.*)?$", block, flags=re.MULTILINE):
+        raise ConfigError([f"machines: no machine named {name!r} in kandu.yaml"])
+    block = _set_project_values(block, name, values)
+    return "\n".join(lines[:head] + [block] + lines[end:])
 
 
 def set_show_requests(enabled, local_dir=DEFAULT_LOCAL_DIR):

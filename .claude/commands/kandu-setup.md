@@ -7,7 +7,7 @@ Read `docs/COMMANDS.md`, then set up this install, once. The result is `local/ka
 2. Create `.venv`, install `requirements.txt` and run `git config core.hooksPath .githooks`.
 3. Ask, as one numbered list, what you could not find out:
    1. Which machine runs the brain, and is it always on?
-   2. Which other machines exist, how are they reached, and which are always on?
+   2. Which other machines exist, how are they reached, and which are always on? Should any machine, the brain's too, give each run its own temporary folder on its own disk (`run_tmp: true` and `run_tmp_dir`, off by default)? Recommend it where `/tmp` is small or in memory (`df -h /tmp` shows `tmpfs`), with a folder outside the install such as `~/kandu-tmp`. It can be changed later from the dashboard's settings.
    3. Subscription or API key? The 5-hour and weekly limits, in percent. Point out that a shared subscription needs a margin.
    4. The GitHub account, and the owners Kandu may work in.
    5. Notifications: Telegram or none? In which language should Kandu talk to the user (`language`, default `en`)? Should notifications use another language (`notify.language`)? Which of `notify.events` should be sent (default all)? With Telegram: should the message about a PR that waits for the user's yes carry an Approve merge button (`notify.telegram.buttons`, off by default)? A press asks once more and approves only the head it showed.

@@ -7,7 +7,7 @@ Read `docs/COMMANDS.md`, then add one project to `local/projects.yaml`, in the s
 2. Show the findings, then ask as one numbered list:
    1. Name, one line on what it is, and its family.
    2. Which repos, and who owns them?
-   3. Which machine and path?
+   3. Which machine and path? A machine not yet in `kandu.yaml` is added first with `.venv/bin/python -m kandu.add machine --name NAME --ssh ALIAS [--always-on] [--run-tmp-dir FOLDER]`: ask whether it is always on, and whether each run there should get its own temporary folder on its own disk (`--run-tmp-dir`, off unless the user says yes; recommend it where `/tmp` is small or in memory). It can be changed later from the dashboard's settings.
    4. May Kandu clone it into its work folder (`clone`), or must it work on that machine in a separate `git worktree` (`in-place`)? Always ask this.
    5. Which board? An existing board may have other column names: map them under `board.columns`. If there is none, should one be created?
    6. The test and local run commands, the `setup` a fresh checkout needs before the tests (such as `npm ci`, with `inputs: [package-lock.json]`; none if the tests run in a fresh checkout as they are), and, if `permissions` in `kandu.yaml` limits the workers, any extra tools they need here (`allowed_tools`).

@@ -95,6 +95,7 @@ state/
 | `telegram_pressed` | `action` (`a` approve, `y` sure, `n` cancel), `task` and `result` (`asked`, `approved`, `changed`, `refused`, `cancelled`, `no_pr`, `off`, `not_your_chat`, `too_long`, `unknown`): a button pressed in Telegram |
 | `requests_shown_changed` | `enabled`: the user showed the open requests on the dashboard, or hid them |
 | `clean_merged_changed` | `enabled`: the user turned the cleanup after a merge on or off from the dashboard |
+| `run_tmp_changed` | `machine`, `enabled`, `folder`: the user turned a machine's run temporary folder on or off, or set its folder, from the dashboard |
 | `parallel_changed` | `total` (or null), `projects`: name → number, for those changed |
 | `kandu_restarted` | none |
 | `wake_requested` | none |

@@ -21,7 +21,7 @@ from tests.test_today import NODE, QUEUE, ROOT, Page, state
 LINES = ("const MODEL_KEYS = ", "const SETTING_GROUPS = ", "const SETTING_LABELS = ", "const SETTING_HINTS = ", "const LIMIT_STEP = ")
 FUNCTIONS = ("settingsProjects", "settingsProjectsHtml", "settingsDraft", "settingsCalls", "mergeOnAsked", "saveStep",
              "applySettings", "settingsBody", "settingsFoot", "settingControl", "stepper", "limitsHtml", "machinesHtml",
-             "kanduHtml", "switchRow", "defaultLookHtml", "kandubanOf", "flightControls", "kandubanControls")
+             "kanduHtml", "runTmpRow", "switchRow", "defaultLookHtml", "kandubanOf", "flightControls", "kandubanControls")
 TOKEN = "secret-token"
 
 
@@ -35,8 +35,9 @@ def row(name, **fields):
 
 ROWS = [row("website", max_parallel_workers=2, auto_merge=True, model_worker="claude-opus-5-5"), row("blog", paused=True),
         row("shop", split_approval="queen", frozen=True)]
-MACHINES = [{"name": "hive-box", "always_on": True, "down_since": None},
-            {"name": "studio", "always_on": False, "down_since": "2026-11-15T12:00:00+00:00"}]
+MACHINES = [{"name": "hive-box", "always_on": True, "down_since": None, "run_tmp": True, "run_tmp_dir": "~/kandu-tmp"},
+            {"name": "studio", "always_on": False, "down_since": "2026-11-15T12:00:00+00:00", "run_tmp": False,
+             "run_tmp_dir": None}]
 BACKUP = {"enabled": True, "at": "03:00", "destination": "~/backups", "keep": 7, "copies": [], "last": None}
 
 
@@ -517,6 +518,17 @@ sent.length = 0; server = () => true; await saveSettings({}); return {first, aga
         self.assertIn("data-add-machine", html)
         self.assertIn('if (hit("add-machine")) { openAdd(""); return; }', self.page)
         self.assertIn("machineOptions(machine)", self.function("openAdd"))
+
+    def test_each_machine_shows_its_run_temporary_folder_and_change_opens_it(self):
+        html = self.run_js(self.given() + "return machinesHtml(s);")
+        self.assertIn('<bdi dir="ltr">~/kandu-tmp</bdi>', html)
+        self.assertIn(self.text["en"]["run_tmp_off"], html)
+        self.assertIn('data-run-tmp="hive-box"', html)
+        self.assertIn('data-run-tmp="studio"', html)
+        self.assertIn('if (hit("run-tmp")) { changeRunTmp(hit("run-tmp")); return; }', self.page)
+        self.assertIn("/run-tmp?", self.function("changeRunTmp"))
+        for key in ("run_tmp", "run_tmp_off", "run_tmp_why", "run_tmp_folder", "run_tmp_saved_on", "run_tmp_saved_off"):
+            self.assertNotEqual(self.text["fa"][key], self.text["en"][key], key)
 
     def test_kandus_own_switches_and_pace_work_as_today(self):
         html = self.run_js(self.given() + "return kanduHtml(s);")
