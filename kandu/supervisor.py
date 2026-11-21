@@ -901,13 +901,8 @@ class Supervisor:
                 # Nothing new to push, yet GitHub sees a conflict: marked, so this head is not tried again.
                 self.github.comment_pr(task.repo, pr["number"], review.update_comment(pr["headRefOid"]))
             return True
-        files = ", ".join(f"`{path}`" for path in conflicts)
         conflict = {"n": 0, "blocker": True, "path": "", "line": None,
-                    "body": f"Kandu began merging `{base}` into your branch and stopped at conflicts in {files}. "
-                            "Resolve each conflict so that the changes of both sides stay, `git add` those files, "
-                            f"and finish the merge with `git commit`, with the message `Merge {base} into "
-                            f"{task.branch}` and your `Kandu-Run:` line. Run the tests and push. Do not start "
-                            "another merge or a rebase. Change nothing else."}
+                    "body": self._resolve_order(task, base, conflicts)}
         try:
             reply = self._round(task, pr, "update", [conflict], cwd=cwd, mark=review.update_comment)
         except BaseException:
@@ -925,6 +920,19 @@ class Supervisor:
             self._finish(task, BLOCKED, "blocked")
             return False
         return True
+
+    @staticmethod
+    def _resolve_order(task, base, conflicts, then=None):
+        """What a worker does with a merge of `base` Kandu left open at `conflicts`. With `then`, the queen's order,
+        it does that order too, in the same round; without it, it changes nothing else."""
+        files = ", ".join(f"`{path}`" for path in conflicts)
+        order = (f"Kandu began merging `{base}` into your branch and stopped at conflicts in {files}. Resolve each "
+                 "conflict so that the changes of both sides stay, `git add` those files, and finish the merge with "
+                 f"`git commit`, with the message `Merge {base} into {task.branch}` and your `Kandu-Run:` line. Do "
+                 "not start another merge or a rebase.")
+        if then is None:
+            return order + " Run the tests and push. Change nothing else."
+        return order + f" Then, in the same round, do this, run the tests and push:\n\n{then}"
 
     def _update_waits(self, task, pr):
         """A conflicting PR gets no update round while a blocking task is open: it cannot merge before that task,
@@ -969,22 +977,49 @@ class Supervisor:
                           decided=step["ts"], result=result, summary=summary, head_sha=head_sha, run_id=run_id)
 
     def _rework(self, task, pr, step):
-        """A fresh worker on the PR's branch does what she asks. The new head is then reviewed as usual."""
+        """A fresh worker on the PR's branch does what she asks. The new head is then reviewed as usual.
+
+        A PR that conflicts with its base gets the base merged in first, as an update round would: a worker never
+        runs `git merge`, so her order could not bring the base in, and an update round that already stopped on
+        this head is not run again. A clean merge Kandu pushes; one with conflicts is left open, and the worker
+        resolves it and does her order in the same round. Returns False if the task stopped here."""
         if pr is None or pr["state"] != "OPEN":
             self._step_done(task, step, result="no_open_pr")
-            return
+            return True
         head = pr["headRefOid"]
         task.branch = pr["headRefName"]
         self._pick(task)
         self._move(task, IN_PROGRESS)
         self._phase(task, "queen's rework")
+        order, cwd, conflicts = step["note"], None, []
+        if pr.get("mergeable") == "CONFLICTING":
+            base = self.github.default_branch(task.repo)
+            cwd = self._worktree(task, base)
+            message = f"Merge {base} into {task.branch}\n\nKandu-Run: {new_run_id(self.now())}"
+            _, conflicts = self.runner.merge_base(task.project, task.repo, cwd, task.branch, base, message,
+                                                  kept=lambda note: self._decide(task, "unpushed_kept", note))
+            if conflicts:
+                order = self._resolve_order(task, base, conflicts, then=order)
+            else:
+                self.runner.push_branch(task.project, cwd, task.branch)
+                self._decide(task, "base_merged", f"{base} merged into the PR with no conflict, before her rework")
         try:
-            self._edit_pr_body(task, pr, self._work(task, pr=pr["number"], order=step["note"]))
+            self._edit_pr_body(task, pr, self._work(task, pr=pr["number"], order=order, cwd=cwd))
         except agents.ReplyError:
             pass  # judged by its commits, as a fix round is
+        except BaseException:
+            # Even a round cut short may have pushed: markers must not reach a review.
+            if conflicts and self._merge_left_markers(task, pr, cwd, conflicts):
+                self._step_done(task, step, result="markers_left")
+                return False
+            raise
+        if conflicts and self._merge_left_markers(task, pr, cwd, conflicts):
+            self._step_done(task, step, result="markers_left")
+            return False
         self._reread(lambda: self.github.refresh_pr(task.repo, pr["number"]))
         after = self.github.pr(task.repo, pr["number"])["headRefOid"]
         self._step_done(task, step, result="pushed" if after != head else "no_commit", head_sha=after)
+        return True
 
     def _verify(self, task, pr, step):
         """A checker finds out what she asked, on the PR's head or the default branch. She reads it next look."""
@@ -1639,7 +1674,8 @@ class Supervisor:
             if task.status not in (READY, *RESUMED):
                 return
         elif step is not None:
-            self._rework(task, pr, step)
+            if not self._rework(task, pr, step):
+                return
             pr = self.github.find_pr(task.repo, task.number)
         if pr is None:
             pr = self._implement(task)

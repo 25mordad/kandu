@@ -395,6 +395,67 @@ class QueenStepsTest(Base):
         done = self.events("queen_step_done")[0]
         self.assertEqual((done["action"], done["result"], done["head_sha"]), ("rework", "pushed", SHA2))
 
+    def resolves_and_pushes(self):
+        def step():
+            self.github.prs[(REPO, 1)] |= {"headRefOid": SHA2, "mergeable": "MERGEABLE"}
+            return PR_OPENED
+        return step
+
+    def test_a_rework_on_a_pr_with_no_conflict_merges_nothing(self):
+        self.github.open_pr(REPO, 1, SHA1)
+        self.sup._carry_out([self.step("rework", note="Rename the helper.")], [])
+        self.runner.steps = [self.reply_none(), self.worker_pushes(SHA2), report(SHA2), self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.runner.merged, [])
+        self.assertNotIn("Kandu began merging", self.runner.runs[1].prompt)
+
+    def test_a_rework_on_a_conflicting_pr_leaves_the_merge_open_and_the_worker_resolves_it_and_does_her_order(self):
+        # A worker never runs `git merge`, and an update round already stopped on this head is not run again: her
+        # rework is the only way the base comes in, so Kandu starts that merge for her.
+        self.github.open_pr(REPO, 1, SHA1)["mergeable"] = "CONFLICTING"
+        self.marked(review.update_comment(SHA1))
+        self.runner.conflicts = ["a.py"]
+        self.sup._carry_out([self.step("rework", note="Make the title check read each language's title.")], [])
+        self.runner.steps = [self.reply_none(), self.resolves_and_pushes(), report(SHA2), self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.runner.merged, [("/worktree", "main")])
+        self.assertRegex(self.runner.merge_message, r"^Merge main into kandu/1-task\n\nKandu-Run: \S+$")
+        worker = self.runner.runs[1]
+        self.assertEqual(worker.cwd, "/worktree")
+        self.assertIn("stopped at conflicts in `a.py`", worker.prompt)
+        self.assertIn("Then, in the same round, do this", worker.prompt)
+        self.assertIn("Make the title check read each language's title.", worker.prompt)
+        self.assertNotIn("Change nothing else.", worker.prompt)
+        self.assertIn(SHA2, self.runner.runs[2].prompt)
+        done = self.events("queen_step_done")[0]
+        self.assertEqual((done["result"], done["head_sha"]), ("pushed", SHA2))
+
+    def test_a_rework_on_a_pr_whose_base_merges_cleanly_pushes_the_merge_first(self):
+        self.github.open_pr(REPO, 1, SHA1)["mergeable"] = "CONFLICTING"
+        pushed = []
+        self.runner.on_push = lambda: pushed.append(True)
+        self.sup._carry_out([self.step("rework", note="Rename the helper.")], [])
+        self.runner.steps = [self.reply_none(), self.resolves_and_pushes(), report(SHA2), self.reply_none()]
+        self.cycle()
+        self.assertEqual((self.runner.merged, pushed), ([("/worktree", "main")], [True]))
+        self.assertIn("base_merged", [e["decision"] for e in self.events("decision")])
+        self.assertNotIn("Kandu began merging", self.runner.runs[1].prompt)
+        self.assertIn("Rename the helper.", self.runner.runs[1].prompt)
+
+    def test_a_rework_that_leaves_conflict_markers_blocks_the_task(self):
+        self.github.open_pr(REPO, 1, SHA1)["mergeable"] = "CONFLICTING"
+        self.runner.conflicts = ["a.py"]
+        self.runner.markers = ["a.py"]
+        self.sup._carry_out([self.step("rework")], [])
+        self.runner.steps = [self.reply_none(), self.resolves_and_pushes(), self.reply_none(), self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(self.events("queen_step_done")[0]["result"], "markers_left")
+        self.assertEqual(len([r for r in self.runner.runs if r.schema == agents.WORKER_SCHEMA]), 1)
+
+    def marked(self, comment):
+        self.github.prs[(REPO, 1)]["comments"].append({"author": {"login": ACCOUNT}, "body": comment})
+
     def test_a_rework_needs_an_open_pr(self):
         refused, _ = self.sup._carry_out([self.step("rework")], [])
         self.assertEqual(len(refused), 1)
