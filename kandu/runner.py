@@ -246,8 +246,8 @@ class Runner:
     def prepare_worktree(self, project, repo, branch, base, cleaned=None, settled=None):
         """Returns the worker's worktree on `branch`, reusing it if an earlier run left one.
 
-        A merge, rebase or cherry-pick an earlier run left unfinished there is cancelled first, and `cleaned` is
-        called with what was cancelled. A reused worktree behind the pushed branch is fast-forwarded; one ahead
+        A merge, rebase or cherry-pick an earlier run left unfinished there is cancelled first (dropped, with its
+        uncommitted changes, when git refuses to cancel it), and `cleaned` is called with what was cancelled. A reused worktree behind the pushed branch is fast-forwarded; one ahead
         keeps its commits. One whose branch has drifted from the pushed one is settled, and `settled` is called
         with how (see `_settle`). If the folder holds commits that are not on GitHub beside an unfinished
         operation, or a drift cannot be settled safely, it is left as it is and `LocalWork` is raised.
@@ -338,9 +338,19 @@ class Runner:
             raise LocalWork(f"The task's folder on {host.name} has a {operation} left unfinished and {local} commit(s) "
                             f"that are not on GitHub. Kandu left the folder as it is, so nothing is lost: finish or "
                             f"cancel the {operation} there, push the commits, then send the task back.")
-        host.check(["git", operation, "--abort"], cwd=directory)
+        if host.succeeds(["git", operation, "--abort"], cwd=directory):
+            if cleaned is not None:
+                cleaned(f"cancelled a {operation} an earlier run left unfinished in the task's folder")
+            return
+        # `--abort` refuses a folder where a file it must reset changed after it was staged, such as a built file
+        # a worker rebuilt after resolving a conflict. Every commit here is on GitHub, so only work that was never
+        # committed or reviewed is lost: the operation is dropped and the folder reset to the task's branch.
+        host.check(["git", operation, "--quit"], cwd=directory)
+        host.check(["git", "checkout", "--force", branch], cwd=directory)
+        host.check(["git", "reset", "--hard"], cwd=directory)
         if cleaned is not None:
-            cleaned(f"cancelled a {operation} an earlier run left unfinished in the task's folder")
+            cleaned(f"dropped a {operation} an earlier run left unfinished in the task's folder, and its uncommitted "
+                    f"changes: git refused to cancel it, and every commit there is on GitHub")
 
     def merge_base(self, project, repo, directory, branch, base, message, kept=None):
         """Merges `origin/<base>` into the pushed `branch`, in Kandu's code, so no worker runs `git merge`.

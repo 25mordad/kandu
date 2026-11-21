@@ -490,6 +490,29 @@ class RunnerTest(GitCase):
         self.assertEqual((Path(worktree) / "same.txt").read_text(), "ours\n")
         self.assertEqual(len(cleaned), 1)
 
+    def test_a_merge_left_open_whose_staged_file_changed_since_is_still_cleared_before_the_next_run(self):
+        # A worker resolves the conflict and stages it, then a build rewrites a staged file and it stops without a
+        # commit. `git merge --abort` refuses that folder ("not uptodate"), and once stopped every run on the task.
+        worktree = self.merging()
+        self.push_commit("main", "same.txt", "theirs\n")
+        self.push_commit("main", "built.html", "from main\n")
+        self.merge(worktree)
+        (Path(worktree) / "same.txt").write_text("ours\ntheirs\n")
+        (Path(worktree) / "built.html").write_text("rebuilt once\n")
+        git("add", "same.txt", "built.html", cwd=worktree)
+        (Path(worktree) / "built.html").write_text("rebuilt twice\n")
+        refused = subprocess.run(["git", "merge", "--abort"], cwd=worktree, capture_output=True, text=True)
+        self.assertNotEqual(refused.returncode, 0)  # the folder git refuses, as on the machine
+        cleaned = []
+        self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main", cleaned=cleaned.append)
+        self.assertEqual(git("status", "--short", cwd=worktree), "")
+        self.assertEqual(git("branch", "--show-current", cwd=worktree), "kandu/1-a")
+        self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), git("rev-parse", "origin/kandu/1-a", cwd=worktree))
+        self.assertEqual((Path(worktree) / "same.txt").read_text(), "ours\n")
+        self.assertFalse((Path(worktree) / "built.html").exists())
+        self.assertEqual(len(cleaned), 1)
+        self.assertIn("refused", cleaned[0])
+
     def test_work_left_uncommitted_does_not_stop_the_merge(self):
         worktree = self.merging()
         (Path(worktree) / "new.txt").write_text("half done\n")
