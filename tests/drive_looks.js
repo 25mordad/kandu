@@ -7,7 +7,7 @@ const {spawn} = require("child_process");
 const [browserPath, base, profile, casesJson] = process.argv.slice(2);
 const cases = JSON.parse(casesJson);
 
-const browser = spawn(browserPath, ["--headless", "--no-sandbox", "--disable-gpu", "--no-first-run", "--remote-debugging-port=0",
+const browser = spawn(browserPath, ["--headless", "--no-sandbox", "--disable-gpu", "--no-first-run", "--password-store=basic", "--remote-debugging-port=0",
                                     `--user-data-dir=${profile}`, "about:blank"], {stdio: ["ignore", "ignore", "pipe"]});
 const fail = message => { console.error(message); browser.kill(); process.exit(1); };
 setTimeout(() => fail("the browser took too long"), 150000);
