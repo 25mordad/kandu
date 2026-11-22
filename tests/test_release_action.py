@@ -19,7 +19,7 @@ from kandu.dashboard import Api, dispatch, make_handler
 from kandu.github import GitHub
 from tests.test_dashboard import Base, TOKEN
 from tests.test_release import MIX, MIX_PRS, FakeGh, remotes
-from tests.test_looks import NODE, browser
+from tests.test_looks import NODE, browser, profile_folder
 
 ROOT = Path(__file__).resolve().parent.parent
 TEXT = re.compile(r'<script type="application/json" id="text">(.*?)</script>', re.DOTALL)
@@ -241,7 +241,7 @@ class BrowserTest(Base):
         self.base = f"http://127.0.0.1:{server.server_address[1]}"
 
     def drive(self, plan):
-        with tempfile.TemporaryDirectory() as profile:
+        with profile_folder() as profile:
             done = subprocess.run([NODE, str(ROOT / "tests" / "drive_release.js"), browser(), self.base, profile, TOKEN,
                                    json.dumps(plan)], capture_output=True, text=True, timeout=170)
         self.assertEqual(done.returncode, 0, done.stderr[-3000:])

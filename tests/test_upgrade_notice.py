@@ -2,7 +2,6 @@
 import json
 import re
 import subprocess
-import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
@@ -10,7 +9,7 @@ from pathlib import Path
 
 from kandu import dashboard
 from kandu.dashboard import dispatch, make_handler
-from tests.test_looks import NODE, browser
+from tests.test_looks import NODE, browser, profile_folder
 from tests.test_upstream import TOKEN
 from tests.test_version import NOW, Installed
 
@@ -215,7 +214,7 @@ class BrowserTest(Upgraded):
         self.base = f"http://127.0.0.1:{server.server_address[1]}"
 
     def drive(self, plan):
-        with tempfile.TemporaryDirectory() as profile:
+        with profile_folder() as profile:
             done = subprocess.run([NODE, str(ROOT / "tests" / "drive_upgrade.js"), browser(), self.base, profile, TOKEN,
                                    json.dumps(plan)], capture_output=True, text=True, timeout=170)
         self.assertEqual(done.returncode, 0, done.stderr[-3000:])
