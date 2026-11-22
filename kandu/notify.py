@@ -45,6 +45,7 @@ LEVELS = {"pr_ready": YOUR_TURN, "pr_held": YOUR_TURN, "split": YOUR_TURN, "flig
           "queen_split": FOR_YOUR_INFO,
           "blocker_rewritten": FOR_YOUR_INFO,
           "usage_limit": FOR_YOUR_INFO, "project_limit": FOR_YOUR_INFO, "machine_back": FOR_YOUR_INFO,
+          "upstream_behind": YOUR_TURN, "upstream_counts": FOR_YOUR_INFO, "upstream_failed": FOR_YOUR_INFO,
           "main_green": DONE}  # Everything else stops work: STUCK.
 
 MESSAGES = {
@@ -92,6 +93,10 @@ MESSAGES = {
         "blocker_rewritten": "The new task {task} named {old} as a blocker. {old} was split, so it waits for its "
                              "last slice {new} instead.",
         "backup_failed": "Kandu's daily backup failed. The previous copies are untouched. The details are on the dashboard.",
+        "upstream_behind": "Kandu's main is now {behind} behind and {ahead} ahead of {theirs}. To bring the updates in, "
+                           "press «Bring in updates» on the dashboard.",
+        "upstream_counts": "Kandu's main is now {behind} behind and {ahead} ahead of {theirs}.",
+        "upstream_failed": "Kandu could not check how far its main is from {theirs}. The details are on the dashboard.",
         "tg_approve": "✅ Approve the merge",
         "tg_sure": "✅ Yes, merge {head}",
         "tg_cancel": "Cancel",
@@ -152,6 +157,10 @@ MESSAGES = {
         "blocker_rewritten": "تسک تازه‌ی {task} منتظر {old} بود. {old} شکسته شده، پس به جایش منتظر آخرین تکه‌اش، "
                              "{new}، می‌ماند.",
         "backup_failed": "پشتیبان روزانه‌ی کندو شکست خورد. نسخه‌های قبلی دست نخورده‌اند. جزئیات در داشبورد است.",
+        "upstream_behind": "شاخه‌ی main کندو حالا {behind} کامیت از {theirs} عقب و {ahead} کامیت جلو است. برای آوردن "
+                           "به‌روزرسانی‌ها، در داشبورد «آوردن به‌روزرسانی‌ها» را بزن.",
+        "upstream_counts": "شاخه‌ی main کندو حالا {behind} کامیت از {theirs} عقب و {ahead} کامیت جلو است.",
+        "upstream_failed": "کندو نتوانست بررسی کند شاخه‌ی main آن چقدر با {theirs} فاصله دارد. جزئیات در داشبورد است.",
         "tg_approve": "✅ تأیید ادغام",
         "tg_sure": "✅ بله، {head} ادغام شود",
         "tg_cancel": "انصراف",

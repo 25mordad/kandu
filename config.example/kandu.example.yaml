@@ -58,6 +58,7 @@ notify:
     - usage_limit
     - claude_login
     - machine_unreachable      # a machine has not answered for hours while tasks wait for it, and when it is back
+    - upstream                 # the upstream check's counts changed, or it started failing
 
 bazras:                        # optional; Bazras's daily look at projects whose `inspect` is on (DESIGN §5)
   at: "06:00"                  # default hour; a project's inspect.at overrides it

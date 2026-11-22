@@ -1115,6 +1115,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "notify_claude_login_hint": "Claude's login expires soon or has stopped working, so no agent starts.",
   "notify_machine_unreachable": "Machine not answering",
   "notify_machine_unreachable_hint": "A machine has not answered for hours while tasks wait for it, and again when it is back.",
+  "notify_upstream": "Upstream check",
+  "notify_upstream_hint": "How far main is behind or ahead of its upstream changed, or the check started failing.",
   "default_look_classic-new": "Classic new",
   "pace_title": "Kandu's pace",
   "pace_workers": "Workers at once, in all of Kandu",
@@ -1687,6 +1689,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "notify_claude_login_hint": "ورود Claude به‌زودی منقضی می‌شود یا از کار افتاده، پس هیچ عاملی شروع نمی‌شود.",
   "notify_machine_unreachable": "ماشین جواب نمی‌دهد",
   "notify_machine_unreachable_hint": "ماشینی ساعت‌ها جواب نداده در حالی که تسک‌هایی منتظرش هستند، و دوباره وقتی برمی‌گردد.",
+  "notify_upstream": "بررسی upstream",
+  "notify_upstream_hint": "فاصله‌ی main تا upstream آن، عقب یا جلو، عوض شد، یا بررسی شروع به شکست کرد.",
   "default_look_classic-new": "کلاسیک نو",
   "pace_title": "آهنگ کار کندو",
   "pace_workers": "کارگرهای هم‌زمان در کل کندو",
@@ -3740,7 +3744,7 @@ function defaultLookHtml(look) {
 // Telegram: which kinds of news Kandu sends, as `notify.events` in the config; the bot's token and the chat stay in
 // local/.env and never reach the page. The kinds go in the order a user meets them; one the page does not know yet
 // comes last, by its name.
-const NOTIFY_ORDER = ["pr_ready", "task_done", "needs_decision", "failure", "supervisor_stopped", "usage_limit", "claude_login", "machine_unreachable"];
+const NOTIFY_ORDER = ["pr_ready", "task_done", "needs_decision", "failure", "supervisor_stopped", "usage_limit", "claude_login", "machine_unreachable", "upstream"];
 const notifyKinds = n => [...NOTIFY_ORDER.filter(k => n.kinds.includes(k)), ...n.kinds.filter(k => !NOTIFY_ORDER.includes(k))];
 const notifyPath = events => `/notify?events=${encodeURIComponent([...events].join(",") || "none")}`;  // none: send nothing
 // Telegram's connection: the bot's token and the chat go in a POST's body to local/.env, so they are in no URL and no

@@ -33,7 +33,7 @@ BOARD_FIELDS = {"Priority": ("High", "Medium", "Low"), "Kind": ("Bug", "Feature"
                 "Size": ("Small", "Medium", "Large")}
 DEADLINE_FIELD = "Deadline"
 NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "task_done", "usage_limit", "claude_login",
-                 "machine_unreachable")
+                 "machine_unreachable", "upstream")
 NOTIFY_LANGUAGES = ("en", "fa")
 # A run temporary folder's parent: absolute or under ~, with no `..` and no space, and never the root or ~ itself.
 RUN_TMP_DIR = re.compile(r"(/|~/)[\w.@+/-]*[\w@+-][\w.@+/-]*")

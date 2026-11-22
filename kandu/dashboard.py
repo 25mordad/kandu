@@ -18,8 +18,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, mainred, merge, queen, questions, remove, rename, review, sessions, split,
-               tasks, timer, tries, upstream, version, waits)
+from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, mainred, merge, notify, queen, questions, remove,
+               rename, review, sessions, split, tasks, timer, tries, upstream, version, waits)
 from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, PROJECT_MODEL_ROLES, REGISTRY_SETTINGS,
                      TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_reference_copy, set_run_tmp, set_inspect, set_limits, set_pace,
                      set_default_look, set_notify_events, set_parallel, set_project_values, set_show_requests,
@@ -421,7 +421,7 @@ class Api:
 
     def check_upstream(self, query):
         """Fetches the upstream branch and counts, now. A failure is shown, not raised: the page keeps working."""
-        self.upstream.check(self.store, self._upstream_on())
+        self.upstream.check(self.store, self._upstream_on(), tell=self._tell)
         return self._upstream()
 
     def upstream_tick(self, now=None):
@@ -433,7 +433,14 @@ class Api:
             self.releases.tick(self.store, self.github, settings, now)
         except Exception:  # A failed read is logged by the tick; anything else must not stop the count.
             pass
-        return self.upstream.tick(self.store, settings, now)
+        return self.upstream.tick(self.store, settings, now, tell=self._tell)
+
+    def _tell(self, message):
+        """Sends a notification the dashboard's own work found, with the config's notifier as it is now; nothing
+        while notifications are off or its kind is."""
+        notifier = notify.notifier_for(self.config.settings, self.store)
+        if notifier is not None:
+            notifier.tell(message)
 
     def bring_in_updates(self, query):
         """Creates one task on the board of Kandu's own project to bring the commits in through a PR.
