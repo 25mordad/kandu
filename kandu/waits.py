@@ -9,6 +9,7 @@ from .merge import FAILED
 
 YES, CHECK, BLOCKER, DECISION, UNKNOWN = "yes", "check", "blocker", "decision", "unknown"
 CI_FAILING = "CI is failing"
+TEST_RUN_BUSY = "another merge test of this project is running"  # one at a time per project; it passes by itself
 USER_DECIDES = "the user decides next"  # a settled PR left to the user; what else holds it follows, as more reasons
 REASONS_APART = "; "  # how Kandu joins the reasons of one decision
 # Why a merge waits. A reason here needs a fix; one that passes by itself is pending; anything else is what only the
@@ -18,7 +19,7 @@ MERGE_PROBLEMS = ("this head has no review in the local log", "a blocker is open
                   "a thread was resolved by someone other than its author", "the tests fail on this head",
                   "the tests failed twice on this head: they run again on a new commit or a recorded "
                   "\"test again\" request")
-MERGE_PENDING = re.compile(r"(CI is running|the project is frozen|companion .+ is open and unreviewed|"
+MERGE_PENDING = re.compile(r"(CI is running|another merge test of this project is running|the project is frozen|companion .+ is open and unreviewed|"
                            r"blocker \S+#\d+ is not merged yet)")
 CHECK_NAME = re.compile(r"[^\w .:/()\[\]-]")  # a check's name is someone else's text: only plain characters stay
 CHECK_URL = re.compile(r"https://[^\s;<>\"']+")

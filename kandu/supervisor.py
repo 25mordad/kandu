@@ -52,6 +52,7 @@ STOPPED_BY_USER = "stopped by the user"
 CUT_OFF = "cycle time ran out while an agent was running"
 RETRYING = "GitHub refused the merge for a moment; Kandu tries it again by itself"
 WAITS_FOR_BLOCKER = "blocker {} is not merged yet"
+WAITS_FOR_TEST_RUN = waits.TEST_RUN_BUSY
 ROOT = Path(__file__).resolve().parent.parent
 UNREAD_PR_BODY = ("The worker pushed this branch, but Kandu could not read its last message, so this description "
                   "is Kandu's. The review reads the code.")
@@ -252,6 +253,7 @@ class Supervisor:
         self.next_wake = None
         self._lock = threading.Lock()
         self._deploy_locks = defaultdict(threading.Lock)
+        self._test_locks = defaultdict(threading.Lock)  # project name -> held while its merge test runs
 
     def _is_paused(self, project):
         return project.paused or project.name in self.store.paused_projects()
@@ -1029,8 +1031,16 @@ class Supervisor:
             return reasons
         if self._tests_wait(task.key, head):
             return [merge.TESTS_WAIT]  # the tests are not run again on this head
-        cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
-        code = self.runner.run_test(task.project, cwd, new_run_id(self.now()))
+        # One merge test at a time per project: slow tests time out when they share the machine. A PR whose turn
+        # has not come waits for a later look, and this is no failed run.
+        lock = self._test_locks[task.project.name]
+        if not lock.acquire(blocking=False):
+            return [WAITS_FOR_TEST_RUN]
+        try:
+            cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
+            code = self.runner.run_test(task.project, cwd, new_run_id(self.now()))
+        finally:
+            lock.release()
         if code == 0:
             return []
         self.store.record("tests_failed", task=task.key, project=task.project.name, head_sha=head)

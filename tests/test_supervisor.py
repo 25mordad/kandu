@@ -2804,6 +2804,37 @@ class MergeTest(Base):
         self.assertEqual(self.github.merges, [])
         self.assertIn("tests fail", self.events("decision")[-1]["reason"])
 
+    def cycle_while_testing(self, project):
+        """One cycle while another PR's merge test of `project` is going."""
+        self.sup = self.new_supervisor()
+        self.sup._test_locks[project].acquire()
+        return self.sup.cycle()
+
+    def test_a_pr_waits_while_another_merge_test_of_its_project_runs(self):
+        self.runner.steps = [report(SHA1)]
+        self.cycle_while_testing("website")
+        self.assertEqual(self.github.merges, [])
+        self.assertNotIn("npm test", [c for c, _ in self.runner.commands])
+        reason = self.events("decision")[-1]["reason"]
+        self.assertIn("another merge test of this project is running", reason)
+        self.assertNotIn("tests fail", reason)
+
+    def test_a_pr_waiting_for_a_test_run_is_tested_in_a_later_cycle(self):
+        self.runner.steps = [report(SHA1)]
+        self.cycle_while_testing("website")
+        self.cycle()
+        self.assertEqual(len(self.github.merges), 1)
+
+    def test_a_test_run_of_another_project_does_not_hold_a_merge(self):
+        self.runner.steps = [report(SHA1)]
+        self.cycle_while_testing("internal-tool")
+        self.assertEqual(len(self.github.merges), 1)
+
+    def test_the_test_lock_is_free_after_a_run(self):
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertTrue(self.sup._test_locks["website"].acquire(blocking=False))
+
     def test_a_head_whose_tests_failed_twice_is_not_tested_a_third_time(self):
         self.runner.failing = {"npm test"}
         self.runner.steps = [report(SHA1)]

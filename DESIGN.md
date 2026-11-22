@@ -203,6 +203,7 @@ supervisor ─┬─ worker 1  →  reviewer
 - **Merge danger:** the reviewer decides on its own whether a change is a **two-way door** (easy to undo) or a **one-way door** (hard to undo: data migrations, published APIs, sent messages), and states its blast radius. A one-way door waits for the user, even with `auto_merge` on. The user answers with the approve button on the dashboard's PR page, or by merging on GitHub.
 - **Merge:** enforced in code, on the exact `SHA` that was reviewed. A new commit voids the review. If `auto_merge` is on, the supervisor merges only when all of this holds, then moves on to the next task:
   - the tests pass on that `SHA`, CI is not failing and the PR is not a draft
+  - Only one merge test runs at a time for each project: a PR whose turn has not come waits with `another merge test of this project is running` and is tested in a later look (the next cycle), since slow tests time out when they share the machine. That wait is no failed test run and holds back nothing else. Projects never wait on each other's runs.
   - no blocker and no review thread is open, and every acceptance criterion is met
   - it is a two-way door
   - no companion PR is open and unreviewed. Whether a side is live cannot be told in code, so an unreviewed companion always waits
