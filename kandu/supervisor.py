@@ -429,6 +429,23 @@ class Supervisor:
             return None
         return lambda repo, number: show.render(self.github.item(repo, number))
 
+    def _spec(self, task):
+        """The Solution, Decisions and Reference of the spec the task names, read from Kandu's copy alone, for its
+        agents' prompts; None when the task names no spec. A named spec the copy cannot give is recorded and the
+        prompt goes without it."""
+        body = (self.github.copied_issue_text(task.repo, task.number) or {}).get("body", "")
+        key = tasks.named_spec(body, task.repo)
+        if key is None:
+            return None
+        repo, _, number = key.partition("#")
+        spec = self.github.copied_issue_text(repo, int(number))
+        text = tasks.spec_for_agents(spec["body"]) if spec else ""
+        if not text:
+            self._decide(task, "spec_unreadable", f"the spec {key} is not in Kandu's copy or holds none of "
+                         f"{', '.join(tasks.SPEC_FOR_AGENTS)}; the agent works without it")
+            return None
+        return text
+
     def _agent(self, task, role, cwd, prompt, tools, run_id, tokens=None, schema=None, resume=None):
         if self._stopping():
             raise CycleStop(STOPPED_BY_USER)  # not kept for the cycle: a resume lets the rest go on
@@ -492,7 +509,7 @@ class Supervisor:
         prompt = agents.worker_prompt(task.project, task.repo, task.number, task.branch, run_id,
                                       findings=findings, pr=pr, local_dir=self.local_dir,
                                       queen_note=note, tokens=task.tokens, open_blockers=blockers, order=order,
-                                      copy=self._copy(task.project))
+                                      copy=self._copy(task.project), spec=self._spec(task))
         project = task.project
         tokens = (project.secrets_from, list(project.task_tokens)) if task.tokens else None
         tools = agents.worker_tools(project, task.branch, self._rules("worker"), self._remote(project))
@@ -614,14 +631,16 @@ class Supervisor:
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
         if to_fix:
             prompt = agents.second_review_prompt(task.repo, task.number, pr["number"], head, language, to_fix,
-                                                 self.github.default_branch(task.repo), self._copy(task.project))
+                                                 self.github.default_branch(task.repo), self._copy(task.project),
+                                                 self._spec(task))
         else:
             criteria = sizing.criteria_list(self.github.issue_text(task.repo, task.number)["body"])
             first_n = 1 + max((f["n"] for r in reviews for f in r["open"]), default=0)
             companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
             prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head, language,
                                             companions, criteria, first_n, self.github.default_branch(task.repo),
-                                            local_dir=self.local_dir, copy=self._copy(task.project))
+                                            local_dir=self.local_dir, copy=self._copy(task.project),
+                                            spec=self._spec(task))
         tools = agents.reviewer_tools(task.project, self._rules("reviewer"), self._remote(task.project))
         result = self._agent(task, "reviewer", cwd, prompt, tools, run_id, schema=review.REPORT_SCHEMA)
 
@@ -1293,7 +1312,7 @@ class Supervisor:
             base = self.github.default_branch(task.repo)
             cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/size-{task.number}", f"origin/{base}")
             prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.config.settings.language,
-                                            self.local_dir, self._copy(task.project))
+                                            self.local_dir, self._copy(task.project), self._spec(task))
             tools = agents.role_tools(self._rules("splitter"), self._remote(task.project))
             result = self._agent(task, "splitter", cwd, prompt, tools, run_id, schema=agents.SPLIT_SCHEMA)
 

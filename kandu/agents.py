@@ -166,6 +166,20 @@ def _copies(copy, items):
     return [part for repo, number in items for part in (_copy_head(repo, number), copy(repo, number))]
 
 
+WORKER_SPEC_RULE = ("The spec's decisions are part of your assignment, like the issue's own text. A change that "
+                    "contradicts one is out of bounds: do not make it. If the task cannot be done without "
+                    "contradicting one, report `blocked` and name the decision.")
+REVIEWER_SPEC_RULE = ("The spec's decisions bind this PR like the issue's own text. A change that contradicts a "
+                      "decision is a blocker: name the decision in the finding.")
+
+
+def _spec(spec, rule=None):
+    """The spec of the task, from Kandu's copy, for a prompt; nothing when the task has none (`spec` is None)."""
+    if not spec:
+        return []
+    return ["## The task's spec", *([rule] if rule else []), spec]
+
+
 def _diff(base, head_sha):
     return f"- Diff: `git diff origin/{base}...{head_sha}` in your checkout"
 
@@ -205,7 +219,7 @@ def _token_facts(project):
 
 
 def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None, local_dir=DEFAULT_LOCAL_DIR,
-                  queen_note=None, tokens=False, open_blockers=(), order=None, copy=None):
+                  queen_note=None, tokens=False, open_blockers=(), order=None, copy=None, spec=None):
     """The first run gets the PR template; a fix round gets what the last review left for it instead, and a
     worker the queen sends back to a PR gets her order. `copy(repo, number)` gives an item's text from Kandu's
     copy, for a worker away from the brain: the prompt then holds the issue and the PR instead of naming `SHOW`."""
@@ -213,7 +227,8 @@ def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None,
              f"- Your branch: `{branch}`", f"- For the `Kandu-Run:` line: `{run_id}`", *_project_facts(project)]
     if tokens:
         facts += _token_facts(project)
-    parts = [_read("worker.md"), "## This task", *facts, *_memory(project, local_dir)]
+    parts = [_read("worker.md"), "## This task", *facts, *_memory(project, local_dir),
+             *_spec(spec, WORKER_SPEC_RULE)]
     if open_blockers:
         parts += ["## Blockers not merged yet",
                   f"This task is blocked by {', '.join(open_blockers)}, whose work may still be in an open PR. "
@@ -244,10 +259,11 @@ def _pr_facts(repo, number, pr, head_sha, base, copy):
 
 
 def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, criteria, first_n, base,
-                    local_dir=DEFAULT_LOCAL_DIR, copy=None):
+                    local_dir=DEFAULT_LOCAL_DIR, copy=None, spec=None):
     facts = [*_pr_facts(repo, number, pr, head_sha, base, copy), f"- Language of `user_brief`: {language}",
              f"- Number new findings from {first_n}", *_project_facts(project)]
-    parts = [_read("reviewer.md"), "## This PR", *facts, *_memory(project, local_dir)]
+    parts = [_read("reviewer.md"), "## This PR", *facts, *_memory(project, local_dir),
+             *_spec(spec, REVIEWER_SPEC_RULE)]
     if criteria:
         parts += ["## Acceptance criteria", *[f"{i}. {text}" for i, text in enumerate(criteria, 1)]]
     if companions:
@@ -255,20 +271,21 @@ def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, c
     return "\n".join(parts + _copies(copy, [(repo, number), (repo, pr), *companions]))
 
 
-def second_review_prompt(repo, number, pr, head_sha, language, items, base, copy=None):
+def second_review_prompt(repo, number, pr, head_sha, language, items, base, copy=None, spec=None):
     """Only what the first review listed: this round needs no memory, criteria or companions."""
     facts = [*_pr_facts(repo, number, pr, head_sha, base, copy), f"- Language of `user_brief`: {language}"]
-    return "\n".join([_read("second-review.md"), "## This PR", *facts, "## The items", "```json",
+    return "\n".join([_read("second-review.md"), "## This PR", *facts, *_spec(spec, REVIEWER_SPEC_RULE),
+                      "## The items", "```json",
                       json.dumps(items, ensure_ascii=False, indent=2), "```",
                       *_copies(copy, [(repo, number), (repo, pr)])])
 
 
-def splitter_prompt(project, repo, number, language, local_dir=DEFAULT_LOCAL_DIR, copy=None):
+def splitter_prompt(project, repo, number, language, local_dir=DEFAULT_LOCAL_DIR, copy=None, spec=None):
     facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- {_how(repo, number, copy)}",
              f"- Language of `user_text`: {language}", *_project_facts(project)]
     return "\n".join([_read("splitter.md"), "## This task", *facts, "## The size scale", *sizing.describe(),
                       "## Issue template", _read("templates/issue.md"), *_memory(project, local_dir),
-                      *_copies(copy, [(repo, number)])])
+                      *_spec(spec), *_copies(copy, [(repo, number)])])
 
 
 def notes_prompt(project, repo, number, pr, notes, local_dir=DEFAULT_LOCAL_DIR, copy=None):

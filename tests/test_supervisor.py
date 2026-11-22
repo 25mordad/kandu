@@ -91,6 +91,10 @@ class FakeGitHub:
         return {"title": issue.title if issue else "", "body": issue.body if issue else "",
                 "blocked_by": issue.blocked_by if issue else []}
 
+    def copied_issue_text(self, repo, number):
+        issue = next((i for i in self.items if (i.repo, i.number) == (repo, number)), None)
+        return None if issue is None else {"title": issue.title, "body": issue.body}
+
     def item(self, repo, number):
         issue = next(i for i in self.items if (i.repo, i.number) == (repo, number))
         return {"kind": "issue", "repo": repo, "number": number, "title": issue.title, "state": "OPEN",
@@ -573,6 +577,44 @@ class PausedOnTheDashboardTest(Base):
         self.assertIn("IMAGE_API_KEY", token_run.prompt)
         self.assertIsNone(plain_run.tokens)
         self.assertNotIn("IMAGE_API_KEY", plain_run.prompt)
+
+    SPEC = ("## Problem\nP-TEXT\n\n## Solution\nSOLUTION-TEXT\n\n## Decisions\n- DECISION-TEXT\n\n"
+            "## Reference\nREFERENCE-TEXT\n\n## Out of scope\nOUT-TEXT\n")
+
+    def spec_runs(self, task_body, spec_in_copy=True):
+        if spec_in_copy:
+            self.github.add(9, labels=(), body=self.SPEC)
+        self.github.add(1, body=task_body)
+        task = read_tasks(self.config, self.github)[0]
+        self.sup.workers[task.key] = {}
+        self.runner.steps = [PR_OPENED]
+        self.sup._work(task)
+        return self.runner.runs[0].prompt
+
+    def test_a_task_of_a_spec_gives_its_worker_the_spec_from_the_copy(self):
+        prompt = self.spec_runs("Spec: #9\n\n## Goal\nG\n")
+        for part in ("SOLUTION-TEXT", "DECISION-TEXT", "REFERENCE-TEXT", "contradicts one is out of bounds"):
+            self.assertIn(part, prompt)
+        self.assertNotIn("P-TEXT", prompt)
+        self.assertNotIn("OUT-TEXT", prompt)
+        self.assertEqual(self.decisions("spec_unreadable"), [])
+
+    def test_a_task_with_no_spec_gets_no_spec_section(self):
+        prompt = self.spec_runs("## Goal\nG\n")
+        self.assertNotIn("## The task's spec", prompt)
+        self.assertEqual(self.decisions("spec_unreadable"), [])
+
+    def test_a_named_spec_missing_from_the_copy_is_said_and_the_prompt_goes_without_it(self):
+        prompt = self.spec_runs("Spec: #9\n\n## Goal\nG\n", spec_in_copy=False)
+        self.assertNotIn("## The task's spec", prompt)
+        self.assertEqual(len(self.decisions("spec_unreadable")), 1)
+
+    def test_the_reviewer_and_the_splitter_get_the_spec_too(self):
+        self.github.add(9, labels=(), body=self.SPEC)
+        self.github.add(1, body="Spec: #9\n\n## Goal\nG\n")
+        task = read_tasks(self.config, self.github)[0]
+        self.assertIn("DECISION-TEXT", agents.splitter_prompt(task.project, task.repo, 1, "en", self.local,
+                                                              spec=self.sup._spec(task)))
 
     def test_the_label_gives_nothing_in_a_project_without_tokens(self):
         self.config.projects[0].task_tokens = {}

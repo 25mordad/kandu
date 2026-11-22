@@ -216,6 +216,27 @@ def spec_key(reference, repo):
     return f"{match.group(1) or repo}#{match.group(2)}"
 
 
+SPEC_LINE = re.compile(r"\A\s*Spec: (?:([\w.-]+/[\w.-]+))?#(\d+)")
+SPEC_FOR_AGENTS = ("Solution", "Decisions", "Reference")
+
+
+def named_spec(body, repo):
+    """The spec a task's body names at its top, as `owner/repo#12`, or None. A bare `#12` is in `repo`."""
+    match = SPEC_LINE.match(body or "")
+    return f"{match.group(1) or repo}#{match.group(2)}" if match else None
+
+
+def spec_for_agents(spec_body):
+    """The parts of a spec that bind its task's agents (Solution, Decisions, Reference), as `###` sections;
+    a section the spec lacks is left out."""
+    parts = []
+    for name in SPEC_FOR_AGENTS:
+        text = section_text(spec_body, name)
+        if text is not None and text.strip():
+            parts.append(f"### {name}\n{text.strip()}")
+    return "\n\n".join(parts)
+
+
 def with_spec(github, store, project, repo, body, reference):
     """Returns (body, spec): the body names its spec at the top and takes the spec's Out of scope as its own."""
     key = spec_key(reference, repo)

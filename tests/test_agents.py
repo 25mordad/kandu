@@ -131,6 +131,23 @@ class PromptTest(unittest.TestCase):
         self.assertIn("PR #7", text)
         self.assertNotIn("## Blast radius", text)
 
+    def test_the_spec_binds_the_worker_and_the_reviewers_and_reaches_the_splitter(self):
+        spec = "### Decisions\n- DECISION-TEXT"
+        worker = self.worker(spec=spec)
+        self.assertIn("DECISION-TEXT", worker)
+        self.assertIn("contradicts one is out of bounds", worker)
+        reviews = (agents.reviewer_prompt(project(), "o/r", 12, 7, "abc", "en", [], [], 1, "main", self.local,
+                                          spec=spec),
+                   agents.second_review_prompt("o/r", 12, 7, "abc", "en", [], "main", spec=spec))
+        for text in reviews:
+            self.assertIn("DECISION-TEXT", text)
+            self.assertIn("is a blocker: name the decision", text)
+        self.assertIn("DECISION-TEXT", agents.splitter_prompt(project(), "o/r", 12, "en", self.local, spec=spec))
+
+    def test_a_task_with_no_spec_gets_the_same_prompts(self):
+        self.assertNotIn("## The task's spec", self.worker())
+        self.assertEqual(self.worker(), self.worker(spec=None))
+
     def test_project_memory_is_included_only_if_it_exists(self):
         self.assertNotIn("## Project memory", self.worker())
         (self.local / "memory").mkdir()
