@@ -576,6 +576,10 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "run": "Run",
   "open_github": "Open on GitHub",
   "approve": "Approve and merge",
+  "tests_waiting": "Waiting on failed tests on this head.",
+  "tests_last_run": "Last test run",
+  "test_again": "Test again",
+  "tests_asked": "You asked to test again. Kandu tests it in its next cycle.",
   "approve_sure": "Merge this PR? Kandu runs the tests first, then merges and deploys.",
   "approve_split": "Accept this split",
   "split_creating": "Creating the tasks…",
@@ -1076,6 +1080,10 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "run": "اجرا",
   "open_github": "باز کردن در GitHub",
   "approve": "تأیید و ادغام",
+  "tests_waiting": "منتظر تست‌های ناموفق روی این هد.",
+  "tests_last_run": "آخرین اجرای تست",
+  "test_again": "دوباره تست کن",
+  "tests_asked": "خواستی دوباره تست شود. کندو در چرخه‌ی بعدی تستش می‌کند.",
   "approve_sure": "این PR ادغام شود؟ کندو اول تست‌ها را اجرا می‌کند و بعد ادغام و مستقر می‌کند.",
   "approve_split": "قبول این شکستن",
   "split_creating": "در حال ساختن تسک‌ها…",
@@ -1642,6 +1650,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "review_finished": "بازبینی تمام شد",
   "task_finished": "تسک تمام شد",
   "user_approved": "تأیید تو",
+  "tests_passed": "تست‌ها روی این نسخه گذشتند",
   "user_resumed": "دوباره به کار، با تو",
   "queen_approved": "تأیید ملکه",
   "copy_not_read": "خواندن از GitHub نشد",
@@ -3277,6 +3286,21 @@ function keptLines(kept) {
   return (kept || []).map(k => `${t("kept_after_merge")}: ${tr(k.what)} ${k.target} · ${tr(k.reason)}`);
 }
 
+// A head whose tests failed at the merge gate: when they last ran, and the control to run them again.
+function testsView(task, pr) {
+  const tests = pr.tests;
+  if (!tests?.failed) return "";
+  const when = tests.last_run ? ` ${t("tests_last_run")}: ${esc(new Date(tests.last_run).toLocaleString(lang))}.` : "";
+  const control = tests.can_test_again ? `<button class="btn" data-test-again="${esc(task)}" data-head="${esc(pr.head_sha)}">${t("test_again")}</button>` : tests.asked ? ` ${t("tests_asked")}` : "";
+  return `<p class="muted">${t("tests_waiting")}${when}</p>${control}`;
+}
+
+async function testAgain(button) {
+  const [repo, number] = button.dataset.testAgain.split("#");
+  await act(button, `/reviews/${repo}/${number}/test-again?head=${encodeURIComponent(button.dataset.head)}`);
+  showTask(button.dataset.testAgain);
+}
+
 // After a yes, the merge is promised only when nothing else still holds it.
 function approval(task, pr, holds = []) {
   if (pr.approved) return `<p class="muted">${holds.length ? `${t("approved_held")} ${esc(holds.map(tr).join(" · "))}` : t("approved_waits")}</p>`;
@@ -3511,6 +3535,7 @@ function sheetFoot(v) {
   const tone = v.tone === "honey" ? "amber" : v.tone;
   const project = v.item?.project || repoOf(v.task);
   const actions = [
+    v.review?.pr ? testsView(v.task, v.review.pr) : "",
     v.review?.pr ? approval(v.task, v.review.pr, v.review.holds) : "",
     v.proposal ? splitAccept(v.task, v.proposal) : "",
     sendBack(v.task, v.item),
@@ -3568,6 +3593,7 @@ document.addEventListener("click", e => {
   if (hit("choose-look")) { pickLook(hit("choose-look")); return; }
   if (e.target === $("lookmenu")) { $("lookmenu").close(); return; }
   if (hit("close-sheet")) { $("sheet").close(); return; }
+  if (hit("test-again")) { testAgain(hit("test-again")); return; }
   if (hit("settings-open")) { e.preventDefault(); openSettings(hit("settings-open").dataset.settingsOpen); return; }  // A name in a summary would fold it.
   if (hit("draft") && hit("draft").tagName === "BUTTON") { changeDraft(hit("draft")); return; }
   if (hit("set-save") || hit("set-yes")) { saveSettings(hit("set-save") || hit("set-yes")); return; }

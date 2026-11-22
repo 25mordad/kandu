@@ -14,7 +14,7 @@ NOW = "2026-11-15T15:00:00+00:00"
 LINES = ("const FEW_PROJECTS = ", "const COLUMN_ORDER = ", "const PHASES = ", "const QUIET_STEPS = ", "const stateText = ",
          "const limitText = ", "const dayName = ")
 FUNCTIONS = ("taskQuery", "taskMatches", "taskMarks", "taskRow", "taskGroups", "groupsHtml", "soFar", "beesAtWork",
-             "beesHtml", "taskPhases", "stepOf", "sheetView", "sheetBody", "sheetFoot", "waitLines", "approval", "sendBack",
+             "beesHtml", "taskPhases", "stepOf", "sheetView", "sheetBody", "sheetFoot", "waitLines", "approval", "testsView", "sendBack",
              "splitAccept", "byHandBox", "heldLines", "keptLines", "flightControls", "roundBox", "limitBadge", "bazrasLine",
              "lookBadge")
 

@@ -1042,6 +1042,7 @@ class Supervisor:
         finally:
             lock.release()
         if code == 0:
+            self.store.record("tests_passed", task=task.key, project=task.project.name, head_sha=head)
             return []
         self.store.record("tests_failed", task=task.key, project=task.project.name, head_sha=head)
         return [merge.TESTS_WAIT if self._tests_wait(task.key, head) else merge.TESTS_FAIL]

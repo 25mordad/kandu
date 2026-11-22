@@ -38,6 +38,7 @@ EVENT_FIELDS = {
     "debt_reported": TASK_FIELDS + ("finding", "title", "body", "size", "reason"),
     "debt_parked": TASK_FIELDS + ("finding", "url", "note"),
     "user_approved": TASK_FIELDS + ("head_sha",),
+    "tests_passed": TASK_FIELDS + ("head_sha",),  # the merge gate's tests passed on a head
     "user_resumed": TASK_FIELDS + ("to",),
     "queen_approved": TASK_FIELDS + ("head_sha", "note"),
     "queen_accepted_split": TASK_FIELDS + ("children", "note"),

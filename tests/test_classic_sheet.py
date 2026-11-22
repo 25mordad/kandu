@@ -14,7 +14,7 @@ from tests.test_looks import NODE, ROOT, Served, browser, function, line, read, 
 CLEAN = read(dashboard.PAGE)
 # The Kandu Clean sheet's own code, which the Classic look takes as it is.
 SAME = ("taskPhases", "stepOf", "sheetView", "sheetBody", "sheetFoot", "waitItems", "taskMarks", "statusText", "splitAccept", "showRun",
-        "waitLines", "heldLines", "keptLines", "roundBox", "byHandBox", "approval", "sendBack", "flightControls", "queued")
+        "waitLines", "heldLines", "keptLines", "roundBox", "byHandBox", "approval", "testsView", "sendBack", "flightControls", "queued")
 
 
 class ClassicSheetTest(unittest.TestCase):

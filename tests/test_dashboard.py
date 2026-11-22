@@ -791,6 +791,67 @@ class ControlTest(Base):
         pr = self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]
         self.assertTrue(pr["approved"])
 
+    def ran_tests(self, passed, head="abc"):
+        self.store.record("tests_passed" if passed else "tests_failed", task=f"{REPO}#1", project="website", head_sha=head)
+
+    def test_a_head_whose_tests_failed_is_shown_so_with_the_time_of_the_run(self):
+        self.reviewed()
+        self.ran_tests(False)
+        tests = self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["tests"]
+        self.assertEqual((tests["failed"], tests["can_test_again"]), (False, False))  # the gate retries by itself
+        self.ran_tests(False)
+        tests = self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["tests"]
+        self.assertEqual((tests["failed"], tests["can_test_again"]), (True, True))
+        self.assertEqual(tests["last_run"], self.store.last_event("tests_failed")["ts"])
+
+    def test_test_again_is_not_offered_for_a_pr_not_waiting_on_failed_tests(self):
+        self.reviewed()
+        self.assertEqual(self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["tests"]["can_test_again"], False)
+        self.ran_tests(False, head="old")  # another head's failure does not count
+        self.assertFalse(self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["tests"]["failed"])
+        self.ran_tests(True)
+        pr = self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]
+        self.assertEqual((pr["tests"]["failed"], pr["tests"]["can_test_again"]), (False, False))
+        self.assertEqual(self.post(f"/api/v1/reviews/{REPO}/1/test-again?head=abc")[0], 409)
+        self.assertIsNone(self.store.last_event("tests_again_requested"))
+
+    def test_test_again_records_the_request_for_that_head_and_starts_a_cycle(self):
+        self.reviewed()
+        self.ran_tests(False)
+        self.ran_tests(False)
+        self.api.start_cycle = mock.Mock(return_value=True)
+        status, body = self.post(f"/api/v1/reviews/{REPO}/1/test-again?head=abc")
+        self.assertEqual((status, body), (200, {"tests_again": "abc", "cycle_started": True}))
+        self.assertIsNotNone(self.store.last_event("tests_again_requested", task=f"{REPO}#1", head_sha="abc"))
+        tests = self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["tests"]
+        self.assertEqual((tests["asked"], tests["can_test_again"]), (True, False))
+        self.assertEqual(self.post(f"/api/v1/reviews/{REPO}/1/test-again?head=abc")[0], 409)  # once is enough
+
+    def test_two_new_failed_runs_offer_test_again_once_more(self):
+        self.reviewed()
+        self.ran_tests(False)
+        self.ran_tests(False)
+        self.store.record("tests_again_requested", task=f"{REPO}#1", project="website", head_sha="abc")
+        self.ran_tests(False)
+        self.assertFalse(self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["tests"]["can_test_again"])
+        self.ran_tests(False)
+        self.assertTrue(self.get(f"/api/v1/reviews/{REPO}/1")[1]["pr"]["tests"]["can_test_again"])
+
+    def test_test_again_needs_the_token_and_the_head_the_user_saw(self):
+        self.reviewed()
+        self.ran_tests(False)
+        self.ran_tests(False)
+        self.assertEqual(self.post(f"/api/v1/reviews/{REPO}/1/test-again?head=abc", "wrong")[0], 403)
+        self.assertEqual(self.post(f"/api/v1/reviews/{REPO}/1/test-again?head=old")[0], 409)
+        self.assertIsNone(self.store.last_event("tests_again_requested"))
+
+    def test_the_page_shows_the_wait_the_time_and_the_control_in_both_languages(self):
+        page = dashboard.PAGE.read_text(encoding="utf-8")
+        for text in ('data-test-again', 'pr.tests', 'tests.last_run', '/test-again?head='):
+            self.assertIn(text, page)
+        for key in ("tests_waiting", "tests_last_run", "test_again", "tests_asked"):
+            self.assertEqual(page.count(f'"{key}":'), 2, key)
+
     def test_approve_needs_the_token(self):
         self.reviewed()
         self.assertEqual(self.post(f"/api/v1/reviews/{REPO}/1/approve?head=abc", "wrong")[0], 403)

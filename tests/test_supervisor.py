@@ -2874,6 +2874,30 @@ class MergeTest(Base):
         refused, _ = self.sup._carry_out([{"task": KEY, "action": "verify", "note": "Run the tests."}], [])
         self.assertEqual(refused, [])
 
+    def test_the_gate_logs_each_run_of_the_tests_on_a_head(self):
+        self.waits("one-way", report(SHA1, door="one-way"))
+        self.approve()
+        self.runner.failing = {"npm test"}
+        self.cycle()
+        self.assertEqual(self.events("tests_failed")[-1]["head_sha"], SHA1)
+        self.runner.failing = set()
+        self.cycle()
+        self.assertEqual(self.events("tests_passed")[-1]["head_sha"], SHA1)
+
+    def test_a_test_again_request_makes_the_next_cycle_run_the_tests_on_a_waiting_head(self):
+        self.waits("one-way", report(SHA1, door="one-way"))
+        self.approve()
+        self.runner.failing = {"npm test"}
+        self.cycle()
+        self.cycle()
+        self.assertEqual(len(self.events("tests_failed")), 2)
+        self.cycle()
+        self.assertEqual(len(self.events("tests_failed")), 2)  # waiting: nothing runs
+        self.store.record("tests_again_requested", task=f"{REPO}#1", project="website", head_sha=SHA1)
+        self.cycle()
+        self.assertEqual(len(self.events("tests_failed")), 3)
+        self.assertEqual(self.github.merges, [])
+
     def test_failing_ci_waits(self):
         self.github.prs[(REPO, 1)]["statusCheckRollup"] = [{"conclusion": "FAILURE"}]
         self.waits("CI is failing")

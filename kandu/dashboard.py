@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, rename, review, sessions, split,
+from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, merge, queen, questions, remove, rename, review, sessions, split,
                tasks, timer, tries, upstream, version, waits)
 from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, PROJECT_MODEL_ROLES, REGISTRY_SETTINGS,
                      TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_reference_copy, set_run_tmp, set_inspect, set_limits, set_pace,
@@ -189,6 +189,26 @@ def task_statuses(events):
             elif decision in SETTLED and waits.user_decides(reason):
                 settled(reason)
     return {task: seen["status"] | {"cleaned": seen["cleaned"]} for task, seen in found.items()}
+
+
+def tests_state(store, task, head, is_open):
+    """Whether this head waits on failed tests, when the gate last ran them, and whether «test again» is offered.
+
+    The local log alone. A head waits as the merge gate counts it (`merge.tests_wait`): its tests failed twice since
+    the last request. After one failure the gate still tests it again by itself, so nothing is shown. A request made
+    while it waited is on its way to the next gate, so it is not offered twice.
+    """
+    events = [e for day in store.days() for e in store.events(day) if e.get("task") == task and e.get("head_sha") == head]
+    last = None
+    asked = False  # the last thing on this head is a request made while it waited
+    for i, event in enumerate(events):
+        if event["type"] in ("tests_failed", "tests_passed"):
+            last, asked = event, False
+        elif event["type"] == "tests_again_requested":
+            asked = merge.tests_wait(events[:i], task, head)
+    waiting = merge.tests_wait(events, task, head)
+    return {"failed": (waiting or asked) and is_open, "last_run": last["ts"] if last else None,
+            "asked": asked and not waiting, "can_test_again": waiting and is_open}
 
 
 def flower_marks(store):
@@ -894,7 +914,8 @@ class Api:
                                      "state": pr["state"], "head_sha": head,
                                      "approved": self.store.last_event("user_approved", task=task,
                                                                        head_sha=head) is not None,
-                                     "can_approve": why_not is None, "why_not": why_not},
+                                     "can_approve": why_not is None, "why_not": why_not,
+                                     "tests": tests_state(self.store, task, head, pr["state"] == "OPEN")},
                 "blockers": blockers, "waited": waited, "holds": holds, "kept": clean.kept(self.store, task),
                 "rounds": [r | {"recommendation": recommendation(r), "user_brief": self._user_brief(full, number, r)}
                            for r in rounds]}
@@ -953,6 +974,24 @@ class Api:
             raise ApiError(409, why)
         self.store.record("user_approved", task=task, project=project.name, head_sha=pr["headRefOid"])
         return {"approved": pr["headRefOid"], "cycle_started": self.start_cycle()}
+
+    def test_again(self, query, owner, repo, number):
+        """The user's request to test a head again, after its tests failed. It names the head the user saw, and the
+        next cycle's merge gate tests it. Refused for a PR that is not waiting on failed tests."""
+        full = f"{owner}/{repo}"
+        project = next((p for p in self.config.projects if full in p.repos), None)
+        if not number.isdigit() or project is None:
+            raise ApiError(404, "no such task")
+        pr = self.github.find_pr(full, int(number))
+        if pr is None:
+            raise ApiError(404, "this task has no PR")
+        if query.get("head", [None])[0] != pr["headRefOid"]:
+            raise ApiError(409, "the PR has changed since you saw it")
+        task = f"{full}#{number}"
+        if not tests_state(self.store, task, pr["headRefOid"], pr["state"] == "OPEN")["can_test_again"]:
+            raise ApiError(409, "this PR is not waiting on failed tests")
+        self.store.record("tests_again_requested", task=task, project=project.name, head_sha=pr["headRefOid"])
+        return {"tests_again": pr["headRefOid"], "cycle_started": self.start_cycle()}
 
     def send_back(self, query, owner, repo, number):
         """The user's call on a stopped task: it goes back to work, past the queen's limits.
@@ -1525,6 +1564,7 @@ ROUTES = [
     ("POST", "/tasks/{owner}/{repo}/{number}/to-queen", Api.to_queen),
     ("GET", "/reviews/{owner}/{repo}/{number}", Api.reviews),
     ("POST", "/reviews/{owner}/{repo}/{number}/approve", Api.approve),
+    ("POST", "/reviews/{owner}/{repo}/{number}/test-again", Api.test_again),
     ("GET", "/splits/{owner}/{repo}/{number}", Api.split),
     ("POST", "/splits/{owner}/{repo}/{number}/approve", Api.approve_split),
     ("POST", "/drop-blockers", Api.change_drop_blockers),
