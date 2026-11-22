@@ -502,6 +502,9 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
     <div class="upgrade-head"><strong id="upgradetitle" dir="auto"></strong><button id="upgraderead" class="btn" data-t="upgrade_read"></button></div>
     <div id="upgradeentries"></div>
   </section>
+  <section id="basemissing" class="upgrade" aria-live="polite" hidden>
+    <div class="upgrade-head"><strong id="basemissingtitle" dir="auto"></strong></div>
+  </section>
   <section id="mainred" class="upgrade" aria-live="polite" hidden>
     <div class="upgrade-head"><strong id="mainredtitle" dir="auto"></strong></div>
     <div id="mainredtests" class="upgrade-entry" dir="auto"></div>
@@ -627,6 +630,10 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "version_never_tried": "never tried",
   "version_no_version": "no version",
   "main_red_title": "main is red in {project}: its tests fail",
+  "base_missing_title": "The base branch {branch} of {project} is not on GitHub ({repos}): none of its tasks starts",
+  "set_base_branch": "Base branch",
+  "set_base_branch_hint": "The branch Kandu works on and merges into. /kandu-config changes it.",
+  "set_base_branch_default": "the repo's default branch",
   "main_red_fix": "The task that fixes it",
   "set_watch_main": "Hold the project when main's tests fail",
   "set_watch_main_hint": "Off: nothing changes. On: when a PR's tests fail, Kandu tests main. If main fails twice, the project's merges wait, only the task that fixes main starts, and you are told once.",
@@ -1177,6 +1184,10 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "version_never_tried": "هنوز تلاش نشده",
   "version_no_version": "بی‌نسخه",
   "main_red_title": "شاخهٔ اصلی در {project} قرمز است: تست‌هایش رد می‌شوند",
+  "base_missing_title": "شاخهٔ پایهٔ {branch} در {project} روی GitHub نیست ({repos}): هیچ تسکی از آن شروع نمی‌شود",
+  "set_base_branch": "شاخهٔ پایه",
+  "set_base_branch_hint": "شاخه‌ای که کندو رویش کار و در آن ادغام می‌کند. با /kandu-config عوض می‌شود.",
+  "set_base_branch_default": "شاخهٔ پیش‌فرض مخزن",
   "main_red_fix": "تسکی که آن را درست می‌کند",
   "set_watch_main": "وقتی تست‌های شاخهٔ اصلی رد می‌شوند، پروژه نگه داشته شود",
   "set_watch_main_hint": "خاموش: چیزی تغییر نمی‌کند. روشن: وقتی تست‌های یک PR رد می‌شوند، کندو شاخهٔ اصلی را هم تست می‌کند. اگر دو بار رد شد، ادغام‌های پروژه منتظر می‌مانند، فقط تسکی که آن را درست می‌کند شروع می‌شود و یک بار به تو خبر داده می‌شود.",
@@ -1784,6 +1795,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "a thread was resolved by someone other than its author": "رشته‌ای را کسی جز نویسنده‌اش بسته است",
   "the tests fail on this head": "تست‌ها روی این نسخه رد می‌شوند",
   "main's tests fail": "تست‌های شاخهٔ اصلی رد می‌شوند",
+  "the PR's base is not the project's base branch": "پایهٔ این PR شاخهٔ پایهٔ پروژه نیست",
   "the tests failed twice on this head: they run again on a new commit or a recorded \"test again\" request": "تست‌ها دو بار روی این نسخه رد شدند؛ با commit تازه یا درخواست «دوباره تست کن» دوباره اجرا می‌شوند",
   "the session's link did not come in time": "لینک جلسه به‌موقع نیامد",
   "the session did not start": "جلسه باز نشد",
@@ -1921,6 +1933,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "main_tested": "تست شاخهٔ اصلی اجرا شد",
   "main_red": "شاخهٔ اصلی قرمز شد",
   "main_green": "شاخهٔ اصلی دوباره سبز شد",
+  "base_missing": "شاخهٔ پایه روی GitHub نیست",
+  "base_found": "شاخهٔ پایه دوباره روی GitHub است",
   "main_fix_opened": "تسک درست کردن شاخهٔ اصلی باز شد",
   "main_updated": "شاخهٔ اصلی به یک PR آورده شد",
   "project_inspected": "بازرس پروژه را نگاه کرد",
@@ -2885,6 +2899,14 @@ function renderVersion(v) {
 }
 
 // A project whose main is red, until main passes: the failing tests and the task that fixes it, read from the log.
+// A project whose base branch is missing on GitHub: none of its tasks starts until it is there again.
+function renderBaseMissing(missing) {
+  const box = $("basemissing"), names = Object.keys(missing || {});
+  box.hidden = !names.length;
+  $("basemissingtitle").textContent = names.map(n => t("base_missing_title").replace("{project}", n)
+    .replace("{branch}", missing[n].branch).replace("{repos}", missing[n].repos.join(", "))).join(" · ");
+}
+
 function renderMainRed(red) {
   const box = $("mainred"), names = Object.keys(red || {});
   if (!names.length) { box.hidden = true; return; }
@@ -2935,6 +2957,7 @@ async function refreshState() {
   if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
   renderVersion(s.version_badge);
   renderUpgrade(s.upgrade);
+  renderBaseMissing(s.base_missing);
   renderMainRed(s.main_red);
   const name = s.stop_requested ? "stopped" : (s.supervisor || "never ran");
   const refused = githubRefused(s);
@@ -3265,7 +3288,8 @@ function settingsBody(row, edit) {
   const refused = edit.refused.length ? `<div class="set-refused" role="alert"><b>${t("set_refused")}</b><ul>${edit.refused.map(r =>
     `<li>${esc(t(SETTING_LABELS[r.setting]))}: <span dir="auto">${esc(r.why)}</span></li>`).join("")}</ul></div>` : "";
   return `<div class="sheet-grip"></div><div class="sheet-head"><div class="sheet-who"><div class="muted">${t("tab_settings")}</div><h2>${bdi(row.name)}</h2></div>
-    <button type="button" class="sheet-close" data-set-cancel aria-label="${esc(t("close"))}">✕</button></div>${refused}<section class="set-group">${settingControl("name", row, edit.now)}</section>${groups}
+    <button type="button" class="sheet-close" data-set-cancel aria-label="${esc(t("close"))}">✕</button></div>${refused}<section class="set-group">${settingControl("name", row, edit.now)}</section>
+    <section class="set-group"><div class="set-field stack"><div class="set-label"><span>${t("set_base_branch")}</span><small>${esc(t("set_base_branch_hint"))}</small></div><b dir="${row.base_branch ? "ltr" : "auto"}" data-base-branch>${esc(row.base_branch || t("set_base_branch_default"))}</b></div></section>${groups}
     <section class="set-group"><h3>${t("kanduban")}</h3><p class="muted">${t("kanduban_hint")}</p><div class="actions" id="setkanduban">${kandubanControls(row.name)}</div></section>
     <section class="set-danger"><h3>${t("set_danger")}</h3><p class="muted">${t("remove_project_hint")}</p><div class="actions"><button type="button" class="btn danger" data-remove="${esc(row.name)}">${t("remove_project")}</button></div></section>`;
 }

@@ -71,6 +71,8 @@ EVENT_FIELDS = {
     "main_tested": ("project", "repo", "commit", "run", "passed", "failing"),  # one run of the tests on a `main` commit
     "main_red": ("project", "repo", "commit", "failing", "since"),  # two runs on one commit failed: merges wait
     "main_green": ("project", "repo", "commit"),  # a `main` commit passed after a red one
+    "base_missing": ("project", "branch", "repos"),  # GitHub lacks the project's base branch: none of its tasks starts
+    "base_found": ("project", "branch"),  # the missing base branch is on GitHub again
     "main_updated": ("project", "repo", "commit", "task"),  # `main` was brought into a PR that waited on a red one
     "main_fix_opened": ("project", "repo", "commit", "task", "url"),  # the one fix task of a red commit
     "limits_changed": ("session", "week"),

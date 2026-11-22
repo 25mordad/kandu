@@ -537,7 +537,7 @@ class DoctorTest(unittest.TestCase):
         if github_error:
             github.board_columns.side_effect = GitHubError("x")
         item = mock.Mock(path="~/p", repos=["o/r"], run=run, machine="m", test="npm test", board=Board("o", 1),
-                         secrets_from="~/p/.env", task_tokens=task_tokens)
+                         secrets_from="~/p/.env", task_tokens=task_tokens, base_branch="")
         item.name = "site"
         return doctor.check_project(item, runner, github)
 

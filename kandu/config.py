@@ -239,6 +239,7 @@ class Project:
     paused: bool
     daily_token_limit: int
     description: str = ""
+    base_branch: str = ""            # the branch Kandu works on and merges into; empty: the repo's default branch
     board: Board | None = None
     run_local: str | None = None
     setup: Setup | None = None       # run before Kandu runs `test` in a checkout of its own, when that needs it
@@ -498,6 +499,8 @@ def _check_projects(projects, s, problems):
         elif p.multi_user:
             problems.append(f"{where}.multi_user: needs a board")
         _check_one_of(p.run, RUN_MODES, f"{where}.run", problems)
+        if p.base_branch and not GIT_NAME.fullmatch(p.base_branch):
+            problems.append(f"{where}.base_branch: not a branch name: {p.base_branch!r}")
         if p.machine not in machines:
             problems.append(f"{where}.machine: unknown machine {p.machine!r}")
         if p.run == "clone" and p.machine != s.brain.machine:

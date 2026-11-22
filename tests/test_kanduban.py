@@ -73,8 +73,10 @@ class KandubanTest(unittest.TestCase):
         self.time = [1_800_000_000.0]  # 2027-01-15 08:00:00 UTC
         self.copy = self.root / "website"
         self.copy.mkdir()
-        self.project = SimpleNamespace(name="website", machine="brain", path=str(self.copy), repos=["acme-org/website"])
-        self.shop = SimpleNamespace(name="shop", machine="builder", path="~/code/shop", repos=["acme-org/shop"])
+        self.project = SimpleNamespace(name="website", machine="brain", path=str(self.copy), repos=["acme-org/website"],
+                                       base_branch="")
+        self.shop = SimpleNamespace(name="shop", machine="builder", path="~/code/shop", repos=["acme-org/shop"],
+                                    base_branch="")
         machines = {"brain": SimpleNamespace(name="brain", reach="local"),
                     "builder": SimpleNamespace(name="builder", reach="ssh builder.example")}
         self.config = SimpleNamespace(machine=machines.get,
@@ -104,8 +106,18 @@ class KandubanTest(unittest.TestCase):
         self.assertEqual((record["key"], record["kind"], record["project"], record["status"], record["url"]),
                          (key, "kanduban", "website", "open", SESSION_LINK))
 
+    def test_a_project_with_a_base_branch_starts_its_worktree_from_it_and_is_told_so(self):
+        self.project.base_branch = "dev"
+        key = self.flights.open_kanduban(self.project, "en")
+        worktree = f"{self.copy}.kandu-worktrees/kanduban-20270115-080000"
+        scripts = "\n".join(self.machines.on_machine())
+        self.assertIn(f"git worktree add -b kanduban/20270115-080000 {worktree} origin/dev", scripts)
+        self.assertNotIn("symbolic-ref", scripts)  # the copy's default branch is not asked
+        prompt = (self.store.flights_dir / f"{key}.md").read_text(encoding="utf-8")
+        self.assertIn("- The project's base branch is `dev`: open its PRs against it, and never push to it.", prompt)
+
     def test_on_a_local_machine_a_path_from_home_is_expanded_before_git_and_tmux_see_it(self):
-        blog = SimpleNamespace(name="blog", machine="brain", path="~/code/blog", repos=["acme-org/blog"])
+        blog = SimpleNamespace(name="blog", machine="brain", path="~/code/blog", repos=["acme-org/blog"], base_branch="")
         self.flights.open_kanduban(blog, "en")
         worktree = "/home/brain/code/blog.kandu-worktrees/kanduban-20270115-080000"
         made = next(script for script in self.machines.on_machine() if "worktree add" in script)

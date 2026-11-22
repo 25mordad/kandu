@@ -22,7 +22,7 @@ TIMEOUT_SECONDS = 60
 LOOK_AGAIN_SECONDS = 5  # after a lost answer to a create, before looking whether the issue was made
 BOARD_ITEM_LIMIT = 500
 PR_SEARCH_LIMIT = 200
-PR_FIELDS = "number,title,state,url,body,changedFiles,files,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,mergedAt,statusCheckRollup"
+PR_FIELDS = "number,title,state,url,body,changedFiles,files,baseRefName,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,mergedAt,statusCheckRollup"
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 ISSUE_REFERENCE = re.compile(r"(?:(?<![\w.-])([\w.-]+/[\w.-]+))?#(\d+)")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -70,8 +70,8 @@ CLOSER = ("timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on Cl
           "... on Commit { oid repository { nameWithOwner } } } } } }")
 ISSUE_NODE = (f"number title body url state stateReason closedAt updatedAt labels(first: 30) {{ nodes {{ name }} }} "
               f"{COMMENTS} {BLOCKED_BY_NODE} {CLOSER}")
-PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable mergedAt "
-           "updatedAt "
+PR_NODE = ("number title state url body changedFiles baseRefName headRefName headRefOid isDraft isCrossRepository "
+           "mergeable mergedAt updatedAt "
            f"labels(first: 30) {{ nodes {{ name }} }} {COMMENTS}")
 # Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
 PR_DEEP = """files(first: 100) { nodes { path additions deletions } }
@@ -166,8 +166,8 @@ def transient(error):
 
 def _pr(node, deep):
     """A PR as `gh pr view --json` shows it, so every reader keeps working on the same fields."""
-    pr = {key: node.get(key) for key in ("number", "title", "state", "url", "body", "changedFiles", "headRefName",
-                                          "headRefOid", "isDraft", "isCrossRepository", "mergeable", "mergedAt",
+    pr = {key: node.get(key) for key in ("number", "title", "state", "url", "body", "changedFiles", "baseRefName",
+                                          "headRefName", "headRefOid", "isDraft", "isCrossRepository", "mergeable", "mergedAt",
                                           "updatedAt")}
     pr["labels"] = [label for label in node["labels"]["nodes"]]
     pr["comments"] = _comments(node)
@@ -556,12 +556,13 @@ class GitHub:
     def repo_is_public(self, repo):
         return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"
 
-    def offer_file_pr(self, repo, branch, path, content, title, body):
-        """Opens a PR that adds one file on a branch of its own, made on GitHub: no copy of the repo is touched.
+    def offer_file_pr(self, repo, branch, path, content, title, body, base=None):
+        """Opens a PR into `base`, by default the repo's default branch, that adds one file on a branch of its own,
+        made on GitHub: no copy of the repo is touched.
 
         Run again, it reuses the branch, replaces the file and keeps the open PR. Returns the PR's URL.
         """
-        base = self.default_branch(repo)
+        base = base or self.default_branch(repo)
         head = self._json(["api", f"repos/{repo}/git/ref/heads/{base}"])["object"]["sha"]
         try:
             self._run(["api", f"repos/{repo}/git/refs", "-X", "POST", "-f", f"ref=refs/heads/{branch}",

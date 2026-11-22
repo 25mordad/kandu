@@ -6,7 +6,7 @@ Read `docs/COMMANDS.md`, then add one project to `local/projects.yaml`, in the s
 1. Read what you can: the git remote, existing boards, the test command, how it deploys, CI, PR bots, branch protection. `.venv/bin/python -m kandu.add project --machine MACHINE --path PATH --dry-run` reads the repo, test command, deploy script, secrets file, forbidden folders and repo rules from the copy and changes nothing; start from its proposal and its warnings.
 2. Show the findings, then ask as one numbered list:
    1. Name, one line on what it is, and its family.
-   2. Which repos, and who owns them?
+   2. Which repos, and who owns them? Which branch does Kandu work on and merge into (its base branch)? Propose the repo's default branch, from `gh repo view OWNER/NAME --json defaultBranchRef`. Set `base_branch` (`--set base_branch=NAME`) only when the user names another branch, such as `dev` with `main` as production; without it Kandu uses the repo's default branch.
    3. Which machine and path? A machine not yet in `kandu.yaml` is added first with `.venv/bin/python -m kandu.add machine --name NAME --ssh ALIAS [--always-on] [--run-tmp-dir FOLDER]`: ask whether it is always on, and whether each run there should get its own temporary folder on its own disk (`--run-tmp-dir`, off unless the user says yes; recommend it where `/tmp` is small or in memory). It can be changed later from the dashboard's settings.
    4. May Kandu clone it into its work folder (`clone`), or must it work on that machine in a separate `git worktree` (`in-place`)? Always ask this.
    5. Which board? An existing board may have other column names: map them under `board.columns`. If there is none, should one be created?

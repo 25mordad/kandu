@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, mainred, merge, notify, queen, questions, remove,
+from . import (add, backup, base, bazras, clean, flights, ghlimit, ghmeter, mainred, merge, notify, queen, questions, remove,
                rename, review, sessions, split, tasks, timer, tries, upstream, version, waits)
 from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, PROJECT_MODEL_ROLES, REGISTRY_SETTINGS,
                      TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_reference_copy, set_run_tmp, set_inspect, set_limits, set_pace,
@@ -232,6 +232,8 @@ def flower_marks(store):
         elif kind == "decision" and event["decision"] == "merge_waits":
             reasons = event["reason"].split(REASONS_APART)
             mark |= {"pr": "held" if held_by_blockers(reasons) else "waits", "waited": reasons}
+            if merge.WRONG_BASE in reasons:
+                mark["yours"] = True  # only the user can point the PR at the base branch, or close it
         elif kind == "decision" and waits.user_decides(event["reason"]):
             holds = event["reason"].split(REASONS_APART)[1:]  # what holds the merge whatever the user says
             mark |= {"pr": "held" if held_by_blockers(holds) else "waits", "yours": True, "waited": holds}
@@ -370,6 +372,7 @@ class Api:
             "parallel": self._parallel(),
             "pace": self._pace(),
             "main_red": self._main_red(),
+            "base_missing": self._base_missing(),
             "over_limit": {name: spent for name, spent in tokens.items() if spent["today"] >= spent["limit"]},
             "project_tokens": tokens,
             "queen": self._queen_report(),
@@ -1402,6 +1405,12 @@ class Api:
             self.store.record("project_resumed", project=project.name)
         return {"paused": False}
 
+    def _base_missing(self):
+        """Each project whose base branch the supervisor last found missing on GitHub: the branch and the repos
+        that lack it. Read from the local log."""
+        return {p.name: {"branch": event["branch"], "repos": event["repos"], "why": base.why(event)}
+                for p in self.config.projects if p.base_branch and (event := base.missing(self.store, p)) is not None}
+
     def _main_red(self):
         """Each project that watches `main` and whose `main` is red, until it passes: the repo, the commit, the
         failing tests and the task that fixes it. Read from the local log."""
@@ -1424,7 +1433,7 @@ class Api:
         the dashboard may change, from Kandu's state or the registry."""
         paused = self._paused()
         return [{"name": p.name, "paused": p.name in paused, "paused_in_config": p.paused,
-                 "max_parallel_workers": p.max_parallel_workers}
+                 "max_parallel_workers": p.max_parallel_workers, "base_branch": p.base_branch}
                 | {setting: self.store.project_setting(p, setting) for setting in PROJECT_SETTINGS}
                 | {setting: self._registry_value(p, setting) for setting in REGISTRY_SETTINGS}
                 | {f"model_{role}": p.models.get(role, "") for role in PROJECT_MODEL_ROLES}

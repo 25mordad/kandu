@@ -287,8 +287,10 @@ class KandubanHandoffTest(unittest.TestCase):
         self.time = [1_800_000_000.0]
         copy = self.root / "website"
         copy.mkdir()
-        self.project = SimpleNamespace(name="website", machine="brain", path=str(copy), repos=["acme-org/website"])
-        self.shop = SimpleNamespace(name="shop", machine="builder", path="~/code/shop", repos=["acme-org/shop"])
+        self.project = SimpleNamespace(name="website", machine="brain", path=str(copy), repos=["acme-org/website"],
+                                       base_branch="")
+        self.shop = SimpleNamespace(name="shop", machine="builder", path="~/code/shop", repos=["acme-org/shop"],
+                                    base_branch="")
         machines = {"brain": SimpleNamespace(name="brain", reach="local"),
                     "builder": SimpleNamespace(name="builder", reach="ssh builder.example")}
         config = SimpleNamespace(machine=machines.get,

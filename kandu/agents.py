@@ -203,6 +203,9 @@ def _memory(project, local_dir):
 
 def _project_facts(project):
     facts = [f"- Test command: `{project.test}`"]
+    if project.base_branch:
+        facts.append(f"- Base branch: `{project.base_branch}`. Work starts from it and merges into it. Where these "
+                     "instructions say the default branch, they mean this one.")
     if project.setup:
         facts.append(f"- Setup command: `{project.setup.command}`. Run it before the tests in a checkout that has not "
                      "had it yet, or after its dependencies change.")
@@ -325,7 +328,8 @@ def check_prompt(project, repo, number, pr, head_sha, question, base, local_dir=
              *_project_facts(project)]
     facts += [f"- PR: #{pr}", f"- {_how(repo, pr, copy)}", f"- Your checkout is its head `{head_sha}`",
               _diff(base, head_sha)] \
-        if pr else ["- The task has no open PR: your checkout is the default branch"]
+        if pr else ["- The task has no open PR: your checkout is the "
+                    + (f"base branch `{base}`" if project.base_branch else "default branch")]
     return "\n".join([_read("check.md"), "## This check", *facts, "## The queen's question", question,
                       *_memory(project, local_dir), *_copies(copy, [(repo, number)] + ([(repo, pr)] if pr else []))])
 

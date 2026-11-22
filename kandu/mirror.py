@@ -319,8 +319,8 @@ class Mirror:
     def latest_release(self, repo):
         return self.remote.latest_release(repo)  # read once a day by `version.Releases`, which keeps it in the log
 
-    def offer_file_pr(self, repo, branch, path, content, title, body):
-        return self.remote.offer_file_pr(repo, branch, path, content, title, body)
+    def offer_file_pr(self, repo, branch, path, content, title, body, base=None):
+        return self.remote.offer_file_pr(repo, branch, path, content, title, body, base)
 
     def find_pr(self, repo, issue):
         """Returns the newest PR of an issue's `kandu/` branch in this repo, or None. A fork's PR never counts."""

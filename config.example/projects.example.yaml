@@ -8,6 +8,8 @@ projects:
     description: Public website of Acme
     family: acme                       # one board per family
     repos: [acme-org/website]
+    # base_branch: dev                 # optional: the branch Kandu works on and merges into, e.g. dev when main is
+                                       # production. Left out: the repo's default branch. It must exist on GitHub
     board:
       owner: acme-org
       number: 1

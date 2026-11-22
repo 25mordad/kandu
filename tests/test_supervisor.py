@@ -152,6 +152,7 @@ class FakeGitHub:
 
     def open_pr(self, repo, issue, head=SHA1, state="OPEN"):
         pr = {"number": 7, "state": state, "headRefOid": head, "headRefName": f"kandu/{issue}-task", "labels": [],
+              "baseRefName": self.default_branch(repo),
               "comments": [], "body": "", "files": [{"path": "a.py"}], "url": "u", "isDraft": False, "mergeable": "MERGEABLE", "statusCheckRollup": []}
         self.prs[(repo, issue)] = pr
         return pr
@@ -165,7 +166,7 @@ class FakeGitHub:
             raise GitHubError("Head ref must be a branch")
         self.opened.append((repo, head, base, title, body))
         pr = self.open_pr(repo, issue, self.pushed[(repo, issue)])
-        pr["body"] = body
+        pr["body"], pr["baseRefName"] = body, base
         return pr["number"]
 
     def edit_pr_body(self, repo, number, body):

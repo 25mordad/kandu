@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from . import base
 from .boards import missing_columns, missing_fields
 from .config import DEFAULT_LOCAL_DIR, ConfigError, load_config
 from .dashboard import TOKEN_ENV
@@ -105,6 +106,15 @@ def check_project(project, runner, github):
             results.append((OK if found else FAIL, f"{project.name}: token {name}"))
     except RunnerError:
         results.append((WARN, f"{project.name}: machine {project.machine} did not answer"))
+    if project.base_branch:
+        try:
+            gone = base.missing_repos(github, project)
+        except GitHubError:
+            results.append((FAIL, f"{project.name}: base branch {project.base_branch} cannot be read"))
+        else:
+            results.append((FAIL, f"{project.name}: {base.why({'branch': project.base_branch, 'repos': gone})}; "
+                                  "none of its tasks starts") if gone
+                           else (OK, f"{project.name}: base branch {project.base_branch}"))
     if project.board is None:
         results.append((WARN, f"{project.name}: no board"))
         return results

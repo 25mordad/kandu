@@ -947,7 +947,7 @@ class ControlTest(Base):
              "queen_answers_one_way": False, "priority": 2},
             {"name": "internal-tool", "paused": True, "paused_in_config": False, "split_approval": "user",
              "queen_answers_one_way": False, "priority": 1}])
-        self.assertEqual(set(rows[0]), set(keys) | {"max_parallel_workers", "daily_token_limit", "auto_merge", "frozen",
+        self.assertEqual(set(rows[0]), set(keys) | {"max_parallel_workers", "base_branch", "daily_token_limit", "auto_merge", "frozen",
                                                          "multi_user", "watch_main", "model_worker", "model_reviewer", "model_splitter",
                                                          "model_live_check", "model_bazras", "global_models"})
 

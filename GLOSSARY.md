@@ -14,6 +14,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Run temporary folder** | A machine's option, off by default (`run_tmp`): each agent run, test and setup there gets a fresh folder inside `run_tmp_dir` on the machine's own disk as its temporary directory, removed when the run ends; a deploy gets none |
 | **Reference copy** | A read-only copy of the paths a task's `Reference` names in another registered project's repo, in a folder of the run's own on the worker's machine, removed when the run ends. Off by default (`supervisor.reference_copy`); never from a private repo into a run on a public one. |
 | **Splitter** | A read-only agent that sizes every task in `Backlog` against the scale and proposes how to split a `Large` one |
+| **Base branch** | The branch of a project's repo that Kandu works on and merges into; by default the repo's default branch |
 | **Red main** | A project's state when its tests fail twice on one commit of its default branch (`watch_main`, off by default): its merges wait, no task starts but the one Kandu opens to fix it, and the user is told once until `main` passes |
 | **Queen answers one-way merges** | A project's switch, off by default: on, the queen's yes to a merge answers its one-way door and the review's questions for the user; off, those wait for the user's yes |
 | **Split approval** | Who accepts a project's split proposals, the user or the queen; the user by default, set in the registry or the dashboard's settings section |

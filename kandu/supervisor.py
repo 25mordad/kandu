@@ -25,6 +25,7 @@ from pathlib import Path
 from . import agents, clean, debt, mainred, merge, queen, questions, reference, review, show, sizing, split, tasks, waits
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .flights import Flights
+from .base import base_branch, missing as base_missing, missing_repos, record as record_base
 from .github import BREAKING_LABEL, TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
 from .mirror import open_github
 from .notify import CHECK_NOT_RUN, LIVE_DOWN, TESTS_FAIL_IN, notifier_for
@@ -248,6 +249,7 @@ class Supervisor:
         self.unreachable = []  # what the dashboard shows of each machine that does not answer
         self.merged = Counter()
         self.held = {}  # task key -> the head whose merge waited this cycle
+        self.base_held = set()  # the projects whose base branch GitHub lacks this cycle: none of their tasks starts
         self.retrying = {}  # task key -> the merge GitHub refused for a moment, tried again in this cycle
         self.sleep = sleep
         self.next_wake = None
@@ -257,23 +259,41 @@ class Supervisor:
         self._test_locks = defaultdict(threading.Lock)  # project name -> held while its merge test runs
 
     def _is_paused(self, project):
-        return project.paused or project.name in self.store.paused_projects()
+        """Paused by the user or the registry, or held this cycle because its base branch is missing."""
+        return project.name in self._held_projects() or project.paused
+
+    def _held_projects(self):
+        return self.store.paused_projects() | self.base_held
+
+    def _check_bases(self):
+        """Reads whether each project that names a base branch has it on GitHub, and returns those that lack it.
+
+        What GitHub shows is recorded when it changes, for the dashboard. A read that fails keeps the last record.
+        """
+        for project in self.config.projects:
+            if not project.base_branch:
+                continue
+            try:
+                record_base(self.store, project, missing_repos(self.github, project))
+            except GitHubError:
+                pass
+        return {p.name for p in self.config.projects if p.base_branch and base_missing(self.store, p) is not None}
 
     def _board_items(self):
         """A spec issue is never work, even when someone puts it on the board with the `agent` label."""
         specs = tasks.specs(self.store)
-        return [(project, item) for project, item in board_items(self.config, self.github, self.store.paused_projects())
+        return [(project, item) for project, item in board_items(self.config, self.github, self._held_projects())
                 if f"{item.repo}#{item.number}" not in specs]
 
     def _by_hand(self):
         """The open by-hand tasks the queen names in her brief. A spec issue is never one."""
         specs = tasks.specs(self.store)
-        return [(project, item) for project, item in by_hand_items(self.config, self.github, self.store.paused_projects())
+        return [(project, item) for project, item in by_hand_items(self.config, self.github, self._held_projects())
                 if f"{item.repo}#{item.number}" not in specs]
 
     def _read_tasks(self):
         specs = tasks.specs(self.store)
-        return [task for task in read_tasks(self.config, self.github, self.store.paused_projects())
+        return [task for task in read_tasks(self.config, self.github, self._held_projects())
                 if task.key not in specs]
 
     def _sent_on(self):
@@ -413,6 +433,10 @@ class Supervisor:
 
     def _decide(self, task, decision, reason):
         self.store.record("decision", task=task.key, project=task.project.name, decision=decision, reason=reason)
+
+    def _base(self, project, repo):
+        """The branch of `repo` the project's work starts from, its PRs target and Kandu merges into."""
+        return base_branch(self.github, project, repo)
 
     # Running agents.
 
@@ -575,7 +599,7 @@ class Supervisor:
         """Runs a worker on the task's branch. `cwd` is a worktree Kandu already prepared, such as an open merge."""
         run_id = new_run_id(self.now())
         if cwd is None:
-            cwd = self._worktree(task, self.github.default_branch(task.repo))
+            cwd = self._worktree(task, self._base(task.project, task.repo))
         note = queen.note_for(queen.all_events(self.store), task.key)
         blockers = open_blockers(self.github, task.repo, self.github.issue_text(task.repo, task.number))
         project = task.project
@@ -592,14 +616,14 @@ class Supervisor:
             return self._reply(task, "worker", cwd, tools, result, read, tokens, agents.WORKER_SCHEMA)
 
     def _open_pr(self, task, reply):
-        """Kandu opens the PR, from the task's own branch into the default one, with the worker's title and
+        """Kandu opens the PR, from the task's own branch into the project's base branch, with the worker's title and
         description. A PR an earlier run left open on the branch gets the new description instead."""
         body = agents.closing_body(reply["pr_body"], task.number)
         pr = self.github.find_pr(task.repo, task.number)
         if pr is not None and pr["state"] == "OPEN":
             self.github.edit_pr_body(task.repo, pr["number"], body)
             return self.github.pr(task.repo, pr["number"])
-        base = self.github.default_branch(task.repo)
+        base = self._base(task.project, task.repo)
         try:
             number = self.github.create_pr(task.repo, task.branch, base, reply["pr_title"], body)
         except GitHubError as e:
@@ -712,14 +736,14 @@ class Supervisor:
         with self._reference(task) as (folder, copied):
             if to_fix:
                 prompt = agents.second_review_prompt(task.repo, task.number, pr["number"], head, language, to_fix,
-                                                     self.github.default_branch(task.repo), self._copy(task.project),
+                                                     self._base(task.project, task.repo), self._copy(task.project),
                                                      reference=copied, spec=self._spec(task))
             else:
                 criteria = sizing.criteria_list(self.github.issue_text(task.repo, task.number)["body"])
                 first_n = 1 + max((f["n"] for r in reviews for f in r["open"]), default=0)
                 companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
                 prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head, language,
-                                                companions, criteria, first_n, self.github.default_branch(task.repo),
+                                                companions, criteria, first_n, self._base(task.project, task.repo),
                                                 local_dir=self.local_dir, copy=self._copy(task.project),
                                                 reference=copied, spec=self._spec(task))
             tools = agents.reviewer_tools(task.project, self._rules("reviewer"), self._remote(task.project), folder)
@@ -880,13 +904,13 @@ class Supervisor:
         return pending is not None and task.key in pending["tasks"]
 
     def _update(self, task, pr):
-        """Brings the default branch into the PR. Kandu merges; a worker only resolves the files in conflict.
+        """Brings the project's base branch into the PR. Kandu merges; a worker only resolves the files in conflict.
         The new head is reviewed again before any merge. Returns False if the task stopped here."""
         pending = mainred.waiting_for_update(self.store, task.project, task.repo)
         if pending is not None and task.key in pending["tasks"] and self.store.project_setting(task.project, "watch_main"):
             self.store.record("main_updated", project=task.project.name, repo=task.repo, commit=pending["commit"],
                               task=task.key)  # once: a conflict the round leaves is not tried again for this green
-        base = self.github.default_branch(task.repo)
+        base = self._base(task.project, task.repo)
         run_id = new_run_id(self.now())
         cwd = self._worktree(task, base)
         message = f"Merge {base} into {task.branch}\n\nKandu-Run: {run_id}"
@@ -959,6 +983,14 @@ class Supervisor:
         with self._lock:
             self.held[task.key] = pr["headRefOid"]
 
+    def _wrong_base(self, task, pr):
+        """Holds a PR whose base is not the project's base branch, for the user, whatever auto-merge or a yes says:
+        Kandu merges into no other branch and brings no other into it. Returns True when it held the PR."""
+        reasons = merge.base_waits(pr, self._base(task.project, task.repo))
+        if reasons:
+            self._merge_held(task, pr, reasons, None)
+        return bool(reasons)
+
     def _merge_left_markers(self, task, pr, cwd, conflicts):
         """Blocks the task if the pushed branch still holds a conflict marker in a file the merge stopped at."""
         left = self.runner.conflict_markers(task.project, task.repo, cwd, task.branch, conflicts)
@@ -992,8 +1024,8 @@ class Supervisor:
         self._move(task, IN_PROGRESS)
         self._phase(task, "queen's rework")
         order, cwd, conflicts = step["note"], None, []
-        if pr.get("mergeable") == "CONFLICTING":
-            base = self.github.default_branch(task.repo)
+        base = self._base(task.project, task.repo)
+        if pr.get("mergeable") == "CONFLICTING" and not merge.base_waits(pr, base):  # never into another branch
             cwd = self._worktree(task, base)
             message = f"Merge {base} into {task.branch}\n\nKandu-Run: {new_run_id(self.now())}"
             _, conflicts = self.runner.merge_base(task.project, task.repo, cwd, task.branch, base, message,
@@ -1022,12 +1054,12 @@ class Supervisor:
         return True
 
     def _verify(self, task, pr, step):
-        """A checker finds out what she asked, on the PR's head or the default branch. She reads it next look."""
+        """A checker finds out what she asked, on the PR's head or the project's base branch. She reads it next look."""
         self._pick(task)
         self._phase(task, "queen's check")
         run_id = new_run_id(self.now())
         head = pr["headRefOid"] if pr is not None and pr["state"] == "OPEN" else None
-        base = self.github.default_branch(task.repo)
+        base = self._base(task.project, task.repo)
         if head is not None:
             cwd = self.runner.prepare_review(task.project, task.repo, pr["headRefName"], head)
         else:
@@ -1117,7 +1149,7 @@ class Supervisor:
     def _check_main(self, project, repo):
         """Tests the current `main` of `repo` until its commit is decided: at most two runs, kept per commit.
         `main` is red only when both fail, and a pass ends a red one."""
-        base = self.github.default_branch(repo)
+        base = self._base(project, repo)
         with self._main_lock:
             commit = self.github.branch_tip(repo, base)
             if commit is None:
@@ -1172,7 +1204,7 @@ class Supervisor:
             for repo in project.repos:
                 current = mainred.red(self.store, project, repo)
                 try:
-                    if current is not None and (self.github.branch_tip(repo, self.github.default_branch(repo)) != current["commit"]
+                    if current is not None and (self.github.branch_tip(repo, self._base(project, repo)) != current["commit"]
                                                 or not mainred.fix_opened(self.store, project, repo, current["commit"])):
                         self._check_main(project, repo)
                 except (GitHubError, RunnerError, KanduTrouble):
@@ -1238,6 +1270,8 @@ class Supervisor:
                 self._end_retry(task, "merge_retry_ended", "a new commit came in; it is reviewed first")
             return False  # a new commit came in; it is reviewed first
         pr = fresh
+        if self._wrong_base(task, pr):  # its base may have changed since it was read
+            return False
         # A merge tried again passed every check on this head in this cycle: only GitHub's answer is missing.
         reasons = [] if retry is not None else self._merge_waits(task, pr)
         if reasons:
@@ -1403,7 +1437,7 @@ class Supervisor:
         run_id = new_run_id(self.now())
         self._phase(task, "deploy")
         with self._deploy_locks[project.name]:
-            base = self.github.default_branch(task.repo)
+            base = self._base(task.project, task.repo)
             cwd = self.runner.prepare_review(project, task.repo, "kandu/deploy", f"origin/{base}")
             code = self.runner.run_command(project, cwd, project.deploy.command, run_id, secrets=True, scoped=False)
         if code != 0:
@@ -1419,7 +1453,7 @@ class Supervisor:
         project = task.project
         self._phase(task, "live check")
         run_id = new_run_id(self.now())
-        base = self.github.default_branch(task.repo)
+        base = self._base(task.project, task.repo)
         cwd = self.runner.prepare_review(project, task.repo, "kandu/live-check", f"origin/{base}")
         prompt = agents.live_check_prompt(project, task.repo, task.number, self.local_dir, self._copy(project))
         tools = agents.live_check_tools(project, self._rules("live_check"), self._remote(project))
@@ -1534,7 +1568,7 @@ class Supervisor:
         self._phase(task, "sizing")
         run_id = new_run_id(self.now())
         try:
-            base = self.github.default_branch(task.repo)
+            base = self._base(task.project, task.repo)
             cwd = self.runner.prepare_review(task.project, task.repo, f"kandu/size-{task.number}", f"origin/{base}")
             prompt = agents.splitter_prompt(task.project, task.repo, task.number, self.config.settings.language,
                                             self.local_dir, self._copy(task.project), self._spec(task))
@@ -1627,10 +1661,10 @@ class Supervisor:
             self._run_task(task, lambda: self._size(task, item))
 
     def _check_project(self, project):
-        """No agent and no tokens: the tests on the default branch, and the live URL answering."""
+        """No agent and no tokens: the tests on the project's base branch, and the live URL answering."""
         problems = []
         for repo in project.repos:
-            base = self.github.default_branch(repo)
+            base = self._base(project, repo)
             cwd = self.runner.prepare_review(project, repo, "kandu/end-check", f"origin/{base}")
             if self.runner.run_test(project, cwd, new_run_id(self.now())) != 0:
                 problems.append(f"{TESTS_FAIL_IN}{repo}")
@@ -1707,6 +1741,8 @@ class Supervisor:
                 outcome = self._outcome(task, pr, reviews)
                 if outcome is None:
                     self._fix(task, pr, reviews)
+                elif self._wrong_base(task, pr):
+                    return
                 elif self._conflicts(pr, outcome) or self._main_to_bring(task, pr, outcome):
                     if self._update_waits(task, pr) or not self._update(task, pr):
                         return
@@ -2307,6 +2343,7 @@ class Supervisor:
         failed = self.github.refresh(self.config)  # the copy as GitHub holds it now, before anything is decided
         if failed:
             self.store.record("copy_not_read", detail="; ".join(failed))
+        self.base_held = self._check_bases()
         reason = self._gate() or self._queen_limit()
         if reason is None:
             try:

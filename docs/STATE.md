@@ -111,6 +111,8 @@ state/
 | `main_tested` | `project`, `repo`, `commit`, `run` (1 or 2), `passed`, `failing`: one run of the project's tests on a `main` commit, with the failing tests' names the run's log gave; at most two for a commit |
 | `main_red` | `project`, `repo`, `commit`, `failing`, `since`: two runs on this commit failed, so merges wait and no new task starts; `since` is when the red began and stays through later red commits, so the user hears once |
 | `main_green` | `project`, `repo`, `commit`: a commit passed after a red one, so the project is no longer red |
+| `base_missing` | `project`, `branch`, `repos`: the base branch the project names is not on GitHub in these repos, so none of its tasks starts; recorded when found missing, and again only when the branch or the repos change |
+| `base_found` | `project`, `branch`: the missing base branch is on GitHub again, so the project's tasks start again |
 | `main_fix_opened` | `project`, `repo`, `commit`, `task`, `url`: the one fix task of a red commit |
 | `main_updated` | `project`, `repo`, `commit`, `task`: `main` was brought into a PR that waited on a red one |
 | `check_skipped` | `project`, `machine` |
