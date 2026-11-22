@@ -160,6 +160,20 @@ class HandoffTest(unittest.TestCase):
         self.assertEqual(first_said(self.host.started_line()), f"{handoff.JOB_HEAD}\n\n{JOB}")
         self.assertIn("opened", said)
 
+    def test_a_zanbourdar_opened_with_a_job_that_works_is_never_killed_for_a_link_off_the_screen(self):
+        self.hand()
+        self.host.screen = "● Bash(journalctl --user -u sync)\n" + "a log line\n" * 40  # the link scrolled off
+        folder = self.root / "projects" / "here"
+        folder.mkdir(parents=True)
+        (folder / f"{self.store.flight(ZANBOURDAR)['session']}.jsonl").write_text("{}\n", encoding="utf-8")
+        self.time[0] += WAIT_SECONDS + 1
+        found = self.flights.list()["open"][0]
+        self.assertEqual((found["key"], found["status"], found["error"]), (ZANBOURDAR, "open", ""))
+        self.assertIn(ZANBOURDAR, self.host.running)
+        self.hand("A second job.")  # Still the one: typed in, never a second session.
+        self.assertEqual(len(self.starts()), 1)
+        self.assertIn("A second job.", self.typed(ZANBOURDAR))
+
     def test_a_zanbourdar_that_fails_to_start_is_reported(self):
         self.host.start_fails = True
         with self.assertRaisesRegex(handoff.HandoffError, "Zanbourdar did not start: no bus"):
@@ -329,6 +343,19 @@ class KandubanHandoffTest(unittest.TestCase):
         self.hand("A second job.")  # It is open now: typed in, never a second session.
         self.assertEqual((len(self.starts()), len(self.worktrees())), (1, 1))
         self.assertIn("A second job.", self.typed(self.key))
+
+    def test_a_kanduban_opened_with_a_job_that_works_is_never_killed_for_a_link_off_the_screen(self):
+        self.hand()
+        self.machines.screen = "● Bash(make test)\n" + "a test line\n" * 40  # the link scrolled off
+        folder = self.root / "projects" / "here"
+        folder.mkdir(parents=True)
+        path = folder / f"{self.store.flight(self.key)['session']}.jsonl"
+        path.write_text("{}\n", encoding="utf-8")
+        self.time[0] += WAIT_SECONDS + 1
+        os.utime(path, (self.time[0], self.time[0]))  # written since it started
+        found = self.flights.list()["open"][0]
+        self.assertEqual((found["status"], found["error"]), ("open", ""))
+        self.assertIn(self.key, self.machines.running)
 
     def test_the_dashboards_button_still_opens_a_kanduban_with_no_first_message(self):
         self.flights.open_kanduban(self.project, "en")

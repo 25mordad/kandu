@@ -854,6 +854,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "open_flight": "Open a free flight",
   "flight_opening": "Opening…",
   "flight_go": "Go to the session",
+  "flight_no_link": "Open: its link is not in yet",
   "flight_close": "End the session",
   "go_didban": "Go to Didban",
   "close_didban": "Close Didban",
@@ -1391,6 +1392,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "open_flight": "باز کردن پرواز آزاد",
   "flight_opening": "در حال باز شدن…",
   "flight_go": "رفتن به جلسه",
+  "flight_no_link": "باز است: لینکش هنوز نیامده",
   "flight_close": "بستن جلسه",
   "go_didban": "رفتن به دیدبان",
   "close_didban": "بستن دیدبان",
@@ -3376,14 +3378,14 @@ async function refreshDidban() {
 // Didban and Zanbourdar sit side by side in the header, so their buttons say whose session they are.
 function flightControls(flight, target, label, go = t("flight_go"), close = t("flight_close")) {
   if (flight?.status === "opening") return `<button class="btn busy" disabled>${t("flight_opening")}</button>`;
-  if (flight?.status === "open") return `<a class="btn primary" href="${esc(flight.url)}" target="_blank" rel="noopener">${go} ↗</a><button class="btn" data-land="${esc(flight.key)}">${close}</button>`;
+  if (flight?.status === "open") return `${flight.url ? `<a class="btn primary" href="${esc(flight.url)}" target="_blank" rel="noopener">${go} ↗</a>` : `<button class="btn busy" disabled>${t("flight_no_link")}</button>`}<button class="btn" data-land="${esc(flight.key)}">${close}</button>`;
   return `<button class="btn" data-fly="${esc(target)}">${label}</button>`;
 }
 
 function headerFlight(flight, target) {
   const name = t(`h_${target}`), about = t(`hint_${target}`);
   if (flight?.status === "opening") return `<button class="btn busy" disabled title="${esc(about)}">${name}</button>`;
-  if (flight?.status === "open") return `<a class="btn primary" href="${esc(flight.url)}" target="_blank" rel="noopener" title="${esc(`${about}\n${t("hint_flight_go")}`)}">${name} ↗</a><button class="btn" data-land="${esc(flight.key)}" title="${esc(t(`close_${target}`))}" aria-label="${esc(t(`close_${target}`))}">×</button>`;
+  if (flight?.status === "open") return `${flight.url ? `<a class="btn primary" href="${esc(flight.url)}" target="_blank" rel="noopener" title="${esc(`${about}\n${t("hint_flight_go")}`)}">${name} ↗</a>` : `<button class="btn busy" disabled title="${esc(t("flight_no_link"))}">${name}</button>`}<button class="btn" data-land="${esc(flight.key)}" title="${esc(t(`close_${target}`))}" aria-label="${esc(t(`close_${target}`))}">×</button>`;
   return `<button class="btn" data-fly="${esc(target)}" title="${esc(`${about}\n${t(`open_${target}`)}`)}">${name}</button>`;
 }
 
@@ -3405,7 +3407,7 @@ function renderFlights() {
   if ($("taskflight") && shownTask) $("taskflight").innerHTML = flightControls(flights.open.find(f => f.task === shownTask), shownTask, t("open_flight"));
   const task = flightName;
   const open = flights.open.filter(f => f.kind !== "didban" && f.status === "open").map(f => `<tr><td class="fit number">${esc(when(f.started))}</td><td>${task(f)}</td>
-    <td dir="auto"><a class="textlink" href="${esc(f.url)}" target="_blank" rel="noopener">${t("flight_go")} ↗</a> <button class="btn small" data-land="${esc(f.key)}">${t("flight_close")}</button></td><td class="fit end">${t("flight_open_now")}</td></tr>`);
+    <td dir="auto">${f.url ? `<a class="textlink" href="${esc(f.url)}" target="_blank" rel="noopener">${t("flight_go")} ↗</a>` : esc(t("flight_no_link"))} <button class="btn small" data-land="${esc(f.key)}">${t("flight_close")}</button></td><td class="fit end">${t("flight_open_now")}</td></tr>`);
   const flown = flights.flown.map(s => `<tr><td class="fit number">${esc(s.started ? when(s.started) : "—")}</td><td>${task(s)}</td><td dir="auto">${esc(s.title || "—")}</td>
     <td class="fit end" title="${esc(num(s.tokens.input + s.tokens.output + s.tokens.cache_read + s.tokens.cache_creation))}">${esc(short(s.tokens.input + s.tokens.output + s.tokens.cache_creation))}</td></tr>`);
   const rows = [...open, ...flown].join("");
@@ -3421,14 +3423,14 @@ async function refreshFlights() {
   }
   renderFlights();
   clearTimeout(refreshFlights.timer);
-  if (flights.open.some(f => f.status === "opening")) refreshFlights.timer = setTimeout(() => refreshFlights().catch(() => {}), 2000);
+  if (flights.open.some(f => f.status === "opening" || (f.status === "open" && !f.url))) refreshFlights.timer = setTimeout(() => refreshFlights().catch(() => {}), 2000);
 }
 
 async function openFlight(button) {
   const target = button.dataset.fly;
   const project = target.startsWith("kanduban:") ? target.slice("kanduban:".length) : null;
   const shown = project && kandubanOf(project);
-  if (shown?.status === "open") { window.open(shown.url, "_blank", "noopener"); return; }  // One per project: its link.
+  if (shown?.status === "open") { if (shown.url) window.open(shown.url, "_blank", "noopener"); return; }  // One per project: its link.
   if (shown) return;  // still opening
   const path = project ? `/flights/kanduban/${encodeURIComponent(project)}`
     : ["didban", "zanbourdar"].includes(target) ? `/flights/${target}` : `/flights/tasks/${target.replace("#", "/")}`;

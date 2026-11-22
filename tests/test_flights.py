@@ -25,6 +25,7 @@ class FakeHost:
         self.commands = []
         self.running = set()
         self.screen = ""
+        self.scrollback = ""  # what scrolled off the screen; tmux gives it with the screen for `-S -`
         self.start_fails = False
 
     def __call__(self, command, **kwargs):
@@ -42,7 +43,10 @@ class FakeHost:
             return SimpleNamespace(returncode=0 if key in self.running else 1, stdout="", stderr="")
         if action == "kill-server":
             self.running.discard(key)
-        return SimpleNamespace(returncode=0, stdout=self.screen if action == "capture-pane" else "", stderr="")
+        if action == "capture-pane":
+            shown = f"{self.scrollback}\n{self.screen}" if "-S" in command[4:] else self.screen
+            return SimpleNamespace(returncode=0, stdout=shown, stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     def started_line(self):
         return next(c for c in self.commands if c[0] == "systemd-run")[-1]
@@ -202,6 +206,58 @@ class FlightsTest(unittest.TestCase):
 
     def test_no_link_in_time_ends_the_session_and_says_so(self):
         key = self.open_task()
+        self.time[0] += flights.WAIT_SECONDS + 1
+        found = self.flights.list()["open"][0]
+        self.assertEqual((found["status"], found["error"]), ("failed", flights.NO_LINK))
+        self.assertNotIn(key, self.host.running)
+
+    def test_a_link_scrolled_off_the_screen_is_read_from_the_scrollback(self):
+        key = self.open_task()
+        self.host.scrollback = f"/remote-control is active · Continue at {SESSION_LINK}\n" + "working…\n" * 200
+        self.host.screen = "● Bash(make test)\n  ⎿  ran 400 tests"
+        found = self.flights.list()["open"][0]
+        self.assertEqual((found["key"], found["status"], found["url"]), (key, "open", SESSION_LINK))
+
+    def test_a_link_only_in_the_transcript_is_read_from_there(self):
+        key = self.open_task()
+        self.host.screen = "● Bash(make test)"
+        folder = self.root / "projects" / "here"
+        folder.mkdir(parents=True)
+        line = {"type": "system", "content": f"Remote Control is on: {SESSION_LINK}"}
+        (folder / f"{self.store.flight(key)['session']}.jsonl").write_text(json.dumps(line) + "\n", encoding="utf-8")
+        found = self.flights.list()["open"][0]
+        self.assertEqual((found["status"], found["url"]), ("open", SESSION_LINK))
+
+    def test_a_working_session_with_no_link_found_is_kept_open_past_the_wait(self):
+        key = self.open_task()
+        self.host.screen = "● Bash(make test)"
+        self.transcript(self.store.flight(key)["session"], {"output_tokens": 5})
+        self.time[0] += flights.WAIT_SECONDS + 1
+        found = self.flights.list()["open"][0]
+        self.assertEqual((found["status"], found["url"], found["error"]), ("open", "", ""))
+        self.assertIn(key, self.host.running)
+        self.time[0] += 3600
+        self.assertEqual(self.flights.list()["open"][0]["status"], "open")
+        self.assertIn(key, self.host.running)
+        self.host.scrollback = SESSION_LINK  # found later: the page gets the link
+        self.assertEqual(self.flights.list()["open"][0]["url"], SESSION_LINK)
+
+    def test_every_kind_that_works_is_kept_open_past_the_wait(self):
+        with mock.patch("kandu.didban.check_brain", return_value=("ok", "config ok")), \
+             mock.patch("kandu.didban.waiting", return_value={}):
+            self.flights.open_didban("en")
+        self.flights.open_zanbourdar("en", first="Look at the timer.")
+        key = self.open_task()
+        for each in (DIDBAN, ZANBOURDAR, key):
+            self.transcript(self.store.flight(each)["session"])
+        self.time[0] += flights.WAIT_SECONDS + 1
+        self.assertEqual({f["key"]: f["status"] for f in self.flights.list()["open"]},
+                         {DIDBAN: "open", ZANBOURDAR: "open", key: "open"})
+        self.assertEqual(self.host.running, {DIDBAN, ZANBOURDAR, key})
+
+    def test_a_session_that_never_started_is_ended_past_the_wait(self):
+        key = self.open_task()
+        self.host.screen = "Welcome to Claude Code"
         self.time[0] += flights.WAIT_SECONDS + 1
         found = self.flights.list()["open"][0]
         self.assertEqual((found["status"], found["error"]), ("failed", flights.NO_LINK))

@@ -37,6 +37,7 @@ TRUST = "Yes, I trust this folder"  # Claude asks this in a folder it has not se
 WAIT_SECONDS = 120
 IDLE_SECONDS = 12 * 3600  # a task's session with no activity this long closes by itself
 NO_LINK = "the session's link did not come in time"
+TRANSCRIPT_HEAD_CHARS = 1_000_000  # where a session's link is looked for in its transcript
 COMMAND_TIMEOUT_SECONDS = 15
 START_TIMEOUT_SECONDS = 30
 PROBE_TIMEOUT_SECONDS = 10
@@ -406,19 +407,69 @@ class Flights:
         if record["url"]:
             return record | {"status": "open"}
         screen = self._tmux(key, "capture-pane", "-p", "-J", "-t", "main").stdout
-        found = URL.search(screen)
-        if TRUST in screen:
+        if TRUST in screen:  # The visible screen only: the question answered stays in the scrollback.
             self._tmux(key, "send-keys", "-t", "main", "Down", "Enter")
-        elif found:
+            return record | {"status": "opening"}
+        # A session given a job at its start works at once, and its output scrolls the link off the screen.
+        history = self._tmux(key, "capture-pane", "-p", "-J", "-S", "-", "-t", "main").stdout
+        found = URL.search(history) or URL.search(self._transcript_text(record))
+        if found:
             record["url"] = found.group(0)
             self.store.write_flight(record)
             return record | {"status": "open"}
-        elif self.clock() - record["epoch"] > WAIT_SECONDS:
-            self._tmux(key, "kill-server")
-            record["error"] = NO_LINK
+        if record.get("working"):
+            return record | {"status": "open"}
+        if self.clock() - record["epoch"] <= WAIT_SECONDS:
+            return record | {"status": "opening"}
+        written, said = self._transcript_since_start(record)
+        if said:
+            record["url"] = said
+        if written or said:  # It runs and works: it is never killed for a link Kandu did not find.
+            record["working"] = True
             self.store.write_flight(record)
-            return record | {"status": "failed"}
-        return record | {"status": "opening"}
+            return record | {"status": "open"}
+        self._tmux(key, "kill-server")
+        record["error"] = NO_LINK
+        self.store.write_flight(record)
+        return record | {"status": "failed"}
+
+    def _remote(self, record):
+        """The machine of a Kanduban on another machine, where its transcript is; else None."""
+        machine = self.config.machine(record["machine"]) if record.get("machine") else None
+        return None if machine is None or machine.reach == "local" else machine
+
+    def _transcript_text(self, record):
+        """The head of the session's transcript on this machine, where its link may be; "" if there is none.
+
+        A transcript on another machine is read only past the wait, by `_transcript_since_start`."""
+        if self._remote(record) is not None:
+            return ""
+        path = sessions.transcript(record["session"], self.projects_dir)
+        try:
+            with open(path, encoding="utf-8", errors="replace") as file:
+                return file.read(TRANSCRIPT_HEAD_CHARS)
+        except (OSError, TypeError):
+            return ""
+
+    def _transcript_since_start(self, record):
+        """Whether the session wrote to its transcript since it started, and the link found in it, or ""."""
+        machine = self._remote(record)
+        if machine is None:
+            written = self.last_write(record) > record["epoch"]
+            found = URL.search(self._transcript_text(record))
+            return written, found.group(0) if found else ""
+        # The session's id is new, so a transcript there at all was written by this session.
+        script = ('for f in "$HOME"/.claude/projects/*/"$1".jsonl; do [ -s "$f" ] || exit 1; '
+                  f'head -c {TRANSCRIPT_HEAD_CHARS} "$f"; exit 0; done; exit 1')
+        try:
+            done = self.run(Host(machine).argv(["sh", "-c", script, "sh", record["session"]]), capture_output=True,
+                            text=True, timeout=COMMAND_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError):
+            return False, ""
+        if done.returncode != 0 or not done.stdout:
+            return False, ""
+        found = URL.search(done.stdout)
+        return True, found.group(0) if found else ""
 
     def list(self):
         with self._lock:

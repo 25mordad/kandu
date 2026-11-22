@@ -1,5 +1,6 @@
 """A Kanduban: a full-access session on one project, on that project's machine (#92). tmux, SSH and claude are mocked."""
 import json
+import os
 import shlex
 import subprocess
 import tempfile
@@ -24,6 +25,7 @@ class FakeMachines:
         self.running = set()
         self.answers = True
         self.transcript = ""
+        self.screen = SESSION_LINK
 
     def __call__(self, command, **kwargs):
         self.commands.append(command)
@@ -39,7 +41,7 @@ class FakeMachines:
                 return done(0 if key in self.running else 1)
             if action == "kill-server":
                 self.running.discard(key)
-            return done(out=SESSION_LINK if action == "capture-pane" else "")
+            return done(out=self.screen if action == "capture-pane" else "")
         if command[0] == "ssh" and not self.answers:
             return done(255)
         if "input" in kwargs:
@@ -188,6 +190,36 @@ class KandubanTest(unittest.TestCase):
         self.assertEqual((flown[0]["id"], flown[0]["project"], flown[0]["tokens"]["output"]), (session, "shop", 3))
 
 
+    def test_a_working_one_whose_link_is_not_found_is_kept_open_past_the_wait(self):
+        key = self.flights.open_kanduban(self.project, "en", first="Look at the timer.")
+        self.machines.screen = "● Bash(make test)"
+        folder = self.root / "projects" / "here"
+        folder.mkdir(parents=True)
+        path = folder / f"{self.store.flight(key)['session']}.jsonl"
+        path.write_text("{}\n", encoding="utf-8")
+        self.time[0] += flights.WAIT_SECONDS + 1
+        os.utime(path, (self.time[0], self.time[0]))  # written since it started
+        found = self.flights.list()["open"][0]
+        self.assertEqual((found["status"], found["url"], found["error"]), ("open", "", ""))
+        self.assertIn(key, self.machines.running)
+
+    def test_a_working_one_on_another_machine_is_kept_open_with_the_link_from_its_transcript_there(self):
+        key = self.flights.open_kanduban(self.shop, "en", first="Look at the timer.")
+        self.machines.screen = "● Bash(make test)"
+        self.machines.transcript = json.dumps({"type": "system", "content": f"Continue at {SESSION_LINK}"}) + "\n"
+        self.time[0] += flights.WAIT_SECONDS + 1
+        found = self.flights.list()["open"][0]
+        self.assertEqual((found["status"], found["url"]), ("open", SESSION_LINK))
+        self.assertIn(key, self.machines.running)
+
+    def test_one_on_another_machine_that_never_started_is_ended_past_the_wait(self):
+        key = self.flights.open_kanduban(self.shop, "en")
+        self.machines.screen = "Welcome to Claude Code"
+        self.time[0] += flights.WAIT_SECONDS + 1
+        found = self.flights.list()["open"][0]
+        self.assertEqual((found["status"], found["error"]), ("failed", flights.NO_LINK))
+        self.assertNotIn(key, self.machines.running)
+
 
 LOOKS = {"clean": dashboard.PAGE, "classic": dashboard.CLASSIC_PAGE, "classic-new": dashboard.CLASSIC_NEW_PAGE}
 
@@ -233,6 +265,17 @@ class KandubanButtonTest(unittest.TestCase):
                 self.assertIn(f'href="{SESSION_LINK}"', shown[1])
                 self.assertIn('data-land="k-1"', shown[1])
                 self.assertIn("disabled", shown[2])
+
+    def test_an_open_one_whose_link_is_not_found_shows_it_open_with_its_close_button_and_no_link(self):
+        self.OPEN = [{"kind": "kanduban", "project": "website", "status": "open", "key": "k-1", "url": ""}]
+        for look, path in LOOKS.items():
+            page = test_looks.read(path)
+            with self.subTest(look=look):
+                shown = self.run_page(page, 'console.log(JSON.stringify(kandubanControls("website")));')
+                self.assertIn('data-land="k-1"', shown)
+                self.assertIn("Open: its link is not in yet", shown)
+                self.assertNotIn("href", shown)
+                self.assertIn('f.status === "open" && !f.url', test_looks.function(page, "refreshFlights"))  # asks again
 
     def test_pressing_it_opens_one_or_goes_to_the_open_one(self):
         for look, path in LOOKS.items():
