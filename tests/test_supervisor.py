@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from kandu import agents, notify, queen, questions, review, split, supervisor, tasks
+from kandu import agents, merge, notify, queen, questions, review, split, supervisor, tasks
 from kandu.config import Rules, load_config
 from kandu.flights import Flights, task_key
 from kandu.notify import Notifier
@@ -2803,6 +2803,45 @@ class MergeTest(Base):
         self.cycle()
         self.assertEqual(self.github.merges, [])
         self.assertIn("tests fail", self.events("decision")[-1]["reason"])
+
+    def test_a_head_whose_tests_failed_twice_is_not_tested_a_third_time(self):
+        self.runner.failing = {"npm test"}
+        self.runner.steps = [report(SHA1)]
+        for _ in range(5):
+            self.cycle()
+        runs = [c for c in self.runner.commands if c[0] == "npm test"]
+        self.assertEqual(len(runs), 2)
+        self.assertEqual(self.github.merges, [])
+        self.assertEqual(self.events("decision")[-1]["reason"], merge.TESTS_WAIT)
+
+    def fail_twice(self):
+        self.runner.failing = {"npm test"}
+        self.runner.steps = [report(SHA1)]
+        for _ in range(3):
+            self.cycle()
+        self.runner.commands.clear()
+
+    def test_a_recorded_test_again_request_tests_the_head_again(self):
+        self.fail_twice()
+        self.store.record("tests_again_requested", task=KEY, project="website", head_sha=SHA1)
+        self.cycle()
+        self.cycle()
+        self.cycle()
+        self.assertEqual(len([c for c in self.runner.commands if c[0] == "npm test"]), 2)
+
+    def test_a_new_head_tests_again_with_its_own_one_more_try(self):
+        self.fail_twice()
+        self.assertTrue(self.sup._tests_wait(KEY, SHA1))
+        self.assertFalse(self.sup._tests_wait(KEY, SHA2))
+
+    def test_the_queens_verify_is_refused_while_the_head_waits_on_its_tests(self):
+        self.fail_twice()
+        refused, _ = self.sup._carry_out([{"task": KEY, "action": "verify", "note": "Run the tests."}], [])
+        self.assertEqual(len(refused), 1)
+        self.assertIn("the tests failed twice on this head", refused[0])
+        self.store.record("tests_again_requested", task=KEY, project="website", head_sha=SHA1)
+        refused, _ = self.sup._carry_out([{"task": KEY, "action": "verify", "note": "Run the tests."}], [])
+        self.assertEqual(refused, [])
 
     def test_failing_ci_waits(self):
         self.github.prs[(REPO, 1)]["statusCheckRollup"] = [{"conclusion": "FAILURE"}]

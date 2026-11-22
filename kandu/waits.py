@@ -15,7 +15,9 @@ REASONS_APART = "; "  # how Kandu joins the reasons of one decision
 # user's yes answers: the door or the review's question.
 MERGE_PROBLEMS = ("this head has no review in the local log", "a blocker is open", "an acceptance criterion is not met",
                   "the PR is a draft", "the PR has conflicts", CI_FAILING, "a review thread is open",
-                  "a thread was resolved by someone other than its author", "the tests fail on this head")
+                  "a thread was resolved by someone other than its author", "the tests fail on this head",
+                  "the tests failed twice on this head: they run again on a new commit or a recorded "
+                  "\"test again\" request")
 MERGE_PENDING = re.compile(r"(CI is running|the project is frozen|companion .+ is open and unreviewed|"
                            r"blocker \S+#\d+ is not merged yet)")
 CHECK_NAME = re.compile(r"[^\w .:/()\[\]-]")  # a check's name is someone else's text: only plain characters stay

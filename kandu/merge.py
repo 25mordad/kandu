@@ -47,3 +47,25 @@ def merge_waits(project, pr, reviewed, threads, unreviewed_companions, approved=
         reasons.append("the project is frozen")
     reasons += [f"companion {name} is open and unreviewed" for name in unreviewed_companions]
     return reasons + _thread_reasons(threads)
+
+
+TESTS_FAIL = "the tests fail on this head"
+TESTS_WAIT = ("the tests failed twice on this head: they run again on a new commit or a recorded "
+              "\"test again\" request")
+TEST_TRIES = 2  # the first run and one more
+
+
+def tests_wait(events, key, head):
+    """True when this head's tests failed `TEST_TRIES` times in the merge gate since the last "test again" request.
+
+    A new commit is a new head, so its count starts at none. `events` are the log's events, oldest first.
+    """
+    failed = 0
+    for event in events:
+        if event.get("task") != key or event.get("head_sha") != head:
+            continue
+        if event["type"] == "tests_again_requested":
+            failed = 0
+        elif event["type"] == "tests_failed":
+            failed += 1
+    return failed >= TEST_TRIES

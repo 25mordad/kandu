@@ -1027,9 +1027,19 @@ class Supervisor:
         reasons += [WAITS_FOR_BLOCKER.format(key) for key in self._open_blockers(task)]
         if reasons:
             return reasons
+        if self._tests_wait(task.key, head):
+            return [merge.TESTS_WAIT]  # the tests are not run again on this head
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
         code = self.runner.run_test(task.project, cwd, new_run_id(self.now()))
-        return [] if code == 0 else ["the tests fail on this head"]
+        if code == 0:
+            return []
+        self.store.record("tests_failed", task=task.key, project=task.project.name, head_sha=head)
+        return [merge.TESTS_WAIT if self._tests_wait(task.key, head) else merge.TESTS_FAIL]
+
+    def _tests_wait(self, key, head):
+        """True when this head's tests failed twice in the merge gate and nothing has asked for them since."""
+        events = [e for day in self.store.days() for e in self.store.events(day)]
+        return merge.tests_wait(events, key, head)
 
     def _holds(self, task, pr):
         """What holds a settled PR's merge whatever the user says: a failing check or an open blocker. They are
@@ -1901,6 +1911,8 @@ class Supervisor:
                 self.github.set_status(project.board, item.url, IN_PROGRESS)
             return why
         if action == "verify":
+            if pr is not None and pr["state"] == "OPEN" and self._tests_wait(task, pr["headRefOid"]):
+                return merge.TESTS_WAIT + ": a check on this head waits too"
             return None  # carried out when code next drives the task; see `_sent_on`
         if action == "block_on":
             return self._block_on(item, task, decision["on"])
