@@ -22,7 +22,7 @@ FORMAT_VERSION = 1
 TASK_FIELDS = ("task", "project")
 EVENT_FIELDS = {
     "supervisor_woke": (),
-    "supervisor_slept": ("reason", "next_wake"),
+    "supervisor_slept": ("reason", "next_wake", "resets"),
     "task_picked": TASK_FIELDS,
     "phase_changed": TASK_FIELDS + ("phase",),
     "decision": TASK_FIELDS + ("decision", "reason"),

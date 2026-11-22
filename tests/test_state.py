@@ -113,7 +113,7 @@ class StateTest(unittest.TestCase):
 
     def test_text_with_a_unicode_line_separator_survives(self):
         reason = "first second"
-        self.store.record("supervisor_slept", now=NOW, reason=reason, next_wake="later")
+        self.store.record("supervisor_slept", now=NOW, reason=reason, next_wake="later", resets=None)
         self.assertEqual(self.store.events(DAY)[0]["reason"], reason)
 
     def test_log_files_and_folders_are_private(self):

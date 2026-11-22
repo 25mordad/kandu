@@ -38,7 +38,7 @@ state/
 | Type | Fields |
 |---|---|
 | `supervisor_woke` | none |
-| `supervisor_slept` | `reason`, `next_wake` |
+| `supervisor_slept` | `reason`, `next_wake`, `resets` (when the usage or queen limit that put it to sleep resets; none otherwise) |
 | `queen_decided` | `task`, `project`, `action`, `note` |
 | `notes_sized` | `task`, `project`, `run_id`, `head_sha`, `notes` |
 | `debt_reported` | `task`, `project`, `finding`, `title`, `body`, `size`, `reason` |

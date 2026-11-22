@@ -1557,6 +1557,8 @@ class QueenPacesTest(Base):
         self.cycle()
         self.assertEqual(self.runner.runs, [])
         self.assertIn("her daily token limit", self.events("supervisor_slept")[0]["reason"])
+        midnight = (NOW.astimezone() + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        self.assertEqual(self.events("supervisor_slept")[0]["resets"], midnight.isoformat(timespec="seconds"))
 
     def test_she_sees_the_same_backlog_only_once(self):
         self.github.add(1, "Backlog")
@@ -1712,8 +1714,18 @@ class GateTest(Base):
         self.github.items.clear()
         self.cycle()
         self.assertEqual(self.events("supervisor_slept")[0]["reason"], "nothing ready")
+        self.assertIsNone(self.events("supervisor_slept")[0]["resets"])
         self.assertEqual(self.store.read_current()["next_wake"], "2026-10-30T13:00:00+00:00")
         self.assertEqual(self.store.read_current()["usage"], {"session": 10, "week": 10, "session_resets": None, "week_resets": None})
+
+    def test_a_sleep_at_a_usage_limit_says_when_that_limit_resets(self):
+        self.github.items.clear()
+        for usage, resets in ((Usage(99, 10, "2026-10-30T18:20:00+01:00", "2026-11-05T20:00:00+01:00"), "2026-10-30T18:20:00+01:00"),
+                              (Usage(10, 100, "2026-10-30T18:20:00+01:00", "2026-11-05T20:00:00+01:00"), "2026-11-05T20:00:00+01:00"),
+                              (Usage(10, 100), None)):
+            self.usage = usage
+            self.cycle()
+            self.assertEqual(self.events("supervisor_slept")[-1]["resets"], resets)
 
     def test_the_snapshot_says_when_each_limit_resets(self):
         self.github.items.clear()

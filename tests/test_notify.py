@@ -1,5 +1,7 @@
 import json
+import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -38,7 +40,7 @@ class Base(unittest.TestCase):
         self.store.listeners[:] = [Notifier(self.store, self.adapter, events, language).on_event]
 
     def slept(self, reason):
-        self.store.record("supervisor_slept", reason=reason, next_wake=None)
+        self.store.record("supervisor_slept", reason=reason, next_wake=None, resets=None)
 
     def finished(self, outcome):
         self.store.record("task_finished", task=TASK, project="site", outcome=outcome)
@@ -124,6 +126,41 @@ class WhatIsImportantTest(unittest.TestCase):
         self.assertIsNone(self.kind_of("project_checked", project="site", passed=True, detail=""))
         self.assertEqual(self.kind_of("decision", decision="over_budget", reason="", **ON_TASK), "usage_limit")
 
+    def in_berlin(self):
+        with_tz = mock.patch.dict(os.environ, {"TZ": "Europe/Berlin"})
+        with_tz.start()
+        time.tzset()
+        self.addCleanup(time.tzset)
+        self.addCleanup(with_tz.stop)
+
+    def limit_text(self, reason, language="en", resets="2026-11-25T22:59:00+01:00"):
+        event = {"type": "supervisor_slept", "reason": reason, "resets": resets,
+                 "next_wake": "2026-11-22T22:38:14+01:00", "ts": "t"}
+        return notify._render(message_for(event), language)
+
+    def test_a_usage_limit_says_which_one_and_when_it_resets(self):
+        self.in_berlin()
+        text = self.limit_text("weekly usage at 100%, limit 100%")
+        self.assertIn("weekly usage", text)
+        self.assertIn("It resets Wed 25 Nov, 22:59", text)
+        self.assertIn("5-hour usage", self.limit_text("5-hour usage at 91%, limit 90%"))
+        self.assertIn("The queen used up", self.limit_text("the queen reached her daily token limit"))
+
+    def test_with_no_reset_known_it_says_when_kandu_looks_again(self):
+        self.in_berlin()
+        self.assertIn("Kandu checks it again at 22:38", self.limit_text("5-hour usage at 91%, limit 90%", resets=None))
+
+    def test_the_reset_reads_in_persian(self):
+        self.in_berlin()
+        when = self.limit_text("weekly usage at 100%, limit 100%", "fa").splitlines()[-1]
+        self.assertIn("چهارشنبه ۲۵ نوامبر، ساعت ۲۲:۵۹", when)
+        self.assertNotRegex(when, r"[0-9]")
+
+    def test_a_sleep_logged_before_resets_was_kept_still_says_which_limit(self):
+        text = notify._render(message_for({"type": "supervisor_slept", "reason": "weekly usage at 100%, limit 100%",
+                                           "next_wake": None, "ts": "t"}), "en")
+        self.assertEqual(text.splitlines()[-1], "Claude's weekly usage reached the limit set for Kandu, so no new work starts.")
+
     def check(self, detail, ts="2026-10-31T10:00:00+01:00"):
         return message_for({"type": "project_checked", "project": "site", "passed": False, "detail": detail, "ts": ts})
 
@@ -198,6 +235,12 @@ class NotifierTest(Base):
         self.slept("weekly usage at 90%, limit 60%")
         self.slept("stopped by the user")
         self.assertEqual(len(self.adapter.sent), 2)
+
+    def test_a_change_of_limit_is_news(self):
+        self.slept("5-hour usage at 95%, limit 90%")
+        self.slept("weekly usage at 100%, limit 100%")
+        self.assertEqual(len(self.adapter.sent), 2)
+        self.assertIn("هفتگی", self.adapter.sent[1])
 
     def test_a_project_limit_is_told_once_a_day(self):
         for _ in range(2):

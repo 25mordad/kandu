@@ -32,7 +32,7 @@ from .runner import DEFAULT_LOGS_DIR, LocalWork, ReferenceTooBig, Runner, Runner
 from .state import StateStore
 from .tasks import TaskError
 from .tries import FAILURE_COMMENT, INTERNAL_TRIES, SIZING_FAILURE_COMMENT, count as count_tries
-from .usage import UsageError, over_limit, read_usage
+from .usage import QUEEN_LIMIT, SESSION_LIMIT, WEEK_LIMIT, UsageError, over_limit, read_usage
 
 BACKLOG, READY, IN_PROGRESS, IN_REVIEW = "Backlog", "Ready", "In progress", "In review"
 NEEDS_INFO, BLOCKED, DONE = "Needs info", "Blocked", "Done"
@@ -1798,7 +1798,7 @@ class Supervisor:
         if not settings.queen:
             return None
         spent = self.store.tokens_counted(self.store.today(), role="queen")
-        return "the queen reached her daily token limit" if spent >= settings.queen_daily_token_limit else None
+        return QUEEN_LIMIT if spent >= settings.queen_daily_token_limit else None
 
     def _startable(self, items):
         """The Backlog tasks nothing blocks, the splitter has sized and nothing holds."""
@@ -2326,15 +2326,31 @@ class Supervisor:
             reason = STOPPED_BY_USER  # the runs at work finished their step; the user stopped the rest
         if self.queen_trouble is not None:
             reason = f"{reason}; the queen could not look: {self.queen_trouble}"
-        self.store.record("supervisor_slept", reason=reason, next_wake=self.next_wake)
+        self.store.record("supervisor_slept", reason=reason, next_wake=self.next_wake, resets=self._resets(reason))
         self._snapshot("stopped" if self._stopping() else "asleep", reason, self.next_wake)
         return reason
+
+    def _resets(self, reason):
+        """When the limit that put the cycle to sleep resets, as an ISO time, so the user hears when work goes on.
+
+        None when no limit did, or `/usage` did not say. The queen's tokens count by the local day.
+        """
+        if reason.startswith(QUEEN_LIMIT):
+            midnight = (self.now().astimezone() + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            return midnight.isoformat(timespec="seconds")
+        if self.usage is None:
+            return None
+        if reason.startswith(SESSION_LIMIT):
+            return self.usage.session_resets
+        if reason.startswith(WEEK_LIMIT):
+            return self.usage.week_resets
+        return None
 
     def _stay_stopped(self):
         """A wake while stopped starts no cycle. The stop is recorded once, so the user hears of it once."""
         last = self.store.last_event("supervisor_slept")
         if last is None or last["reason"] != STOPPED_BY_USER:
-            self.store.record("supervisor_slept", reason=STOPPED_BY_USER, next_wake=None)
+            self.store.record("supervisor_slept", reason=STOPPED_BY_USER, next_wake=None, resets=None)
         self._snapshot("stopped", STOPPED_BY_USER)
         return STOPPED_BY_USER
 
