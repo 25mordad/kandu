@@ -14,7 +14,7 @@ def headings(path):
 class TemplatesTest(unittest.TestCase):
     def test_issue_template_has_the_sections_of_the_design(self):
         self.assertEqual(headings(PROMPTS / "templates" / "issue.md"), [
-            "Goal", "Current behavior", "Acceptance criteria", "How to test", "Out of scope", "Blocked by",
+            "Goal", "Current behavior", "Reference", "Acceptance criteria", "How to test", "Out of scope", "Blocked by",
         ])
 
     def test_every_text_that_defines_a_task_keeps_related_tasks_out_of_blocked_by(self):
@@ -77,13 +77,33 @@ class PromptsTest(unittest.TestCase):
         self.assertNotIn("skips the interview", text)
 
     def test_a_request_of_several_tasks_writes_its_spec_first_on_the_users_yes(self):
-        self.assertEqual(headings(PROMPTS / "templates" / "spec.md"), ["Problem", "Solution", "Decisions", "Out of scope"])
+        self.assertEqual(headings(PROMPTS / "templates" / "spec.md"), ["Problem", "Solution", "Reference", "Decisions", "Out of scope"])
         text = (PROMPTS / "defining.md").read_text(encoding="utf-8")
         spec = text.index("A request of more than one task gets a **spec** issue first")
         self.assertIn("create it only on the user's yes", text[spec:])
         self.assertIn("--spec-issue", text[spec:])
         self.assertLess(spec, text.index("--spec #N"))
         self.assertLess(spec, text.index("7. Save the body"))
+
+    def test_defining_names_the_source_and_covers_every_decision(self):
+        text = (PROMPTS / "defining.md").read_text(encoding="utf-8")
+        self.assertIn("File paths are allowed in the `Reference` section", text)
+        self.assertIn("and only there", text)
+        self.assertIn("each carry their own `Reference`, never only the spec", text)
+        self.assertIn("checks the result against that reference", text)
+        self.assertIn("read-only copy", text)
+        coverage = text.index("**Coverage.**")
+        self.assertIn("create nothing while a line has none", text[coverage:])
+        self.assertIn("the spec included", text[coverage:])
+        self.assertLess(coverage, text.index("6. Show the final text"))
+        for name in ("issue.md", "spec.md"):
+            self.assertIn("Reference", headings(PROMPTS / "templates" / name))
+
+    def test_reference_is_in_the_templates_but_no_issue_or_spec_must_have_it(self):
+        from kandu import tasks
+        self.assertNotIn("Reference", tasks.required_sections())
+        self.assertNotIn("Reference", tasks.spec_sections())
+        tasks.check_body("\n".join(f"## {h}\nx" for h in tasks.required_sections()))
 
     def test_didban_keeps_to_the_project_the_user_named(self):
         text = (PROMPTS / "didban.md").read_text(encoding="utf-8")

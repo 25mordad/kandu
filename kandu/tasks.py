@@ -22,6 +22,7 @@ from .state import StateStore
 TEMPLATE = Path(__file__).resolve().parent.parent / "prompts" / "templates" / "issue.md"
 SPEC_TEMPLATE = TEMPLATE.with_name("spec.md")
 OUT_OF_SCOPE = "Out of scope"
+OPTIONAL_SECTIONS = ("Reference",)  # in the templates, but only for a request to copy or match
 
 
 class TaskError(Exception):
@@ -33,11 +34,11 @@ def _headings(path):
 
 
 def required_sections():
-    return _headings(TEMPLATE)
+    return [h for h in _headings(TEMPLATE) if h not in OPTIONAL_SECTIONS]
 
 
 def spec_sections():
-    return _headings(SPEC_TEMPLATE)
+    return [h for h in _headings(SPEC_TEMPLATE) if h not in OPTIONAL_SECTIONS]
 
 
 def _check_sections(body, required, what):

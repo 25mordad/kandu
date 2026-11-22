@@ -4,6 +4,9 @@
 ## Current behavior
 <!-- What happens now. For a bug, the exact symptom. -->
 
+## Reference
+<!-- Only when the user asked to copy or match existing work, otherwise "none": the repo, the paths, and what is to be copied or matched (look, steps, behaviour). File paths are allowed here and nowhere else. -->
+
 ## Acceptance criteria
 <!-- Each one can be checked on its own. -->
 - [ ]

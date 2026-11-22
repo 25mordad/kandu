@@ -24,5 +24,5 @@ Turn the interview into a spec issue. Do not interview again: write what is sett
    - `## Assumptions`: each choice made by a default in step 3, as the task, the field and the value, and the seams if you sketched them; or `none`.
    - `## Glossary`: each glossary word, `**Term**: meaning. Avoid: ...`, or `none`.
 
-   No file paths or code. A snippet from a prototype that pins a decision better than words may stay, trimmed and marked as such. Finish when every ✅ line of the map is in the spec.
+   No file paths or code, except in `## Reference` (add it between `## Solution` and `## Decisions`, as the template has it): the source the user asked to copy or match, as step 5 of `prompts/defining.md` says, or `none`. A snippet from a prototype that pins a decision better than words may stay, trimmed and marked as such. Finish when every ✅ line of the map is in the spec.
 5. Create it with the command of step 4 of `prompts/defining.md` for a spec, without showing it first, and save the map again with one more line, `✅ Spec issue › URL`, as step 5 of `prompts/grilling.md` saves it, so a later run does not make a second one. Finish when it prints the spec's URL and the map holds it.
