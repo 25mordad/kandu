@@ -365,6 +365,7 @@ class Api:
             "clean_merged": self.config.settings.supervisor.clean_merged,
             "upstream": self._upstream(),
             "version_badge": self.releases.status(self.store, self.config.settings.upstream),
+            "upgrade": self.releases.upgrade(self.store, self.config.settings.upstream),
             "github_refused": self._github_refused(),
             "version": version.read(),
         }
@@ -435,6 +436,17 @@ class Api:
         fingerprint of that text, which the confirm must send back.
         """
         return self._propose()
+
+    def upgrade_read(self, query):
+        """«Mark as read» on the upgrade notice: keeps `version`, the newest one the notice showed, as read in Kandu's
+        state and logs it, so the notice is gone in every browser until a newer version is installed."""
+        number = query.get("version", [""])[0].strip()
+        notice = self.releases.upgrade(self.store, self.config.settings.upstream)
+        if notice is None or number != notice["read"]:
+            raise ApiError(409, "this is not the newest version the upgrade notice shows")
+        self.store.mark_version_read(number)
+        self.store.record("upgrade_read", version=number)
+        return {"read": number}
 
     def cut_release(self, query):
         """Opens the release PR, with `python -m kandu.release --yes`, only for the proposal the user saw.
@@ -1532,6 +1544,7 @@ ROUTES = [
     ("POST", "/upstream/bring-in", Api.bring_in_updates),
     ("GET", "/release", Api.release),
     ("POST", "/release", Api.cut_release),
+    ("POST", "/upgrade/read", Api.upgrade_read),
 ]
 
 

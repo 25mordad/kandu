@@ -45,6 +45,12 @@ input, select { font:400 14px/1.4 var(--sans); min-height:36px; padding:6px 12px
 .version.latest { color:var(--good); }
 .version.newer { color:var(--accent); border-color:var(--honey); }
 a.version[href]:hover { text-decoration:underline; }
+.upgrade { display:grid; gap:10px; padding:14px 16px; background:var(--surface); border:1px solid var(--honey); border-radius:12px; }
+.upgrade-head { display:flex; align-items:center; gap:10px 14px; flex-wrap:wrap; }
+.upgrade-head strong { flex:1 1 auto; min-width:0; font-size:16px; }
+.upgrade-entry { margin:0; font:400 13px/1.5 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; color:var(--ink); }
+.upgrade-entry + .upgrade-entry { border-top:1px solid var(--line); padding-top:10px; }
+.upgrade-entry a { color:inherit; font-weight:700; }
 .pulse i { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:none; }
 .pulse.awake i { background:var(--good); box-shadow:0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent); }
 .pulse.stopped i, .pulse.refused i { background:var(--bad); }
@@ -492,6 +498,10 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   </div>
 </header>
 <main>
+  <section id="upgrade" class="upgrade" aria-live="polite" hidden>
+    <div class="upgrade-head"><strong id="upgradetitle" dir="auto"></strong><button id="upgraderead" class="btn" data-t="upgrade_read"></button></div>
+    <div id="upgradeentries"></div>
+  </section>
   <div id="machines" class="list" hidden></div>
   <div id="asks" class="list" hidden></div>
   <div id="stats" class="stats"></div>
@@ -612,6 +622,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "version_tried": "last tried {at}",
   "version_never_tried": "never tried",
   "version_no_version": "no version",
+  "upgrade_title": "Kandu was upgraded to {v}",
+  "upgrade_read": "Mark as read",
   "hive": "The hive",
   "empty_meadow": "The meadow is empty: no task is on a board yet.",
   "bee_worker": "Worker bee",
@@ -1147,6 +1159,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "version_tried": "آخرین تلاش {at}",
   "version_never_tried": "هنوز تلاش نشده",
   "version_no_version": "بی‌نسخه",
+  "upgrade_title": "کندو به نسخهٔ {v} به‌روز شد",
+  "upgrade_read": "خواندم",
   "hive": "کندو",
   "empty_meadow": "مرغزار خالی است: هنوز تسکی روی هیچ بوردی نیست.",
   "bee_worker": "زنبور کارگر",
@@ -1877,6 +1891,8 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "upstream_check_failed": "فاصله با مخزن اصلی بررسی نشد",
   "release_read": "تازه‌ترین نسخهٔ مخزن اصلی خوانده شد",
   "release_read_failed": "تازه‌ترین نسخهٔ مخزن اصلی خوانده نشد",
+  "upgrade_read": "خبر به‌روزرسانی کندو خوانده شد",
+  "this is not the newest version the upgrade notice shows": "این تازه‌ترین نسخه‌ای نیست که خبر به‌روزرسانی نشان می‌دهد",
   "upstream_task_created": "تسک آوردن به‌روزرسانی‌ها ساخته شد",
   "the upstream check is off: turn it on in kandu.yaml": "بررسی مخزن اصلی خاموش است: در kandu.yaml روشنش کن",
   "no change since the last release: there is nothing to release": "از آخرین انتشار تغییری نیامده: چیزی برای انتشار نیست",
@@ -2824,12 +2840,46 @@ function renderVersion(v) {
   box.hidden = false;
 }
 
+// The upgrade notice: what each version the user has not read brought, from the install's changelog, shown as it is
+// written; a published version's heading links to its release. «Mark as read» keeps the newest version shown as read
+// in Kandu's state, so it is gone in every browser.
+function renderUpgrade(u) {
+  const box = $("upgrade");
+  if (!u || !u.entries || !u.entries.length) { box.hidden = true; return; }
+  $("upgradetitle").textContent = t("upgrade_title").replace("{v}", u.version);
+  const drawn = JSON.stringify(u.entries);
+  if (box.dataset.drawn !== drawn) {
+    box.dataset.drawn = drawn;
+    $("upgradeentries").replaceChildren(...u.entries.map(entry => {
+      const text = document.createElement("pre");
+      text.className = "upgrade-entry";
+      text.dir = "auto";
+      const [head, ...rest] = entry.text.split("\n");
+      if (entry.url) {
+        const link = document.createElement("a");
+        link.href = entry.url;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = head;
+        text.append(link);
+      } else {
+        text.append(head);
+      }
+      if (rest.length) text.append("\n" + rest.join("\n"));
+      return text;
+    }));
+  }
+  box.dataset.read = u.read;
+  box.hidden = false;
+}
+
 async function refreshState() {
   stateReadAt = Date.now();
   const s = await get("/state");
   lastState = s;
   if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
   renderVersion(s.version_badge);
+  renderUpgrade(s.upgrade);
   const name = s.stop_requested ? "stopped" : (s.supervisor || "never ran");
   const refused = githubRefused(s);
   $("pulse").className = `pulse ${s.stop_requested ? "stopped" : refused ? "refused" : s.supervisor === "awake" ? "awake" : ""}`;
@@ -3964,6 +4014,9 @@ addEventListener("popstate", () => { openAddress(); });
 $("modal").addEventListener("close", () => { shownRun = null; markView(); });
 $("sheet").addEventListener("close", () => { shownTask = null; confirming = sendingBack = false; markView(); });
 $("setsheet").addEventListener("close", () => { setEdit = null; markView(); });
+$("upgraderead").onclick = async e => {
+  if (await act(e.currentTarget, "/upgrade/read?version=" + encodeURIComponent($("upgrade").dataset.read))) $("upgrade").hidden = true;
+};
 $("stop").onclick = e => act(e.currentTarget, "/stop");
 $("resume").onclick = e => act(e.currentTarget, "/resume");
 $("restart").onclick = e => act(e.currentTarget, "/restart");

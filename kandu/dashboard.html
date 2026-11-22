@@ -50,6 +50,12 @@ input, select { font:400 14px/1.4 var(--sans); min-height:36px; padding:6px 12px
 .version.latest { color:var(--green); background:var(--green-soft); }
 .version.newer { color:var(--amber); background:var(--amber-soft); }
 a.version[href]:hover { text-decoration:underline; }
+.upgrade { display:grid; gap:10px; padding:14px 16px; background:var(--surface); border:1px solid var(--honey); border-radius:12px; }
+.upgrade-head { display:flex; align-items:center; gap:10px 14px; flex-wrap:wrap; }
+.upgrade-head strong { flex:1 1 auto; min-width:0; font-size:16px; }
+.upgrade-entry { margin:0; font:400 13px/1.5 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; color:var(--ink); }
+.upgrade-entry + .upgrade-entry { border-top:1px solid var(--line); padding-top:10px; }
+.upgrade-entry a { color:inherit; font-weight:700; }
 .chip { display:inline-flex; align-items:center; gap:7px; min-width:0; max-width:100%; padding:5px 12px; border-radius:99px; background:var(--surface2); color:var(--ink2); font-size:13px; font-weight:600; }
 .chip i { width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
 .chip.awake { background:var(--green-soft); color:var(--green); }
@@ -532,6 +538,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   </nav>
 </header>
 <main>
+  <section id="upgrade" class="upgrade" aria-live="polite" hidden>
+    <div class="upgrade-head"><strong id="upgradetitle" dir="auto"></strong><button id="upgraderead" class="btn" data-t="upgrade_read"></button></div>
+    <div id="upgradeentries"></div>
+  </section>
   <div id="machines" class="list" hidden></div>
   <div id="asks" class="list" hidden></div>
   <div id="stats" class="stats"></div>
@@ -680,6 +690,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "version_tried": "last tried {at}",
   "version_never_tried": "never tried",
   "version_no_version": "no version",
+  "upgrade_title": "Kandu was upgraded to {v}",
+  "upgrade_read": "Mark as read",
   "tab_today": "Today",
   "tabs_label": "Pages",
   "keep_running": "Keep running",
@@ -1239,6 +1251,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "version_tried": "آخرین تلاش {at}",
   "version_never_tried": "هنوز تلاش نشده",
   "version_no_version": "بی‌نسخه",
+  "upgrade_title": "کندو به نسخهٔ {v} به‌روز شد",
+  "upgrade_read": "خواندم",
   "tab_today": "امروز",
   "tabs_label": "صفحه‌ها",
   "keep_running": "بگذار کار کند",
@@ -1986,6 +2000,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "upstream_check_failed": "فاصله با مخزن اصلی بررسی نشد",
   "release_read": "تازه‌ترین نسخهٔ مخزن اصلی خوانده شد",
   "release_read_failed": "تازه‌ترین نسخهٔ مخزن اصلی خوانده نشد",
+  "upgrade_read": "خبر به‌روزرسانی کندو خوانده شد",
+  "this is not the newest version the upgrade notice shows": "این تازه‌ترین نسخه‌ای نیست که خبر به‌روزرسانی نشان می‌دهد",
   "upstream_task_created": "تسک آوردن به‌روزرسانی‌ها ساخته شد",
   "the upstream check is off: turn it on in kandu.yaml": "بررسی مخزن اصلی خاموش است: در kandu.yaml روشنش کن",
   "no change since the last release: there is nothing to release": "از آخرین انتشار تغییری نیامده: چیزی برای انتشار نیست",
@@ -3216,12 +3232,46 @@ function renderVersion(v) {
   box.hidden = false;
 }
 
+// The upgrade notice: what each version the user has not read brought, from the install's changelog, shown as it is
+// written; a published version's heading links to its release. «Mark as read» keeps the newest version shown as read
+// in Kandu's state, so it is gone in every browser.
+function renderUpgrade(u) {
+  const box = $("upgrade");
+  if (!u || !u.entries || !u.entries.length) { box.hidden = true; return; }
+  $("upgradetitle").textContent = t("upgrade_title").replace("{v}", u.version);
+  const drawn = JSON.stringify(u.entries);
+  if (box.dataset.drawn !== drawn) {
+    box.dataset.drawn = drawn;
+    $("upgradeentries").replaceChildren(...u.entries.map(entry => {
+      const text = document.createElement("pre");
+      text.className = "upgrade-entry";
+      text.dir = "auto";
+      const [head, ...rest] = entry.text.split("\n");
+      if (entry.url) {
+        const link = document.createElement("a");
+        link.href = entry.url;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = head;
+        text.append(link);
+      } else {
+        text.append(head);
+      }
+      if (rest.length) text.append("\n" + rest.join("\n"));
+      return text;
+    }));
+  }
+  box.dataset.read = u.read;
+  box.hidden = false;
+}
+
 async function refreshState() {
   stateReadAt = Date.now();
   const s = await get("/state");
   lastState = s;
   if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
   renderVersion(s.version_badge);
+  renderUpgrade(s.upgrade);
   const chip = stateChip(s);
   $("pulse").className = `chip ${chip.kind}`;
   $("pulse").title = s.last_reason ? tr(s.last_reason) : "";
@@ -4287,6 +4337,9 @@ addEventListener("popstate", () => { openAddress(); });
 $("modal").addEventListener("close", () => { shownRun = null; markView(); });
 $("sheet").addEventListener("close", () => { shownTask = null; confirming = sendingBack = false; markView(); });
 $("setsheet").addEventListener("close", () => { setEdit = null; markView(); });
+$("upgraderead").onclick = async e => {
+  if (await act(e.currentTarget, "/upgrade/read?version=" + encodeURIComponent($("upgrade").dataset.read))) $("upgrade").hidden = true;
+};
 $("stop").onclick = askStop;
 $("stopnow").onclick = e => confirmed(e.currentTarget, "/stop", "stopbox");
 $("resume").onclick = e => act(e.currentTarget, "/resume");

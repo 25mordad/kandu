@@ -106,6 +106,7 @@ EVENT_FIELDS = {
     "release_read": ("repo", "tag", "url"),
     "release_read_failed": ("repo", "reason"),
     "upstream_task_created": TASK_FIELDS + ("url", "behind"),
+    "upgrade_read": ("version",),  # the user marked the upgrade notice as read, up to this version
 }
 # Each setting a project may have in the dashboard's settings section, with its values. One there wins over the registry.
 PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS, "queen_answers_one_way": (True, False)}
@@ -175,6 +176,7 @@ class StateStore:
         self.bazras_file = self.root / "bazras.json"
         self.by_hand_labelled_file = self.root / "by-hand-labelled"  # The one-time `by-hand` backfill ran.
         self.clean_since_file = self.root / "clean-since"  # Only a task merged after this is cleaned up.
+        self.version_read_file = self.root / "version-read"  # The newest version whose upgrade notice was read.
         self.listeners = []  # Called with each event once it is in the log.
 
     def _make_dirs(self):
@@ -400,6 +402,16 @@ class StateStore:
     def mark_by_hand_labelled(self):
         self._make_dirs()
         self.by_hand_labelled_file.touch(mode=0o600)
+
+    def version_read(self):
+        """The newest version the user marked as read in the upgrade notice, or None before the first."""
+        try:
+            return self.version_read_file.read_text(encoding="utf-8").strip() or None
+        except FileNotFoundError:
+            return None
+
+    def mark_version_read(self, version):
+        self._write_private(self.root, self.version_read_file.name, f"{version}\n")
 
     def pause_project(self, name):
         self._make_dirs()
