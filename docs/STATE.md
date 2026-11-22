@@ -112,6 +112,7 @@ state/
 | `main_red` | `project`, `repo`, `commit`, `failing`, `since`: two runs on this commit failed, so merges wait and no new task starts; `since` is when the red began and stays through later red commits, so the user hears once |
 | `main_green` | `project`, `repo`, `commit`: a commit passed after a red one, so the project is no longer red |
 | `main_fix_opened` | `project`, `repo`, `commit`, `task`, `url`: the one fix task of a red commit |
+| `main_updated` | `project`, `repo`, `commit`, `task`: `main` was brought into a PR that waited on a red one |
 | `check_skipped` | `project`, `machine` |
 | `project_inspected` | `project`, `run_id`, `passed`, `findings`, `judged` |
 | `inspect_changed` | `project`, `enabled`, `at` |

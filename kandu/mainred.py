@@ -87,3 +87,25 @@ def fix_body(repo, commit, failing, test_command):
             "## How to test\nRun the project's test command on this branch.\n\n"
             "## Out of scope\n- Any change that the failing tests do not need.\n\n"
             "## Blocked by\nnone\n")
+
+
+def waiting_for_update(store, project, repo):
+    """The tasks of `repo` that waited on "main's tests fail" while it was red, and that `main` was not yet brought
+    into after the last `main_green`: `{"commit": ..., "tasks": [...]}`, or None. A task waited when a merge check
+    of it gave that reason between `main_red` and `main_green`."""
+    window, pending = None, None
+    for day in store.days():
+        for e in store.events(day):
+            kind = e["type"]
+            if e.get("project") != project.name:
+                continue
+            if kind == "main_red" and e["repo"] == repo and window is None:
+                window = []
+            elif kind == "decision" and e["decision"] == "merge_waits" and window is not None \
+                    and e["task"].startswith(f"{repo}#") and RED_REASON in e["reason"] and e["task"] not in window:
+                window.append(e["task"])
+            elif kind == "main_green" and e["repo"] == repo and window is not None:
+                pending, window = {"commit": e["commit"], "tasks": window}, None
+            elif kind == "main_updated" and e["repo"] == repo and pending and e["commit"] == pending["commit"]:
+                pending["tasks"] = [t for t in pending["tasks"] if t != e["task"]]
+    return pending if pending and pending["tasks"] else None

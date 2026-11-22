@@ -871,9 +871,21 @@ class Supervisor:
         return (outcome in MERGEABLE and pr["mergeable"] == "CONFLICTING"
                 and not review.update_tried(pr, self.config.settings.github.account, pr["headRefOid"]))
 
+    def _main_to_bring(self, task, pr, outcome):
+        """True when this reviewed PR waited on a red `main` that passes again and `main` is not yet brought into it.
+        The update is the one a conflict gets; the new head is reviewed and merged as usual."""
+        if outcome not in MERGEABLE or not self.store.project_setting(task.project, "watch_main"):
+            return False
+        pending = mainred.waiting_for_update(self.store, task.project, task.repo)
+        return pending is not None and task.key in pending["tasks"]
+
     def _update(self, task, pr):
         """Brings the default branch into the PR. Kandu merges; a worker only resolves the files in conflict.
         The new head is reviewed again before any merge. Returns False if the task stopped here."""
+        pending = mainred.waiting_for_update(self.store, task.project, task.repo)
+        if pending is not None and task.key in pending["tasks"] and self.store.project_setting(task.project, "watch_main"):
+            self.store.record("main_updated", project=task.project.name, repo=task.repo, commit=pending["commit"],
+                              task=task.key)  # once: a conflict the round leaves is not tried again for this green
         base = self.github.default_branch(task.repo)
         run_id = new_run_id(self.now())
         cwd = self._worktree(task, base)
@@ -1659,7 +1671,7 @@ class Supervisor:
                 outcome = self._outcome(task, pr, reviews)
                 if outcome is None:
                     self._fix(task, pr, reviews)
-                elif self._conflicts(pr, outcome):
+                elif self._conflicts(pr, outcome) or self._main_to_bring(task, pr, outcome):
                     if self._update_waits(task, pr) or not self._update(task, pr):
                         return
                 elif (merged := self._merge(task, pr, outcome, worked)) is None and tries < MERGE_TRIES:

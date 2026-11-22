@@ -20,6 +20,8 @@ class Sent:
 
 
 class MainRedTest(Base):
+    PASS = '{"result": "pass", "summary": "seen"}'
+
     def setUp(self):
         super().setUp()
         self.config.projects[0].auto_merge = True
@@ -190,6 +192,85 @@ class MainRedTest(Base):
         self.assertEqual(board._main_red()["website"]["failing"], [BROKEN])
         self.store.record("main_green", project="website", repo=REPO, commit=MAIN2)
         self.assertEqual(board._main_red(), {})
+
+    def go_red_with_a_waiting_pr(self):
+        self.pr_passes = True
+        self.store.record("main_red", project="website", repo=REPO, commit=MAIN, failing=[BROKEN], since="s")
+        self.store.record("main_fix_opened", project="website", repo=REPO, commit=MAIN, task=f"{REPO}#9", url="u")
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.reasons(), ["main's tests fail"])
+
+    def main_passes(self):
+        self.store.record("main_green", project="website", repo=REPO, commit=MAIN2)
+        self.main = MAIN2
+
+    def test_main_is_brought_into_a_pr_that_waited_and_the_new_head_is_reviewed_then_merged(self):
+        self.go_red_with_a_waiting_pr()
+        self.main_passes()
+        self.runner.on_push = lambda: self.github.prs[(REPO, 1)].update(headRefOid=SHA2)
+        self.runner.steps = [report(SHA2), self.PASS]
+        self.cycle()
+        self.assertEqual(self.runner.merged, [("/worktree", "main")])
+        self.assertEqual([e["task"] for e in self.events("main_updated")], [KEY])
+        self.assertEqual(len(self.runner.runs), 3)  # the first review, the review of the new head, the live check: no worker
+        self.assertEqual(self.github.merges, [SHA2])  # only after its own review
+
+    def test_main_is_brought_in_once_for_one_green(self):
+        self.go_red_with_a_waiting_pr()
+        self.main_passes()
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.cycle()
+        self.assertEqual(len(self.runner.merged), 1)
+
+    def test_a_conflict_when_main_is_brought_in_goes_to_the_update_round(self):
+        self.go_red_with_a_waiting_pr()
+        self.main_passes()
+        self.runner.conflicts = ["a.py"]
+
+        def resolves():
+            self.github.prs[(REPO, 1)]["headRefOid"] = SHA2
+            return '{"status": "pushed"}'
+        self.runner.steps = [resolves, report(SHA2), self.PASS]
+        self.cycle()
+        self.assertIn("stopped at conflicts in `a.py`", self.runner.runs[1].prompt)
+        self.assertEqual(self.runner.runs[1].cwd, "/worktree")
+        self.assertEqual(self.github.merges, [SHA2])
+
+    def test_a_pr_that_did_not_wait_on_main_is_left_alone(self):
+        self.pr_passes = True
+        self.store.record("main_red", project="website", repo=REPO, commit=MAIN, failing=[BROKEN], since="s")
+        self.store.record("main_fix_opened", project="website", repo=REPO, commit=MAIN, task=f"{REPO}#9", url="u")
+        self.main_passes()  # the PR never had a merge check while main was red
+        self.runner.steps = [report(SHA1), self.PASS]
+        self.cycle()
+        self.assertEqual(self.runner.merged, [])
+        self.assertEqual(self.events("main_updated"), [])
+        self.assertEqual(self.github.merges, [SHA1])
+
+    def test_the_user_hears_once_that_main_passes_again(self):
+        sent = Sent()
+        self.store.listeners[:] = [Notifier(self.store, sent, list(NOTIFY_EVENTS), "en").on_event]
+        self.main_results = [False, False]
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.main = MAIN2
+        self.main_results = [True]
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.cycle()
+        told = [t for t in sent.texts if "passes its tests again" in t]
+        self.assertEqual(len(told), 1)
+
+    def test_with_the_option_off_main_is_not_brought_in(self):
+        self.go_red_with_a_waiting_pr()
+        self.main_passes()
+        self.store.set_project_setting("website", "watch_main", False)
+        self.runner.steps = [report(SHA1), self.PASS]
+        self.cycle()
+        self.assertEqual(self.runner.merged, [])
+        self.assertEqual(self.events("main_updated"), [])
 
     def test_with_the_option_off_nothing_changes(self):
         self.store.set_project_setting("website", "watch_main", False)
