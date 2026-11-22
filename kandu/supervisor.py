@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, clean, debt, merge, queen, questions, reference, review, show, sizing, split, tasks, waits
+from . import agents, clean, debt, mainred, merge, queen, questions, reference, review, show, sizing, split, tasks, waits
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .flights import Flights
 from .github import BREAKING_LABEL, TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
@@ -253,6 +253,7 @@ class Supervisor:
         self.next_wake = None
         self._lock = threading.Lock()
         self._deploy_locks = defaultdict(threading.Lock)
+        self._main_lock = threading.Lock()  # one test of `main` at a time, so a commit is tested at most twice
         self._test_locks = defaultdict(threading.Lock)  # project name -> held while its merge test runs
 
     def _is_paused(self, project):
@@ -1027,6 +1028,8 @@ class Supervisor:
         if waits.CI_FAILING in reasons:  # each failing check by name, with its link, so the user sees where
             reasons += waits.check_reasons(pr.get("statusCheckRollup"))
         reasons += [WAITS_FOR_BLOCKER.format(key) for key in self._open_blockers(task)]
+        if self._main_is_red(task):
+            reasons.append(mainred.RED_REASON)
         if reasons:
             return reasons
         if self._tests_wait(task.key, head):
@@ -1045,12 +1048,95 @@ class Supervisor:
             self.store.record("tests_passed", task=task.key, project=task.project.name, head_sha=head)
             return []
         self.store.record("tests_failed", task=task.key, project=task.project.name, head_sha=head)
+        if self.store.project_setting(task.project, "watch_main"):
+            self._check_main(task.project, task.repo)
+            if self._main_is_red(task):
+                return [mainred.RED_REASON]
         return [merge.TESTS_WAIT if self._tests_wait(task.key, head) else merge.TESTS_FAIL]
 
     def _tests_wait(self, key, head):
         """True when this head's tests failed twice in the merge gate and nothing has asked for them since."""
         events = [e for day in self.store.days() for e in self.store.events(day)]
         return merge.tests_wait(events, key, head)
+
+    # A project whose `main` is red (mainred.py).
+
+    def _main_is_red(self, task):
+        """True when the project watches `main`, it is red, and this is not the task that fixes it."""
+        project = task.project
+        return (bool(self.store.project_setting(project, "watch_main")) and task.key not in mainred.fix_tasks(self.store, project)
+                and bool(mainred.red_events(self.store, project)))
+
+    def _check_main(self, project, repo):
+        """Tests the current `main` of `repo` until its commit is decided: at most two runs, kept per commit.
+        `main` is red only when both fail, and a pass ends a red one."""
+        base = self.github.default_branch(repo)
+        with self._main_lock:
+            commit = self.github.branch_tip(repo, base)
+            if commit is None:
+                return
+            kept = mainred.runs(self.store, project, repo, commit)
+            while not mainred.decided(kept):
+                cwd = self.runner.prepare_review(project, repo, "kandu/main-check", commit)
+                log = new_run_id(self.now())
+                passed = self.runner.run_test(project, cwd, log) == 0
+                self.store.record("main_tested", project=project.name, repo=repo, commit=commit, run=len(kept) + 1,
+                                  passed=passed, failing=[] if passed else self.runner.test_failures(log))
+                kept = mainred.runs(self.store, project, repo, commit)
+            current = mainred.red(self.store, project, repo)
+            if mainred.is_red(kept):
+                if current is None or current["commit"] != commit:
+                    self._declare_red(project, repo, commit, kept, current)
+                if not mainred.fix_opened(self.store, project, repo, commit):
+                    self._open_fix_task(project, repo, commit, kept)  # also retries one that failed before
+            elif current is not None and any(r["passed"] for r in kept):
+                self.store.record("main_green", project=project.name, repo=repo, commit=commit)
+
+    def _declare_red(self, project, repo, commit, kept, current):
+        """Records the red `main`. The user hears once while it stays red: a commit that is red after another keeps
+        the first one's `since`."""
+        failing = list(dict.fromkeys(name for run in kept for name in run["failing"]))
+        since = current["since"] if current is not None else self.now().isoformat(timespec="seconds")
+        self.store.record("main_red", project=project.name, repo=repo, commit=commit, failing=failing, since=since)
+
+    def _open_fix_task(self, project, repo, commit, kept):
+        """Opens the one fix task of a red commit; a failure leaves it unopened, so the next look tries again."""
+        failing = list(dict.fromkeys(name for run in kept for name in run["failing"]))
+        title = f"Fix the failing tests on main of {repo.split('/')[-1]}"
+        body = mainred.fix_body(repo, commit, failing, project.test)
+
+        def created(url):
+            number = url.rstrip().rsplit("/", 1)[1]
+            self.store.record("main_fix_opened", project=project.name, repo=repo, commit=commit,
+                              task=f"{repo}#{number}", url=url.strip())
+        try:
+            url = tasks.create_task(self.config, self.github, project.name, repo, title, body, self.local_dir,
+                                    "High", "Bug", "Small", created=created, store=self.store)
+        except TaskError as e:
+            raise KanduTrouble(f"could not open the task that fixes main: {e}") from e
+        self.github.set_status(project.board, url, READY)  # it starts even while `main` is red
+
+    def _watch_main(self):
+        """A red `main` is tested again once its commit changed, so a fix that landed ends the red."""
+        for project in self.config.projects:
+            if (not self.store.project_setting(project, "watch_main") or self._is_paused(project) or self._stopping()
+                    or not self._reachable(project.machine)):
+                continue
+            for repo in project.repos:
+                current = mainred.red(self.store, project, repo)
+                try:
+                    if current is not None and (self.github.branch_tip(repo, self.github.default_branch(repo)) != current["commit"]
+                                                or not mainred.fix_opened(self.store, project, repo, current["commit"])):
+                        self._check_main(project, repo)
+                except (GitHubError, RunnerError, KanduTrouble):
+                    continue  # the next cycle looks again
+
+    def _not_while_red(self, tasks):
+        """While a project's `main` is red, no task of it starts except the one that fixes it; those at work go on."""
+        red = {p.name for p in self.config.projects
+               if self.store.project_setting(p, "watch_main") and mainred.red_events(self.store, p)}
+        fixes = {p.name: mainred.fix_tasks(self.store, p) for p in self.config.projects if p.name in red}
+        return [t for t in tasks if not (t.status == READY and t.project.name in red and t.key not in fixes[t.project.name])]
 
     def _holds(self, task, pr):
         """What holds a settled PR's merge whatever the user says: a failing check or an open blocker. They are
@@ -2101,7 +2187,7 @@ class Supervisor:
             ready = [t for t in read if t.status == READY] + self._sent_on()
             ready = [t for t in ready if t.key not in seen]
             ready += [t for t in read if t.status == IN_REVIEW and t.key not in busy and self._yes_came(t.key)]
-            tasks = self._reachable_tasks(list({t.key: t for t in ready}.values()))
+            tasks = self._reachable_tasks(self._not_while_red(list({t.key: t for t in ready}.values())))
         except (GitHubError, RunnerError) as e:
             self.queen_trouble = type(e).__name__
             return []
@@ -2179,6 +2265,7 @@ class Supervisor:
                 self._close_groups()
                 self._close_specs()
                 self._size_backlog()
+                self._watch_main()
                 self._tell_stuck_cards()
                 self._queen()
             except (GitHubError, RunnerError) as e:
@@ -2220,6 +2307,7 @@ class Supervisor:
             tasks += [t for t in self._sent_on() if t.key not in {other.key for other in tasks}]
         except GitHubError as e:
             return f"could not read the boards: {e}"
+        tasks = self._not_while_red(tasks)
         if not tasks:
             return "nothing ready"
         tasks = self._reachable_tasks(tasks)

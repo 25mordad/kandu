@@ -40,6 +40,8 @@ projects:
                                        # Today every proposal waits for the user's yes either way
     queen_answers_one_way: false       # true: the queen's yes to a merge answers its one-way door and the review's
                                        # questions for the user; off, those wait for the user's yes. The dashboard's switch wins
+    watch_main: false                  # true: when a PR's tests fail, test main; two failures on one commit hold the project's
+                                       # merges and new work, and open one fix task. The dashboard's switch wins
     multi_user: false                  # true: several people share this board, each with a Kandu of their own; this
                                        # install works only the tasks assigned to its github.account. Off: assignees do not matter
     priority: 1                        # 1 = highest

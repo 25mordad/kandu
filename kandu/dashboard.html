@@ -542,6 +542,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
     <div class="upgrade-head"><strong id="upgradetitle" dir="auto"></strong><button id="upgraderead" class="btn" data-t="upgrade_read"></button></div>
     <div id="upgradeentries"></div>
   </section>
+  <section id="mainred" class="upgrade" aria-live="polite" hidden>
+    <div class="upgrade-head"><strong id="mainredtitle" dir="auto"></strong></div>
+    <div id="mainredtests" class="upgrade-entry" dir="auto"></div>
+  </section>
   <div id="machines" class="list" hidden></div>
   <div id="asks" class="list" hidden></div>
   <div id="stats" class="stats"></div>
@@ -690,6 +694,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "version_tried": "last tried {at}",
   "version_never_tried": "never tried",
   "version_no_version": "no version",
+  "main_red_title": "main is red in {project}: its tests fail",
+  "main_red_fix": "The task that fixes it",
+  "set_watch_main": "Hold the project when main's tests fail",
+  "set_watch_main_hint": "Off: nothing changes. On: when a PR's tests fail, Kandu tests main. If main fails twice, the project's merges wait, only the task that fixes main starts, and you are told once.",
   "upgrade_title": "Kandu was upgraded to {v}",
   "upgrade_read": "Mark as read",
   "tab_today": "Today",
@@ -1258,6 +1266,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "version_tried": "آخرین تلاش {at}",
   "version_never_tried": "هنوز تلاش نشده",
   "version_no_version": "بی‌نسخه",
+  "main_red_title": "شاخهٔ اصلی در {project} قرمز است: تست‌هایش رد می‌شوند",
+  "main_red_fix": "تسکی که آن را درست می‌کند",
+  "set_watch_main": "وقتی تست‌های شاخهٔ اصلی رد می‌شوند، پروژه نگه داشته شود",
+  "set_watch_main_hint": "خاموش: چیزی تغییر نمی‌کند. روشن: وقتی تست‌های یک PR رد می‌شوند، کندو شاخهٔ اصلی را هم تست می‌کند. اگر دو بار رد شد، ادغام‌های پروژه منتظر می‌مانند، فقط تسکی که آن را درست می‌کند شروع می‌شود و یک بار به تو خبر داده می‌شود.",
   "upgrade_title": "کندو به نسخهٔ {v} به‌روز شد",
   "upgrade_read": "خواندم",
   "tab_today": "امروز",
@@ -1876,6 +1888,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "a review thread is open": "یک رشتهٔ بازبینی باز است",
   "a thread was resolved by someone other than its author": "رشته‌ای را کسی جز نویسنده‌اش بسته است",
   "the tests fail on this head": "تست‌ها روی این نسخه رد می‌شوند",
+  "main's tests fail": "تست‌های شاخهٔ اصلی رد می‌شوند",
   "the tests failed twice on this head: they run again on a new commit or a recorded \"test again\" request": "تست‌ها دو بار روی این نسخه رد شدند؛ با commit تازه یا درخواست «دوباره تست کن» دوباره اجرا می‌شوند",
   "the session's link did not come in time": "لینک جلسه به‌موقع نیامد",
   "the session did not start": "جلسه باز نشد",
@@ -2013,6 +2026,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "project_resumed": "پروژه ادامه یافت",
   "project_setting_changed": "تنظیم پروژه تغییر کرد",
   "project_setting_carried": "تنظیم پروژه یک بار برای رفتار قبلی روشن شد",
+  "main_tested": "تست شاخهٔ اصلی اجرا شد",
+  "main_red": "شاخهٔ اصلی قرمز شد",
+  "main_green": "شاخهٔ اصلی دوباره سبز شد",
+  "main_fix_opened": "تسک درست کردن شاخهٔ اصلی باز شد",
   "project_inspected": "بازرس پروژه را نگاه کرد",
   "inspect_changed": "بازرس پروژه روشن یا خاموش شد",
   "backup_made": "پشتیبان گرفته شد",
@@ -3255,6 +3272,17 @@ function renderVersion(v) {
   box.hidden = false;
 }
 
+// A project whose main is red, until main passes: the failing tests and the task that fixes it, read from the log.
+function renderMainRed(red) {
+  const box = $("mainred"), names = Object.keys(red || {});
+  if (!names.length) { box.hidden = true; return; }
+  const first = red[names[0]];
+  $("mainredtitle").textContent = names.map(n => t("main_red_title").replace("{project}", n)).join(" · ");
+  const fix = names.map(n => red[n].fix_task ? `${t("main_red_fix")}: ${red[n].fix_task}` : "").filter(Boolean).join(" · ");
+  $("mainredtests").textContent = [...new Set(names.flatMap(n => red[n].failing))].join("\n") + (fix ? `\n${fix}` : "");
+  box.hidden = false;
+}
+
 // The upgrade notice: what each version the user has not read brought, from the install's changelog, shown as it is
 // written; a published version's heading links to its release. «Mark as read» keeps the newest version shown as read
 // in Kandu's state, so it is gone in every browser.
@@ -3295,6 +3323,7 @@ async function refreshState() {
   if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
   renderVersion(s.version_badge);
   renderUpgrade(s.upgrade);
+  renderMainRed(s.main_red);
   const chip = stateChip(s);
   $("pulse").className = `chip ${chip.kind}`;
   $("pulse").title = s.last_reason ? tr(s.last_reason) : "";
@@ -3505,7 +3534,7 @@ function settingsProjectsHtml(projects) {
 // goes through the call it always had, so it is checked and logged as before.
 // Each role a project may give a model of its own; the queen's is global only. An empty draft is "same as global".
 const MODEL_KEYS = ["model_worker", "model_reviewer", "model_splitter", "model_live_check", "model_bazras"];
-const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit", "multi_user"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]], ["set_group_models", MODEL_KEYS]];
+const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit", "multi_user"]], ["set_group_merge", ["auto_merge", "frozen", "watch_main"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]], ["set_group_models", MODEL_KEYS]];
 
 function settingsDraft(row) {
   return {name: row.name, ...Object.fromEntries(SETTING_GROUPS.flatMap(([, keys]) => keys).map(key => [key, row[key]]))};
@@ -3551,8 +3580,8 @@ async function applySettings(name, edit, send) {
   return edit.refused;
 }
 
-const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by", multi_user: "set_multi_user", model_worker: "set_model_worker", model_reviewer: "set_model_reviewer", model_splitter: "set_model_splitter", model_live_check: "set_model_live_check", model_bazras: "set_model_bazras"};
-const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint", multi_user: "set_multi_user_hint"};
+const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by", watch_main: "set_watch_main", multi_user: "set_multi_user", model_worker: "set_model_worker", model_reviewer: "set_model_reviewer", model_splitter: "set_model_splitter", model_live_check: "set_model_live_check", model_bazras: "set_model_bazras"};
+const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint", watch_main: "set_watch_main_hint", multi_user: "set_multi_user_hint"};
 
 // One setting's control, drawn from the draft. A pause set in the config shows and cannot move.
 function settingControl(key, row, now) {

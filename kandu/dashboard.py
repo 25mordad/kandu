@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, merge, queen, questions, remove, rename, review, sessions, split,
+from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, mainred, merge, queen, questions, remove, rename, review, sessions, split,
                tasks, timer, tries, upstream, version, waits)
 from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, PROJECT_MODEL_ROLES, REGISTRY_SETTINGS,
                      TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_reference_copy, set_run_tmp, set_inspect, set_limits, set_pace,
@@ -369,6 +369,7 @@ class Api:
             "limits": {"session": limits.session_5h_percent, "week": limits.weekly_percent},
             "parallel": self._parallel(),
             "pace": self._pace(),
+            "main_red": self._main_red(),
             "over_limit": {name: spent for name, spent in tokens.items() if spent["today"] >= spent["limit"]},
             "project_tokens": tokens,
             "queen": self._queen_report(),
@@ -1393,6 +1394,20 @@ class Api:
             self.store.resume_project(project.name)
             self.store.record("project_resumed", project=project.name)
         return {"paused": False}
+
+    def _main_red(self):
+        """Each project that watches `main` and whose `main` is red, until it passes: the repo, the commit, the
+        failing tests and the task that fixes it. Read from the local log."""
+        red = {}
+        for p in self.config.projects:
+            if not self.store.project_setting(p, "watch_main"):
+                continue
+            for event in mainred.red_events(self.store, p):
+                fix = mainred.fix_event(self.store, p, event["repo"], event["commit"])
+                red[p.name] = {"repo": event["repo"], "commit": event["commit"], "failing": event["failing"],
+                               "since": event["since"], "fix_task": fix["task"] if fix else None,
+                               "fix_url": fix["url"] if fix else None}
+        return red
 
     def _registry_value(self, project, setting):
         return self.config.auto_merge_for(project) if setting == "auto_merge" else getattr(project, setting)

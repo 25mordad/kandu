@@ -59,6 +59,8 @@ MESSAGES = {
         "deploy_failed": "{task} was merged, but the deploy failed. Nothing was reverted.",
         "live_check_failed": "{task} is deployed, but the live check failed. Nothing was reverted.",
         "sizing_failed": "Kandu could not size {task}.",
+        "main_red": "main of {project} fails its tests: {tests}. Its merges wait and no new task starts, except the "
+                    "one that fixes it. The details are on the dashboard.",
         "check_failed": "{project} failed the check after its merges: {what}.",
         "check_tests": "the tests fail on the default branch of {repo}",
         "check_live": "its live URL does not answer",
@@ -115,6 +117,8 @@ MESSAGES = {
         "deploy_failed": "{task} ادغام شد ولی deploy شکست خورد. چیزی برگردانده نشد.",
         "live_check_failed": "{task} روی نسخه‌ی زنده رفت ولی بررسی زنده رد شد. چیزی برگردانده نشد.",
         "sizing_failed": "کندو نتوانست اندازه‌ی {task} را تعیین کند.",
+        "main_red": "شاخهٔ اصلی {project} در تست‌ها رد می‌شود: {tests}. ادغام‌هایش منتظر می‌مانند و تسک تازه‌ای شروع "
+                    "نمی‌شود، جز تسکی که آن را درست می‌کند. جزئیات در داشبورد است.",
         "check_failed": "{project} در بررسی بعد از ادغام‌ها رد شد: {what}.",
         "check_tests": "تست‌ها روی شاخه‌ی اصلی {repo} رد می‌شوند",
         "check_live": "آدرس زنده‌اش جواب نمی‌دهد",
@@ -264,6 +268,10 @@ def message_for(event, queen=False):
         return Message("usage_limit", "project_limit", key, values={"project": event["project"]})
     if kind == "project_checked" and not event["passed"]:
         return _check_message(event)
+    if kind == "main_red":  # once while it stays red: a later red commit keeps the first one's `since`
+        tests = ", ".join(event["failing"]) or "the run named none"
+        return Message("failure", "main_red", f"main_red:{event['project']}:{event['repo']}:{event['since']}",
+                       values={"project": event["project"], "repo": event["repo"], "tests": tests})
     if kind == "machine_unreachable":
         return _machine_message("machine_unreachable", event)
     if kind == "machine_up" and event["told"]:  # the user heard of the outage, so hears of its end
@@ -283,6 +291,8 @@ def _render(message, language):
     if message.wait:  # what it waits on, where and the next step
         text += "".join(f"\n{line}" for line in waits.lines(message.wait, language))
     task = message.values.get("task")
+    if message.text == "main_red":
+        return f"{text}\nhttps://github.com/{message.values['repo']}/commits"
     if task is None:  # a repo whose tests fail is linked, so the user sees its last commits
         return text + "".join(f"\nhttps://github.com/{repo}/commits" for repo in message.values.get("failing", ()))
     repo, number = task.split("#")

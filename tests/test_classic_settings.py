@@ -84,7 +84,7 @@ class ClassicSettingsBrowserTest(Served):
         self.assertEqual(done.returncode, 0, done.stderr[-3000:])
         report = json.loads(done.stdout)
         self.assertEqual(report["errors"], [])
-        every = ["name", "paused", "max_parallel_workers", "priority", "daily_token_limit", "multi_user", "auto_merge", "frozen",
+        every = ["name", "paused", "max_parallel_workers", "priority", "daily_token_limit", "multi_user", "auto_merge", "frozen", "watch_main",
                  "split_approval", "queen_answers_one_way", "model_worker", "model_reviewer", "model_splitter", "model_live_check",
                  "model_bazras"]
         for case in report["results"]:

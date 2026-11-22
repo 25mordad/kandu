@@ -394,6 +394,10 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
     <div class="upgrade-head"><strong id="upgradetitle" dir="auto"></strong><button id="upgraderead" class="btn" data-t="upgrade_read"></button></div>
     <div id="upgradeentries"></div>
   </section>
+  <section id="mainred" class="upgrade" aria-live="polite" hidden>
+    <div class="upgrade-head"><strong id="mainredtitle" dir="auto"></strong></div>
+    <div id="mainredtests" class="upgrade-entry" dir="auto"></div>
+  </section>
   <div id="machines" class="list" hidden></div>
   <div id="asks" class="list" hidden></div>
   <div id="stats" class="stats"></div>
@@ -513,6 +517,10 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "version_tried": "last tried {at}",
   "version_never_tried": "never tried",
   "version_no_version": "no version",
+  "main_red_title": "main is red in {project}: its tests fail",
+  "main_red_fix": "The task that fixes it",
+  "set_watch_main": "Hold the project when main's tests fail",
+  "set_watch_main_hint": "Off: nothing changes. On: when a PR's tests fail, Kandu tests main. If main fails twice, the project's merges wait, only the task that fixes main starts, and you are told once.",
   "upgrade_title": "Kandu was upgraded to {v}",
   "upgrade_read": "Mark as read",
   "hive": "The hive",
@@ -1017,6 +1025,10 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "version_tried": "آخرین تلاش {at}",
   "version_never_tried": "هنوز تلاش نشده",
   "version_no_version": "بی‌نسخه",
+  "main_red_title": "شاخهٔ اصلی در {project} قرمز است: تست‌هایش رد می‌شوند",
+  "main_red_fix": "تسکی که آن را درست می‌کند",
+  "set_watch_main": "وقتی تست‌های شاخهٔ اصلی رد می‌شوند، پروژه نگه داشته شود",
+  "set_watch_main_hint": "خاموش: چیزی تغییر نمی‌کند. روشن: وقتی تست‌های یک PR رد می‌شوند، کندو شاخهٔ اصلی را هم تست می‌کند. اگر دو بار رد شد، ادغام‌های پروژه منتظر می‌مانند، فقط تسکی که آن را درست می‌کند شروع می‌شود و یک بار به تو خبر داده می‌شود.",
   "upgrade_title": "کندو به نسخهٔ {v} به‌روز شد",
   "upgrade_read": "خواندم",
   "hive": "کندو",
@@ -1578,6 +1590,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "a review thread is open": "یک رشتهٔ بازبینی باز است",
   "a thread was resolved by someone other than its author": "رشته‌ای را کسی جز نویسنده‌اش بسته است",
   "the tests fail on this head": "تست‌ها روی این نسخه رد می‌شوند",
+  "main's tests fail": "تست‌های شاخهٔ اصلی رد می‌شوند",
   "the tests failed twice on this head: they run again on a new commit or a recorded \"test again\" request": "تست‌ها دو بار روی این نسخه رد شدند؛ با commit تازه یا درخواست «دوباره تست کن» دوباره اجرا می‌شوند",
   "the session's link did not come in time": "لینک جلسه به‌موقع نیامد",
   "the session did not start": "جلسه باز نشد",
@@ -1712,6 +1725,10 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "project_resumed": "پروژه ادامه یافت",
   "project_setting_changed": "تنظیم پروژه تغییر کرد",
   "project_setting_carried": "تنظیم پروژه یک بار برای رفتار قبلی روشن شد",
+  "main_tested": "تست شاخهٔ اصلی اجرا شد",
+  "main_red": "شاخهٔ اصلی قرمز شد",
+  "main_green": "شاخهٔ اصلی دوباره سبز شد",
+  "main_fix_opened": "تسک درست کردن شاخهٔ اصلی باز شد",
   "project_inspected": "بازرس پروژه را نگاه کرد",
   "inspect_changed": "بازرس پروژه روشن یا خاموش شد",
   "backup_made": "پشتیبان گرفته شد",
@@ -2601,6 +2618,17 @@ function renderVersion(v) {
   box.hidden = false;
 }
 
+// A project whose main is red, until main passes: the failing tests and the task that fixes it, read from the log.
+function renderMainRed(red) {
+  const box = $("mainred"), names = Object.keys(red || {});
+  if (!names.length) { box.hidden = true; return; }
+  const first = red[names[0]];
+  $("mainredtitle").textContent = names.map(n => t("main_red_title").replace("{project}", n)).join(" · ");
+  const fix = names.map(n => red[n].fix_task ? `${t("main_red_fix")}: ${red[n].fix_task}` : "").filter(Boolean).join(" · ");
+  $("mainredtests").textContent = [...new Set(names.flatMap(n => red[n].failing))].join("\n") + (fix ? `\n${fix}` : "");
+  box.hidden = false;
+}
+
 // The upgrade notice: what each version the user has not read brought, from the install's changelog, shown as it is
 // written; a published version's heading links to its release. «Mark as read» keeps the newest version shown as read
 // in Kandu's state, so it is gone in every browser.
@@ -2641,6 +2669,7 @@ async function refreshState() {
   if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
   renderVersion(s.version_badge);
   renderUpgrade(s.upgrade);
+  renderMainRed(s.main_red);
   const name = s.stop_requested ? "stopped" : (s.supervisor || "never ran");
   const refused = githubRefused(s);
   $("pulse").className = `pulse ${s.stop_requested ? "stopped" : refused ? "refused" : s.supervisor === "awake" ? "awake" : ""}`;
@@ -2844,6 +2873,7 @@ function renderSettings(s) {
     <td class="fit"><label title="${esc(t("mode_frozen_hint"))}"><input type="checkbox" data-setting-frozen="${esc(p.name)}"${p.frozen ? " checked" : ""}> ${t("setting_frozen")}</label></td>
     <td class="fit"><label title="${esc(t("set_multi_user_hint"))}"><input type="checkbox" data-setting-multi-user="${esc(p.name)}"${p.multi_user ? " checked" : ""}> ${t("set_multi_user")}</label></td>
     <td class="fit"><label title="${esc(t("queen_accepts_splits_hint"))}"><input type="checkbox" data-setting-splits="${esc(p.name)}"${p.split_approval === "queen" ? " checked" : ""}> ${t("queen_accepts_splits")}</label></td>
+    <td class="fit"><label title="${esc(t("set_watch_main_hint"))}"><input type="checkbox" data-setting-watch-main="${esc(p.name)}"${p.watch_main ? " checked" : ""}> ${t("set_watch_main")}</label></td>
     <td class="fit"><label title="${esc(t("queen_answers_one_way_hint"))}"><input type="checkbox" data-setting-one-way="${esc(p.name)}"${p.queen_answers_one_way ? " checked" : ""}> ${t("queen_answers_one_way")}</label></td>
     <td class="fit"><button class="btn small danger" data-remove="${esc(p.name)}" title="${esc(t("remove_project_hint"))}">${t("remove_project")}</button></td></tr>`).join("");
   const pace = s.pace || {};
@@ -2857,7 +2887,7 @@ function renderSettings(s) {
   $("runtmpsettings").innerHTML = runTmpCard(s.machines || []);
   tgKeep(() => { $("notifysettings").innerHTML = notifyCard(s.notify); });
   $("notifysettings").hidden = !s.notify;
-  const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "set_multi_user", "queen_accepts_splits", "queen_answers_one_way"];
+  const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "set_multi_user", "queen_accepts_splits", "queen_answers_one_way", "set_watch_main"];
   $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th>${heads.map(h => `<th class="fit">${t(h)}</th>`).join("")}<th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
@@ -2865,7 +2895,7 @@ function renderSettings(s) {
 // goes through the call it always had, so it is checked and logged as before.
 // Each role a project may give a model of its own; the queen's is global only. An empty draft is "same as global".
 const MODEL_KEYS = ["model_worker", "model_reviewer", "model_splitter", "model_live_check", "model_bazras"];
-const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit", "multi_user"]], ["set_group_merge", ["auto_merge", "frozen"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]], ["set_group_models", MODEL_KEYS]];
+const SETTING_GROUPS = [["set_group_work", ["paused", "max_parallel_workers", "priority", "daily_token_limit", "multi_user"]], ["set_group_merge", ["auto_merge", "frozen", "watch_main"]], ["set_group_queen", ["split_approval", "queen_answers_one_way"]], ["set_group_models", MODEL_KEYS]];
 
 function settingsDraft(row) {
   return {name: row.name, ...Object.fromEntries(SETTING_GROUPS.flatMap(([, keys]) => keys).map(key => [key, row[key]]))};
@@ -2911,8 +2941,8 @@ async function applySettings(name, edit, send) {
   return edit.refused;
 }
 
-const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by", multi_user: "set_multi_user", model_worker: "set_model_worker", model_reviewer: "set_model_reviewer", model_splitter: "set_model_splitter", model_live_check: "set_model_live_check", model_bazras: "set_model_bazras"};
-const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint", multi_user: "set_multi_user_hint"};
+const SETTING_LABELS = {name: "set_name", paused: "set_run_label", max_parallel_workers: "setting_workers", priority: "setting_priority", daily_token_limit: "setting_tokens", auto_merge: "setting_auto_merge", frozen: "setting_frozen", split_approval: "set_split_by", queen_answers_one_way: "set_one_way_by", watch_main: "set_watch_main", multi_user: "set_multi_user", model_worker: "set_model_worker", model_reviewer: "set_model_reviewer", model_splitter: "set_model_splitter", model_live_check: "set_model_live_check", model_bazras: "set_model_bazras"};
+const SETTING_HINTS = {name: "set_name_hint", max_parallel_workers: "setting_workers_hint", priority: "setting_priority_hint", daily_token_limit: "setting_tokens_hint", auto_merge: "mode_auto_hint", frozen: "mode_frozen_hint", watch_main: "set_watch_main_hint", multi_user: "set_multi_user_hint"};
 
 // One setting's control, drawn from the draft. A pause set in the config shows and cannot move.
 function settingControl(key, row, now) {
@@ -3056,11 +3086,12 @@ async function changeReferenceCopy(box) {
 
 async function changeSetting(box) {
   const d = box.dataset;
-  const name = d.settingPause ?? d.settingSplits ?? d.settingOneWay ?? d.settingAutoMerge ?? d.settingFrozen ?? d.settingMultiUser ?? d.settingTokens;
+  const name = d.settingPause ?? d.settingSplits ?? d.settingOneWay ?? d.settingWatchMain ?? d.settingAutoMerge ?? d.settingFrozen ?? d.settingMultiUser ?? d.settingTokens;
   const settings = `/projects/${encodeURIComponent(name)}/settings?`;
   const path = d.settingPause !== undefined ? `/projects/${encodeURIComponent(name)}/${box.checked ? "pause" : "resume"}`
     : d.settingSplits !== undefined ? `${settings}split_approval=${box.checked ? "queen" : "user"}`
     : d.settingAutoMerge !== undefined ? `${settings}auto_merge=${box.checked}`
+    : d.settingWatchMain !== undefined ? `${settings}watch_main=${box.checked}`
     : d.settingFrozen !== undefined ? `${settings}frozen=${box.checked}`
     : d.settingMultiUser !== undefined ? `${settings}multi_user=${box.checked}`
     : d.settingTokens !== undefined ? `${settings}daily_token_limit=${encodeURIComponent(box.value)}`
@@ -3639,7 +3670,7 @@ document.addEventListener("input", e => {
   if (setEdit && e.target.matches?.("input[data-draft]")) changeDraft(e.target);
 });
 document.addEventListener("change", e => {
-  if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way], [data-setting-auto-merge], [data-setting-frozen], [data-setting-multi-user], [data-setting-tokens]")) changeSetting(e.target);
+  if (e.target.matches?.("[data-setting-pause], [data-setting-splits], [data-setting-one-way], [data-setting-watch-main], [data-setting-auto-merge], [data-setting-frozen], [data-setting-multi-user], [data-setting-tokens]")) changeSetting(e.target);
   if (e.target.matches?.("[data-clean-merged]")) changeCleanMerged(e.target);
   if (e.target.matches?.("[data-reference-copy]")) changeReferenceCopy(e.target);
   if (e.target.matches?.("[data-default-look]")) changeDefaultLook(e.target);

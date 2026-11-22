@@ -68,6 +68,10 @@ EVENT_FIELDS = {
     "project_resumed": ("project",),
     "project_setting_changed": ("project", "setting", "old", "new"),
     "project_setting_carried": ("project", "setting", "value"),
+    "main_tested": ("project", "repo", "commit", "run", "passed", "failing"),  # one run of the tests on a `main` commit
+    "main_red": ("project", "repo", "commit", "failing", "since"),  # two runs on one commit failed: merges wait
+    "main_green": ("project", "repo", "commit"),  # a `main` commit passed after a red one
+    "main_fix_opened": ("project", "repo", "commit", "task", "url"),  # the one fix task of a red commit
     "limits_changed": ("session", "week"),
     "parallel_changed": ("total", "projects"),
     "drop_blockers_changed": ("enabled",),
@@ -115,7 +119,8 @@ EVENT_FIELDS = {
     "upgrade_read": ("version",),  # the user marked the upgrade notice as read, up to this version
 }
 # Each setting a project may have in the dashboard's settings section, with its values. One there wins over the registry.
-PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS, "queen_answers_one_way": (True, False)}
+PROJECT_SETTINGS = {"split_approval": SPLIT_APPROVALS, "queen_answers_one_way": (True, False),
+                    "watch_main": (True, False)}
 # Carried once, on the first cycle after the switch came, for the projects an install had: today's behaviour stays.
 CARRIED_SETTINGS = {"queen_answers_one_way": True}
 

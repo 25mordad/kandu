@@ -253,6 +253,7 @@ class Project:
     frozen: bool = False
     split_approval: str = "user"     # who accepts this project's split proposals (SPLIT_APPROVALS)
     queen_answers_one_way: bool = False   # the queen's yes to a head answers its one-way door and its questions
+    watch_main: bool = False         # test `main` when a PR's tests fail; two failures on one commit hold the project
     multi_user: bool = False         # several people share the board, each with a Kandu of their own: this install
                                      # sees only the cards assigned to its `github.account`; off, assignees do not matter
     allowed_tools: list[str] = field(default_factory=list)   # added to the worker's and live check's rules, if they have any

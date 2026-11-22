@@ -236,6 +236,10 @@ class FakeRunner:
         self.merged = []
         self.on_push = lambda: None
         self.heads_at_merge = {}
+        self.failure_names = []  # what the failing test run's log names
+
+    def test_failures(self, log_name):
+        return list(self.failure_names)
 
     def merge_base(self, project, repo, directory, branch, base, message, kept=None):
         self.merged.append((directory, base))

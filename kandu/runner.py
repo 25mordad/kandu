@@ -17,7 +17,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import ghmeter
+from . import ghmeter, mainred
 from .didban import remote_path
 from .state import usage_from_result
 
@@ -534,6 +534,13 @@ class Runner:
             if code != 0:
                 return code
         return self.run_command(project, cwd, project.test, log_name)
+
+    def test_failures(self, log_name):
+        """The names of the tests that failed in the run `log_name`, read from its local log; none if it names none."""
+        try:
+            return mainred.failing_tests((self.logs_dir / f"{log_name}.log").read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            return []
 
     def _set_up(self, project, cwd, log_name):
         host = self.hosts[project.machine]

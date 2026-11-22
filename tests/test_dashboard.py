@@ -948,7 +948,7 @@ class ControlTest(Base):
             {"name": "internal-tool", "paused": True, "paused_in_config": False, "split_approval": "user",
              "queen_answers_one_way": False, "priority": 1}])
         self.assertEqual(set(rows[0]), set(keys) | {"max_parallel_workers", "daily_token_limit", "auto_merge", "frozen",
-                                                         "multi_user", "model_worker", "model_reviewer", "model_splitter",
+                                                         "multi_user", "watch_main", "model_worker", "model_reviewer", "model_splitter",
                                                          "model_live_check", "model_bazras", "global_models"})
 
     def test_the_split_switch_is_kept_wins_over_the_registry_and_is_logged(self):
@@ -1421,7 +1421,7 @@ class LanguageTest(unittest.TestCase):
         values = re.findall(r'reasons\.append\("([^"]+)"\)', gate)
         values += ["this head has no review in the local log", "CI is running", "CI is failing",
                    f"companion {REPO}#3 is open and unreviewed", f"blocker {REPO}#2 is not merged yet",
-                   "the tests fail on this head"]
+                   "the tests fail on this head", "main's tests fail"]
         self.assertEqual([v for v in values if not self.translate(v)], [])
 
 
