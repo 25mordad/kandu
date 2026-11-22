@@ -1046,6 +1046,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "machine_silent": "Not answering since {since}",
   "add_machine_short": "+ Add",
   "switch_drop_blockers": "Let the queen ask to drop blockers",
+  "switch_reference_copy": "Give runs a read-only copy of a task's reference",
+  "reference_copy_hint": "On: a task whose Reference names paths in another project's repo from your registry gets a read-only copy of only those paths in its run's own folder, removed when the run ends. Never from a private repo into a run on a public one.",
   "switch_requests": "Show open requests",
   "default_look": "Default look",
   "default_look_hint": "The look a browser opens in until it chooses its own; a browser's own choice always wins.",
@@ -1608,6 +1610,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "machine_silent": "از {since} جواب نمی‌دهد",
   "add_machine_short": "+ افزودن",
   "switch_drop_blockers": "ملکه بتواند برداشتن مانع‌ها را بپرسد",
+  "switch_reference_copy": "به اجراها نسخه‌ی فقط‌خواندنیِ مرجع تسک داده شود",
+  "reference_copy_hint": "روشن: تسکی که «مرجع»ش مسیرهایی از ریپوی پروژه‌ی دیگری از رجیستری را نام می‌برد، فقط همان مسیرها را به‌صورت نسخه‌ی فقط‌خواندنی در پوشه‌ی خودِ اجرا می‌گیرد و با پایان اجرا پاک می‌شود. هیچ‌وقت از ریپوی خصوصی به اجرایی روی ریپوی عمومی نمی‌رود.",
   "switch_requests": "نشان دادن درخواست‌های باز",
   "default_look": "نمای پیش‌فرض",
   "default_look_hint": "نمایی که مرورگر تا وقتی نمای خودش را انتخاب نکرده با آن باز می‌شود؛ انتخاب خود مرورگر همیشه مقدم است.",
@@ -1916,6 +1920,9 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "blocker_drop_asked": "ملکه پرسید که مانع برداشته شود",
   "blocker_dropped": "مانع با تأیید تو برداشته شد",
   "drop_blockers_changed": "پرسیدن ملکه درباره‌ی مانع‌ها روشن یا خاموش شد",
+  "reference_copy_changed": "نسخه‌ی فقط‌خواندنیِ مرجع روشن یا خاموش شد",
+  "reference_copied": "به اجرا نسخه‌ی فقط‌خواندنیِ مرجع داده شد",
+  "reference_note": "مرجع کپی نشد (یادداشت روی تسک)",
   "notify_changed": "اعلان‌های تلگرام عوض شد",
   "telegram_pressed": "دکمه‌ای در تلگرام زده شد",
   "telegram_changed": "اتصال تلگرام عوض شد",
@@ -3453,7 +3460,7 @@ async function changeStep(button) {
 function renderSettings(s) {
   if (tab !== "settings") return;
   const projects = settingsProjects(s, lastQueue);
-  const key = JSON.stringify([lang, projects, s.project_settings, s.limits, s.machines, s.clean_merged, s.drop_blockers,
+  const key = JSON.stringify([lang, projects, s.project_settings, s.limits, s.machines, s.clean_merged, s.drop_blockers, s.reference_copy,
                               s.show_requests, s.default_look, s.backup, s.pace, s.parallel?.total, s.notify]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
@@ -3770,7 +3777,7 @@ function kanduHtml(s) {
     <button type="button" class="textbtn" data-backup>${t("change")}</button></div>` : "";
   const paceRow = (label, value, path, step) => value ? `<div class="side-row"><span class="side-label">${t(label)}</span>${stepper(value, path, t(label), step)}</div>` : "";
   return `<div class="side-head"><b>${t("kandu_itself")}</b></div>
-    ${flag(s.clean_merged, "clean_merged", "/clean-merged", "clean_merged_hint")}${flag(s.drop_blockers, "switch_drop_blockers", "/drop-blockers")}${flag(s.show_requests, "switch_requests", "/requests")}${s.default_look ? defaultLookHtml(s.default_look) : ""}${backup}
+    ${flag(s.clean_merged, "clean_merged", "/clean-merged", "clean_merged_hint")}${flag(s.drop_blockers, "switch_drop_blockers", "/drop-blockers")}${flag(s.reference_copy, "switch_reference_copy", "/reference-copy", "reference_copy_hint")}${flag(s.show_requests, "switch_requests", "/requests")}${s.default_look ? defaultLookHtml(s.default_look) : ""}${backup}
     ${paceRow("pace_workers", s.parallel?.total, "/parallel?total={n}", 1)}${paceRow("pace_wake", pace.wake_every_minutes, "/pace?wake_every_minutes={n}", 5)}${paceRow("pace_cycle", pace.max_cycle_minutes, "/pace?max_cycle_minutes={n}", 5)}
     <div class="side-note">${t("pace_hint")}</div>`;
 }

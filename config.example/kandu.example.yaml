@@ -89,6 +89,7 @@ supervisor:                    # optional; these are the defaults
   unreachable_alert_hours: 12  # a machine that has not answered this long while tasks wait for it: you hear once
   queen_drop_blockers: false   # true = the queen may ask you to drop a blocker a task does not need; off until you turn it on, here or in the dashboard
   clean_merged: true           # true = once a task's PR is merged, its folders beside the repo and its kandu/ branches go; a folder with work not in the PR stays. Off here or in the dashboard
+  reference_copy: false        # true = a task whose `Reference` names paths in another project's repo from your registry gets a read-only copy of only those paths in its run's own folder, removed when the run ends; never from a private repo into a run on a public one. Off until you turn it on, here or in the dashboard
 
 # permissions:                 # optional; what each role may do. Without it every role may do everything:
 #                              # Bash, the network, SSH, secrets files. A role named here may do only what its

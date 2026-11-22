@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from . import sizing
+from . import reference, sizing
 from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR
 from .review import CODE_FENCE
 
@@ -112,11 +112,12 @@ def _forbidden(project):
             for area in project.forbidden]
 
 
-def worker_tools(project, branch, rules=None, remote=False):
-    """Returns (allowed, denied) for a worker on `branch`."""
+def worker_tools(project, branch, rules=None, remote=False, reference=None):
+    """Returns (allowed, denied) for a worker on `branch`. With `reference`, the folder of a read-only copy, it may
+    read that folder too."""
     if rules is None:
         return _limits(None, extra_denied=_forbidden(project) + KANDU_ONLY)
-    allowed = _test_tools(project) + project.allowed_tools
+    allowed = _test_tools(project) + project.allowed_tools + _reference_rule(reference)
     denied = []
     if project.secrets_from:
         path = project.secrets_from
@@ -124,12 +125,17 @@ def worker_tools(project, branch, rules=None, remote=False):
     return _limits(rules, allowed, denied + _forbidden(project) + KANDU_ONLY, branch, remote)
 
 
-def reviewer_tools(project, rules=None, remote=False):
+def _reference_rule(folder):
+    return [reference.read_rule(folder)] if folder else []
+
+
+def reviewer_tools(project, rules=None, remote=False, reference=None):
     """Returns (allowed, denied) for a reviewer, which runs the project's tests and commands itself and reads the
-    diff with git in its checkout."""
+    diff with git in its checkout. With `reference`, the folder of a read-only copy, it may read that folder too."""
     if rules is None:
         return _limits(None)
-    return _limits(rules, _test_tools(project) + ["Bash(git diff *)"] + project.allowed_tools, remote=remote)
+    return _limits(rules, _test_tools(project) + ["Bash(git diff *)"] + project.allowed_tools
+                   + _reference_rule(reference), remote=remote)
 
 
 def live_check_tools(project, rules=None, remote=False):
@@ -219,10 +225,11 @@ def _token_facts(project):
 
 
 def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None, local_dir=DEFAULT_LOCAL_DIR,
-                  queen_note=None, tokens=False, open_blockers=(), order=None, copy=None, spec=None):
+                  queen_note=None, tokens=False, open_blockers=(), order=None, copy=None, reference=None, spec=None):
     """The first run gets the PR template; a fix round gets what the last review left for it instead, and a
     worker the queen sends back to a PR gets her order. `copy(repo, number)` gives an item's text from Kandu's
-    copy, for a worker away from the brain: the prompt then holds the issue and the PR instead of naming `SHOW`."""
+    copy, for a worker away from the brain: the prompt then holds the issue and the PR instead of naming `SHOW`.
+    `reference` is the text about the read-only copy of the task's reference (`reference.prompt_section`)."""
     facts = [f"- Repo: `{repo}`", f"- Issue: #{number}", f"- {_how(repo, number, copy)}",
              f"- Your branch: `{branch}`", f"- For the `Kandu-Run:` line: `{run_id}`", *_project_facts(project)]
     if tokens:
@@ -235,6 +242,7 @@ def worker_prompt(project, repo, number, branch, run_id, findings=None, pr=None,
                   "Build it now anyway, on the default branch: your PR merges only after theirs. Do not merge their "
                   "branches; Kandu does not bring their code into yours unless the two conflict. If the task cannot "
                   "be done without their code, report `blocked`."]
+    parts += [reference] if reference else []
     read = [(repo, number)] + ([(repo, pr)] if pr else [])
     if order is not None:
         return "\n".join(parts + [f"## Work the queen sends you on PR #{pr}",
@@ -259,7 +267,7 @@ def _pr_facts(repo, number, pr, head_sha, base, copy):
 
 
 def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, criteria, first_n, base,
-                    local_dir=DEFAULT_LOCAL_DIR, copy=None, spec=None):
+                    local_dir=DEFAULT_LOCAL_DIR, copy=None, reference=None, spec=None):
     facts = [*_pr_facts(repo, number, pr, head_sha, base, copy), f"- Language of `user_brief`: {language}",
              f"- Number new findings from {first_n}", *_project_facts(project)]
     parts = [_read("reviewer.md"), "## This PR", *facts, *_memory(project, local_dir),
@@ -268,16 +276,17 @@ def reviewer_prompt(project, repo, number, pr, head_sha, language, companions, c
         parts += ["## Acceptance criteria", *[f"{i}. {text}" for i, text in enumerate(criteria, 1)]]
     if companions:
         parts += ["## Companion PRs", *[f"- {other}#{n}: {_how(other, n, copy)}" for other, n in companions]]
+    parts += [reference] if reference else []
     return "\n".join(parts + _copies(copy, [(repo, number), (repo, pr), *companions]))
 
 
-def second_review_prompt(repo, number, pr, head_sha, language, items, base, copy=None, spec=None):
+def second_review_prompt(repo, number, pr, head_sha, language, items, base, copy=None, reference=None, spec=None):
     """Only what the first review listed: this round needs no memory, criteria or companions."""
     facts = [*_pr_facts(repo, number, pr, head_sha, base, copy), f"- Language of `user_brief`: {language}"]
     return "\n".join([_read("second-review.md"), "## This PR", *facts, *_spec(spec, REVIEWER_SPEC_RULE),
                       "## The items", "```json",
                       json.dumps(items, ensure_ascii=False, indent=2), "```",
-                      *_copies(copy, [(repo, number), (repo, pr)])])
+                      *([reference] if reference else []), *_copies(copy, [(repo, number), (repo, pr)])])
 
 
 def splitter_prompt(project, repo, number, language, local_dir=DEFAULT_LOCAL_DIR, copy=None, spec=None):

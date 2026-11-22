@@ -35,6 +35,7 @@ COMMAND_TIMEOUT_SECONDS = 30 * 60
 # like its scope, in the machine's `run_tmp_dir`. Its first line says which process owns it.
 RUN_FOLDER_OWNER = ".kandu-run"
 STALE_RUN_FOLDER_MINUTES = 24 * 60  # an older folder whose owner is gone was left when Kandu itself was stopped
+MAX_REFERENCE_BYTES = 20 * 1024 * 1024  # what the copy of a task's reference may weigh
 SECRET_PREFIX = "KANDU_"
 SETUP_MARK = "kandu-setup"  # in a checkout's git folder: what its last setup was for (`Runner.run_test`)
 # What `Runner.clean_task` says of each folder and branch it finds: removed, or why it stays.
@@ -51,6 +52,10 @@ class RunnerError(Exception):
 
 class Unreachable(RunnerError):
     """The machine did not answer over SSH, or the connection dropped: nothing was learnt about the work itself."""
+
+
+class ReferenceTooBig(RunnerError):
+    """The paths a task's reference names weigh more than a run's copy may."""
 
 
 class LocalWork(RunnerError):
@@ -547,6 +552,71 @@ class Runner:
         if code == 0:
             host.check(["sh", "-c", 'printf %s "$1" > "$2"', "sh", wanted, mark], cwd=cwd)
         return code
+
+    def make_reference_folder(self, project):
+        """A fresh folder of one run's own on the project's machine, for a read-only copy of a task's reference.
+
+        In the machine's `run_tmp_dir` where its option is on, else in its temporary directory. Returns its path.
+        """
+        host = self.hosts[project.machine]
+        base = host.absolute(host.run_tmp_dir) if host.run_tmp_dir else None
+        script = ('base=$1; if [ -n "$base" ]; then mkdir -p "$base" || exit 1; else base=${TMPDIR:-/tmp}; fi; '
+                  'mktemp -d "$base/kandu-ref-XXXXXXXX"')
+        return host.check(["sh", "-c", script, "sh", base or ""]).strip()
+
+    def copy_reference(self, source, repo, paths, project, folder):
+        """Copies the tracked files under `paths` of `source`'s copy of `repo` into `folder` on `project`'s machine,
+        and makes them read-only. Only those files: nothing untracked, no symlink, no git folder.
+
+        Returns (paths copied, paths not found). Raises `Unreachable` when the source machine does not answer, and
+        `ReferenceTooBig` or `RunnerError` when it cannot be read.
+        """
+        origin = self.hosts[source.machine]
+        copy = origin.absolute(repo_path(source, repo))
+        found, missing = [], []
+        for path in paths:
+            listed = origin._answered(origin.run(["git", "--literal-pathspecs", "ls-files", "-z", "--", path], cwd=copy))
+            if listed.returncode != 0:
+                raise RunnerError(f"git ls-files failed on {origin.name}: {listed.stderr.strip()}")
+            (found if listed.stdout else missing).append(path)
+        if not found:
+            return [], missing
+        pack = ('git --literal-pathspecs ls-files -z -- "$@" | tar -c --null -T - -f - | head -c $(({max} + 1))'
+                .format(max=MAX_REFERENCE_BYTES))
+        try:
+            packed = subprocess.run(origin.argv(["sh", "-c", pack, "sh", *found], cwd=copy), capture_output=True,
+                                    timeout=GIT_TIMEOUT_SECONDS, env=child_env())
+        except subprocess.TimeoutExpired as e:
+            raise RunnerError(f"reading the reference timed out on {origin.name}") from e
+        if origin.ssh_target is not None and packed.returncode == SSH_FAILED:
+            raise Unreachable(f"{origin.name} did not answer over SSH")
+        if packed.returncode != 0 or not packed.stdout:
+            raise RunnerError(f"could not read the reference on {origin.name}")
+        if len(packed.stdout) > MAX_REFERENCE_BYTES:
+            raise ReferenceTooBig(f"the reference is larger than {MAX_REFERENCE_BYTES} bytes")
+        host = self.hosts[project.machine]
+        target = posixpath.join(folder, repo.replace("/", "__"))
+        unpack = ('mkdir -p "$1" && tar -x -f - -C "$1" --no-same-owner --no-same-permissions && '
+                  'find "$1" -type l -delete && chmod -R a-w "$1"')
+        try:
+            done = subprocess.run(host.argv(["sh", "-c", unpack, "sh", target]), input=packed.stdout,
+                                  capture_output=True, timeout=GIT_TIMEOUT_SECONDS, env=child_env())
+        except subprocess.TimeoutExpired as e:
+            raise RunnerError(f"writing the reference timed out on {host.name}") from e
+        if host.ssh_target is not None and done.returncode == SSH_FAILED:
+            raise Unreachable(f"{host.name} did not answer over SSH")
+        if done.returncode != 0:
+            raise RunnerError(f"could not write the reference on {host.name}")
+        return found, missing
+
+    def remove_reference_folder(self, project, folder):
+        """Removes a run's reference folder, read-only files and all. One a dropped connection leaves is only a
+        temporary folder: a later run's sweep or the machine's own cleaning takes it."""
+        try:
+            self.hosts[project.machine].run(["sh", "-c", 'chmod -R u+w -- "$1" 2>/dev/null; rm -rf -- "$1"', "sh", folder],
+                                            timeout=PROBE_TIMEOUT_SECONDS)
+        except RunnerError:
+            pass
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
                   schema=None, resume=None):

@@ -6,6 +6,7 @@ above them, are started only for work that needs judgment. No state is kept betw
 board and the PR hold, so a cycle that is cut off resumes where it stopped.
 """
 import argparse
+import contextlib
 import fcntl
 import json
 import secrets
@@ -21,13 +22,13 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, clean, debt, merge, queen, questions, review, show, sizing, split, tasks, waits
+from . import agents, clean, debt, merge, queen, questions, reference, review, show, sizing, split, tasks, waits
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .flights import Flights
 from .github import BREAKING_LABEL, TOKENS_LABEL, GitHubError, blockers_in, branch_for, task_blockers, transient
 from .mirror import open_github
 from .notify import CHECK_NOT_RUN, LIVE_DOWN, TESTS_FAIL_IN, notifier_for
-from .runner import DEFAULT_LOGS_DIR, LocalWork, Runner, RunnerError, Unreachable
+from .runner import DEFAULT_LOGS_DIR, LocalWork, ReferenceTooBig, Runner, RunnerError, Unreachable
 from .state import StateStore
 from .tasks import TaskError
 from .tries import FAILURE_COMMENT, INTERNAL_TRIES, SIZING_FAILURE_COMMENT, count as count_tries
@@ -429,6 +430,74 @@ class Supervisor:
             return None
         return lambda repo, number: show.render(self.github.item(repo, number))
 
+    def _note_reference(self, task, notes):
+        """Says on the task why a reference was not, or not wholly, copied. Each note once, in no run's words: the
+        issue may be on a public repo, so no repo or path is named."""
+        for note in notes:
+            if self.store.last_event("reference_note", task=task.key, project=task.project.name, note=note):
+                continue
+            self.store.record("reference_note", task=task.key, project=task.project.name, note=note)
+            try:
+                self.github.comment_issue(task.repo, task.number, f"Kandu could not give the run a copy of the "
+                                          f"task's reference. {note}")
+            except GitHubError as e:
+                self._decide(task, "internal_error", f"could not post a reference note: {e}")
+
+    @contextlib.contextmanager
+    def _reference(self, task):
+        """Gives a run the read-only copy of the task's `Reference`: yields (folder, prompt text), or (None, None).
+
+        Only with `reference_copy` on. A reference it cannot copy never stops the run: it leaves a note on the task
+        and the run goes on without it. The folder is removed when the run ends, however it ends.
+        """
+        folder = None
+        try:
+            if self.config.settings.supervisor.reference_copy:
+                folder, text = self._copy_reference(task)
+            else:
+                text = None
+            yield (folder, text) if text else (None, None)
+        finally:
+            if folder is not None:
+                self.runner.remove_reference_folder(task.project, folder)
+
+    def _copy_reference(self, task):
+        body = self.github.issue_text(task.repo, task.number)["body"]
+        wanted, notes = reference.plan(task.repo, body, self.config.projects, self.github.repo_is_public)
+        folder, copied = None, []
+        try:
+            for source, ref, number in wanted:
+                if folder is None:
+                    folder = self.runner.make_reference_folder(task.project)
+                try:
+                    done, missing = self.runner.copy_reference(source, ref.repo, ref.paths, task.project, folder)
+                except Unreachable:
+                    notes.append(f"Reference {number}: {reference.UNREACHABLE}.")
+                    continue
+                except ReferenceTooBig:
+                    notes.append(f"Reference {number}: {reference.TOO_BIG}.")
+                    continue
+                except RunnerError:
+                    notes.append(f"Reference {number}: {reference.UNREADABLE}.")
+                    continue
+                if missing:
+                    notes.append(f"Reference {number}: {reference.MISSING_PATH}.")
+                if done:
+                    copied.append((ref.repo, done))
+        except BaseException:
+            if folder is not None:
+                self.runner.remove_reference_folder(task.project, folder)
+            raise
+        if folder is not None:
+            self.store.record("reference_copied", task=task.key, project=task.project.name,
+                              repos=[repo for repo, _ in copied], paths=sum(len(p) for _, p in copied))
+        self._note_reference(task, notes)
+        if not copied:
+            if folder is not None:
+                self.runner.remove_reference_folder(task.project, folder)
+            return None, None
+        return folder, reference.prompt_section(folder, copied)
+
     def _spec(self, task):
         """The Solution, Decisions and Reference of the spec the task names, read from Kandu's copy alone, for its
         agents' prompts; None when the task names no spec. A named spec the copy cannot give is recorded and the
@@ -506,16 +575,18 @@ class Supervisor:
             cwd = self._worktree(task, self.github.default_branch(task.repo))
         note = queen.note_for(queen.all_events(self.store), task.key)
         blockers = open_blockers(self.github, task.repo, self.github.issue_text(task.repo, task.number))
-        prompt = agents.worker_prompt(task.project, task.repo, task.number, task.branch, run_id,
-                                      findings=findings, pr=pr, local_dir=self.local_dir,
-                                      queen_note=note, tokens=task.tokens, open_blockers=blockers, order=order,
-                                      copy=self._copy(task.project), spec=self._spec(task))
         project = task.project
         tokens = (project.secrets_from, list(project.task_tokens)) if task.tokens else None
-        tools = agents.worker_tools(project, task.branch, self._rules("worker"), self._remote(project))
-        result = self._agent(task, "worker", cwd, prompt, tools, run_id, tokens, agents.WORKER_SCHEMA)
-        read = agents.parse_worker_reply if pr is not None else agents.parse_first_reply
-        return self._reply(task, "worker", cwd, tools, result, read, tokens, agents.WORKER_SCHEMA)
+        with self._reference(task) as (folder, copied):
+            prompt = agents.worker_prompt(task.project, task.repo, task.number, task.branch, run_id,
+                                          findings=findings, pr=pr, local_dir=self.local_dir,
+                                          queen_note=note, tokens=task.tokens, open_blockers=blockers, order=order,
+                                          copy=self._copy(task.project), reference=copied,
+                                          spec=self._spec(task))
+            tools = agents.worker_tools(project, task.branch, self._rules("worker"), self._remote(project), folder)
+            result = self._agent(task, "worker", cwd, prompt, tools, run_id, tokens, agents.WORKER_SCHEMA)
+            read = agents.parse_worker_reply if pr is not None else agents.parse_first_reply
+            return self._reply(task, "worker", cwd, tools, result, read, tokens, agents.WORKER_SCHEMA)
 
     def _open_pr(self, task, reply):
         """Kandu opens the PR, from the task's own branch into the default one, with the worker's title and
@@ -629,33 +700,33 @@ class Supervisor:
         language = self.config.settings.language
         run_id = new_run_id(self.now())
         cwd = self.runner.prepare_review(task.project, task.repo, task.branch, head)
-        if to_fix:
-            prompt = agents.second_review_prompt(task.repo, task.number, pr["number"], head, language, to_fix,
-                                                 self.github.default_branch(task.repo), self._copy(task.project),
-                                                 self._spec(task))
-        else:
-            criteria = sizing.criteria_list(self.github.issue_text(task.repo, task.number)["body"])
-            first_n = 1 + max((f["n"] for r in reviews for f in r["open"]), default=0)
-            companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
-            prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head, language,
-                                            companions, criteria, first_n, self.github.default_branch(task.repo),
-                                            local_dir=self.local_dir, copy=self._copy(task.project),
-                                            spec=self._spec(task))
-        tools = agents.reviewer_tools(task.project, self._rules("reviewer"), self._remote(task.project))
-        result = self._agent(task, "reviewer", cwd, prompt, tools, run_id, schema=review.REPORT_SCHEMA)
-
         stale = []
 
         def read(text):
             report = review.parse_report(text)
             stale[:] = review.validate_report(report, to_fix, second=bool(to_fix))
             return report
-        try:
-            report = self._reply(task, "reviewer", cwd, tools, result, read, schema=review.REPORT_SCHEMA)
-            dropped = (review.carry_over(report, reviews[-1], to_fix) if to_fix else
-                       review.hold_to_scope(report, criteria, [f["path"] for f in pr["files"]]))
-        except review.ReportError as e:
-            raise KanduTrouble(f"reviewer run {run_id}: {e}") from e
+        with self._reference(task) as (folder, copied):
+            if to_fix:
+                prompt = agents.second_review_prompt(task.repo, task.number, pr["number"], head, language, to_fix,
+                                                     self.github.default_branch(task.repo), self._copy(task.project),
+                                                     reference=copied, spec=self._spec(task))
+            else:
+                criteria = sizing.criteria_list(self.github.issue_text(task.repo, task.number)["body"])
+                first_n = 1 + max((f["n"] for r in reviews for f in r["open"]), default=0)
+                companions = self.github.companions(task.repo, pr, self._family_repos(task.project))
+                prompt = agents.reviewer_prompt(task.project, task.repo, task.number, pr["number"], head, language,
+                                                companions, criteria, first_n, self.github.default_branch(task.repo),
+                                                local_dir=self.local_dir, copy=self._copy(task.project),
+                                                reference=copied, spec=self._spec(task))
+            tools = agents.reviewer_tools(task.project, self._rules("reviewer"), self._remote(task.project), folder)
+            result = self._agent(task, "reviewer", cwd, prompt, tools, run_id, schema=review.REPORT_SCHEMA)
+            try:
+                report = self._reply(task, "reviewer", cwd, tools, result, read, schema=review.REPORT_SCHEMA)
+                dropped = (review.carry_over(report, reviews[-1], to_fix) if to_fix else
+                           review.hold_to_scope(report, criteria, [f["path"] for f in pr["files"]]))
+            except review.ReportError as e:
+                raise KanduTrouble(f"reviewer run {run_id}: {e}") from e
         if report["head_sha"] != head:
             self._decide(task, "review_voided", "the head moved during the review")
             return

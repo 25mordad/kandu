@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, queen, questions, remove, rename, review, sessions, split,
                tasks, timer, tries, upstream, version, waits)
 from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, PROJECT_MODEL_ROLES, REGISTRY_SETTINGS,
-                     TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_run_tmp, set_inspect, set_limits, set_pace,
+                     TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_reference_copy, set_run_tmp, set_inspect, set_limits, set_pace,
                      set_default_look, set_notify_events, set_parallel, set_project_values, set_show_requests,
                      set_telegram_buttons)
 from .github import AGENT_LABEL, GitHubError, task_blockers
@@ -363,6 +363,7 @@ class Api:
             "default_look": self.config.settings.dashboard.look,
             "looks": list(LOOKS),
             "clean_merged": self.config.settings.supervisor.clean_merged,
+            "reference_copy": self.config.settings.supervisor.reference_copy,
             "upstream": self._upstream(),
             "version_badge": self.releases.status(self.store, self.config.settings.upstream),
             "upgrade": self.releases.upgrade(self.store, self.config.settings.upstream),
@@ -1156,6 +1157,19 @@ class Api:
         self.store.record("drop_blockers_changed", enabled=enabled == "true")
         return {"drop_blockers": enabled == "true"}
 
+    def change_reference_copy(self, query):
+        """Turns the read-only copy of a task's reference on or off, through the config. The next run uses it."""
+        enabled = query.get("enabled", [""])[0]
+        if enabled not in ("true", "false"):
+            raise ApiError(400, "give enabled=true or enabled=false")
+        try:
+            set_reference_copy(enabled == "true", self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        self.config.settings.supervisor.reference_copy = enabled == "true"
+        self.store.record("reference_copy_changed", enabled=enabled == "true")
+        return {"reference_copy": enabled == "true"}
+
     def change_clean_merged(self, query):
         """Turns the cleanup after a merge on or off, through the config. The next cycle uses it."""
         enabled = query.get("enabled", [""])[0]
@@ -1514,6 +1528,7 @@ ROUTES = [
     ("GET", "/splits/{owner}/{repo}/{number}", Api.split),
     ("POST", "/splits/{owner}/{repo}/{number}/approve", Api.approve_split),
     ("POST", "/drop-blockers", Api.change_drop_blockers),
+    ("POST", "/reference-copy", Api.change_reference_copy),
     ("POST", "/notify", Api.change_notify),
     ("POST", "/telegram/token", Api.telegram_token),
     ("POST", "/telegram/chat", Api.telegram_chat),

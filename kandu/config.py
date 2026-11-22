@@ -127,6 +127,9 @@ class Supervisor:
     queen_drop_blockers: bool = False   # she may ask the user to drop a blocker; off until the user turns it on
     # A merged task's folders and branches go: on by default, as the user chose, and off from the dashboard.
     clean_merged: bool = True
+    # A task's `Reference` into another registered project's repo reaches its runs as a read-only copy of the named
+    # paths (DESIGN §9). Off until the user turns it on.
+    reference_copy: bool = False
 
 
 @dataclass
@@ -779,6 +782,16 @@ def set_drop_blockers(enabled, local_dir=DEFAULT_LOCAL_DIR):
                           {"queen_drop_blockers": "true" if enabled else "false"})
     if ((yaml.safe_load(text) or {}).get("supervisor") or {}).get("queen_drop_blockers") is not enabled:
         raise ConfigError(["supervisor.queen_drop_blockers: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
+def set_reference_copy(enabled, local_dir=DEFAULT_LOCAL_DIR):
+    """Turns the read-only copy of a task's reference on or off, in `kandu.yaml`'s `supervisor` block."""
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_top_block(path.read_text(encoding="utf-8"), "supervisor",
+                          {"reference_copy": "true" if enabled else "false"})
+    if ((yaml.safe_load(text) or {}).get("supervisor") or {}).get("reference_copy") is not enabled:
+        raise ConfigError(["supervisor.reference_copy: could not be written; change it in kandu.yaml by hand"])
     _replace_file(path, text)
 
 
