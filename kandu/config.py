@@ -38,6 +38,10 @@ NOTIFY_LANGUAGES = ("en", "fa")
 # A run temporary folder's parent: absolute or under ~, with no `..` and no space, and never the root or ~ itself.
 RUN_TMP_DIR = re.compile(r"(/|~/)[\w.@+/-]*[\w@+-][\w.@+/-]*")
 LOOKS = ("classic", "classic-new", "clean")  # the dashboard's looks: Classic, Classic new and Kandu Clean
+# The refining way (GLOSSARY): how a request becomes tasks in this install. `rounds` is `/kandu-task`'s own rounds;
+# `grilling` is `/kandu-grill-with-docs`, then `/kandu-to-issue`.
+ROUNDS, GRILLING = "rounds", "grilling"
+REFINING_WAYS = (ROUNDS, GRILLING)
 
 
 class ConfigError(Exception):
@@ -164,6 +168,13 @@ class Upstream:
 
 
 @dataclass
+class Refining:
+    """The install's refining way (DESIGN §13): one for every project, read by Didban, `/kandu-task` and the
+    terminal, and held in code by `kandu.tasks`."""
+    way: str = ROUNDS
+
+
+@dataclass
 class Rules:
     allow: list[str] = field(default_factory=list)
     deny: list[str] = field(default_factory=list)
@@ -278,6 +289,7 @@ class Settings:
     bazras: BazrasSettings = field(default_factory=BazrasSettings)
     backup: Backup = field(default_factory=Backup)
     upstream: Upstream = field(default_factory=Upstream)
+    refining: Refining = field(default_factory=Refining)
 
 
 @dataclass
@@ -446,6 +458,7 @@ def _check_settings(s, problems):
     if not 1 <= s.dashboard.port <= 65535:
         problems.append(f"dashboard.port: must be between 1 and 65535, got {s.dashboard.port}")
     _check_one_of(s.dashboard.look, LOOKS, "dashboard.look", problems)
+    _check_one_of(s.refining.way, REFINING_WAYS, "refining.way", problems)
 
 
 def _check_run_tmp(enabled, folder, where, problems):
@@ -868,6 +881,20 @@ def set_default_look(look, local_dir=DEFAULT_LOCAL_DIR):
     _replace_file(path, text)
 
 
+def set_refining_way(way, local_dir=DEFAULT_LOCAL_DIR):
+    """Sets the install's refining way in `kandu.yaml`'s `refining` block, line by line. Nothing is written if it is
+    not one of REFINING_WAYS."""
+    problems = []
+    _check_one_of(way, REFINING_WAYS, "refining.way", problems)
+    if problems:
+        raise ConfigError(problems)
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_top_block(path.read_text(encoding="utf-8"), "refining", {"way": way})
+    if ((yaml.safe_load(text) or {}).get("refining") or {}).get("way") != way:
+        raise ConfigError(["refining.way: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
 # What the dashboard's settings tab changes in a project's entry, and the kind of each value. The next cycle uses them.
 REGISTRY_SETTINGS = {"priority": int, "daily_token_limit": int, "auto_merge": bool, "frozen": bool, "multi_user": bool}
 # The supervisor's pace in `kandu.yaml`. A new wake interval reaches the timer on "Restart Kandu".
@@ -1091,6 +1118,8 @@ def load_didban(local_dir=DEFAULT_LOCAL_DIR):
 def main():
     parser = argparse.ArgumentParser(description="Validate Kandu's config.")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
+    parser.add_argument("--refining-way", action="store_true",
+                        help="print the install's refining way, rounds or grilling, and nothing else")
     args = parser.parse_args()
     try:
         config = load_config(args.local)
@@ -1099,6 +1128,9 @@ def main():
         for problem in e.problems:
             print(f"  - {problem}", file=sys.stderr)
         return 1
+    if args.refining_way:
+        print(config.settings.refining.way)
+        return 0
     print(f"config ok: {len(config.settings.machines)} machine(s), {len(config.projects)} project(s)")
     return 0
 

@@ -579,7 +579,7 @@ class CommandsTest(unittest.TestCase):
     def test_setup_and_add_ask_every_question_of_the_design(self):
         setup = (COMMANDS / "kandu-setup.md").read_text(encoding="utf-8")
         add = (COMMANDS / "kandu-add.md").read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"^   \d+\. ", setup, re.MULTILINE)), 17)
+        self.assertEqual(len(re.findall(r"^   \d+\. ", setup, re.MULTILINE)), 18)
         self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 22)
         self.assertIn("own model for any role (`models`)", add)
 

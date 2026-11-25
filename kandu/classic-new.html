@@ -1097,6 +1097,10 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "notify_upstream": "Upstream check",
   "notify_upstream_hint": "How far main is behind or ahead of its upstream changed, or the check started failing.",
   "default_look_classic-new": "Classic new",
+  "refining_way": "Refining way",
+  "refining_way_hint": "How a request becomes tasks, for every project. Rounds: /kandu-task refines it with you in rounds. Grilling: /kandu-grill-with-docs asks every open decision at once, then /kandu-to-issue makes a spec and its tasks.",
+  "refining_way_rounds": "Rounds",
+  "refining_way_grilling": "Grilling",
   "other_language_short": "فا",
   "h_didban": "Didban",
   "h_zanbourdar": "Zanbourdar",
@@ -1651,6 +1655,10 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "notify_upstream": "بررسی upstream",
   "notify_upstream_hint": "فاصله‌ی main تا upstream آن، عقب یا جلو، عوض شد، یا بررسی شروع به شکست کرد.",
   "default_look_classic-new": "کلاسیک نو",
+  "refining_way": "شیوه‌ی پالایش",
+  "refining_way_hint": "اینکه یک درخواست چطور به تسک تبدیل می‌شود، برای همه‌ی پروژه‌ها. دور به دور: ‎/kandu-task‎ آن را دور به دور با شما پالایش می‌کند. بازجویی: ‎/kandu-grill-with-docs‎ همه‌ی تصمیم‌های باز را یک‌جا می‌پرسد، بعد ‎/kandu-to-issue‎ یک مشخصات و تسک‌هایش را می‌سازد.",
+  "refining_way_rounds": "دور به دور",
+  "refining_way_grilling": "بازجویی",
   "other_language_short": "EN",
   "h_didban": "دیدبان",
   "h_zanbourdar": "زنبوردار",
@@ -1961,6 +1969,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "clean_kept": "بعد از ادغام نگه داشته شد",
   "clean_finished": "پاک‌سازی بعد از ادغام تمام شد",
   "reference_copy_changed": "نسخه‌ی فقط‌خواندنیِ مرجع روشن یا خاموش شد",
+  "refining_way_changed": "شیوه‌ی پالایش عوض شد",
   "reference_copied": "به اجرا نسخه‌ی فقط‌خواندنیِ مرجع داده شد",
   "reference_note": "مرجع کپی نشد (یادداشت روی تسک)",
   "clean_merged_changed": "پاک‌سازی بعد از ادغام روشن یا خاموش شد",
@@ -3177,7 +3186,7 @@ async function saveTelegram(button) {
 function renderSettings(s) {
   if (tab !== "settings") return;
   const rows = s.project_settings || [];
-  const key = JSON.stringify([lang, rows, s.clean_merged, s.reference_copy, s.default_look, s.pace, s.parallel?.total, s.machines]);
+  const key = JSON.stringify([lang, rows, s.clean_merged, s.reference_copy, s.default_look, s.refining_way, s.pace, s.parallel?.total, s.machines]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
   const name = p => encodeURIComponent(p.name);
@@ -3200,7 +3209,7 @@ function renderSettings(s) {
     ${pace.max_cycle_minutes ? `<div class="pace-row"><span>${t("pace_cycle")}</span>${stepper(pace.max_cycle_minutes, "/pace?max_cycle_minutes={n}", t("pace_cycle"), 5)}</div>` : ""}
 `;
   $("cleanmerged").innerHTML = `<label title="${esc(t("clean_merged_hint"))}"><input type="checkbox" data-clean-merged${s.clean_merged ? " checked" : ""}> ${t("clean_merged")}</label><label title="${esc(t("reference_copy_hint"))}"><input type="checkbox" data-reference-copy${s.reference_copy ? " checked" : ""}> ${t("switch_reference_copy")}</label>`;
-  $("defaultlook").innerHTML = defaultLookHtml(s.default_look);
+  $("defaultlook").innerHTML = defaultLookHtml(s.default_look) + refiningWayHtml(s.refining_way);
   $("runtmpsettings").innerHTML = runTmpCard(s.machines || []);
   const heads = ["setting_pause", "setting_workers", "setting_priority", "setting_tokens", "setting_auto_merge", "setting_frozen", "set_multi_user", "queen_accepts_splits", "queen_answers_one_way", "set_watch_main"];
   $("projectsettings").innerHTML = `<table class="rows"><thead><tr><th>${t("project")}</th>${heads.map(h => `<th class="fit" title="${esc(t(HEAD_HINTS[h] || h))}">${t(h)}</th>`).join("")}<th class="fit"></th></tr></thead><tbody>${body}</tbody></table>`;
@@ -3388,6 +3397,18 @@ function defaultLookHtml(look) {
 async function changeDefaultLook(select) {
   renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
   if (!await act(select, `/default-look?look=${encodeURIComponent(select.value)}`)) refreshState().catch(() => {});
+}
+
+// The install's refining way (DESIGN §13): how a request becomes tasks, for every project. Saved in the config at once.
+function refiningWayHtml(way) {
+  if (!way) return "";
+  const option = value => `<option value="${value}"${way === value ? " selected" : ""}>${t(`refining_way_${value}`)}</option>`;
+  return `<label title="${esc(t("refining_way_hint"))}">${t("refining_way")} <select data-refining-way aria-label="${esc(t("refining_way"))}">${option("rounds")}${option("grilling")}</select></label>`;
+}
+
+async function changeRefiningWay(select) {
+  renderSettings.key = null;  // Whatever the answer, the next state draws what the server kept.
+  if (!await act(select, `/refining-way?way=${encodeURIComponent(select.value)}`)) refreshState().catch(() => {});
 }
 
 async function changeCleanMerged(box) {
@@ -4019,6 +4040,7 @@ document.addEventListener("change", e => {
   if (e.target.matches?.("[data-clean-merged]")) changeCleanMerged(e.target);
   if (e.target.matches?.("[data-reference-copy]")) changeReferenceCopy(e.target);
   if (e.target.matches?.("[data-default-look]")) changeDefaultLook(e.target);
+  if (e.target.matches?.("[data-refining-way]")) changeRefiningWay(e.target);
 });
 document.addEventListener("toggle", e => {
   const asked = e.target.dataset?.request;

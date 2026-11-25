@@ -1134,6 +1134,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "notify_upstream": "Upstream check",
   "notify_upstream_hint": "How far main is behind or ahead of its upstream changed, or the check started failing.",
   "default_look_classic-new": "Classic new",
+  "refining_way": "Refining way",
+  "refining_way_hint": "How a request becomes tasks, for every project. Rounds: /kandu-task refines it with you in rounds. Grilling: /kandu-grill-with-docs asks every open decision at once, then /kandu-to-issue makes a spec and its tasks.",
+  "refining_way_rounds": "Rounds",
+  "refining_way_grilling": "Grilling",
   "pace_title": "Kandu's pace",
   "pace_workers": "Workers at once, in all of Kandu",
   "pace_wake": "Wakes every (minutes)",
@@ -1721,6 +1725,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "notify_upstream": "بررسی upstream",
   "notify_upstream_hint": "فاصله‌ی main تا upstream آن، عقب یا جلو، عوض شد، یا بررسی شروع به شکست کرد.",
   "default_look_classic-new": "کلاسیک نو",
+  "refining_way": "شیوه‌ی پالایش",
+  "refining_way_hint": "اینکه یک درخواست چطور به تسک تبدیل می‌شود، برای همه‌ی پروژه‌ها. دور به دور: ‎/kandu-task‎ آن را دور به دور با شما پالایش می‌کند. بازجویی: ‎/kandu-grill-with-docs‎ همه‌ی تصمیم‌های باز را یک‌جا می‌پرسد، بعد ‎/kandu-to-issue‎ یک مشخصات و تسک‌هایش را می‌سازد.",
+  "refining_way_rounds": "دور به دور",
+  "refining_way_grilling": "بازجویی",
   "pace_title": "آهنگ کار کندو",
   "pace_workers": "کارگرهای هم‌زمان در کل کندو",
   "pace_wake": "بیدار شدن هر (دقیقه)",
@@ -1979,6 +1987,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "blocker_dropped": "مانع با تأیید تو برداشته شد",
   "drop_blockers_changed": "پرسیدن ملکه درباره‌ی مانع‌ها روشن یا خاموش شد",
   "reference_copy_changed": "نسخه‌ی فقط‌خواندنیِ مرجع روشن یا خاموش شد",
+  "refining_way_changed": "شیوه‌ی پالایش عوض شد",
   "reference_copied": "به اجرا نسخه‌ی فقط‌خواندنیِ مرجع داده شد",
   "reference_note": "مرجع کپی نشد (یادداشت روی تسک)",
   "notify_changed": "اعلان‌های تلگرام عوض شد",
@@ -3549,7 +3558,7 @@ function renderSettings(s) {
   if (tab !== "settings") return;
   const projects = settingsProjects(s, lastQueue);
   const key = JSON.stringify([lang, projects, s.project_settings, s.limits, s.machines, s.clean_merged, s.drop_blockers, s.reference_copy,
-                              s.show_requests, s.default_look, s.backup, s.pace, s.parallel?.total, s.notify]);
+                              s.show_requests, s.default_look, s.refining_way, s.backup, s.pace, s.parallel?.total, s.notify]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
   $("projectsettings").innerHTML = settingsProjectsHtml(projects);
@@ -3779,6 +3788,12 @@ function switchRow(label, on, path, hint = "") {
 }
 
 // The install's default look: a press on the other look saves it in the config at once.
+// The install's refining way (DESIGN §13): how a request becomes tasks, for every project. Saved in the config at once.
+function refiningWayHtml(way) {
+  const choice = value => `<button type="button" data-switch="/refining-way?way=${value}" aria-pressed="${way === value}">${t(`refining_way_${value}`)}</button>`;
+  return `<div class="side-row" title="${esc(t("refining_way_hint"))}"><span class="side-label">${t("refining_way")}</span><div class="seg" role="group" aria-label="${esc(t("refining_way"))}">${choice("rounds")}${choice("grilling")}</div></div>`;
+}
+
 function defaultLookHtml(look) {
   const choice = value => `<button type="button" data-switch="/default-look?look=${value}" aria-pressed="${look === value}">${t(`default_look_${value}`)}</button>`;
   return `<div class="side-row" title="${esc(t("default_look_hint"))}"><span class="side-label">${t("default_look")}</span><div class="seg" role="group" aria-label="${esc(t("default_look"))}">${choice("classic")}${choice("clean")}</div></div>`;
@@ -3866,7 +3881,7 @@ function kanduHtml(s) {
     <button type="button" class="textbtn" data-backup>${t("change")}</button></div>` : "";
   const paceRow = (label, value, path, step) => value ? `<div class="side-row"><span class="side-label">${t(label)}</span>${stepper(value, path, t(label), step)}</div>` : "";
   return `<div class="side-head"><b>${t("kandu_itself")}</b></div>
-    ${flag(s.clean_merged, "clean_merged", "/clean-merged", "clean_merged_hint")}${flag(s.drop_blockers, "switch_drop_blockers", "/drop-blockers")}${flag(s.reference_copy, "switch_reference_copy", "/reference-copy", "reference_copy_hint")}${flag(s.show_requests, "switch_requests", "/requests")}${s.default_look ? defaultLookHtml(s.default_look) : ""}${backup}
+    ${flag(s.clean_merged, "clean_merged", "/clean-merged", "clean_merged_hint")}${flag(s.drop_blockers, "switch_drop_blockers", "/drop-blockers")}${flag(s.reference_copy, "switch_reference_copy", "/reference-copy", "reference_copy_hint")}${flag(s.show_requests, "switch_requests", "/requests")}${s.default_look ? defaultLookHtml(s.default_look) : ""}${s.refining_way ? refiningWayHtml(s.refining_way) : ""}${backup}
     ${paceRow("pace_workers", s.parallel?.total, "/parallel?total={n}", 1)}${paceRow("pace_wake", pace.wake_every_minutes, "/pace?wake_every_minutes={n}", 5)}${paceRow("pace_cycle", pace.max_cycle_minutes, "/pace?max_cycle_minutes={n}", 5)}
     <div class="side-note">${t("pace_hint")}</div>`;
 }

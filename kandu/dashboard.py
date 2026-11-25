@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from . import (add, backup, base, bazras, clean, flights, ghlimit, ghmeter, mainred, merge, notify, queen, questions, remove,
                rename, review, sessions, split, tasks, timer, tries, upstream, version, waits)
 from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, PROJECT_MODEL_ROLES, REGISTRY_SETTINGS,
-                     TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_reference_copy, set_run_tmp, set_inspect, set_limits, set_pace,
+                     TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_reference_copy, set_refining_way, set_run_tmp, set_inspect, set_limits, set_pace,
                      set_default_look, set_notify_events, set_parallel, set_project_values, set_show_requests,
                      set_telegram_buttons)
 from .github import AGENT_LABEL, GitHubError, task_blockers
@@ -385,6 +385,7 @@ class Api:
             "notify": self._notify(),
             "show_requests": self.config.settings.dashboard.show_requests,
             "default_look": self.config.settings.dashboard.look,
+            "refining_way": self.config.settings.refining.way,
             "looks": list(LOOKS),
             "clean_merged": self.config.settings.supervisor.clean_merged,
             "reference_copy": self.config.settings.supervisor.reference_copy,
@@ -787,6 +788,17 @@ class Api:
             raise ApiError(400, e.problems[0]) from None
         self.config.settings.dashboard.look = look
         return {"default_look": look}
+
+    def change_refining_way(self, query):
+        """The install's refining way, rounds or grilling, in the config (DESIGN §13)."""
+        way = query.get("way", [""])[0]
+        try:
+            set_refining_way(way, self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        self.config.settings.refining.way = way
+        self.store.record("refining_way_changed", way=way)
+        return {"refining_way": way}
 
     def list_flights(self, query):
         return self.flights.list()
@@ -1580,6 +1592,7 @@ ROUTES = [
     ("GET", "/requests", Api.requests),
     ("POST", "/requests", Api.change_show_requests),
     ("POST", "/default-look", Api.change_default_look),
+    ("POST", "/refining-way", Api.change_refining_way),
     ("GET", "/bazras", Api.bazras_reports),
     ("GET", "/flights", Api.list_flights),
     ("POST", "/flights/didban", Api.open_didban),

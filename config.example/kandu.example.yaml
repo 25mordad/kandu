@@ -13,6 +13,9 @@ didban:                        # see DESIGN §13
       machine: server
       path: ~/notes
 
+refining:                       # optional; the refining way: how a request becomes tasks, for every project (DESIGN §13)
+  way: rounds                  # rounds (default) = /kandu-task refines in rounds with you; grilling = /kandu-grill-with-docs asks every open decision at once, then /kandu-to-issue makes a spec and its tasks. Also set in the dashboard
+
 machines:
   - name: server
     reach: local               # local = the machine Kandu runs on

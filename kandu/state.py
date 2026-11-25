@@ -103,6 +103,7 @@ EVENT_FIELDS = {
     "flight_left_open": TASK_FIELDS + ("session",),  # a task closed without a merge while its free flight is open
     "clean_merged_changed": ("enabled",),
     "reference_copy_changed": ("enabled",),
+    "refining_way_changed": ("way",),
     "reference_copied": TASK_FIELDS + ("repos", "paths"),   # a run was given a read-only copy of a reference
     "reference_note": TASK_FIELDS + ("note",),               # why a reference was not copied, said once on the task
     "run_tmp_changed": ("machine", "enabled", "folder"),

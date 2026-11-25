@@ -97,6 +97,7 @@ state/
 | `clean_merged_changed` | `enabled`: the user turned the cleanup after a merge on or off from the dashboard |
 | `run_tmp_changed` | `machine`, `enabled`, `folder`: the user turned a machine's run temporary folder on or off, or set its folder, from the dashboard |
 | `reference_copy_changed` | `enabled`: the user turned the read-only copy of a task's reference on or off from the dashboard |
+| `refining_way_changed` | `way`: the user set the install's refining way, `rounds` or `grilling`, from the dashboard |
 | `reference_copied` | task, project, `repos` (the repos copied), `paths` (how many): a run was given a read-only copy of a reference |
 | `reference_note` | task, project, `note`: why a reference was not, or not wholly, copied; also said once on the task's issue |
 | `parallel_changed` | `total` (or null), `projects`: name → number, for those changed |
