@@ -43,6 +43,8 @@ THREADS_QUERY = costed("""query($owner: String!, $name: String!, $number: Int!) 
 # GitHub's own "blocked by" relationships of an issue: `task_blockers` joins them with `## Blocked by`.
 BLOCKED_BY_NODE = "blockedBy(first: 50) { nodes { number repository { nameWithOwner } } }"
 SELECT_VALUE = "... on ProjectV2ItemFieldSingleSelectValue { name }"
+# A card's field on the board, with when it last changed: a queued change older than a move on GitHub is not sent.
+CARD_VALUE = "... on ProjectV2ItemFieldSingleSelectValue { name updatedAt }"
 # `fieldValueByName` is what keeps this at one point a page: `gh project item-list` costs 100.
 BOARD_QUERY = costed(f"""query($owner: String!, $number: Int!, $after: String) {{
   repositoryOwner(login: $owner) {{ ... on ProjectV2Owner {{ projectV2(number: $number) {{
@@ -52,11 +54,11 @@ BOARD_QUERY = costed(f"""query($owner: String!, $number: Int!, $after: String) {
     pageInfo {{ hasNextPage endCursor }}
     nodes {{
       id
-      status: fieldValueByName(name: "Status") {{ {SELECT_VALUE} }}
-      priority: fieldValueByName(name: "Priority") {{ {SELECT_VALUE} }}
-      kind: fieldValueByName(name: "Kind") {{ {SELECT_VALUE} }}
-      size: fieldValueByName(name: "Size") {{ {SELECT_VALUE} }}
-      deadline: fieldValueByName(name: "{DEADLINE_FIELD}") {{ ... on ProjectV2ItemFieldDateValue {{ date }} }}
+      status: fieldValueByName(name: "Status") {{ {CARD_VALUE} }}
+      priority: fieldValueByName(name: "Priority") {{ {CARD_VALUE} }}
+      kind: fieldValueByName(name: "Kind") {{ {CARD_VALUE} }}
+      size: fieldValueByName(name: "Size") {{ {CARD_VALUE} }}
+      deadline: fieldValueByName(name: "{DEADLINE_FIELD}") {{ ... on ProjectV2ItemFieldDateValue {{ date updatedAt }} }}
       content {{ ... on Issue {{ number title url body closedAt repository {{ nameWithOwner }} labels(first: 50) {{ nodes {{ name }} }} assignees(first: 20) {{ nodes {{ login }} }} {BLOCKED_BY_NODE} }} }}
     }}
   }} }} }} }}
@@ -106,6 +108,7 @@ CHANGE_QUERY = costed(f"""query($owner: String!, $name: String!, $number: Int!) 
       projectItems(first: 10) {{ nodes {{ kind: fieldValueByName(name: "Kind") {{ {SELECT_VALUE} }} }} }} }} }}
   }} }}
 }}""")
+CARD_ATTRIBUTES = ("status", "priority", "kind", "size", "deadline")  # as the board query names them
 REPO_ISSUE_LIMIT = 500
 OPEN_PR_LIMIT = 100
 CONTENT_QUERY = costed("query($url: URI!) { resource(url: $url) { ... on Issue { id } ... on PullRequest { id } } }")
@@ -143,6 +146,7 @@ class BoardItem:
     item_id: str = ""              # the card's own id on the board, which a write needs
     blocked_by: list = field(default_factory=list)  # GitHub's "blocked by" relationships: [{"repo", "number"}]
     assignees: list = field(default_factory=list)   # the GitHub logins the issue is assigned to
+    changed_at: dict = field(default_factory=dict)  # when GitHub last changed each field: {"status": ISO time, ...}
 
     @property
     def by_hand(self):
@@ -352,7 +356,9 @@ class GitHub:
                                        size=value("size"), deadline=value("deadline", "date"),
                                        closed_at=content.get("closedAt") or "", item_id=node.get("id", ""),
                                        blocked_by=_blocked_by(content),
-                                       assignees=[a["login"] for a in (content.get("assignees") or {}).get("nodes", [])]))
+                                       assignees=[a["login"] for a in (content.get("assignees") or {}).get("nodes", [])],
+                                       changed_at={name: node[name]["updatedAt"] for name in CARD_ATTRIBUTES
+                                                   if (node.get(name) or {}).get("updatedAt")}))
             if not page["pageInfo"]["hasNextPage"] or len(items) >= BOARD_ITEM_LIMIT:
                 return items, meta
             after = ["-f", f"after={page['pageInfo']['endCursor']}"]

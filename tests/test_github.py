@@ -185,8 +185,17 @@ class GitHubTest(unittest.TestCase):
             {"id": "F1", "name": "Status", "options": [{"id": "o1", "name": "Ready"}]}, {"id": "F2", "name": "Deadline"}, {}]}}
         items, meta = GitHub(FakeGh(page)).read_board(BOARD)
         self.assertEqual(items[0].item_id, "card-3")
+        self.assertEqual(items[0].changed_at, {})
         self.assertEqual(meta, {"project_id": "P1", "fields": {"Status": {"id": "F1", "options": {"Ready": "o1"}},
                                                                "Deadline": {"id": "F2", "options": {}}}})
+
+    def test_the_board_read_keeps_when_each_card_field_last_changed(self):
+        gh = FakeGh(board_page([{"id": "card-3", "content": ISSUE,
+                                 "status": {"name": "Ready", "updatedAt": "2026-11-20T16:53:48Z"},
+                                 "deadline": {"date": "2026-12-01", "updatedAt": "2026-11-19T08:00:00Z"}}]))
+        items, _ = GitHub(gh).read_board(BOARD)
+        self.assertIn("updatedAt", " ".join(gh.calls[0]))
+        self.assertEqual(items[0].changed_at, {"status": "2026-11-20T16:53:48Z", "deadline": "2026-11-19T08:00:00Z"})
 
     def test_the_board_read_keeps_each_cards_blocked_by_relationships(self):
         blocked = dict(ISSUE, blockedBy={"nodes": [{"number": 2, "repository": {"nameWithOwner": "o/r"}},

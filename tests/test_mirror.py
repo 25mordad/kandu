@@ -322,13 +322,52 @@ class MirrorTest(unittest.TestCase):
         self.mirror.send()
         self.assertEqual(len(self.remote.calls[-1][1]), 2)  # one request for both
 
-    def test_the_local_change_wins(self):
+    def test_the_local_change_wins_over_an_older_move_on_github(self):
         self.mirror.set_status(BOARD, URL, "Ready")
-        self.remote.items[0].status = "Done"  # changed on GitHub meanwhile
+        self.remote.items[0].status = "Done"  # moved on GitHub before the change was queued, after the last read
+        self.remote.items[0].changed_at = {"status": "1970-01-01T00:16:39Z"}
         self.mirror.refresh_board(BOARD)
         self.assertEqual(self.status(), "Ready")
         self.assertEqual(len(self.mirror.outbox()), 1)
         self.assertEqual(self.mirror.send(), (1, 0, 0))
+        self.assertEqual(self.dropped(), [])
+
+    def test_a_card_github_has_no_time_for_keeps_the_local_change(self):
+        self.mirror.set_status(BOARD, URL, "Ready")
+        self.remote.items[0].status = "Done"
+        self.mirror.refresh_board(BOARD)
+        self.assertEqual((self.status(), len(self.mirror.outbox())), ("Ready", 1))
+
+    def test_a_move_on_github_after_the_change_was_queued_wins(self):
+        # Seen twice: the owner moved a parked task to Ready by hand, and a task set to Done once its PR merged; each
+        # time a status queued earlier was sent over it.
+        self.mirror.set_status(BOARD, URL, "Ready")
+        self.remote.items[0].status = "Done"
+        self.remote.items[0].changed_at = {"status": "1970-01-01T00:16:56Z"}  # 16 seconds after it was queued
+        self.mirror.refresh_board(BOARD)
+        self.assertEqual((self.status(), self.mirror.outbox()), ("Done", []))
+        self.assertEqual(len(self.dropped()), 1)
+        self.assertEqual(self.mirror.send(), (0, 0, 0))
+        self.assertNotIn("edit_cards", self.names())
+
+    def test_a_move_on_github_drops_only_the_change_to_that_field(self):
+        self.mirror.set_status(BOARD, URL, "Ready")
+        self.mirror.set_field(BOARD, URL, "Size", "Small")
+        self.remote.items[0].status = "Done"
+        self.remote.items[0].changed_at = {"status": "1970-01-01T00:20:00Z"}
+        self.mirror.refresh_board(BOARD)
+        self.assertEqual([e["field"] for e in self.mirror.outbox()], ["Size"])
+
+    def test_kandus_own_change_on_github_is_the_start_of_its_next_one(self):
+        # GitHub's clock a little ahead of Kandu's must not make Kandu's next change look older than its last.
+        self.mirror.set_status(BOARD, URL, "Ready")
+        self.mirror.send()
+        self.remote.items[0].status = "Ready"
+        self.remote.items[0].changed_at = {"status": "1970-01-01T00:16:45Z"}
+        self.now += 1
+        self.mirror.set_status(BOARD, URL, "In progress")
+        self.mirror.refresh_board(BOARD)
+        self.assertEqual((self.status(), len(self.mirror.outbox())), ("In progress", 1))
         self.assertEqual(self.dropped(), [])
 
     def test_a_change_waiting_survives_a_read(self):
