@@ -613,6 +613,14 @@ class Runner:
                 return code
         return self.run_command(project, cwd, project.test, log_name)
 
+    def log_tail(self, log_name, lines):
+        """The last `lines` lines of the run `log_name`'s local log; empty if it has none."""
+        try:
+            text = (self.logs_dir / f"{log_name}.log").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+        return "\n".join(text.rstrip("\n").splitlines()[-lines:])
+
     def test_failures(self, log_name):
         """The names of the tests that failed in the run `log_name`, read from its local log; none if it names none."""
         try:

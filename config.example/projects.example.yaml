@@ -46,6 +46,8 @@ projects:
                                        # merges and new work, and open one fix task. The dashboard's switch wins
     multi_user: false                  # true: several people share this board, each with a Kandu of their own; this
                                        # install works only the tasks assigned to its github.account. Off: assignees do not matter
+    pr_test_output: ""                 # a team repo that wants the test run in each PR: "Local test output". Kandu fills that
+                                       # `## ` section of the PR body from its own run of `test` on the pushed branch. Empty: none
     priority: 1                        # 1 = highest
     max_parallel_workers: 2
     daily_token_limit: 2000000         # no new task starts past this; cache reads do not count

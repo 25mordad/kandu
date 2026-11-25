@@ -55,6 +55,7 @@ RETRYING = "GitHub refused the merge for a moment; Kandu tries it again by itsel
 WAITS_FOR_BLOCKER = "blocker {} is not merged yet"
 WAITS_FOR_TEST_RUN = waits.TEST_RUN_BUSY
 ROOT = Path(__file__).resolve().parent.parent
+PR_TEST_OUTPUT_LINES = 40  # the tail of the test run a `pr_test_output` section holds
 UNREAD_PR_BODY = ("The worker pushed this branch, but Kandu could not read its last message, so this description "
                   "is Kandu's. The review reads the code.")
 
@@ -622,7 +623,7 @@ class Supervisor:
     def _open_pr(self, task, reply):
         """Kandu opens the PR, from the task's own branch into the project's base branch, with the worker's title and
         description. A PR an earlier run left open on the branch gets the new description instead."""
-        body = agents.closing_body(reply["pr_body"], task.number)
+        body = self._with_test_output(task, agents.closing_body(reply["pr_body"], task.number))
         pr = self.github.find_pr(task.repo, task.number)
         if pr is not None and pr["state"] == "OPEN":
             self.github.edit_pr_body(task.repo, pr["number"], body)
@@ -648,9 +649,35 @@ class Supervisor:
         round: its commits are pushed, and it is judged by them."""
         if reply is not None and reply.get("status") == "pushed" and reply.get("pr_body"):
             try:
-                self.github.edit_pr_body(task.repo, pr["number"], agents.closing_body(reply["pr_body"], task.number))
+                body = self._with_test_output(task, agents.closing_body(reply["pr_body"], task.number))
+                self.github.edit_pr_body(task.repo, pr["number"], body)
             except GitHubError as e:
                 self._decide(task, "pr_body_not_edited", str(e))
+
+    def _with_test_output(self, task, body):
+        """With the project's `pr_test_output`, the PR body's section of that name holds the tail of Kandu's own run of
+        the project's `test` on the pushed branch, in place of what the worker wrote there (DESIGN §4). A team repo's
+        gate may close a PR without it. On a public repo a line with a private word is left out."""
+        heading = task.project.pr_test_output
+        if not heading:
+            return body
+        log = new_run_id(self.now())
+        try:
+            with self._test_locks[task.project.name]:  # one test run at a time per project, as the merge gate's
+                cwd = self.runner.prepare_review(task.project, task.repo, task.branch, f"origin/{task.branch}")
+                code = self.runner.run_test(task.project, cwd, log)
+        except RunnerError as e:
+            self._decide(task, "pr_test_output_not_run", str(e))
+            return tasks.with_section(body, heading, f"Kandu could not run `{task.project.test}` on this branch: {e}")
+        lines = self.runner.log_tail(log, PR_TEST_OUTPUT_LINES).splitlines()
+        if self.github.repo_is_public(task.repo):
+            words = [w.lower() for w in tasks.private_words(self.local_dir)]
+            lines = [l for l in lines if not any(w in l.lower() for w in words)]
+        tail = "\n".join(l for l in lines if not l.lstrip().startswith("```")) or "(no output)"
+        result = "passed" if code == 0 else f"failed with exit code {code}"
+        self.store.record("pr_test_output", task=task.key, project=task.project.name, code=code)
+        return tasks.with_section(body, heading, f"`{task.project.test}` on this branch {result}; the last lines:\n\n"
+                                               f"```\n{tail}\n```")
 
     def _pushed_unopened(self, task):
         """The reply of a first run whose worker pushed but whose PR was not opened yet, or None. A cycle that GitHub

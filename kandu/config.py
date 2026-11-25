@@ -268,6 +268,9 @@ class Project:
     watch_main: bool = False         # test `main` when a PR's tests fail; two failures on one commit hold the project
     multi_user: bool = False         # several people share the board, each with a Kandu of their own: this install
                                      # sees only the cards assigned to its `github.account`; off, assignees do not matter
+    # A team repo's own rule on PRs (DESIGN §4): the heading of a PR body section Kandu fills with the tail of its own run of `test` on the pushed branch, such as
+    # "Local test output"; the worker's own text there is replaced. Empty: none.
+    pr_test_output: str = ""
     allowed_tools: list[str] = field(default_factory=list)   # added to the worker's and live check's rules, if they have any
     reports: list[str] = field(default_factory=list)   # files on its machine that `kandu.brief show` reads, read-only
     models: dict[str, str] = field(default_factory=dict)   # role -> model for this project; a role not named here
@@ -511,6 +514,9 @@ def _check_projects(projects, s, problems):
                                 "so they must all be multi_user or none")
         elif p.multi_user:
             problems.append(f"{where}.multi_user: needs a board")
+        if p.pr_test_output != p.pr_test_output.strip() or "\n" in p.pr_test_output or p.pr_test_output.startswith("#"):
+            problems.append(f"{where}.pr_test_output: must be a heading's words on one line, without '#', "
+                            f"got {p.pr_test_output!r}")
         _check_one_of(p.run, RUN_MODES, f"{where}.run", problems)
         if p.base_branch and not GIT_NAME.fullmatch(p.base_branch):
             problems.append(f"{where}.base_branch: not a branch name: {p.base_branch!r}")

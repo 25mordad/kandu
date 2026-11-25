@@ -96,6 +96,7 @@ state/
 | `requests_shown_changed` | `enabled`: the user showed the open requests on the dashboard, or hid them |
 | `clean_merged_changed` | `enabled`: the user turned the cleanup after a merge on or off from the dashboard |
 | `run_tmp_changed` | `machine`, `enabled`, `folder`: the user turned a machine's run temporary folder on or off, or set its folder, from the dashboard |
+| `pr_test_output` | `code`: Kandu ran the project's `test` on the pushed branch and wrote the PR body's `pr_test_output` section; the run's exit code |
 | `reference_copy_changed` | `enabled`: the user turned the read-only copy of a task's reference on or off from the dashboard |
 | `refining_way_changed` | `way`: the user set the install's refining way, `rounds` or `grilling`, from the dashboard |
 | `reference_copied` | task, project, `repos` (the repos copied), `paths` (how many): a run was given a read-only copy of a reference |

@@ -218,6 +218,9 @@ def _project_facts(project):
         facts.append(f"- Forbidden areas: {', '.join(project.forbidden)}")
     if project.repo_rules:
         facts.append(f"- Repo rules: {project.repo_rules}")
+    if project.pr_test_output:
+        facts.append(f"- Kandu writes the PR body's `## {project.pr_test_output}` section from its own test run on the "
+                     "pushed branch: leave it out of `pr_body`.")
     return facts
 
 
