@@ -1,6 +1,6 @@
 // Opens the Classic look in a real headless browser, as a user would, and clicks a task where it shows: a flower on
 // the meadow and a row on the Work page. Each click should open the Kandu Clean look's task sheet over the same page,
-// with what the Classic look showed besides. Prints what each step shows as JSON.
+// with what the Classic look showed. Prints what each step shows as JSON.
 // Usage: node drive_classic_sheet.js <browser> <dashboard url> <empty profile folder> <shots folder or ""> <cases as JSON>
 // A case is {lang, width, height, mobile}. It talks to the browser over the DevTools protocol, with no library.
 const {spawn} = require("child_process");

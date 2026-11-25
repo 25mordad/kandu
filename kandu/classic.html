@@ -3319,11 +3319,11 @@ function roundBox(round, open) {
 }
 
 function doneBox(info) {
-  const counted = tokens => tokens.total - tokens.cache_read;  // As the daily limit counts them.
+  const counted = tokens => tokens.total - tokens.cache_read;  // as the daily limit counts them
   const minutes = ms => `${num(Math.max(1, Math.round(ms / 60000)))} ${t("minutes")}`;
   const roles = Object.entries(info.cost.roles).map(([role, used]) => `<tr><td>${esc(tr(role))}</td><td class="fit number">${num(used.runs)}</td><td class="fit number">${minutes(used.duration_ms)}</td><td class="fit number">${num(counted(used.tokens))}</td></tr>`).join("");
-  return `${info.issue ? `<div class="slice-body" dir="auto">${esc(info.issue.body)}</div>` : ""}
-    <div class="chips">${info.outcome ? `<span class="chip">${esc(tr(info.outcome))}</span>` : ""}<span class="chip">${t("cost_tokens")}: ${num(counted(info.cost.total))}</span><span class="chip">${t("cost_cached")}: ${num(info.cost.total.cache_read)}</span></div>
+  return `${info.issue?.body ? `<div class="slice-body" dir="auto">${esc(info.issue.body)}</div>` : ""}
+    <div class="chips"><span class="chip">${t("cost_cached")}: ${num(info.cost.total.cache_read)}</span></div>
     ${roles ? `<table class="rows"><thead><tr><th>${t("cost_role")}</th><th class="fit">${t("cost_runs")}</th><th class="fit">${t("cost_time")}</th><th class="fit">${t("tokens")}</th></tr></thead><tbody>${roles}</tbody></table>` : `<p class="muted">${t("cost_none")}</p>`}`;
 }
 
@@ -3408,8 +3408,6 @@ async function toQueen(button) {
   if (await act(button, `/tasks/${repo}/${number}/to-queen`)) { toast(t("to_queen_done")); await refreshQueue(lastState, true).catch(() => {}); }
   showTask(button.dataset.toQueen);
 }
-
-const yoursChip = (task, item) => item?.yours || lastState?.flowers?.[task]?.yours ? `<span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : "";
 
 // What a by-hand task is and how the user does it, with its goal and criteria from the copy, read-only.
 function byHandBox(item) {
@@ -3555,7 +3553,7 @@ function sheetView(task, s, queue, {review, info, proposal}) {
                   run: worker?.run_id || steps.filter(e => e.run_id).at(-1)?.run_id || null},
           what: goal, question: (s.queen?.questions || []).find(q => q.task === task)?.question || null,
           drop: (s.queen?.drops || []).find(d => d.task === task) || null,
-          steps: steps.map(stepOf), wait: wait || null, language: s.language};
+          steps: steps.map(stepOf), wait: wait || null, language: s.language, yours: Boolean(item?.yours || s.flowers?.[task]?.yours)};
 }
 
 function sheetBody(v) {
@@ -3569,10 +3567,16 @@ function sheetBody(v) {
   const slices = v.proposal ? `<div class="sheet-box"><div class="sheet-box-head">${t("proposed_slices")}</div><div dir="auto">${esc(own?.reason || v.proposal.reason)}</div>
     ${v.proposal.slices.map((slice, i) => `<details class="round"><summary>${num(i + 1)}. <span dir="auto">${esc(own?.slices[i].title || slice.title)}</span></summary><div class="round-body">
     <div class="chips"><span class="chip">${esc(tr(slice.size))}</span><span class="chip">${num(slice.files)} ${t("files_touched")}</span><span class="chip">${esc(tr(slice.door))}</span></div>
-    <div class="slice-body" dir="auto">${esc(own?.slices[i].body || slice.body)}</div></div></details>`).join("")}<p class="muted">${t("split_decline_hint")}</p></div>` : "";
+    <div class="slice-body" dir="auto">${esc(own?.slices[i].body || slice.body)}</div></div></details>`).join("")}
+    ${own ? `<details class="round"><summary>${t("english_text")}</summary><div class="round-body">${v.proposal.slices.map((slice, i) =>
+      `<div><b dir="ltr">${num(i + 1)}. ${esc(slice.title)}</b><div class="slice-body" dir="ltr">${esc(slice.body)}</div></div>`).join("")}</div></details>` : ""}
+    <p class="muted">${t("split_decline_hint")}</p></div>` : "";
   const counted = tokens => tokens.total - tokens.cache_read;  // as the daily limit counts them
-  const cost = v.item?.column === "Done" && v.info?.cost ? `<div class="chips">${v.info.outcome ? `<span class="chip">${esc(tr(v.info.outcome))}</span>` : ""}<span class="chip">${t("cost_tokens")}: ${num(counted(v.info.cost.total))}</span></div>` : "";
+  const cost = v.item?.column === "Done" && v.info?.cost ? `<div class="chips">${v.info.outcome ? `<span class="chip">${esc(tr(v.info.outcome))}</span>` : ""}<span class="chip">${t("cost_tokens")}: ${num(counted(v.info.cost.total))}</span></div>
+    <details class="round"><summary>${t("task_full_issue")}</summary><div class="round-body">${doneBox(v.info)}</div></details>` : "";
   const r = v.review;
+  const pr = r?.pr ? `<span class="chip">${esc(tr(r.pr.state))}</span>` : `<span class="muted">${t("no_pr")}</span>`;
+  const yours = v.yours && v.state !== t("waits_for_you") ? `<span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : "";
   const lines = [...(r ? heldLines({waited: r.waited}, r.blockers) : heldLines(v.item?.mark, v.item?.blockers)), ...keptLines(r?.kept)];
   const steps = v.steps.map((step, i) => `<div class="step${i === v.steps.length - 1 ? " last" : ""}"><i class="hex"></i><div><div class="step-head"><b dir="auto">${esc(step.title)}</b><time>${esc(step.time)}</time></div>
     ${step.text ? `<div class="step-text" dir="auto">${esc(step.text)}</div>` : ""}</div></div>`).join("");
@@ -3580,7 +3584,7 @@ function sheetBody(v) {
     <div class="sheet-head"><div class="sheet-hex ${v.tone}">${v.number}</div><div class="sheet-who"><div class="muted" dir="auto">${esc(v.meta)}</div><h2 dir="auto">${esc(v.title)}</h2></div>
     <button class="sheet-close" data-close-sheet aria-label="${esc(t("close"))}">✕</button></div>
     <div class="phases" style="--n:${v.phases.length}">${phases}</div>
-    <div class="sheet-state"><b class="tone-${v.tone === "honey" ? "ink" : v.tone}">${esc(v.state)}</b><span class="spacer"></span>${link(v.links.pr, t("task_pr"))}${link(v.links.issue, t("task_issue"))}
+    <div class="sheet-state"><b class="tone-${v.tone === "honey" ? "ink" : v.tone}">${esc(v.state)}</b>${pr}${yours}<span class="spacer"></span>${link(v.links.pr, t("task_pr"))}${link(v.links.issue, t("task_issue"))}
     ${v.links.run ? `<button class="textlink" data-run="${esc(v.links.run)}">${t("task_run_log")}</button>` : ""}</div>
     ${status}${v.what ? `<div class="sheet-what slice-body" dir="auto">${esc(v.what)}</div>` : ""}
     ${v.question ? `<div class="sheet-box"><div class="sheet-box-head tone-amber">${t("kind_queen")}</div><div class="sheet-question" dir="auto">${esc(v.question)}</div></div>` : ""}
@@ -3594,6 +3598,7 @@ function sheetFoot(v) {
   const notes = v.status?.wait ? waitLines(v.status.wait) : v.wait ? [esc(v.wait.line)] : [];
   const tone = v.tone === "honey" ? "amber" : v.tone;
   const project = v.item?.project || repoOf(v.task);
+  const flight = `<span id="taskflight" class="flightbox">${flightControls(flights.open.find(f => f.task === v.task), v.task, t("open_flight"))}</span>`;
   const actions = [
     v.review?.pr ? testsView(v.task, v.review.pr) : "",
     v.review?.pr ? approval(v.task, v.review.pr, v.review.holds) : "",
@@ -3602,30 +3607,14 @@ function sheetFoot(v) {
     v.status?.why === "internal_error" ? `<button class="btn" data-to-queen="${esc(v.task)}" title="${esc(t("to_queen_hint"))}">${t("to_queen")}</button>` : "",
     v.drop ? `<button class="btn primary" data-drop="${esc(v.task)}" data-blocker="${esc(v.drop.blocker)}">${t("drop_yes")}</button>` : "",
     v.question ? `<button class="btn" data-fly="didban" data-focus="${esc(project)}">${t("ask_didban")}</button>` : "",
-    v.item?.by_hand ? `<span id="taskflight" class="flightbox">${flightControls(flights.open.find(f => f.task === v.task), v.task, t("open_flight"))}</span>` : "",
+    flight,
     v.worker?.run_id ? `<button class="btn danger" data-stop="${esc(v.worker.run_id)}">${t("stop_bee")}</button>` : "",
   ].filter(Boolean);
   const github = v.links.pr || v.links.issue;
-  if (!actions.length || actions.every(a => a.startsWith("<p"))) actions.push(`<a class="btn" href="${esc(github)}" target="_blank" rel="noopener">${t("open_github")} ↗</a>`);
+  if (actions.every(a => a === flight || a.startsWith("<p"))) actions.push(`<a class="btn" href="${esc(github)}" target="_blank" rel="noopener">${t("open_github")} ↗</a>`);
   return `${notes.length ? `<div class="sheet-note tone-${tone}">${notes.map(line => `<div dir="auto">${line}</div>`).join("")}</div>` : ""}<div class="actions">${actions.join("")}</div>`;
 }
 
-// What the Classic look showed of a task that the Kandu Clean sheet does not show yet; it is parked as technical
-// debt, to go into the Kandu Clean sheet: the PR's state, or that there is none; whether the task waits for the user;
-// each slice's English text when the proposal is in the user's language; the whole issue of a done task with its cost
-// by role; and a free flight on any task, not only one done by hand.
-function classicSheetExtras(v) {
-  const r = v.review;
-  const state = (r?.pr ? `<span class="chip">${esc(tr(r.pr.state))}</span>` : `<span class="muted">${t("no_pr")}</span>`) + yoursChip(v.task, v.item);
-  const own = v.proposal && (lang === "en" && TEXT[v.language] ? null : v.proposal.user_text);
-  const english = own ? `<details class="round"><summary>${t("english_text")}</summary><div class="round-body">${v.proposal.slices.map((slice, i) =>
-    `<div><b dir="ltr">${num(i + 1)}. ${esc(slice.title)}</b><div class="slice-body" dir="ltr">${esc(slice.body)}</div></div>`).join("")}</div></details>` : "";
-  const done = v.item?.column === "Done" && v.info?.cost ? `<details class="round"><summary>${t("task_full_issue")}</summary><div class="round-body">${doneBox(v.info)}</div></details>` : "";
-  const flight = `<span id="taskflight" class="flightbox">${flightControls(flights.open.find(f => f.task === v.task), v.task, t("open_flight"))}</span>`;
-  return {state, body: english + done, flight};
-}
-
-// The sheet as Kandu Clean draws it, with what the Classic look showed besides.
 async function showTask(task) {
   shownTask = task;
   markView();
@@ -3636,12 +3625,8 @@ async function showTask(task) {
     get(`/tasks/${repo}/${number}`).catch(() => null)]);
   if (shownTask !== task) return;
   const view = sheetView(task, lastState || {}, lastQueue, {review, info, proposal});
-  const extra = classicSheetExtras(view);
   $("sheetbody").innerHTML = sheetBody(view);
   $("sheetfoot").innerHTML = sheetFoot(view);
-  $("sheetbody").querySelector(".sheet-state").insertAdjacentHTML("afterbegin", extra.state);
-  $("sheetbody").querySelector(".sheet-section").insertAdjacentHTML("beforebegin", extra.body);
-  if (!$("taskflight")) $("sheetfoot").querySelector(".actions").insertAdjacentHTML("beforeend", extra.flight);
   if (!$("sheet").open) { $("sheet").showModal(); $("sheetbody").scrollTop = 0; }
 }
 

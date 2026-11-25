@@ -16,7 +16,7 @@ LINES = ("const FEW_PROJECTS = ", "const COLUMN_ORDER = ", "const PHASES = ", "c
 FUNCTIONS = ("taskQuery", "taskMatches", "taskMarks", "taskRow", "taskGroups", "groupsHtml", "soFar", "beesAtWork",
              "beesHtml", "taskPhases", "stepOf", "sheetView", "sheetBody", "sheetFoot", "waitLines", "approval", "testsView", "sendBack",
              "splitAccept", "byHandBox", "heldLines", "keptLines", "flightControls", "roundBox", "limitBadge", "bazrasLine",
-             "lookBadge")
+             "lookBadge", "doneBox")
 
 
 @unittest.skipUnless(NODE, "needs node to run the page's script")
@@ -324,6 +324,49 @@ class TasksTest(unittest.TestCase, Page):
         body = self.sheet(11, info=info, part="sheetBody")
         self.assertIn("Tokens used: 40,000", body)  # without the tokens read from the cache
         self.assertNotIn("Tokens used", self.sheet(8, review=self.review(), info=info, part="sheetBody"))  # not done yet
+
+    # What the Classic look's task window showed besides (#64).
+
+    def test_the_sheet_says_the_prs_state_or_that_there_is_none_yet(self):
+        self.assertIn('<span class="chip">OPEN</span>', self.sheet(8, review=self.review(), info=self.info(), part="sheetBody"))
+        self.assertIn('<span class="chip">MERGED</span>', self.sheet(8, review=self.review(state="MERGED"), info=None, part="sheetBody"))
+        self.assertIn(f'<span class="muted">{self.text["en"]["no_pr"]}</span>', self.sheet(2, info=None, part="sheetBody"))
+        self.assertIn(self.text["values_fa"]["OPEN"], self.sheet(8, review=self.review(), info=None, lang="fa", part="sheetBody"))
+
+    def test_the_sheet_marks_a_task_that_waits_for_the_user_once(self):
+        yours = self.text["en"]["waits_for_you"]
+        self.assertIn(f'<span class="badge" style="--c:#e8590c">{yours}</span>', self.sheet(8, review=self.review(), info=None, part="sheetBody"))
+        asks = self.sheet(1, info=None, part="sheetBody")  # its state says so already
+        self.assertEqual(asks.count(yours), 1, asks)
+        self.assertNotIn(yours, self.sheet(2, info=None, part="sheetBody"))
+
+    def test_the_slices_show_their_english_text_when_the_proposal_is_in_the_users_language(self):
+        proposal = {"title": "Export", "reason": "Too big.", "fingerprint": "ab12",
+                    "user_text": {"reason": "Zu groß.", "slices": [{"title": "Eine Notiz", "body": "Text eins"}]},
+                    "slices": [{"title": "One note", "size": "Small", "files": 2, "door": "two-way", "body": "English body"}]}
+        body = self.sheet(10, s=state(language="de"), proposal=proposal, info=None, part="sheetBody")
+        self.assertIn("Eine Notiz", body)
+        self.assertIn(self.text["en"]["english_text"], body)
+        self.assertIn("English body", body)
+        plain = self.sheet(10, s=state(language="de"), proposal=proposal | {"user_text": None}, info=None, part="sheetBody")
+        self.assertNotIn(self.text["en"]["english_text"], plain)
+
+    def test_a_done_task_folds_its_whole_issue_and_its_cost_by_role(self):
+        info = self.info(body="## Goal\nThe whole issue, not only its goal.") | {"task": f"{REPO}#11", "outcome": "merged",
+            "cost": {"total": {"total": 1500, "cache_read": 500}, "runs": 2, "duration_ms": 600000,
+                     "roles": {"worker": {"runs": 2, "duration_ms": 600000, "tokens": {"total": 1200, "cache_read": 200}}}}}
+        body = self.sheet(11, info=info, part="sheetBody")
+        folded = body[body.index(f'<summary>{self.text["en"]["task_full_issue"]}</summary>'):]
+        for part in ("The whole issue, not only its goal.", f'{self.text["en"]["cost_cached"]}: 500', self.text["en"]["cost_role"],
+                     "<td>worker</td>", "10 min", "1,000"):
+            self.assertIn(part, folded, part)
+        self.assertNotIn(self.text["en"]["task_full_issue"], self.sheet(8, review=self.review(), info=info, part="sheetBody"))
+
+    def test_the_footer_offers_a_free_flight_on_any_task(self):
+        quiet = self.sheet(2, info=None, part="sheetFoot")
+        self.assertIn(f'<span id="taskflight" class="flightbox"><button class="btn" data-fly="{REPO}#2">', quiet)
+        self.assertIn(f'href="https://github.com/{REPO}/issues/2"', quiet)  # and still its issue, with nothing else to do
+        self.assertEqual(self.sheet(8, review=self.review(), info=None, part="sheetFoot").count('id="taskflight"'), 1)
 
     def test_the_sheet_reads_in_persian(self):
         view = self.sheet(8, review=self.review(), info=self.info(), lang="fa")
