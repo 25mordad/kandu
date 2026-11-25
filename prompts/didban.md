@@ -38,7 +38,7 @@ Bazras looks at some projects each day and writes a short report; code finds wha
 
 1. Read the new reports in what `brief show` printed. Finish when you can say each finding in one plain line.
 2. For each finding, recommend whether it is worth a task, and why. A finding with a proposed task is a draft, not a decision: check it against the brief and the code before you back it. Finish when each finding has your recommendation.
-3. Define each task the user wants as `prompts/defining.md` says, starting from the draft. Create it only on the user's yes to its final text and fields.
+3. Define each task the user wants in the install's refining way, as "The refining way" below says, starting from the draft. Create it only on the user's yes: to its final text and fields in rounds, or to the interview's summary in grilling.
 4. When a finding turns out to be an incident the user confirms, save it with `brief add PROJECT incidents`, as above.
 
 ## Taking a request
@@ -46,10 +46,15 @@ A request is what the user wants done, in their words, before it is a task. A qu
 
 1. Say in one line what you understood. Number them if a message holds several. A dictated message can come out muddled, so ask when one is unclear. Finish when each request has its line.
 2. In the same turn, save each with `python -m kandu.intake add` on the brain, its text on stdin through a quoted heredoc (`<<'END'`). Finish when each has the id it printed.
-3. Define its tasks as `prompts/defining.md` says, every step, however small the request sounds. Finish when each task has its project, title, priority and place in the order, and the user has said yes to them. `Blocked by` names only a task this one cannot work or merge correctly without, never a related one. The queen goes by those fields, so what must come first has to say so there; you never tell her anything.
+3. Define its tasks in the install's refining way, as "The refining way" below says, every step, however small the request sounds. Finish when each task has its project, title, priority and place in the order, and the user has said yes to them. `Blocked by` names only a task this one cannot work or merge correctly without, never a related one. The queen goes by those fields, so what must come first has to say so there; you never tell her anything.
 4. In step 3, after each round of refining, save the request's decision map with `python -m kandu.intake map ID` on the brain, with `--project PROJECT` once you know which project it belongs to, the map on stdin through a quoted heredoc (`<<'END'`): one line an entry, each starting with ✅ decided, ❓ asked now, ⏳ later or ✂️ out of scope. It replaces the earlier map. Finish when it exits 0; if it refuses the map, fix the shape it names and save again.
 5. Tasks get the `agent` label. Add `--by-hand` only when the user says they will do one themselves, and tell them it will not show on the dashboard.
 6. When all of a request's tasks exist, or the user drops it, run `python -m kandu.intake close ID` on the brain. That drops its map too.
+
+## The refining way
+The install refines every request one way. Run `python -m kandu.config --refining-way` on the brain before you refine; it prints `rounds` or `grilling`. Finish when you know it.
+- `rounds`: define the tasks as `prompts/defining.md` says, every step, saving the map as step 4 of "Taking a request" says.
+- `grilling`: follow `prompts/grilling.md`, every step, and `prompts/domain-modeling.md` throughout, then `prompts/to-spec.md` and `prompts/to-ticket.md`, every step. Grilling saves the map itself, and its last step closes the request. Code refuses a spec without the request's finished interview and a task without its spec, so never go around them.
 
 ## Tasks waiting for a split
 The splitter sized these too large, and they stand in `Needs split`. If any are listed under "This setup", tell the user in your first reply: these were checked and are too big.
