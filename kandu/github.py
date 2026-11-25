@@ -22,7 +22,7 @@ TIMEOUT_SECONDS = 60
 LOOK_AGAIN_SECONDS = 5  # after a lost answer to a create, before looking whether the issue was made
 BOARD_ITEM_LIMIT = 500
 PR_SEARCH_LIMIT = 200
-PR_FIELDS = "number,title,state,url,body,changedFiles,files,baseRefName,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,mergedAt,statusCheckRollup"
+PR_FIELDS = "number,title,state,url,author,body,changedFiles,files,baseRefName,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,mergedAt,statusCheckRollup"
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 ISSUE_REFERENCE = re.compile(r"(?:(?<![\w.-])([\w.-]+/[\w.-]+))?#(\d+)")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -72,7 +72,7 @@ CLOSER = ("timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on Cl
           "... on Commit { oid repository { nameWithOwner } } } } } }")
 ISSUE_NODE = (f"number title body url state stateReason closedAt updatedAt labels(first: 30) {{ nodes {{ name }} }} "
               f"{COMMENTS} {BLOCKED_BY_NODE} {CLOSER}")
-PR_NODE = ("number title state url body changedFiles baseRefName headRefName headRefOid isDraft isCrossRepository "
+PR_NODE = ("number title state url author { login } body changedFiles baseRefName headRefName headRefOid isDraft isCrossRepository "
            "mergeable mergedAt updatedAt "
            f"labels(first: 30) {{ nodes {{ name }} }} {COMMENTS}")
 # Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
@@ -173,6 +173,7 @@ def _pr(node, deep):
     pr = {key: node.get(key) for key in ("number", "title", "state", "url", "body", "changedFiles", "baseRefName",
                                           "headRefName", "headRefOid", "isDraft", "isCrossRepository", "mergeable", "mergedAt",
                                           "updatedAt")}
+    pr["author"] = node.get("author") or {}  # {} for a deleted account
     pr["labels"] = [label for label in node["labels"]["nodes"]]
     pr["comments"] = _comments(node)
     pr["files"], pr["statusCheckRollup"], pr["reviewThreads"] = [], [], []

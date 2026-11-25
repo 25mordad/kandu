@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 
 from pathlib import Path
 
-from . import agents, clean, debt, mainred, merge, queen, questions, reference, review, show, sizing, split, tasks, waits
+from . import agents, clean, debt, mainred, merge, openprs, queen, questions, reference, review, show, sizing, split, tasks, waits
 from .config import DEFAULT_LOCAL_DIR, TECHNICAL_DEBT, ConfigError, load_config
 from .flights import Flights
 from .base import base_branch, missing as base_missing, missing_repos, record as record_base
@@ -251,6 +251,7 @@ class Supervisor:
         self.merged = Counter()
         self.held = {}  # task key -> the head whose merge waited this cycle
         self.base_held = set()  # the projects whose base branch GitHub lacks this cycle: none of their tasks starts
+        self.pr_held = set()  # the projects at their open-PR limit: none of their tasks starts from `Ready`
         self.retrying = {}  # task key -> the merge GitHub refused for a moment, tried again in this cycle
         self.sleep = sleep
         self.next_wake = None
@@ -279,6 +280,24 @@ class Supervisor:
             except GitHubError:
                 pass
         return {p.name for p in self.config.projects if p.base_branch and base_missing(self.store, p) is not None}
+
+    def _check_open_prs(self):
+        """Reads from the copy which projects are at their open-PR limit, and logs a hold that starts or ends."""
+        self.pr_held = openprs.held(self.store)
+        for project in self.config.projects:
+            self._open_pr_hold(project)
+
+    def _open_pr_hold(self, project):
+        """The open PRs that hold `project` from new work now, or None. Read from the copy, so it costs GitHub
+        nothing, and asked again before each start: a PR opened this cycle counts at once."""
+        prs = openprs.at_limit(self.github, project, self.config.settings.github.account)
+        with self._lock:
+            was = project.name in self.pr_held
+            if openprs.record(self.store, project, prs, was):
+                self.pr_held.add(project.name)
+            else:
+                self.pr_held.discard(project.name)
+        return prs
 
     def _board_items(self):
         """A spec issue is never work, even when someone puts it on the board with the `agent` label."""
@@ -1674,6 +1693,8 @@ class Supervisor:
                 continue
             if self.store.tokens_counted(today, project=project.name) >= project.daily_token_limit:
                 continue
+            if project.name in self.pr_held:  # sized, it would be released into a new PR
+                continue
             if not self._reachable(project.machine):
                 self.waiting_on[project.machine].add(key)
                 continue
@@ -2331,6 +2352,8 @@ class Supervisor:
                         in_project = sum(1 for t in running.values() if t.project is task.project and building(t))
                         if in_project >= task.project.max_parallel_workers:
                             continue
+                        if task.status == READY and self._open_pr_hold(task.project) is not None:
+                            continue  # its next start would open one PR too many; an open PR's work goes on
                     pending.remove(task)
                     if self._over_budget(task):
                         continue
@@ -2376,6 +2399,7 @@ class Supervisor:
         if failed:
             self.store.record("copy_not_read", detail="; ".join(failed))
         self.base_held = self._check_bases()
+        self._check_open_prs()
         reason = self._gate() or self._queen_limit()
         if reason is None:
             try:

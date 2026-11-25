@@ -15,6 +15,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Reference copy** | A read-only copy of the paths a task's `Reference` names in another registered project's repo, in a folder of the run's own on the worker's machine, removed when the run ends. Off by default (`supervisor.reference_copy`); never from a private repo into a run on a public one. |
 | **Splitter** | A read-only agent that sizes every task in `Backlog` against the scale and proposes how to split a `Large` one |
 | **Base branch** | The branch of a project's repo that Kandu works on and merges into; by default the repo's default branch |
+| **Open-PR limit** | A project's cap on the open PRs this install's `github.account` has on its repos (`max_open_prs`, off by default): at it, no task of the project starts from `Ready` or is sized, while work on its open PRs goes on |
 | **Red main** | A project's state when its tests fail twice on one commit of its default branch (`watch_main`, off by default): its merges wait, no task starts but the one Kandu opens to fix it, and the user is told once until `main` passes |
 | **Queen answers one-way merges** | A project's switch, off by default: on, the queen's yes to a merge answers its one-way door and the review's questions for the user; off, those wait for the user's yes |
 | **Split approval** | Who accepts a project's split proposals, the user or the queen; the user by default, set in the registry or the dashboard's settings section |

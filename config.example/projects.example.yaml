@@ -51,6 +51,7 @@ projects:
     priority: 1                        # 1 = highest
     max_parallel_workers: 2
     daily_token_limit: 2000000         # no new task starts past this; cache reads do not count
+    # max_open_prs: 1                  # optional: at this many open PRs by github.account on its repos, no new task starts
     queen_rules: "Fixes for the checkout come before anything else"   # how the queen paces this project
     reports: [docs/LESSONS.md]         # the project's own reports for Kandu, on its machine; Didban reads their newest
                                        # lines with its brief, read-only (relative paths start at `path`)

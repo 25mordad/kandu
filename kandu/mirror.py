@@ -342,6 +342,12 @@ class Mirror:
     def review_threads(self, repo, number):
         return self.pr(repo, number)["reviewThreads"]
 
+    def open_prs(self, repo):
+        """Every open PR the copy holds for a repo, by the copy alone: none before the repo is copied. Asks GitHub
+        nothing. A PR the last read no longer found open is closed, so it is left out."""
+        prs = ((self._load(self._path("repos", repo)) or {}).get("prs") or {}).values()
+        return [pr for pr in prs if pr["state"] == "OPEN" and not pr.get("stale")]
+
     def merged_prs(self, repo):
         """Every merged PR the copy holds for a repo, as it last read them."""
         return [pr for pr in self._repo(repo)["prs"].values() if pr["state"] == "MERGED"]

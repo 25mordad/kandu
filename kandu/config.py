@@ -249,6 +249,7 @@ class Project:
     max_parallel_workers: int
     paused: bool
     daily_token_limit: int
+    max_open_prs: int | None = None  # this many open PRs by `github.account` on its repos hold its new work; none: no limit
     description: str = ""
     base_branch: str = ""            # the branch Kandu works on and merges into; empty: the repo's default branch
     board: Board | None = None
@@ -562,6 +563,8 @@ def _check_projects(projects, s, problems):
         _check_positive(p.priority, f"{where}.priority", problems)
         _check_positive(p.max_parallel_workers, f"{where}.max_parallel_workers", problems)
         _check_positive(p.daily_token_limit, f"{where}.daily_token_limit", problems)
+        if type(p.max_open_prs) is int:  # another kind is refused when the entry is read
+            _check_positive(p.max_open_prs, f"{where}.max_open_prs", problems)
 
 
 def _check_upstream(s, projects, problems):

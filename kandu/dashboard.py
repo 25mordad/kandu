@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import (add, backup, base, bazras, clean, flights, ghlimit, ghmeter, mainred, merge, notify, queen, questions, remove,
+from . import (add, backup, base, bazras, clean, flights, ghlimit, ghmeter, mainred, merge, notify, openprs, queen, questions, remove,
                rename, review, sessions, split, tasks, timer, tries, upstream, version, waits)
 from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, PROJECT_MODEL_ROLES, REGISTRY_SETTINGS,
                      TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_reference_copy, set_refining_way, set_run_tmp, set_inspect, set_limits, set_pace,
@@ -373,6 +373,7 @@ class Api:
             "pace": self._pace(),
             "main_red": self._main_red(),
             "base_missing": self._base_missing(),
+            "open_prs_held": self._open_prs_held(),
             "over_limit": {name: spent for name, spent in tokens.items() if spent["today"] >= spent["limit"]},
             "project_tokens": tokens,
             "queen": self._queen_report(),
@@ -1422,6 +1423,13 @@ class Api:
         that lack it. Read from the local log."""
         return {p.name: {"branch": event["branch"], "repos": event["repos"], "why": base.why(event)}
                 for p in self.config.projects if p.base_branch and (event := base.missing(self.store, p)) is not None}
+
+    def _open_prs_held(self):
+        """Each project at its open-PR limit: the limit and the open PRs that hold it. Read from the copy, as the
+        supervisor reads it, so it costs GitHub nothing."""
+        account = self.config.settings.github.account
+        return {p.name: {"limit": p.max_open_prs, "prs": prs} for p in self.config.projects
+                if (prs := openprs.at_limit(self.github, p, account)) is not None}
 
     def _main_red(self):
         """Each project that watches `main` and whose `main` is red, until it passes: the repo, the commit, the

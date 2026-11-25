@@ -580,8 +580,9 @@ class CommandsTest(unittest.TestCase):
         setup = (COMMANDS / "kandu-setup.md").read_text(encoding="utf-8")
         add = (COMMANDS / "kandu-add.md").read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"^   \d+\. ", setup, re.MULTILINE)), 18)
-        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 23)
+        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 24)
         self.assertIn("own model for any role (`models`)", add)
+        self.assertIn("(`max_open_prs`, `--set max_open_prs=N`)", add)
 
     def test_add_never_creates_a_board_unasked(self):
         self.assertIn("only if the user said yes", (COMMANDS / "kandu-add.md").read_text(encoding="utf-8"))

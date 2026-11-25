@@ -545,6 +545,9 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   <section id="basemissing" class="upgrade" aria-live="polite" hidden>
     <div class="upgrade-head"><strong id="basemissingtitle" dir="auto"></strong></div>
   </section>
+  <section id="openprsheld" class="upgrade" aria-live="polite" hidden>
+    <div class="upgrade-head"><strong id="openprsheldtitle" dir="auto"></strong></div>
+  </section>
   <section id="mainred" class="upgrade" aria-live="polite" hidden>
     <div class="upgrade-head"><strong id="mainredtitle" dir="auto"></strong></div>
     <div id="mainredtests" class="upgrade-entry" dir="auto"></div>
@@ -699,6 +702,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "version_no_version": "no version",
   "main_red_title": "main is red in {project}: its tests fail",
   "base_missing_title": "The base branch {branch} of {project} is not on GitHub ({repos}): none of its tasks starts",
+  "open_prs_held_title": "{project} waits: its open PRs ({prs}) reached its limit of {limit}. No new task of it starts until one is merged or closed",
   "set_base_branch": "Base branch",
   "set_base_branch_hint": "The branch Kandu works on and merges into. /kandu-config changes it.",
   "set_base_branch_default": "the repo's default branch",
@@ -1290,6 +1294,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "version_no_version": "بی‌نسخه",
   "main_red_title": "شاخهٔ اصلی در {project} قرمز است: تست‌هایش رد می‌شوند",
   "base_missing_title": "شاخهٔ پایهٔ {branch} در {project} روی GitHub نیست ({repos}): هیچ تسکی از آن شروع نمی‌شود",
+  "open_prs_held_title": "{project} منتظر است: PRهای باز آن ({prs}) به سقف {limit} رسیده‌اند. تا یکی از آن‌ها merge یا بسته نشود، تسک تازه‌ای از آن شروع نمی‌شود",
   "set_base_branch": "شاخهٔ پایه",
   "set_base_branch_hint": "شاخه‌ای که کندو رویش کار و در آن ادغام می‌کند. با /kandu-config عوض می‌شود.",
   "set_base_branch_default": "شاخهٔ پیش‌فرض مخزن",
@@ -2077,6 +2082,8 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "main_green": "شاخهٔ اصلی دوباره سبز شد",
   "base_missing": "شاخهٔ پایه روی GitHub نیست",
   "base_found": "شاخهٔ پایه دوباره روی GitHub است",
+  "open_prs_held": "PRهای باز پروژه به سقفش رسید",
+  "open_prs_freed": "PRهای باز پروژه دوباره زیر سقفش است",
   "main_fix_opened": "تسک درست کردن شاخهٔ اصلی باز شد",
   "main_updated": "شاخهٔ اصلی به یک PR آورده شد",
   "project_inspected": "بازرس پروژه را نگاه کرد",
@@ -3330,6 +3337,14 @@ function renderBaseMissing(missing) {
     .replace("{branch}", missing[n].branch).replace("{repos}", missing[n].repos.join(", "))).join(" · ");
 }
 
+// A project at its open-PR limit: no task of it starts from Ready until one of the PRs it names is merged or closed.
+function renderOpenPrsHeld(held) {
+  const box = $("openprsheld"), names = Object.keys(held || {});
+  box.hidden = !names.length;
+  $("openprsheldtitle").textContent = names.map(n => t("open_prs_held_title").replace("{project}", n)
+    .replace("{prs}", held[n].prs.join(", ")).replace("{limit}", held[n].limit)).join(" · ");
+}
+
 function renderMainRed(red) {
   const box = $("mainred"), names = Object.keys(red || {});
   if (!names.length) { box.hidden = true; return; }
@@ -3381,6 +3396,7 @@ async function refreshState() {
   renderVersion(s.version_badge);
   renderUpgrade(s.upgrade);
   renderBaseMissing(s.base_missing);
+  renderOpenPrsHeld(s.open_prs_held);
   renderMainRed(s.main_red);
   const chip = stateChip(s);
   $("pulse").className = `chip ${chip.kind}`;

@@ -349,6 +349,11 @@ def _entry(fields, board):
     entry.update({"forbidden": forbidden, "repo_rules": fields.get("repo_rules", ""),
                   "auto_merge": bool(fields.get("auto_merge", DEFAULTS["auto_merge"])), "frozen": False,
                   **numbers, "paused": False})
+    if fields.get("max_open_prs"):  # none: no limit on the project's open PRs
+        try:
+            entry["max_open_prs"] = int(fields["max_open_prs"])
+        except (TypeError, ValueError):
+            raise AddError("max_open_prs is a whole number") from None
     return entry
 
 
