@@ -282,13 +282,13 @@ class FakeRunner:
         return 1 if command in self.failing else 0
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
-                  schema=None, resume=None):
+                  schema=None, resume=None, holder=None):
         with self.lock:
             self.running += 1
             self.most_running = max(self.most_running, self.running)
             step = self.steps.pop(0)
         self.runs.append(SimpleNamespace(machine=machine, cwd=cwd, prompt=prompt, allowed=allowed, denied=denied,
-                                         model=model, tokens=tokens, schema=schema, resume=resume))
+                                         model=model, tokens=tokens, schema=schema, resume=resume, holder=holder))
         result = step() if callable(step) else step
         with self.lock:
             self.running -= 1
@@ -1953,6 +1953,20 @@ class FirstRunTest(Base):
         self.cycle()
         settles = [e for e in self.events("decision") if e["decision"] == "worktree_settled"]
         self.assertEqual([e["reason"] for e in settles], ["Kandu merged GitHub's head abc into the folder's def"])
+        self.assertEqual(self.github.status(1), "In review")
+
+    def test_an_earlier_run_of_the_task_still_going_is_ended_and_logged(self):
+        worker = self.worker_makes_pr()
+        def left_one():
+            result = ok(worker())
+            result.ended_earlier = ["kandu-h0123-r-old-1a2b3c4d"]
+            return result
+        self.runner.steps = [left_one, report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.runner.runs[0].holder, f"{REPO}#1")
+        ended = [e for e in self.events("decision") if e["decision"] == "earlier_run_ended"]
+        self.assertEqual(len(ended), 1)
+        self.assertIn("kandu-h0123-r-old-1a2b3c4d", ended[0]["reason"])
         self.assertEqual(self.github.status(1), "In review")
 
     def test_unpushed_work_in_the_folder_stops_the_task_with_a_plain_message(self):

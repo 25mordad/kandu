@@ -4,6 +4,7 @@ Everything goes through a shell script on the project's machine, local or over
 SSH, so both paths are the same code. To add isolation, replace this module's
 `Runner`: the supervisor only uses its public methods.
 """
+import hashlib
 import json
 import os
 import posixpath
@@ -30,6 +31,59 @@ STOP_GRACE_SECONDS = 10
 # A run in a scope: if the machine has a user systemd, the command runs in its own scope, and when it ends
 # Kandu stops that scope, which ends every process the run left behind (a dev server, a test browser).
 SCOPE_PROBE = "command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1"
+# With no user systemd, as on a Windows machine through Git Bash, a run stays under the shell that starts it, whose
+# first argument is the run's unit name (`Host.scoped`). Kandu finds that shell by the name and ends it with all it
+# started (`STOP_SCRIPT`). The shell waits for its command even when told to stop, so it is still there to be found.
+# On Windows a dropped SSH connection ends nothing, and Git Bash's fork leaves no parent link Windows can follow, so
+# the shell first puts itself in a Windows job object (`WINDOWS_JOB`) that only it holds a handle to: everything the
+# run starts is in the job, and Windows ends the job's processes once that shell ends, by itself or by `taskkill`.
+# C# for PowerShell's `Add-Type -MemberDefinition`, kept on one line and short: on Windows the whole SSH command must
+# stay under cmd.exe's 8191 characters. `Hold(pid)` makes a job that ends its processes when its last handle closes,
+# puts the process `pid` in it, and gives that process the only handle. No child may leave the job: Git Bash would.
+WINDOWS_JOB = " ".join([
+    '[DllImport("kernel32")] static extern IntPtr CreateJobObject(IntPtr a, string n);',
+    '[DllImport("kernel32")] static extern bool SetInformationJobObject(IntPtr j, int c, byte[] i, int l);',
+    '[DllImport("kernel32")] static extern IntPtr OpenProcess(int a, bool i, int p);',
+    '[DllImport("kernel32")] static extern bool AssignProcessToJobObject(IntPtr j, IntPtr p);',
+    '[DllImport("kernel32")] static extern IntPtr GetCurrentProcess();',
+    '[DllImport("kernel32")] static extern bool DuplicateHandle(IntPtr a, IntPtr h, IntPtr b, out IntPtr c, int d,'
+    ' bool e, int f);',
+    'public static int Hold(int pid) {',
+    'IntPtr job = CreateJobObject(IntPtr.Zero, null); if (job == IntPtr.Zero) return 1;',
+    # JOBOBJECT_EXTENDED_LIMIT_INFORMATION, with LimitFlags = KILL_ON_JOB_CLOSE at offset 16
+    'byte[] info = new byte[IntPtr.Size == 8 ? 144 : 112]; BitConverter.GetBytes(0x2000).CopyTo(info, 16);',
+    'if (!SetInformationJobObject(job, 9, info, info.Length)) return 2;',
+    'IntPtr shell = OpenProcess(0x0141, false, pid); if (shell == IntPtr.Zero) return 3;',  # terminate, quota, dup
+    'if (!AssignProcessToJobObject(job, shell)) return 4;',
+    'IntPtr held; return DuplicateHandle(GetCurrentProcess(), job, shell, out held, 0, false, 2) ? 0 : 5; }',
+])
+NO_SCOPE_RUN = (
+    'if [ -r /proc/$$/winpid ] && command -v powershell.exe >/dev/null 2>&1; then '
+    f'KANDU_RUN_JOB={shlex.quote(WINDOWS_JOB)} KANDU_RUN_WINPID=$(cat /proc/$$/winpid) '
+    "powershell.exe -NoProfile -NonInteractive -Command "
+    "'Add-Type -Name RunJob -Namespace Kandu -MemberDefinition $env:KANDU_RUN_JOB; "
+    "exit [Kandu.RunJob]::Hold([int]$env:KANDU_RUN_WINPID)' </dev/null >/dev/null 2>&1; fi; "
+    "trap 'exit 143' TERM HUP; \"$@\"")
+# Ends every run whose unit name starts with $1, with all it started, and prints the name or pid of each one it ended.
+STOP_SCRIPT = "; ".join([
+    'mark=$1',
+    f'if {SCOPE_PROBE}; then '
+    'for unit in $(systemctl --user list-units --plain --no-legend --type=scope "$mark*" | cut -d" " -f1); '
+    'do systemctl --user stop "$unit" && echo "${unit%.scope}"; done; exit 0; fi',
+    "NL='\n'",
+    'tree() { echo "$1"; for child in $(pgrep -P "$1" 2>/dev/null); do tree "$child"; done; }',
+    'for dir in /proc/[0-9]*; do pid=${dir#/proc/}; [ "$pid" = "$$" ] && continue',
+    # argv is sh, -c, the script of `Host.scoped`, then the unit name
+    "args=$(tr '\\0' '\\n' < \"$dir/cmdline\" 2>/dev/null) || continue",
+    'args=${args#*"$NL"}; case "$args" in "-c$NL"*) ;; *) continue;; esac',
+    'args=${args#*"$NL"}; args=${args#*"$NL"}; case "$args" in "$mark"*) ;; *) continue;; esac',
+    'win=$(cat "$dir/winpid" 2>/dev/null)',
+    'if [ -n "$win" ] && command -v taskkill >/dev/null 2>&1; '
+    'then MSYS2_ARG_CONV_EXCL="*" taskkill /T /F /PID "$win" >/dev/null 2>&1; '
+    'else kill -KILL $(tree "$pid") 2>/dev/null; fi',
+    'echo "$pid"; done',
+])
+STOP_TIMEOUT_SECONDS = 60
 COMMAND_TIMEOUT_SECONDS = 30 * 60
 # A run temporary folder (DESIGN §9): where the machine's option is on, each scoped run gets its own folder, named
 # like its scope, in the machine's `run_tmp_dir`. Its first line says which process owns it.
@@ -86,6 +140,7 @@ class AgentResult:
     is_error: bool = True
     stopped: bool = False
     session_id: str | None = None  # A broken reply is asked for again in this session.
+    ended_earlier: list = field(default_factory=list)  # Runs of the same holder still running before it, now ended.
 
 
 class Host:
@@ -106,18 +161,25 @@ class Host:
 
     @staticmethod
     def scoped(command, unit):
-        """`command` in its own systemd scope named `unit`; as it is where the machine has no user systemd."""
+        """`command` in its own systemd scope named `unit`. Where the machine has no user systemd, under a shell
+        named by `unit` (`NO_SCOPE_RUN`), so `stop_runs` can find it and end its process tree."""
         script = (f'if {SCOPE_PROBE}; then exec systemd-run --user --scope --quiet --collect '
-                  f'--property=TimeoutStopSec={STOP_GRACE_SECONDS} --unit={shlex.quote(unit)} -- "$@"; fi; exec "$@"')
-        return ["sh", "-c", script, "sh", *command]
+                  f'--property=TimeoutStopSec={STOP_GRACE_SECONDS} --unit={shlex.quote(unit)} -- "$@"; fi; '
+                  f'{NO_SCOPE_RUN}')
+        return ["sh", "-c", script, unit, *command]
 
     def stop_scope(self, unit):
-        """Ends whatever is left in the scope `unit`. A scope that is already gone, or no systemd, is fine."""
+        """Ends whatever is left of the run `unit`. A run that is already gone is fine."""
+        self.stop_runs(unit)
+
+    def stop_runs(self, mark):
+        """Ends every run on this machine whose unit name starts with `mark`, with all it started, and returns
+        their names (a scope) or pids (a shell with no user systemd). One that cannot be reached ends nothing."""
         try:
-            self.run(["sh", "-c", f"if {SCOPE_PROBE}; then systemctl --user stop {shlex.quote(unit + '.scope')}; fi"],
-                     timeout=PROBE_TIMEOUT_SECONDS)
+            result = self.run(["sh", "-c", STOP_SCRIPT, "sh", mark], timeout=STOP_TIMEOUT_SECONDS)
         except RunnerError:
-            pass
+            return []
+        return (result.stdout or "").split() if result.returncode == 0 else []
 
     def run_folder(self, unit):
         """The run temporary folder of the run in scope `unit`, or None where the machine's option is off."""
@@ -184,9 +246,15 @@ class Host:
         return posixpath.join(self._home, path[2:])
 
 
-def scope_name(name):
-    """A unit name for one run: unique, and only characters systemd takes."""
-    return f"kandu-{re.sub(r'[^A-Za-z0-9_.-]', '-', name)[:80]}-{uuid.uuid4().hex[:8]}"
+def holder_mark(holder):
+    """How the unit name of every run for `holder` (a task) starts, and no other's."""
+    return f"kandu-h{hashlib.sha256(holder.encode()).hexdigest()[:12]}-"
+
+
+def scope_name(name, holder=None):
+    """A unit name for one run: unique, and only characters systemd takes. A run for a `holder` is found by it."""
+    start = holder_mark(holder) if holder else "kandu-"
+    return f"{start}{re.sub(r'[^A-Za-z0-9_.-]', '-', name)[:80]}-{uuid.uuid4().hex[:8]}"
 
 
 def repo_path(project, repo):
@@ -636,7 +704,7 @@ class Runner:
             pass
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
-                  schema=None, resume=None):
+                  schema=None, resume=None, holder=None):
         """Runs one `claude` process to its end; `should_stop` is polled while it runs.
 
         The run is in its own scope (`Host.scoped`): when it ends, or is
@@ -648,6 +716,9 @@ class Runner:
         missing the run ends with an error. With a `schema`, `claude` holds the
         reply to that JSON Schema, and the text is the object it returns.
         With `resume`, the prompt goes to that earlier session in `cwd`.
+        A `holder` (a task) has one run at a time: a run of it still going on
+        the machine, as one a cycle that died leaves behind, is ended before
+        this one starts, and named in `ended_earlier`.
         """
         # With no allow list the run may do everything; the deny list still holds.
         mode = ["--permission-mode", "bypassPermissions"] if allowed is None else \
@@ -666,7 +737,8 @@ class Runner:
         self.logs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd = os.open(self.logs_dir / f"{run_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         host = self.hosts[machine]
-        unit = scope_name(run_id)
+        ended = host.stop_runs(holder_mark(holder)) if holder else []
+        unit = scope_name(run_id, holder)
         folder = host.run_folder(unit)
         if folder:
             command = Host.in_run_folder(command, folder, claude=True)
@@ -674,7 +746,8 @@ class Runner:
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=child_env(run_id))
         stopped = threading.Event()
         threading.Thread(target=self._feed, args=(process, prompt), daemon=True).start()
-        threading.Thread(target=self._watch, args=(process, should_stop, stopped), daemon=True).start()
+        threading.Thread(target=self._watch, args=(process, should_stop, stopped, lambda: host.stop_scope(unit)),
+                         daemon=True).start()
         result = None
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as log:
@@ -689,13 +762,13 @@ class Runner:
             if folder:
                 host.remove_run_folder(folder)
         if result is None:
-            return AgentResult(stopped=stopped.is_set())
+            return AgentResult(stopped=stopped.is_set(), ended_earlier=ended)
         usage = usage_from_result(result)
         structured = result.get("structured_output")
         text = json.dumps(structured, ensure_ascii=False) if structured is not None else result.get("result") or ""
         return AgentResult(text=text, models=usage["models"], duration_ms=usage["duration_ms"],
                            is_error=usage["is_error"] or process.returncode != 0, stopped=stopped.is_set(),
-                           session_id=result.get("session_id"))
+                           session_id=result.get("session_id"), ended_earlier=ended)
 
     @staticmethod
     def _feed(process, prompt):
@@ -707,13 +780,14 @@ class Runner:
             pass
 
     @staticmethod
-    def _watch(process, should_stop, stopped):
+    def _watch(process, should_stop, stopped, end):
         while process.poll() is None:
             if should_stop():
                 stopped.set()
                 process.terminate()
                 time.sleep(STOP_GRACE_SECONDS)
                 if process.poll() is None:
+                    end()  # all the run started, while the shell it runs under is still there to find them by
                     process.kill()
                 return
             time.sleep(POLL_SECONDS)

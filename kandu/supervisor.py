@@ -557,7 +557,11 @@ class Supervisor:
         stop_one = self.store.worker_stop_file(run_id)
         result = self.runner.run_agent(task.project.machine, cwd, prompt, allowed, denied, run_id,
                                        lambda: self._hard_stop() or stop_one.exists(), self._model(role, task.project), tokens,
-                                       schema, resume)
+                                       schema, resume, holder=task.key)
+        if result.ended_earlier:
+            # An earlier run of this task was still going on its machine, as one a dead cycle leaves behind.
+            self._decide(task, "earlier_run_ended", f"before {role} run {run_id} on {task.project.machine}: "
+                         + ", ".join(result.ended_earlier))
         self.store.record("run_finished", task=task.key, project=task.project.name, run_id=run_id, role=role,
                           models=result.models, duration_ms=result.duration_ms, is_error=result.is_error)
         if stop_one.exists():
