@@ -159,6 +159,18 @@ def pending_step(events, task):
     return None
 
 
+def end_failed_step(store, events, key, project, reason):
+    """Ends her pending step on a task that stopped in Kandu's own error, so no later cycle takes it again.
+
+    Left pending, the step would be taken each cycle and fail the same way, and she would ask the same question
+    each time it stopped. She reads that it failed, and why, as `queen_step_done` on her next look.
+    """
+    step = pending_step(events, key)
+    if step is not None:
+        store.record("queen_step_done", task=key, project=project, action=step["action"], decided=step["ts"],
+                     result="failed", summary=reason, head_sha=None, run_id=None)
+
+
 def with_blocker(body, repo, key):
     """The issue's body with `key` added under `## Blocked by`."""
     other, number = key.split("#")

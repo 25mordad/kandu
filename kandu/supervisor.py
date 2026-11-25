@@ -1820,6 +1820,7 @@ class Supervisor:
             self._decide(task, "internal_error", details)  # a drop is no try, so it never uses up the last one
             return
         self._decide(task, "failed", details)
+        queen.end_failed_step(self.store, queen.all_events(self.store), task.key, task.project.name, details)
         try:
             self.github.comment_issue(task.repo, task.number, FAILURE_COMMENT)
             self._finish(task, BLOCKED, "stopped_by_user" if isinstance(error, StoppedByUser) else "failed")

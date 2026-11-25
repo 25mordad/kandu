@@ -396,6 +396,35 @@ class QueenStepsTest(Base):
         done = self.events("queen_step_done")[0]
         self.assertEqual((done["action"], done["result"], done["head_sha"]), ("rework", "pushed", SHA2))
 
+    def test_a_rework_that_fails_in_kandus_own_error_until_the_tries_run_out_is_not_taken_again(self):
+        # Seen once: the task's folder could not be cleared, so each cycle took her pending rework again, it failed
+        # within seconds, and she asked the user the same question each time the task stopped.
+        self.github.open_pr(REPO, 1, SHA1)
+        self.sup._carry_out([self.step("rework", note="Rename the helper.")], [])
+        self.runner.prepare_worktree = mock.Mock(side_effect=RunnerError("merge --abort refused"))
+        for _ in range(supervisor.INTERNAL_TRIES):
+            self.runner.steps = [self.reply_none()]
+            self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(self.runner.prepare_worktree.call_count, supervisor.INTERNAL_TRIES)
+        done = self.events("queen_step_done")
+        self.assertEqual([(e["action"], e["result"]) for e in done], [("rework", "failed")])
+        self.assertIn("merge --abort refused", done[0]["summary"])
+        self.assertIsNone(queen.pending_step(queen.all_events(self.store), KEY))
+        self.runner.steps = [self.reply_none(), self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.runner.prepare_worktree.call_count, supervisor.INTERNAL_TRIES)
+        self.assertEqual(self.github.status(1), "Blocked")
+
+    def test_a_rework_that_fails_in_kandus_own_error_once_stays_pending_for_the_next_try(self):
+        self.github.open_pr(REPO, 1, SHA1)
+        self.sup._carry_out([self.step("rework")], [])
+        self.runner.prepare_worktree = mock.Mock(side_effect=RunnerError("a hiccup"))
+        self.runner.steps = [self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.events("queen_step_done"), [])
+        self.assertIsNotNone(queen.pending_step(queen.all_events(self.store), KEY))
+
     def resolves_and_pushes(self):
         def step():
             self.github.prs[(REPO, 1)] |= {"headRefOid": SHA2, "mergeable": "MERGEABLE"}

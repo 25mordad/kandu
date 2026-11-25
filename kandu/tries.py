@@ -3,6 +3,8 @@ the task stops for the queen to look at. The user may stop the tries sooner, fro
 
 The supervisor and the dashboard both count the tries here, so the card says what the supervisor will do.
 """
+from . import queen
+
 INTERNAL_TRIES = 3
 PROGRESS = ("review_finished", "task_finished", "task_sized")  # a task that moved on starts its count again
 FAILURE_COMMENT = "Kandu could not finish this step and stopped here. The details are in its local log."
@@ -47,6 +49,7 @@ def stop(github, store, project, item, key, events):
     decision, comment, column = (("failed", FAILURE_COMMENT, "Blocked") if sized
                                  else ("sizing_failed", SIZING_FAILURE_COMMENT, "Needs info"))
     store.record("decision", task=key, project=project.name, decision=decision, reason=reason)
+    queen.end_failed_step(store, events, key, project.name, reason)
     github.comment_issue(item.repo, item.number, comment)
     github.set_status(project.board, item.url, column)
     store.record("task_finished", task=key, project=project.name, outcome=decision)
