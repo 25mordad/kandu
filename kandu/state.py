@@ -137,9 +137,9 @@ def is_project_setting(setting, value):
     return any(value == allowed and type(value) is type(allowed) for allowed in PROJECT_SETTINGS.get(setting, ()))
 
 
-NO_TASK_ROLES = ("supervisor", "queen", "bazras")
+NO_TASK_ROLES = ("supervisor", "queen", "bazras", "job_check")
 # The usage view counts their runs as Kandu itself: sizing (the splitter's) names a task but is not its work.
-KANDU_ROLES = ("supervisor", "queen", "bazras", "splitter")
+KANDU_ROLES = ("supervisor", "queen", "bazras", "job_check", "splitter")
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
 
 
@@ -191,6 +191,8 @@ class StateStore:
         self.flights_dir = self.root / "flights"
         self.flown_dir = self.root / "flown"
         self.reports_dir = self.root / "zanbourdar-reports"  # Zanbourdar's reports waiting for Didban's next start.
+        self.jobs_dir = self.root / "jobs"  # The last job handed to each session, kept for its report's check.
+        self.job_checks_dir = self.root / "job-checks"  # Reports whose job check is running.
         self.bazras_file = self.root / "bazras.json"
         self.by_hand_labelled_file = self.root / "by-hand-labelled"  # The one-time `by-hand` backfill ran.
         self.clean_since_file = self.root / "clean-since"  # Only a task merged after this is cleaned up.
@@ -595,6 +597,31 @@ class StateStore:
                 continue  # Another start took it first.
             taken.append(text)
         return taken
+
+    def keep_job(self, key, text):
+        """Keeps the text of the job last handed to session `key`, for the check of its report."""
+        return self._write_private(self.jobs_dir, f"{key}.json", json.dumps({"text": text}, ensure_ascii=False))
+
+    def take_job(self, key):
+        """The job last handed to session `key`, or None, forgotten as it is taken: one report checks it."""
+        path = self.jobs_dir / f"{key}.json"
+        try:
+            text = path.read_text(encoding="utf-8")
+            path.unlink()
+        except FileNotFoundError:
+            return None
+        return json.loads(text)["text"]
+
+    def keep_job_check(self, check_id, record):
+        """Keeps a report and its job while their check runs, so the report is never lost."""
+        return self._write_private(self.job_checks_dir, f"{check_id}.json", json.dumps(record, ensure_ascii=False))
+
+    def job_check(self, check_id):
+        path = self.job_checks_dir / f"{check_id}.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def forget_job_check(self, check_id):
+        (self.job_checks_dir / f"{check_id}.json").unlink(missing_ok=True)
 
     def write_flown(self, summary):
         self._write_private(self.flown_dir, f"{summary['id']}.json", json.dumps(summary, ensure_ascii=False))

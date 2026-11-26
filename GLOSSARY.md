@@ -30,6 +30,8 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Upstream check** | The dashboard's count, off by default, of how far the install's `main` is behind its public upstream and ahead of it with its own changes; it only fetches and counts, and tells the user on Telegram, as the `upstream` kind of notification, when the counts change or it starts failing |
 | **Version badge** | The header's mark of the install's version, in every look, and whether it is the newest release of the public upstream, read once a day; it never updates the install |
 | **Handoff** | A job Didban hands to Zanbourdar, or to a project's Kanduban, on the user's yes, typed into that session by `kandu.handoff`, and the short report it sends back to Didban |
+| **Job check** | A separate, read-only agent Kandu starts when a handed-over job's report comes back: it checks each "Done when" line as met, not met or can't tell, and the job's rules, against the real state, and its verdict, passed, partly or failed, reaches Didban with the report |
+| **Interim report** | A report on a handed-over job sent while the job waits on something later, such as a timer or the next run (`kandu.handoff report --interim`); it reaches Didban unchecked, and the job check runs on the final report |
 | **Brief** | One short private file per project, `local/brief/<project>.md`, that Didban reads when the user names the project; it changes only through `kandu.brief` |
 | **Repo note** | `KANDU.md` in a project's repo, rendered by `kandu.note`: it says Kandu changes the repo, where its tasks are and how a breakage goes back to Kandu |
 | **Report file** | A file of the project's own, listed under `reports` in the registry, that Didban reads with the brief and never changes |

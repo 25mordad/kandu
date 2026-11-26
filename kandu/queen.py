@@ -116,8 +116,9 @@ def worth_a_look(before, news, backlog, today, paused_repos=(), by_hand=(), spli
 
 
 def prompt_events(news):
-    # Her own runs and Bazras's belong to no task she judges.
-    return [event for event in news if event["type"] in PROMPT_EVENTS and event.get("role") not in ("queen", "bazras")]
+    # Her own runs, Bazras's and the job checks belong to no task she judges.
+    return [event for event in news if event["type"] in PROMPT_EVENTS
+            and event.get("role") not in ("queen", "bazras", "job_check")]
 
 
 def _since_loop_stop(events, task):
