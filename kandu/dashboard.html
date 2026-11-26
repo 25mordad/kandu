@@ -4001,7 +4001,7 @@ async function openFlight(button) {
   const project = target.startsWith("kanduban:") ? target.slice("kanduban:".length) : null;
   const shown = project && kandubanOf(project);
   if (shown?.status === "open") { if (shown.url) window.open(shown.url, "_blank", "noopener"); return; }  // One per project: its link.
-  if (shown) return;  // still opening
+  if (shown && shown.status !== "failed") return;  // still opening; one that failed is asked for anew
   const path = project ? `/flights/kanduban/${encodeURIComponent(project)}`
     : ["didban", "zanbourdar"].includes(target) ? `/flights/${target}` : `/flights/tasks/${target.replace("#", "/")}`;
   const focus = button.dataset.focus ? `&project=${encodeURIComponent(button.dataset.focus)}` : "";

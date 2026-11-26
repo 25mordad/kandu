@@ -304,6 +304,21 @@ const window = {open: url => opened.push(url)};
 })();""")
                 self.assertEqual(done, {"posted": ["/flights/kanduban/blog?language=en"], "opened": [SESSION_LINK]})
 
+    def test_pressing_one_that_failed_asks_for_a_new_one(self):
+        self.OPEN = [{"kind": "kanduban", "project": "blog", "status": "failed", "key": "k-3", "url": "",
+                      "error": "the session's link did not come in time"}]
+        for look, path in LOOKS.items():
+            page = test_looks.read(path)
+            with self.subTest(look=look):
+                shown = self.run_page(page, 'console.log(JSON.stringify(kandubanControls("blog")));')
+                self.assertIn('data-fly="kanduban:blog">Open a Kanduban</button>', shown)
+                done = self.run_page(page, """
+const posted = [];
+const act = async (button, path) => { posted.push(path); return {}; };
+const refreshFlights = async () => {};
+(async () => { await openFlight({dataset: {fly: "kanduban:blog"}}); console.log(JSON.stringify(posted)); })();""")
+                self.assertEqual(done, ["/flights/kanduban/blog?language=en"])
+
     def test_the_list_of_sessions_names_a_kanduban_by_its_project(self):
         for look, path in LOOKS.items():
             page = test_looks.read(path)
