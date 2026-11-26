@@ -1039,15 +1039,13 @@ class Api:
             self.github.refresh_repo(item.repo)
         except GitHubError as e:
             raise ApiError(503, f"GitHub could not be read: {e}")
-        if not self.github.issue_is_open(item.repo, item.number):
-            raise ApiError(409, "its issue is closed")
-        pr = self.github.find_pr(item.repo, item.number)
-        if pr is not None and pr["state"] == "MERGED":
-            raise ApiError(409, "its PR is already merged")
+        why = queen.why_no_resume(self.github, item)
+        if why is not None:
+            raise ApiError(409, why)
         events = queen.all_events(self.store)
         to = split.BACKLOG if queen.last_outcome(events, key) == "sizing_failed" else "Ready"
         self.github.set_status(project.board, item.url, to)
-        self.store.record("user_resumed", task=key, project=project.name, to=to)
+        queen.resume(self.store, key, project.name, to)
         self._queue_time = None
         return {"task": key, "to": to, "cycle_started": self.start_cycle()}
 

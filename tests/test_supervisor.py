@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from kandu import agents, merge, notify, queen, questions, review, split, supervisor, tasks
+from kandu import agents, dashboard, merge, notify, queen, questions, review, split, supervisor, tasks
 from kandu.config import Rules, load_config
 from kandu.flights import Flights, task_key
 from kandu.notify import Notifier
@@ -614,6 +614,36 @@ class QueenStepsTest(Base):
         self.assertEqual(message.text, "loop_stopped")
         self.store.record("task_picked", task=KEY, project="website")
         self.assertIsNone(queen.why_no_step(queen.all_events(self.store), KEY, "rework", 1))
+
+    def loop_stopped(self):
+        self.sized(KEY)
+        self.github.open_pr(REPO, 1, SHA1)
+        self.sup._carry_out([self.step("verify")], queen.all_events(self.store))
+        self.store.record("queen_step_done", task=KEY, project="website", action="verify", decided="t",
+                          result="unclear", summary="s", head_sha=SHA1, run_id="r")
+        self.sup._carry_out([self.step("verify")], queen.all_events(self.store))
+        self.assertEqual((len(self.events("loop_stopped")), self.github.status(1)), (1, "Blocked"))
+        self.config.settings.supervisor.queen = False  # her look is not what this is about
+
+    def test_a_task_stopped_for_going_round_and_moved_by_hand_is_the_users_again(self):
+        self.loop_stopped()
+        self.github.statuses[self.github.items[0].url] = "Backlog"
+        self.cycle()
+        self.cycle()
+        events = queen.all_events(self.store)
+        self.assertEqual([e["to"] for e in self.events("user_resumed")], ["Backlog"])
+        self.assertFalse(queen.waits_after_loop(events, KEY))
+        self.assertIsNone(queen.why_no_step(events, KEY, "rework", 1))
+        self.assertEqual(dashboard.task_statuses(events)[KEY]["state"], "fine")
+
+    def test_a_task_stopped_for_going_round_and_moved_by_hand_to_ready_is_picked_again(self):
+        self.loop_stopped()
+        self.github.statuses[self.github.items[0].url] = "Ready"
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertEqual([e["to"] for e in self.events("user_resumed")], ["Ready"])
+        self.assertEqual(len(self.events("task_picked")), 1)
+        self.assertEqual(self.events("review_finished")[0]["head_sha"], SHA1)
 
     def test_what_she_did_reaches_her_next_look(self):
         self.sup._carry_out([self.step("verify", note="Run the tests.")], [])
@@ -2182,22 +2212,29 @@ class ReviewRoundsTest(Base):
         found = [e["reason"] for e in self.events("decision") if e["decision"] == "round_no_commit"]
         self.assertEqual(found[:1], ["fix round 1: the API key is missing"])
 
-    def stuck_then_sent_back(self):
-        """A fix round pushes nothing and blocks the task; then the user presses «Back to work»."""
+    def stuck_then_sent_back(self, by_hand=False):
+        """A fix round pushes nothing and blocks the task; then the user presses «Back to work», or moves its card
+        out of `Blocked` by hand, which the next board read takes as the same resume."""
         self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]),
                              lambda: '{"status": "blocked", "reason": "waits for another PR"}']
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
         self.github.statuses[self.github.items[0].url] = "Ready"
-        self.store.record("user_resumed", task=f"{REPO}#1", project="website", to="Ready")
+        if not by_hand:
+            self.store.record("user_resumed", task=f"{REPO}#1", project="website", to="Ready")
 
     def test_back_to_work_after_a_round_that_pushed_nothing_runs_one_more_fix_round(self):
-        self.stuck_then_sent_back()
-        self.runner.steps = [self.worker_pushes(SHA2), report(SHA2, earlier=[{"n": 1, "result": "fixed", "body": "ok"}])]
-        self.cycle()
-        self.assertIn("This breaks.", self.runner.runs[3].prompt)
-        self.assertEqual([e["head_sha"] for e in self.events("review_finished")], [SHA1, SHA2])
-        self.assertNotEqual(self.github.status(1), "Blocked")
+        for by_hand in (False, True):
+            with self.subTest(by_hand=by_hand):
+                self.setUp()
+                self.stuck_then_sent_back(by_hand)
+                self.runner.steps = [self.worker_pushes(SHA2),
+                                     report(SHA2, earlier=[{"n": 1, "result": "fixed", "body": "ok"}])]
+                self.cycle()
+                self.assertIn("This breaks.", self.runner.runs[3].prompt)
+                self.assertEqual([e["head_sha"] for e in self.events("review_finished")], [SHA1, SHA2])
+                self.assertNotEqual(self.github.status(1), "Blocked")
+                self.assertEqual(len(self.events("user_resumed")), 1)
 
     def test_that_round_pushing_nothing_again_blocks_the_task_until_the_next_back_to_work(self):
         self.stuck_then_sent_back()
@@ -2205,10 +2242,19 @@ class ReviewRoundsTest(Base):
         self.cycle()
         self.assertEqual(len(self.runner.runs), 4)
         self.assertEqual(self.github.status(1), "Blocked")
+        # Kandu's own move out of `Blocked` is no resume: no worker runs again on that head.
         self.github.statuses[self.github.items[0].url] = "Ready"
+        self.store.record("queen_decided", task=f"{REPO}#1", project="website", action="retry", note="Again.")
         self.cycle()
-        self.assertEqual(len(self.runner.runs), 4)  # no resume since: no worker runs again on that head
+        self.assertEqual(len(self.runner.runs), 4)
         self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(len(self.events("user_resumed")), 1)
+        # A hand move is the next «Back to work»: one more fix round.
+        self.github.statuses[self.github.items[0].url] = "Ready"
+        self.runner.steps = [lambda: '{"status": "blocked", "reason": "still waits"}']
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 5)
+        self.assertEqual(len(self.events("user_resumed")), 2)
 
     def test_a_fix_round_may_replace_the_description(self):
         def fixes_the_text():
@@ -3638,6 +3684,98 @@ class MergedInAnyColumnTest(Base):
         self.card("Ready", issue_open=False)
         self.cycle()
         self.assertEqual(self.events("card_stuck"), [])
+
+
+class HandMoveTest(Base):
+    """A stopped task's card moved out of `Blocked` or `Needs info` outside Kandu is the user's resume, as Send back."""
+
+    def stopped(self, outcome="blocked", column="Blocked"):
+        self.github.add(1, status=column)
+        self.sized(KEY)
+        self.store.record("task_finished", task=KEY, project="website", outcome=outcome)
+
+    def move(self, column):
+        self.github.statuses[self.github.items[0].url] = column
+
+    def resumes(self):
+        return [e["to"] for e in self.events("user_resumed")]
+
+    def test_a_card_moved_by_hand_to_backlog_is_the_users_resume_once_and_the_dashboard_shows_it_not_stuck(self):
+        for outcome, column in (("blocked", "Blocked"), ("needs_info", "Needs info")):
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                self.stopped(outcome, column)
+                self.assertEqual(dashboard.task_statuses(queen.all_events(self.store))[KEY]["state"], "stuck")
+                self.move("Backlog")
+                self.cycle()
+                self.cycle()  # a later board read of the same move records nothing again
+                self.assertEqual(self.resumes(), ["Backlog"])
+                events = queen.all_events(self.store)
+                self.assertEqual(dashboard.task_statuses(events)[KEY]["state"], "fine")
+                self.assertFalse(dashboard.flower_marks(self.store)[KEY]["yours"])
+
+    def test_a_card_moved_by_hand_to_ready_or_in_progress_is_resumed_with_that_column_and_worked(self):
+        for column in ("Ready", "In progress"):
+            with self.subTest(column=column):
+                self.setUp()
+                self.stopped()
+                self.move(column)
+                self.runner.steps = [GAVE_UP]
+                self.cycle()
+                self.assertEqual(self.resumes(), [column])
+                self.assertEqual(len(self.events("task_picked")), 1)
+                self.cycle()  # stopped again, by Kandu: its own move back to `Blocked` is no resume
+                self.assertEqual(self.resumes(), [column])
+
+    def test_a_card_still_stopped_moved_to_done_or_whose_issue_is_closed_records_nothing(self):
+        for column, open_issue in (("Blocked", True), ("Done", True), ("Ready", False), ("Backlog", False)):
+            with self.subTest(column=column, open_issue=open_issue):
+                self.setUp()
+                self.stopped()
+                self.move(column)
+                if not open_issue:
+                    self.github.open_issues.discard((REPO, 1))
+                self.cycle()
+                self.assertEqual(self.resumes(), [])
+                self.assertEqual(self.runner.runs, [])
+
+    def test_a_card_of_a_task_that_is_not_stopped_records_nothing(self):
+        self.github.add(1, status="Backlog")
+        self.store.record("task_finished", task=KEY, project="website", outcome="sizing_failed")
+        self.cycle()
+        self.assertEqual(self.resumes(), [])
+
+    def test_send_back_is_recorded_once_and_the_board_read_after_it_adds_nothing(self):
+        self.stopped()
+        self.move("Ready")  # the dashboard's Send back: the card moves and the resume is recorded
+        self.store.record("user_resumed", task=KEY, project="website", to="Ready")
+        self.runner.steps = [GAVE_UP]
+        self.cycle()
+        self.assertEqual(self.resumes(), ["Ready"])
+
+    def test_the_queens_own_move_out_of_blocked_is_no_hand_move(self):
+        self.config.settings.supervisor.queen = True
+        self.stopped()
+        refused, _ = self.sup._carry_out([{"task": KEY, "action": "retry", "note": "Try again."}],
+                                         queen.all_events(self.store))
+        self.assertEqual((refused, self.github.status(1)), ([], "Ready"))
+        self.config.settings.supervisor.queen = False
+        self.runner.steps = [GAVE_UP]
+        self.cycle()
+        self.assertEqual(self.resumes(), [])
+
+    def test_the_queens_own_rework_not_yet_picked_is_no_hand_move(self):
+        self.config.settings.supervisor.queen = True
+        self.stopped()
+        self.github.open_pr(REPO, 1, SHA1)
+        refused, _ = self.sup._carry_out([{"task": KEY, "action": "rework", "note": "Rename the helper."}],
+                                         queen.all_events(self.store))
+        self.assertEqual((refused, self.github.status(1)), ([], "In progress"))
+        self.config.settings.supervisor.queen = False
+        self.runner.down.add("server")  # no worker picks the task in this cycle: the next board read sees her move
+        self.assertEqual(self.cycle(), "waiting for a machine")
+        self.assertEqual(self.runner.runs, [])
+        self.assertEqual(self.resumes(), [])
 
 
 class IssueClosedTest(Base):

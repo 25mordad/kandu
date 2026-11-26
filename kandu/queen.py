@@ -23,6 +23,8 @@ ENDED = ("merged", "replaced", "pr_closed", "issue_closed", "stopped_by_user", "
 RETRYABLE = ("failed", "blocked", "needs_info", "sizing_failed")
 LIMITED = ("retry", "rework", "verify", "new_task", "block_on")  # each one this often per task
 SENT_ON = ("rework", "verify")  # code carries these out when it next drives the task
+CARD_MOVES = ("retry", "rework")  # her steps that move a stopped task's card out of `Blocked` themselves
+WAITS_FOR_RESUME = ("blocked", "needs_info")  # the ends a hand move out of `Blocked` or `Needs info` resumes
 LARGE = "Large"
 HIGH = "High"
 # Not `issue_closed`: no step of hers can reopen an issue, so the user hears of it at once.
@@ -128,6 +130,45 @@ def waits_after_loop(events, task):
     if not any(e["type"] == "loop_stopped" and e.get("task") == task for e in events):
         return False
     return not any(e["type"] in USER_ACTED and e.get("task") == task for e in _since_loop_stop(events, task))
+
+
+def waits_for_resume(events, task):
+    """True while the task's last stop is the last word on it: it ended `blocked` or `needs_info`, or code stopped
+    it for a loop, and since then no resume, no pick and none of her steps that move its card (`CARD_MOVES`).
+
+    A card such a task has outside `Blocked` and `Needs info` was moved there by hand: Kandu's own moves record
+    their own events, so they end this first.
+    """
+    for event in reversed(events):
+        if event.get("task") != task:
+            continue
+        kind = event["type"]
+        if kind == "loop_stopped":
+            return True
+        if kind == "task_finished":
+            return event["outcome"] in WAITS_FOR_RESUME
+        if kind in ("user_resumed", "task_picked") or (kind == "queen_decided" and event["action"] in CARD_MOVES):
+            return False
+    return False
+
+
+def why_no_resume(github, item):
+    """Why the user's resume of a stopped task may not happen, or None: by Send back or by a hand move, the same."""
+    if not github.issue_is_open(item.repo, item.number):
+        return "its issue is closed"
+    pr = github.find_pr(item.repo, item.number)
+    if pr is not None and pr["state"] == "MERGED":
+        return "its PR is already merged"
+    return None
+
+
+def resume(store, task, project, to):
+    """The user's resume of a stopped task, with the column its card is in now: by Send back or by a hand move.
+
+    Everything that waits for the user reads this one event: the dashboard's stuck status and «waits for you», the
+    loop guard, and the one more fix round on a head whose last round pushed nothing.
+    """
+    return store.record("user_resumed", task=task, project=project, to=to)
 
 
 def steps_used(events, task, action):

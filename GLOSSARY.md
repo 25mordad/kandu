@@ -69,6 +69,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Check** | A read-only run the queen sends to find one thing out about a task; the run is the checker |
 | **Drop ask** | The queen's question to the user to drop one task from another's `Blocked by`, with her reason; only the user's yes on the dashboard takes it out of the issue. Off until the user turns it on |
 | **Loop guard** | The per-task limit on each of the queen's steps; past it the task stops for the user |
+| **Hand move** | A change of a card's column on the board made outside Kandu, by the user or a session. Avoid: manual move |
 | **Look** | One of the dashboard's appearances each browser chooses between, Classic, Classic new or Kandu Clean. Avoid: template, theme, skin |
 | **Classic look** | The dashboard as this install had it before Kandu Clean. Avoid: old look, original look, cards look |
 | **Classic new look** | Classic made compact: one header row, the numbers as a strip of chips, an explanation on every part. Avoid: new classic, classic 2 |

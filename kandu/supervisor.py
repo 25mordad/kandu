@@ -39,6 +39,7 @@ BACKLOG, READY, IN_PROGRESS, IN_REVIEW = "Backlog", "Ready", "In progress", "In 
 NEEDS_INFO, BLOCKED, DONE = "Needs info", "Blocked", "Done"
 NEEDS_SPLIT = split.NEEDS_SPLIT
 RESUMED = (IN_PROGRESS, IN_REVIEW)
+HAND_MOVE_TO = (BACKLOG, READY, IN_PROGRESS)  # a stopped task's card moved here by hand is the user's resume
 MERGEABLE = ("approved", "approved_with_notes")
 END_CHECK_MERGES = 2  # This many merges in a project in one cycle earn a check of the whole project.
 LANDING_FAILED = ("deploy_failed", "live_check_failed")
@@ -346,6 +347,17 @@ class Supervisor:
     def _board_tasks(self):
         tasks = self._read_tasks()
         return tasks + self._merged_elsewhere(tasks)
+
+    def _take_hand_moves(self):
+        """A stopped task's card that someone moved by hand out of `Blocked` or `Needs info`, to `Backlog`, `Ready`
+        or `In progress`, is the user's resume, exactly as Send back: recorded once, at the first board read that
+        sees it. A card in `Done`, or one whose issue is closed or whose PR merged, ends as before."""
+        events = queen.all_events(self.store)
+        for project, item in self._board_items():
+            key = f"{item.repo}#{item.number}"
+            if item.status in HAND_MOVE_TO and queen.waits_for_resume(events, key) \
+                    and queen.why_no_resume(self.github, item) is None:
+                queen.resume(self.store, key, project.name, item.status)
 
     def _tell_stuck_cards(self):
         """A `Ready` card whose issue is closed is never driven: the user hears of it once, with why. One whose PR
@@ -2403,6 +2415,7 @@ class Supervisor:
         reason = self._gate() or self._queen_limit()
         if reason is None:
             try:
+                self._take_hand_moves()  # first: all that follows reads the user's resume
                 self._close_groups()
                 self._close_specs()
                 self._size_backlog()
