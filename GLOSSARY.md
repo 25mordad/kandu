@@ -14,6 +14,8 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Run temporary folder** | A machine's option, off by default (`run_tmp`): each agent run, test and setup there gets a fresh folder inside `run_tmp_dir` on the machine's own disk as its temporary directory, removed when the run ends; a deploy gets none |
 | **Reference copy** | A read-only copy of the paths a task's `Reference` names in another registered project's repo, in a folder of the run's own on the worker's machine, removed when the run ends. Off by default (`supervisor.reference_copy`); never from a private repo into a run on a public one. |
 | **Splitter** | A read-only agent that sizes every task in `Backlog` against the scale and proposes how to split a `Large` one |
+| **Base branch** | The branch of a project's repo that Kandu works on and merges into; by default the repo's default branch |
+| **Open-PR limit** | A project's cap on the open PRs this install's `github.account` has on its repos (`max_open_prs`, off by default): at it, no task of the project starts from `Ready` or is sized, while work on its open PRs goes on |
 | **Red main** | A project's state when its tests fail twice on one commit of its default branch (`watch_main`, off by default): its merges wait, no task starts but the one Kandu opens to fix it, and the user is told once until `main` passes |
 | **Queen answers one-way merges** | A project's switch, off by default: on, the queen's yes to a merge answers its one-way door and the review's questions for the user; off, those wait for the user's yes |
 | **Split approval** | Who accepts a project's split proposals, the user or the queen; the user by default, set in the registry or the dashboard's settings section |
@@ -25,14 +27,18 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Zanbourdar** | Persian for "beekeeper": a session the user opens beside Didban from the dashboard, with full access and tied to no task; it may change Kandu itself |
 | **Kanduban** | A session the user opens on one project from the dashboard, with full access, on the project's own machine in a worktree of its own; it works only in that project and brings its change in through a PR |
 | **Upgrade notice** | The dashboard's notice at the top of every look, «Kandu was upgraded to X.Y.Z», with the changelog entry of each version the user has not marked as read, until «Mark as read» |
+| **Upstream check** | The dashboard's count, off by default, of how far the install's `main` is behind its public upstream and ahead of it with its own changes; it only fetches and counts, and tells the user on Telegram, as the `upstream` kind of notification, when the counts change or it starts failing |
 | **Version badge** | The header's mark of the install's version, in every look, and whether it is the newest release of the public upstream, read once a day; it never updates the install |
 | **Handoff** | A job Didban hands to Zanbourdar, or to a project's Kanduban, on the user's yes, typed into that session by `kandu.handoff`, and the short report it sends back to Didban |
+| **Job check** | A separate, read-only agent Kandu starts when a handed-over job's report comes back: it checks each "Done when" line as met, not met or can't tell, and the job's rules, against the real state, and its verdict, passed, partly or failed, reaches Didban with the report |
+| **Interim report** | A report on a handed-over job sent while the job waits on something later, such as a timer or the next run (`kandu.handoff report --interim`); it reaches Didban unchecked, and the job check runs on the final report |
 | **Brief** | One short private file per project, `local/brief/<project>.md`, that Didban reads when the user names the project; it changes only through `kandu.brief` |
 | **Repo note** | `KANDU.md` in a project's repo, rendered by `kandu.note`: it says Kandu changes the repo, where its tasks are and how a breakage goes back to Kandu |
 | **Report file** | A file of the project's own, listed under `reports` in the registry, that Didban reads with the brief and never changes |
 | **Bazras** | The inspector bee: a daily, read-only look at a live project's health; its findings go in a private report, never into a task by itself |
 | **Finding** (Bazras) | Something Bazras's code found wrong: a reverted Kandu commit, rework, a failed unit or cron line, new error lines in a log, failing tests or a failing check |
 | **Request** | What the user wants done, in their words, before it is a task; Didban keeps it until its tasks exist |
+| **Refining way** | Which of Kandu's two ways turns a request into tasks in an install, rounds or grilling (`refining.way`, `rounds` by default). Avoid: mode, flow, process |
 | **Spec** | The issue that holds a request of several tasks, or any request defined with `/kandu-to-issue`: its Problem, Solution, Decisions and Out of scope. It is never work: no `agent` label, no card, never sized; each of its tasks names it and takes its Out of scope, and it closes with the last of them |
 | **Decision map** | The short list Didban shows after each round of refining a task: ✅ decided, ❓ asked now, ⏳ waits for another answer, ✂️ out of scope; refining ends when nothing is ❓ or ⏳. Didban saves it with the request after each round |
 | **Design tree** | The decisions of a request, each nested under the one it hangs off, as `/kandu-grill-with-docs` shows it; its flat copy is saved as the decision map |
@@ -65,6 +71,7 @@ One word for each concept. Use these words in code, docs, prompts and issues. A 
 | **Check** | A read-only run the queen sends to find one thing out about a task; the run is the checker |
 | **Drop ask** | The queen's question to the user to drop one task from another's `Blocked by`, with her reason; only the user's yes on the dashboard takes it out of the issue. Off until the user turns it on |
 | **Loop guard** | The per-task limit on each of the queen's steps; past it the task stops for the user |
+| **Hand move** | A change of a card's column on the board made outside Kandu, by the user or a session. Avoid: manual move |
 | **Look** | One of the dashboard's appearances each browser chooses between, Classic, Classic new or Kandu Clean. Avoid: template, theme, skin |
 | **Classic look** | The dashboard as this install had it before Kandu Clean. Avoid: old look, original look, cards look |
 | **Classic new look** | Classic made compact: one header row, the numbers as a strip of chips, an explanation on every part. Avoid: new classic, classic 2 |

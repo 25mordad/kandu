@@ -180,7 +180,8 @@ def offer_memory(project, github, local_dir, memory_pr=True):
             repo, f"kandu/memory-{project.name}", MEMORY_FILE, text,
             "Keep what Kandu learned about this project",
             f"This project was removed from Kandu. This adds what Kandu learned about it, its memory and brief, as "
-            f"`{MEMORY_FILE}`, so it stays with the project. Merge it if you want to keep it.")
+            f"`{MEMORY_FILE}`, so it stays with the project. Merge it if you want to keep it.",
+            **({"base": project.base_branch} if project.base_branch else {}))  # none named: the default branch
     except GitHubError as e:
         raise MemoryPrError(f"the PR with the memory of {project.name} could not be offered to {repo}: {e}. "
                             "Nothing was removed. Try again, or remove it without that PR; its memory is archived "

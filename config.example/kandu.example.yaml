@@ -13,6 +13,9 @@ didban:                        # see DESIGN §13
       machine: server
       path: ~/notes
 
+refining:                       # optional; the refining way: how a request becomes tasks, for every project (DESIGN §13)
+  way: rounds                  # rounds (default) = /kandu-task refines in rounds with you; grilling = /kandu-grill-with-docs asks every open decision at once, then /kandu-to-issue makes a spec and its tasks. Also set in the dashboard
+
 machines:
   - name: server
     reach: local               # local = the machine Kandu runs on
@@ -58,6 +61,7 @@ notify:
     - usage_limit
     - claude_login
     - machine_unreachable      # a machine has not answered for hours while tasks wait for it, and when it is back
+    - upstream                 # the upstream check's counts changed, or it started failing
 
 bazras:                        # optional; Bazras's daily look at projects whose `inspect` is on (DESIGN §5)
   at: "06:00"                  # default hour; a project's inspect.at overrides it

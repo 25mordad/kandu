@@ -542,6 +542,12 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
     <div class="upgrade-head"><strong id="upgradetitle" dir="auto"></strong><button id="upgraderead" class="btn" data-t="upgrade_read"></button></div>
     <div id="upgradeentries"></div>
   </section>
+  <section id="basemissing" class="upgrade" aria-live="polite" hidden>
+    <div class="upgrade-head"><strong id="basemissingtitle" dir="auto"></strong></div>
+  </section>
+  <section id="openprsheld" class="upgrade" aria-live="polite" hidden>
+    <div class="upgrade-head"><strong id="openprsheldtitle" dir="auto"></strong></div>
+  </section>
   <section id="mainred" class="upgrade" aria-live="polite" hidden>
     <div class="upgrade-head"><strong id="mainredtitle" dir="auto"></strong></div>
     <div id="mainredtests" class="upgrade-entry" dir="auto"></div>
@@ -695,6 +701,11 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "version_never_tried": "never tried",
   "version_no_version": "no version",
   "main_red_title": "main is red in {project}: its tests fail",
+  "base_missing_title": "The base branch {branch} of {project} is not on GitHub ({repos}): none of its tasks starts",
+  "open_prs_held_title": "{project} waits: its open PRs ({prs}) reached its limit of {limit}. No new task of it starts until one is merged or closed",
+  "set_base_branch": "Base branch",
+  "set_base_branch_hint": "The branch Kandu works on and merges into. /kandu-config changes it.",
+  "set_base_branch_default": "the repo's default branch",
   "main_red_fix": "The task that fixes it",
   "set_watch_main": "Hold the project when main's tests fail",
   "set_watch_main_hint": "Off: nothing changes. On: when a PR's tests fail, Kandu tests main. If main fails twice, the project's merges wait, only the task that fixes main starts, and you are told once.",
@@ -797,6 +808,15 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "reading_board": "Reading the boards…",
   "done_in_hive": "{count} done in the last {days} days",
   "cost_tokens": "Tokens used",
+  "cost_cached": "Read from cache",
+  "cost_role": "Who",
+  "cost_runs": "Runs",
+  "cost_time": "Time",
+  "cost_none": "No agent ran on this task.",
+  "minutes": "min",
+  "no_pr": "No PR yet",
+  "english_text": "English text",
+  "task_full_issue": "The whole issue and its cost",
   "approve_split_sure": "Create these slices as tasks on the board? Each one runs after the one before it.",
   "split_approved": "The slices are on the board.",
   "split_decline_hint": "To decline or change it, go to Didban.",
@@ -932,7 +952,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "project_added_msg": "Project {name} added, on board #{board}.",
   "test_task_made": "The task that writes the checks script",
   "deploy_task_made": "The task that writes the deploy script",
-  "open": "Open",
+  "more_info": "More information",
   "cancel": "Cancel",
   "didban_sessions": "Didban sessions",
   "no_didban_sessions": "No Didban session reported yet",
@@ -1115,7 +1135,13 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "notify_claude_login_hint": "Claude's login expires soon or has stopped working, so no agent starts.",
   "notify_machine_unreachable": "Machine not answering",
   "notify_machine_unreachable_hint": "A machine has not answered for hours while tasks wait for it, and again when it is back.",
+  "notify_upstream": "Upstream check",
+  "notify_upstream_hint": "How far main is behind or ahead of its upstream changed, or the check started failing.",
   "default_look_classic-new": "Classic new",
+  "refining_way": "Refining way",
+  "refining_way_hint": "How a request becomes tasks, for every project. Rounds: /kandu-task refines it with you in rounds. Grilling: /kandu-grill-with-docs asks every open decision at once, then /kandu-to-issue makes a spec and its tasks.",
+  "refining_way_rounds": "Rounds",
+  "refining_way_grilling": "Grilling",
   "pace_title": "Kandu's pace",
   "pace_workers": "Workers at once, in all of Kandu",
   "pace_wake": "Wakes every (minutes)",
@@ -1267,6 +1293,11 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "version_never_tried": "هنوز تلاش نشده",
   "version_no_version": "بی‌نسخه",
   "main_red_title": "شاخهٔ اصلی در {project} قرمز است: تست‌هایش رد می‌شوند",
+  "base_missing_title": "شاخهٔ پایهٔ {branch} در {project} روی GitHub نیست ({repos}): هیچ تسکی از آن شروع نمی‌شود",
+  "open_prs_held_title": "{project} منتظر است: PRهای باز آن ({prs}) به سقف {limit} رسیده‌اند. تا یکی از آن‌ها merge یا بسته نشود، تسک تازه‌ای از آن شروع نمی‌شود",
+  "set_base_branch": "شاخهٔ پایه",
+  "set_base_branch_hint": "شاخه‌ای که کندو رویش کار و در آن ادغام می‌کند. با /kandu-config عوض می‌شود.",
+  "set_base_branch_default": "شاخهٔ پیش‌فرض مخزن",
   "main_red_fix": "تسکی که آن را درست می‌کند",
   "set_watch_main": "وقتی تست‌های شاخهٔ اصلی رد می‌شوند، پروژه نگه داشته شود",
   "set_watch_main_hint": "خاموش: چیزی تغییر نمی‌کند. روشن: وقتی تست‌های یک PR رد می‌شوند، کندو شاخهٔ اصلی را هم تست می‌کند. اگر دو بار رد شد، ادغام‌های پروژه منتظر می‌مانند، فقط تسکی که آن را درست می‌کند شروع می‌شود و یک بار به تو خبر داده می‌شود.",
@@ -1369,6 +1400,15 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "reading_board": "در حال خواندن بردها…",
   "done_in_hive": "{count} تسک انجام‌شده در {days} روز اخیر",
   "cost_tokens": "توکن مصرف‌شده",
+  "cost_cached": "خوانده از کش",
+  "cost_role": "چه کسی",
+  "cost_runs": "اجرا",
+  "cost_time": "زمان",
+  "cost_none": "هیچ ایجنتی روی این تسک کار نکرد.",
+  "minutes": "دقیقه",
+  "no_pr": "هنوز PR نیست",
+  "english_text": "متن انگلیسی",
+  "task_full_issue": "متن کامل issue و هزینه‌اش",
   "approve_split_sure": "این تکه‌ها به‌صورت تسک روی برد ساخته شوند؟ هر کدام بعد از قبلی اجرا می‌شود.",
   "split_approved": "تکه‌ها روی برد ساخته شدند.",
   "split_decline_hint": "برای رد یا تغییر آن، به دیدبان برو.",
@@ -1504,7 +1544,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "project_added_msg": "پروژه‌ی {name} اضافه شد، روی برد #{board}.",
   "test_task_made": "تسکی که اسکریپت checks را می‌نویسد",
   "deploy_task_made": "تسکی که اسکریپت deploy را می‌نویسد",
-  "open": "باز کردن",
+  "more_info": "توضیحات",
   "cancel": "انصراف",
   "didban_sessions": "جلسه‌های دیدبان",
   "no_didban_sessions": "هنوز جلسه‌ای از دیدبان گزارش نشده",
@@ -1687,7 +1727,13 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "notify_claude_login_hint": "ورود Claude به‌زودی منقضی می‌شود یا از کار افتاده، پس هیچ عاملی شروع نمی‌شود.",
   "notify_machine_unreachable": "ماشین جواب نمی‌دهد",
   "notify_machine_unreachable_hint": "ماشینی ساعت‌ها جواب نداده در حالی که تسک‌هایی منتظرش هستند، و دوباره وقتی برمی‌گردد.",
+  "notify_upstream": "بررسی upstream",
+  "notify_upstream_hint": "فاصله‌ی main تا upstream آن، عقب یا جلو، عوض شد، یا بررسی شروع به شکست کرد.",
   "default_look_classic-new": "کلاسیک نو",
+  "refining_way": "شیوه‌ی پالایش",
+  "refining_way_hint": "اینکه یک درخواست چطور به تسک تبدیل می‌شود، برای همه‌ی پروژه‌ها. دور به دور: ‎/kandu-task‎ آن را دور به دور با شما پالایش می‌کند. بازجویی: ‎/kandu-grill-with-docs‎ همه‌ی تصمیم‌های باز را یک‌جا می‌پرسد، بعد ‎/kandu-to-issue‎ یک مشخصات و تسک‌هایش را می‌سازد.",
+  "refining_way_rounds": "دور به دور",
+  "refining_way_grilling": "بازجویی",
   "pace_title": "آهنگ کار کندو",
   "pace_workers": "کارگرهای هم‌زمان در کل کندو",
   "pace_wake": "بیدار شدن هر (دقیقه)",
@@ -1889,6 +1935,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "a thread was resolved by someone other than its author": "رشته‌ای را کسی جز نویسنده‌اش بسته است",
   "the tests fail on this head": "تست‌ها روی این نسخه رد می‌شوند",
   "main's tests fail": "تست‌های شاخهٔ اصلی رد می‌شوند",
+  "the PR's base is not the project's base branch": "پایهٔ این PR شاخهٔ پایهٔ پروژه نیست",
   "the tests failed twice on this head: they run again on a new commit or a recorded \"test again\" request": "تست‌ها دو بار روی این نسخه رد شدند؛ با commit تازه یا درخواست «دوباره تست کن» دوباره اجرا می‌شوند",
   "the session's link did not come in time": "لینک جلسه به‌موقع نیامد",
   "the session did not start": "جلسه باز نشد",
@@ -1945,6 +1992,9 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "blocker_dropped": "مانع با تأیید تو برداشته شد",
   "drop_blockers_changed": "پرسیدن ملکه درباره‌ی مانع‌ها روشن یا خاموش شد",
   "reference_copy_changed": "نسخه‌ی فقط‌خواندنیِ مرجع روشن یا خاموش شد",
+  "pr_test_output": "کندو تست‌ها را روی شاخه اجرا کرد و خروجی‌اش را در توضیح PR نوشت",
+  "pr_test_output_not_run": "کندو نتوانست تست‌ها را برای توضیح PR اجرا کند",
+  "refining_way_changed": "شیوه‌ی پالایش عوض شد",
   "reference_copied": "به اجرا نسخه‌ی فقط‌خواندنیِ مرجع داده شد",
   "reference_note": "مرجع کپی نشد (یادداشت روی تسک)",
   "notify_changed": "اعلان‌های تلگرام عوض شد",
@@ -2004,6 +2054,7 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "worktree_cleaned": "کار نیمه‌تمام git در پوشه‌ی تسک لغو شد",
   "spec_unreadable": "سندِ درخواستِ تسک در نسخه‌ی کندو نبود یا بخش‌های لازم را نداشت؛ عامل بدون آن کار کرد",
   "worktree_settled": "شاخه‌ی پوشه‌ی تسک از شاخه‌ی گیت‌هاب جدا شده بود؛ کندو هر دو را بی از دست رفتن کامیتی یکی کرد",
+  "earlier_run_ended": "یک اجرای قبلی همین تسک هنوز روی ماشینش در حال اجرا بود؛ کندو پیش از اجرای تازه آن را بست",
   "split_approved": "خودکار شکسته شد",
   "split_waits": "تقسیم منتظر تو",
   "task_sized": "اندازه‌گیری شد",
@@ -2029,6 +2080,10 @@ button.pdot:focus-visible { outline:2px solid var(--honey); outline-offset:1px; 
   "main_tested": "تست شاخهٔ اصلی اجرا شد",
   "main_red": "شاخهٔ اصلی قرمز شد",
   "main_green": "شاخهٔ اصلی دوباره سبز شد",
+  "base_missing": "شاخهٔ پایه روی GitHub نیست",
+  "base_found": "شاخهٔ پایه دوباره روی GitHub است",
+  "open_prs_held": "PRهای باز پروژه به سقفش رسید",
+  "open_prs_freed": "PRهای باز پروژه دوباره زیر سقفش است",
   "main_fix_opened": "تسک درست کردن شاخهٔ اصلی باز شد",
   "main_updated": "شاخهٔ اصلی به یک PR آورده شد",
   "project_inspected": "بازرس پروژه را نگاه کرد",
@@ -2853,11 +2908,11 @@ function renderQueen(s) {
   if (!s.queen) return;
   if (tab === "tasks") $("queenbox").innerHTML = briefHtml(s.queen);
   $("asks").innerHTML = s.queen.questions.map(q => `<div class="ask"><div class="ask-text"><div class="ask-who">${t("queen_asks")} · ${bdi(repoOf(q.task))} ${numberOf(q.task)}</div><div dir="auto">${esc(q.question)}</div></div>
-    <button class="btn small" data-review="${esc(q.task)}">${t("open")}</button></div>`).join("")
+    <button class="btn small" data-review="${esc(q.task)}">${t("more_info")}</button></div>`).join("")
     + (s.queen.drops || []).map(d => `<div class="ask"><div class="ask-text"><div class="ask-who">${t("queen_asks")} · ${bdi(repoOf(d.task))} ${numberOf(d.task)}</div>
     <div>${esc(t("drop_ask").replace("{blocker}", d.blocker))}</div><div dir="auto">${esc(d.reason)}</div></div>
     <button class="btn small primary" data-drop="${esc(d.task)}" data-blocker="${esc(d.blocker)}">${t("drop_yes")}</button>
-    <button class="btn small" data-review="${esc(d.task)}">${t("open")}</button></div>`).join("");
+    <button class="btn small" data-review="${esc(d.task)}">${t("more_info")}</button></div>`).join("");
 }
 
 // Each machine that does not answer: since when, and the tasks that wait for it, to be sized or worked.
@@ -2900,7 +2955,7 @@ function waitItems(s, queue) {
     if (items.has(task)) return;
     const project = open[task]?.project || repoOf(task);
     items.set(task, {task, project, title: open[task]?.title || "", kind: label, tone, line, stuck: kind === "stuck",
-                     order: WAIT_ORDER.indexOf(kind), rank: order(project), actions: [...actions, button(t("open"), `data-review="${esc(task)}"`)]});
+                     order: WAIT_ORDER.indexOf(kind), rank: order(project), actions: [...actions, button(t("more_info"), `data-review="${esc(task)}"`)]});
   };
   const marks = Object.entries(s.flowers || {});
   for (const d of s.queen?.drops || [])
@@ -3274,6 +3329,22 @@ function renderVersion(v) {
 }
 
 // A project whose main is red, until main passes: the failing tests and the task that fixes it, read from the log.
+// A project whose base branch is missing on GitHub: none of its tasks starts until it is there again.
+function renderBaseMissing(missing) {
+  const box = $("basemissing"), names = Object.keys(missing || {});
+  box.hidden = !names.length;
+  $("basemissingtitle").textContent = names.map(n => t("base_missing_title").replace("{project}", n)
+    .replace("{branch}", missing[n].branch).replace("{repos}", missing[n].repos.join(", "))).join(" · ");
+}
+
+// A project at its open-PR limit: no task of it starts from Ready until one of the PRs it names is merged or closed.
+function renderOpenPrsHeld(held) {
+  const box = $("openprsheld"), names = Object.keys(held || {});
+  box.hidden = !names.length;
+  $("openprsheldtitle").textContent = names.map(n => t("open_prs_held_title").replace("{project}", n)
+    .replace("{prs}", held[n].prs.join(", ")).replace("{limit}", held[n].limit)).join(" · ");
+}
+
 function renderMainRed(red) {
   const box = $("mainred"), names = Object.keys(red || {});
   if (!names.length) { box.hidden = true; return; }
@@ -3324,6 +3395,8 @@ async function refreshState() {
   if (!saved(LANGUAGE_KEY) && TEXT[s.language] && s.language !== lang) setLanguage(s.language);  // The browser's choice wins.
   renderVersion(s.version_badge);
   renderUpgrade(s.upgrade);
+  renderBaseMissing(s.base_missing);
+  renderOpenPrsHeld(s.open_prs_held);
   renderMainRed(s.main_red);
   const chip = stateChip(s);
   $("pulse").className = `chip ${chip.kind}`;
@@ -3503,7 +3576,7 @@ function renderSettings(s) {
   if (tab !== "settings") return;
   const projects = settingsProjects(s, lastQueue);
   const key = JSON.stringify([lang, projects, s.project_settings, s.limits, s.machines, s.clean_merged, s.drop_blockers, s.reference_copy,
-                              s.show_requests, s.default_look, s.backup, s.pace, s.parallel?.total, s.notify]);
+                              s.show_requests, s.default_look, s.refining_way, s.backup, s.pace, s.parallel?.total, s.notify]);
   if (key === renderSettings.key) return;
   renderSettings.key = key;
   $("projectsettings").innerHTML = settingsProjectsHtml(projects);
@@ -3614,7 +3687,8 @@ function settingsBody(row, edit) {
   const refused = edit.refused.length ? `<div class="set-refused" role="alert"><b>${t("set_refused")}</b><ul>${edit.refused.map(r =>
     `<li>${esc(t(SETTING_LABELS[r.setting]))}: <span dir="auto">${esc(r.why)}</span></li>`).join("")}</ul></div>` : "";
   return `<div class="sheet-grip"></div><div class="sheet-head"><div class="sheet-who"><div class="muted">${t("tab_settings")}</div><h2>${bdi(row.name)}</h2></div>
-    <button type="button" class="sheet-close" data-set-cancel aria-label="${esc(t("close"))}">✕</button></div>${refused}<section class="set-group">${settingControl("name", row, edit.now)}</section>${groups}
+    <button type="button" class="sheet-close" data-set-cancel aria-label="${esc(t("close"))}">✕</button></div>${refused}<section class="set-group">${settingControl("name", row, edit.now)}</section>
+    <section class="set-group"><div class="set-field stack"><div class="set-label"><span>${t("set_base_branch")}</span><small>${esc(t("set_base_branch_hint"))}</small></div><b dir="${row.base_branch ? "ltr" : "auto"}" data-base-branch>${esc(row.base_branch || t("set_base_branch_default"))}</b></div></section>${groups}
     <section class="set-group"><h3>${t("kanduban")}</h3><p class="muted">${t("kanduban_hint")}</p><div class="actions" id="setkanduban">${kandubanControls(row.name)}</div></section>
     <section class="set-danger"><h3>${t("set_danger")}</h3><p class="muted">${t("remove_project_hint")}</p><div class="actions"><button type="button" class="btn danger" data-remove="${esc(row.name)}">${t("remove_project")}</button></div></section>`;
 }
@@ -3732,6 +3806,12 @@ function switchRow(label, on, path, hint = "") {
 }
 
 // The install's default look: a press on the other look saves it in the config at once.
+// The install's refining way (DESIGN §13): how a request becomes tasks, for every project. Saved in the config at once.
+function refiningWayHtml(way) {
+  const choice = value => `<button type="button" data-switch="/refining-way?way=${value}" aria-pressed="${way === value}">${t(`refining_way_${value}`)}</button>`;
+  return `<div class="side-row" title="${esc(t("refining_way_hint"))}"><span class="side-label">${t("refining_way")}</span><div class="seg" role="group" aria-label="${esc(t("refining_way"))}">${choice("rounds")}${choice("grilling")}</div></div>`;
+}
+
 function defaultLookHtml(look) {
   const choice = value => `<button type="button" data-switch="/default-look?look=${value}" aria-pressed="${look === value}">${t(`default_look_${value}`)}</button>`;
   return `<div class="side-row" title="${esc(t("default_look_hint"))}"><span class="side-label">${t("default_look")}</span><div class="seg" role="group" aria-label="${esc(t("default_look"))}">${choice("classic")}${choice("clean")}</div></div>`;
@@ -3740,7 +3820,7 @@ function defaultLookHtml(look) {
 // Telegram: which kinds of news Kandu sends, as `notify.events` in the config; the bot's token and the chat stay in
 // local/.env and never reach the page. The kinds go in the order a user meets them; one the page does not know yet
 // comes last, by its name.
-const NOTIFY_ORDER = ["pr_ready", "task_done", "needs_decision", "failure", "supervisor_stopped", "usage_limit", "claude_login", "machine_unreachable"];
+const NOTIFY_ORDER = ["pr_ready", "task_done", "needs_decision", "failure", "supervisor_stopped", "usage_limit", "claude_login", "machine_unreachable", "upstream"];
 const notifyKinds = n => [...NOTIFY_ORDER.filter(k => n.kinds.includes(k)), ...n.kinds.filter(k => !NOTIFY_ORDER.includes(k))];
 const notifyPath = events => `/notify?events=${encodeURIComponent([...events].join(",") || "none")}`;  // none: send nothing
 // Telegram's connection: the bot's token and the chat go in a POST's body to local/.env, so they are in no URL and no
@@ -3819,7 +3899,7 @@ function kanduHtml(s) {
     <button type="button" class="textbtn" data-backup>${t("change")}</button></div>` : "";
   const paceRow = (label, value, path, step) => value ? `<div class="side-row"><span class="side-label">${t(label)}</span>${stepper(value, path, t(label), step)}</div>` : "";
   return `<div class="side-head"><b>${t("kandu_itself")}</b></div>
-    ${flag(s.clean_merged, "clean_merged", "/clean-merged", "clean_merged_hint")}${flag(s.drop_blockers, "switch_drop_blockers", "/drop-blockers")}${flag(s.reference_copy, "switch_reference_copy", "/reference-copy", "reference_copy_hint")}${flag(s.show_requests, "switch_requests", "/requests")}${s.default_look ? defaultLookHtml(s.default_look) : ""}${backup}
+    ${flag(s.clean_merged, "clean_merged", "/clean-merged", "clean_merged_hint")}${flag(s.drop_blockers, "switch_drop_blockers", "/drop-blockers")}${flag(s.reference_copy, "switch_reference_copy", "/reference-copy", "reference_copy_hint")}${flag(s.show_requests, "switch_requests", "/requests")}${s.default_look ? defaultLookHtml(s.default_look) : ""}${s.refining_way ? refiningWayHtml(s.refining_way) : ""}${backup}
     ${paceRow("pace_workers", s.parallel?.total, "/parallel?total={n}", 1)}${paceRow("pace_wake", pace.wake_every_minutes, "/pace?wake_every_minutes={n}", 5)}${paceRow("pace_cycle", pace.max_cycle_minutes, "/pace?max_cycle_minutes={n}", 5)}
     <div class="side-note">${t("pace_hint")}</div>`;
 }
@@ -3921,7 +4001,7 @@ async function openFlight(button) {
   const project = target.startsWith("kanduban:") ? target.slice("kanduban:".length) : null;
   const shown = project && kandubanOf(project);
   if (shown?.status === "open") { if (shown.url) window.open(shown.url, "_blank", "noopener"); return; }  // One per project: its link.
-  if (shown) return;  // still opening
+  if (shown && shown.status !== "failed") return;  // still opening; one that failed is asked for anew
   const path = project ? `/flights/kanduban/${encodeURIComponent(project)}`
     : ["didban", "zanbourdar"].includes(target) ? `/flights/${target}` : `/flights/tasks/${target.replace("#", "/")}`;
   const focus = button.dataset.focus ? `&project=${encodeURIComponent(button.dataset.focus)}` : "";
@@ -4190,7 +4270,17 @@ function sheetView(task, s, queue, {review, info, proposal}) {
                   run: worker?.run_id || steps.filter(e => e.run_id).at(-1)?.run_id || null},
           what: goal, question: (s.queen?.questions || []).find(q => q.task === task)?.question || null,
           drop: (s.queen?.drops || []).find(d => d.task === task) || null,
-          steps: steps.map(stepOf), wait: wait || null, language: s.language};
+          steps: steps.map(stepOf), wait: wait || null, language: s.language, yours: Boolean(item?.yours || s.flowers?.[task]?.yours)};
+}
+
+// A done task's whole issue, the tokens read from the cache, and what each role spent on it.
+function doneBox(info) {
+  const counted = tokens => tokens.total - tokens.cache_read;  // as the daily limit counts them
+  const minutes = ms => `${num(Math.max(1, Math.round(ms / 60000)))} ${t("minutes")}`;
+  const roles = Object.entries(info.cost.roles).map(([role, used]) => `<tr><td>${esc(tr(role))}</td><td class="fit number">${num(used.runs)}</td><td class="fit number">${minutes(used.duration_ms)}</td><td class="fit number">${num(counted(used.tokens))}</td></tr>`).join("");
+  return `${info.issue?.body ? `<div class="slice-body" dir="auto">${esc(info.issue.body)}</div>` : ""}
+    <div class="chips"><span class="chip">${t("cost_cached")}: ${num(info.cost.total.cache_read)}</span></div>
+    ${roles ? `<table class="rows"><thead><tr><th>${t("cost_role")}</th><th class="fit">${t("cost_runs")}</th><th class="fit">${t("cost_time")}</th><th class="fit">${t("tokens")}</th></tr></thead><tbody>${roles}</tbody></table>` : `<p class="muted">${t("cost_none")}</p>`}`;
 }
 
 function sheetBody(v) {
@@ -4204,10 +4294,16 @@ function sheetBody(v) {
   const slices = v.proposal ? `<div class="sheet-box"><div class="sheet-box-head">${t("proposed_slices")}</div><div dir="auto">${esc(own?.reason || v.proposal.reason)}</div>
     ${v.proposal.slices.map((slice, i) => `<details class="round"><summary>${num(i + 1)}. <span dir="auto">${esc(own?.slices[i].title || slice.title)}</span></summary><div class="round-body">
     <div class="chips"><span class="chip">${esc(tr(slice.size))}</span><span class="chip">${num(slice.files)} ${t("files_touched")}</span><span class="chip">${esc(tr(slice.door))}</span></div>
-    <div class="slice-body" dir="auto">${esc(own?.slices[i].body || slice.body)}</div></div></details>`).join("")}<p class="muted">${t("split_decline_hint")}</p></div>` : "";
+    <div class="slice-body" dir="auto">${esc(own?.slices[i].body || slice.body)}</div></div></details>`).join("")}
+    ${own ? `<details class="round"><summary>${t("english_text")}</summary><div class="round-body">${v.proposal.slices.map((slice, i) =>
+      `<div><b dir="ltr">${num(i + 1)}. ${esc(slice.title)}</b><div class="slice-body" dir="ltr">${esc(slice.body)}</div></div>`).join("")}</div></details>` : ""}
+    <p class="muted">${t("split_decline_hint")}</p></div>` : "";
   const counted = tokens => tokens.total - tokens.cache_read;  // as the daily limit counts them
-  const cost = v.item?.column === "Done" && v.info?.cost ? `<div class="chips">${v.info.outcome ? `<span class="chip">${esc(tr(v.info.outcome))}</span>` : ""}<span class="chip">${t("cost_tokens")}: ${num(counted(v.info.cost.total))}</span></div>` : "";
+  const cost = v.item?.column === "Done" && v.info?.cost ? `<div class="chips">${v.info.outcome ? `<span class="chip">${esc(tr(v.info.outcome))}</span>` : ""}<span class="chip">${t("cost_tokens")}: ${num(counted(v.info.cost.total))}</span></div>
+    <details class="round"><summary>${t("task_full_issue")}</summary><div class="round-body">${doneBox(v.info)}</div></details>` : "";
   const r = v.review;
+  const pr = r?.pr ? `<span class="chip">${esc(tr(r.pr.state))}</span>` : `<span class="muted">${t("no_pr")}</span>`;
+  const yours = v.yours && v.state !== t("waits_for_you") ? `<span class="badge" style="--c:#e8590c">${t("waits_for_you")}</span>` : "";
   const lines = [...(r ? heldLines({waited: r.waited}, r.blockers) : heldLines(v.item?.mark, v.item?.blockers)), ...keptLines(r?.kept)];
   const steps = v.steps.map((step, i) => `<div class="step${i === v.steps.length - 1 ? " last" : ""}"><i class="hex"></i><div><div class="step-head"><b dir="auto">${esc(step.title)}</b><time>${esc(step.time)}</time></div>
     ${step.text ? `<div class="step-text" dir="auto">${esc(step.text)}</div>` : ""}</div></div>`).join("");
@@ -4215,7 +4311,7 @@ function sheetBody(v) {
     <div class="sheet-head"><div class="sheet-hex ${v.tone}">${v.number}</div><div class="sheet-who"><div class="muted" dir="auto">${esc(v.meta)}</div><h2 dir="auto">${esc(v.title)}</h2></div>
     <button class="sheet-close" data-close-sheet aria-label="${esc(t("close"))}">✕</button></div>
     <div class="phases" style="--n:${v.phases.length}">${phases}</div>
-    <div class="sheet-state"><b class="tone-${v.tone === "honey" ? "ink" : v.tone}">${esc(v.state)}</b><span class="spacer"></span>${link(v.links.pr, t("task_pr"))}${link(v.links.issue, t("task_issue"))}
+    <div class="sheet-state"><b class="tone-${v.tone === "honey" ? "ink" : v.tone}">${esc(v.state)}</b>${pr}${yours}<span class="spacer"></span>${link(v.links.pr, t("task_pr"))}${link(v.links.issue, t("task_issue"))}
     ${v.links.run ? `<button class="textlink" data-run="${esc(v.links.run)}">${t("task_run_log")}</button>` : ""}</div>
     ${status}${v.what ? `<div class="sheet-what slice-body" dir="auto">${esc(v.what)}</div>` : ""}
     ${v.question ? `<div class="sheet-box"><div class="sheet-box-head tone-amber">${t("kind_queen")}</div><div class="sheet-question" dir="auto">${esc(v.question)}</div></div>` : ""}
@@ -4229,6 +4325,7 @@ function sheetFoot(v) {
   const notes = v.status?.wait ? waitLines(v.status.wait) : v.wait ? [esc(v.wait.line)] : [];
   const tone = v.tone === "honey" ? "amber" : v.tone;
   const project = v.item?.project || repoOf(v.task);
+  const flight = `<span id="taskflight" class="flightbox">${flightControls(flights.open.find(f => f.task === v.task), v.task, t("open_flight"))}</span>`;
   const actions = [
     v.review?.pr ? testsView(v.task, v.review.pr) : "",
     v.review?.pr ? approval(v.task, v.review.pr, v.review.holds) : "",
@@ -4237,11 +4334,11 @@ function sheetFoot(v) {
     v.status?.why === "internal_error" ? `<button class="btn" data-to-queen="${esc(v.task)}" title="${esc(t("to_queen_hint"))}">${t("to_queen")}</button>` : "",
     v.drop ? `<button class="btn primary" data-drop="${esc(v.task)}" data-blocker="${esc(v.drop.blocker)}">${t("drop_yes")}</button>` : "",
     v.question ? `<button class="btn" data-fly="didban" data-focus="${esc(project)}">${t("ask_didban")}</button>` : "",
-    v.item?.by_hand ? `<span id="taskflight" class="flightbox">${flightControls(flights.open.find(f => f.task === v.task), v.task, t("open_flight"))}</span>` : "",
+    flight,
     v.worker?.run_id ? `<button class="btn danger" data-stop="${esc(v.worker.run_id)}">${t("stop_bee")}</button>` : "",
   ].filter(Boolean);
   const github = v.links.pr || v.links.issue;
-  if (!actions.length || actions.every(a => a.startsWith("<p"))) actions.push(`<a class="btn" href="${esc(github)}" target="_blank" rel="noopener">${t("open_github")} ↗</a>`);
+  if (actions.every(a => a === flight || a.startsWith("<p"))) actions.push(`<a class="btn" href="${esc(github)}" target="_blank" rel="noopener">${t("open_github")} ↗</a>`);
   return `${notes.length ? `<div class="sheet-note tone-${tone}">${notes.map(line => `<div dir="auto">${line}</div>`).join("")}</div>` : ""}<div class="actions">${actions.join("")}</div>`;
 }
 

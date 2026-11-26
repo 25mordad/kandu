@@ -264,13 +264,15 @@ class Flights:
         folder = f"{copy.rstrip('/')}.kandu-worktrees/kanduban-{stamp}"
         branch = f"kanduban/{stamp}"
         self._on(host, ["git", "fetch", "origin"], cwd=copy)
-        base = self._base(host, copy, repo)
+        base = self._base(host, copy, project, repo)
         self._on(host, ["git", "worktree", "add", "-b", branch, folder, base], cwd=copy)
         dashboard = self.config.settings.dashboard
         lines = [KANDUBAN_FILE.read_text(encoding="utf-8"), reading(self.config), "## This setup",
                  f"- Project: `{project.name}`, on machine `{machine.name}`. Its repos: "
                  + ", ".join(f"`{r}` at `{repo_path(project, r)}`" for r in project.repos) + ".",
                  f"- Your worktree: `{folder}`, of `{repo}`'s copy, on the new branch `{branch}`, made from `{base}`.",
+                 *([f"- The project's base branch is `{project.base_branch}`: open its PRs against it, and never push "
+                    f"to it."] if project.base_branch else []),
                  f"- Kandu's API: `{api_url(self.config)}`.",
                  f"- A job from Didban ends with `.venv/bin/python -m kandu.handoff report --project {shlex.quote(project.name)}`, "
                  f"run in Kandu's live install on the brain, `{didban.REPO_DIR}`"
@@ -302,8 +304,11 @@ class Flights:
             raise KandubanError(f"the home folder on {host.name} could not be read")
         return posixpath.join(home, path[2:])
 
-    def _base(self, host, copy, repo):
-        """What the new branch starts from: the copy's own record of GitHub's default branch, or else Kandu's copy."""
+    def _base(self, host, copy, project, repo):
+        """What the new branch starts from: the project's base branch. Without one named, the copy's own record of
+        GitHub's default branch, or else Kandu's copy."""
+        if project.base_branch:
+            return f"origin/{project.base_branch}"
         try:
             return self._on(host, ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=copy).strip()
         except KandubanError:

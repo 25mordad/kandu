@@ -22,7 +22,7 @@ FORMAT_VERSION = 1
 TASK_FIELDS = ("task", "project")
 EVENT_FIELDS = {
     "supervisor_woke": (),
-    "supervisor_slept": ("reason", "next_wake"),
+    "supervisor_slept": ("reason", "next_wake", "resets"),
     "task_picked": TASK_FIELDS,
     "phase_changed": TASK_FIELDS + ("phase",),
     "decision": TASK_FIELDS + ("decision", "reason"),
@@ -71,6 +71,10 @@ EVENT_FIELDS = {
     "main_tested": ("project", "repo", "commit", "run", "passed", "failing"),  # one run of the tests on a `main` commit
     "main_red": ("project", "repo", "commit", "failing", "since"),  # two runs on one commit failed: merges wait
     "main_green": ("project", "repo", "commit"),  # a `main` commit passed after a red one
+    "base_missing": ("project", "branch", "repos"),  # GitHub lacks the project's base branch: none of its tasks starts
+    "base_found": ("project", "branch"),  # the missing base branch is on GitHub again
+    "open_prs_held": ("project", "prs", "limit"),  # its open PRs reached `max_open_prs`: no new task starts
+    "open_prs_freed": ("project",),  # its open PRs went below `max_open_prs` again
     "main_updated": ("project", "repo", "commit", "task"),  # `main` was brought into a PR that waited on a red one
     "main_fix_opened": ("project", "repo", "commit", "task", "url"),  # the one fix task of a red commit
     "limits_changed": ("session", "week"),
@@ -101,6 +105,8 @@ EVENT_FIELDS = {
     "flight_left_open": TASK_FIELDS + ("session",),  # a task closed without a merge while its free flight is open
     "clean_merged_changed": ("enabled",),
     "reference_copy_changed": ("enabled",),
+    "pr_test_output": TASK_FIELDS + ("code",),  # Kandu wrote a PR's test section from its own run of `test`
+    "refining_way_changed": ("way",),
     "reference_copied": TASK_FIELDS + ("repos", "paths"),   # a run was given a read-only copy of a reference
     "reference_note": TASK_FIELDS + ("note",),               # why a reference was not copied, said once on the task
     "run_tmp_changed": ("machine", "enabled", "folder"),
@@ -131,9 +137,9 @@ def is_project_setting(setting, value):
     return any(value == allowed and type(value) is type(allowed) for allowed in PROJECT_SETTINGS.get(setting, ()))
 
 
-NO_TASK_ROLES = ("supervisor", "queen", "bazras")
+NO_TASK_ROLES = ("supervisor", "queen", "bazras", "job_check")
 # The usage view counts their runs as Kandu itself: sizing (the splitter's) names a task but is not its work.
-KANDU_ROLES = ("supervisor", "queen", "bazras", "splitter")
+KANDU_ROLES = ("supervisor", "queen", "bazras", "job_check", "splitter")
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
 
 
@@ -185,6 +191,8 @@ class StateStore:
         self.flights_dir = self.root / "flights"
         self.flown_dir = self.root / "flown"
         self.reports_dir = self.root / "zanbourdar-reports"  # Zanbourdar's reports waiting for Didban's next start.
+        self.jobs_dir = self.root / "jobs"  # The last job handed to each session, kept for its report's check.
+        self.job_checks_dir = self.root / "job-checks"  # Reports whose job check is running.
         self.bazras_file = self.root / "bazras.json"
         self.by_hand_labelled_file = self.root / "by-hand-labelled"  # The one-time `by-hand` backfill ran.
         self.clean_since_file = self.root / "clean-since"  # Only a task merged after this is cleaned up.
@@ -589,6 +597,31 @@ class StateStore:
                 continue  # Another start took it first.
             taken.append(text)
         return taken
+
+    def keep_job(self, key, text):
+        """Keeps the text of the job last handed to session `key`, for the check of its report."""
+        return self._write_private(self.jobs_dir, f"{key}.json", json.dumps({"text": text}, ensure_ascii=False))
+
+    def take_job(self, key):
+        """The job last handed to session `key`, or None, forgotten as it is taken: one report checks it."""
+        path = self.jobs_dir / f"{key}.json"
+        try:
+            text = path.read_text(encoding="utf-8")
+            path.unlink()
+        except FileNotFoundError:
+            return None
+        return json.loads(text)["text"]
+
+    def keep_job_check(self, check_id, record):
+        """Keeps a report and its job while their check runs, so the report is never lost."""
+        return self._write_private(self.job_checks_dir, f"{check_id}.json", json.dumps(record, ensure_ascii=False))
+
+    def job_check(self, check_id):
+        path = self.job_checks_dir / f"{check_id}.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def forget_job_check(self, check_id):
+        (self.job_checks_dir / f"{check_id}.json").unlink(missing_ok=True)
 
     def write_flown(self, summary):
         self._write_private(self.flown_dir, f"{summary['id']}.json", json.dumps(summary, ensure_ascii=False))

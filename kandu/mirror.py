@@ -8,7 +8,8 @@ description, which Kandu does for the worker.
 
 The copy is read again from GitHub every few minutes, when the supervisor wakes, and when
 the user gives an order. If a card changed on GitHub while a change to the same field
-waited in the queue, the local change stands: it is sent, and GitHub follows the copy.
+waited in the queue, the newer change stands: a move made on GitHub after the change was
+queued drops it, and an older one is overwritten when the queue is sent.
 """
 import fcntl
 import json
@@ -319,8 +320,8 @@ class Mirror:
     def latest_release(self, repo):
         return self.remote.latest_release(repo)  # read once a day by `version.Releases`, which keeps it in the log
 
-    def offer_file_pr(self, repo, branch, path, content, title, body):
-        return self.remote.offer_file_pr(repo, branch, path, content, title, body)
+    def offer_file_pr(self, repo, branch, path, content, title, body, base=None):
+        return self.remote.offer_file_pr(repo, branch, path, content, title, body, base)
 
     def find_pr(self, repo, issue):
         """Returns the newest PR of an issue's `kandu/` branch in this repo, or None. A fork's PR never counts."""
@@ -340,6 +341,12 @@ class Mirror:
 
     def review_threads(self, repo, number):
         return self.pr(repo, number)["reviewThreads"]
+
+    def open_prs(self, repo):
+        """Every open PR the copy holds for a repo, by the copy alone: none before the repo is copied. Asks GitHub
+        nothing. A PR the last read no longer found open is closed, so it is left out."""
+        prs = ((self._load(self._path("repos", repo)) or {}).get("prs") or {}).values()
+        return [pr for pr in prs if pr["state"] == "OPEN" and not pr.get("stale")]
 
     def merged_prs(self, repo):
         """Every merged PR the copy holds for a repo, as it last read them."""
@@ -526,8 +533,8 @@ class Mirror:
         """Puts queued changes on a board's copy.
 
         With `resolve`, `data` is what GitHub says now. A queued card change GitHub already holds is
-        done; any other stays and is put on the copy, even if the card changed on GitHub meanwhile:
-        the local change is the base, and the next send makes GitHub follow it.
+        done. One whose field someone moved on GitHub after it was queued is dropped, and the copy keeps
+        GitHub's value. Any other stays and is put on the copy: the next send makes GitHub follow it.
         """
         entries, kept = self.outbox(), []
         items = {item["url"]: item for item in data["items"]}
@@ -539,6 +546,10 @@ class Mirror:
                     now = item[_attribute(entry["field"])]
                     if resolve and now == entry["value"]:
                         continue  # GitHub already holds it
+                    if resolve and _moved_since(item, entry):
+                        self._log_dropped(entry, f"{entry['field']} moved to {now!r} on GitHub after this change "
+                                                 "was queued")
+                        continue
                     item[_attribute(entry["field"])] = entry["value"]
             elif entry["kind"] in ("close", "edit"):
                 for item in data["items"]:
@@ -726,6 +737,17 @@ class Mirror:
                 kept.append(entry)
             self._store(self._outbox_path, kept)
         return len(done), len(kept), dropped
+
+
+def _moved_since(item, entry):
+    """True when someone moved the card's field on GitHub after the change was queued.
+
+    A value other than the one the change started from, set after `queued_at` by GitHub's clock. A value Kandu itself
+    sent is the start of the next change, so a clock a little ahead of Kandu's never drops one of Kandu's own.
+    """
+    attribute = _attribute(entry["field"])
+    changed = (item.get("changed_at") or {}).get(attribute, "")
+    return item[attribute] != entry.get("before") and changed > entry["queued_at"]
 
 
 def _same_issue(one, other):

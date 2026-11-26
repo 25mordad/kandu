@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Prints what Kandu's API serves at one path, by a GET, from any folder: the job check reads the API with this.
+set -euo pipefail
+
+repo="$(dirname "$(dirname "$(readlink -f "$0")")")"
+cd "$repo"
+exec .venv/bin/python -m kandu.apiread "$@"

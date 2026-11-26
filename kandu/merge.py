@@ -49,6 +49,15 @@ def merge_waits(project, pr, reviewed, threads, unreviewed_companions, approved=
     return reasons + _thread_reasons(threads)
 
 
+WRONG_BASE = "the PR's base is not the project's base branch"  # no yes merges it: Kandu merges into no other branch
+
+
+def base_waits(pr, base):
+    """Why a PR may not merge whatever says yes: it would merge into another branch than `base`, the project's base
+    branch. A PR read without its base counts as based elsewhere."""
+    return [] if pr.get("baseRefName") == base else [WRONG_BASE]
+
+
 TESTS_FAIL = "the tests fail on this head"
 TESTS_WAIT = ("the tests failed twice on this head: they run again on a new commit or a recorded "
               "\"test again\" request")

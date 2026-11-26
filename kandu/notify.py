@@ -15,15 +15,19 @@ from datetime import datetime
 
 from . import waits
 from .queen import COULD_NOT_FINISH
+from .usage import QUEEN_LIMIT, SESSION_LIMIT, WEEK_LIMIT
 
 TIMEOUT_SECONDS = 10
+FA_DAYS = ("دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه", "یکشنبه")
+FA_MONTHS = ("ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن", "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر")
+FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 QUIET_SLEEPS = ("nothing ready", "tasks ran out", "waiting for a machine", "cycle time is up",
                 "cycle time ran out while an agent was running",
                 "stopped while an agent was running")  # The last three: the next cycle resumes the task. The last
 # one is how a cycle that ran out of time ended before; the events of those days still hold it.
 BOARDS_UNREADABLE = "could not read the boards"
 QUEEN_TROUBLE = "the queen could not look"
-LIMIT_SLEEPS = ("5-hour usage", "weekly usage", "the queen reached her daily token limit")
+LIMIT_TEXTS = {SESSION_LIMIT: "session_limit", WEEK_LIMIT: "week_limit", QUEEN_LIMIT: "queen_limit"}
 USAGE_UNKNOWN = "usage unknown"
 # The end-of-cycle check's problems, as the supervisor writes them in `project_checked`'s detail.
 CHECK_NOT_RUN = "the check could not run"
@@ -44,7 +48,9 @@ LEVELS = {"pr_ready": YOUR_TURN, "pr_held": YOUR_TURN, "split": YOUR_TURN, "flig
           "split_made": FOR_YOUR_INFO, "check_not_run": FOR_YOUR_INFO,
           "queen_split": FOR_YOUR_INFO,
           "blocker_rewritten": FOR_YOUR_INFO,
-          "usage_limit": FOR_YOUR_INFO, "project_limit": FOR_YOUR_INFO, "machine_back": FOR_YOUR_INFO,
+          "session_limit": FOR_YOUR_INFO, "week_limit": FOR_YOUR_INFO,
+          "queen_limit": FOR_YOUR_INFO, "project_limit": FOR_YOUR_INFO, "machine_back": FOR_YOUR_INFO,
+          "upstream_behind": YOUR_TURN, "upstream_counts": FOR_YOUR_INFO, "upstream_failed": FOR_YOUR_INFO,
           "main_green": DONE}  # Everything else stops work: STUCK.
 
 MESSAGES = {
@@ -53,8 +59,12 @@ MESSAGES = {
         "cycle_trouble": "A Kandu cycle ran into trouble. The details are on the dashboard.",
         "crashed": "A Kandu cycle crashed. The details are in its service log.",
         "queen_trouble": "The queen could not finish her look. The details are on the dashboard.",
-        "usage_limit": "Kandu reached a usage limit and starts no new work for now.",
-        "project_limit": "{project} reached its daily token limit.",
+        "session_limit": "Claude's 5-hour usage reached the limit set for Kandu, so no new work starts.",
+        "week_limit": "Claude's weekly usage reached the limit set for Kandu, so no new work starts.",
+        "queen_limit": "The queen used up her tokens for today, so no new work starts.",
+        "limit_resets": "It resets {at}, and Kandu goes on by itself after that.",
+        "limit_checks_again": "Kandu checks it again at {at}.",
+        "project_limit": "{project} reached its daily token limit. Its new tasks start again tomorrow.",
         "claude_login": "Kandu cannot read Claude's usage, so the login may have stopped working. No agent starts.",
         "task_failed": "{task} stopped on an error. The details are on the dashboard.",
         "deploy_failed": "{task} was merged, but the deploy failed. Nothing was reverted.",
@@ -92,6 +102,10 @@ MESSAGES = {
         "blocker_rewritten": "The new task {task} named {old} as a blocker. {old} was split, so it waits for its "
                              "last slice {new} instead.",
         "backup_failed": "Kandu's daily backup failed. The previous copies are untouched. The details are on the dashboard.",
+        "upstream_behind": "Kandu's main is now {behind} behind and {ahead} ahead of {theirs}. To bring the updates in, "
+                           "press «Bring in updates» on the dashboard.",
+        "upstream_counts": "Kandu's main is now {behind} behind and {ahead} ahead of {theirs}.",
+        "upstream_failed": "Kandu could not check how far its main is from {theirs}. The details are on the dashboard.",
         "tg_approve": "✅ Approve the merge",
         "tg_sure": "✅ Yes, merge {head}",
         "tg_cancel": "Cancel",
@@ -113,8 +127,12 @@ MESSAGES = {
         "cycle_trouble": "یک چرخه‌ی کندو به مشکل خورد. جزئیات در داشبورد است.",
         "crashed": "یک چرخه‌ی کندو از کار افتاد. جزئیات در لاگ سرویس است.",
         "queen_trouble": "ملکه نتوانست بررسی‌اش را تمام کند. جزئیات در داشبورد است.",
-        "usage_limit": "کندو به سقف مصرف رسید و فعلاً کار تازه‌ای شروع نمی‌کند.",
-        "project_limit": "{project} به سقف روزانه‌ی توکن رسید.",
+        "session_limit": "مصرف پنج‌ساعته‌ی Claude به سقفی که برای کندو گذاشته‌ای رسید، پس کار تازه‌ای شروع نمی‌شود.",
+        "week_limit": "مصرف هفتگی Claude به سقفی که برای کندو گذاشته‌ای رسید، پس کار تازه‌ای شروع نمی‌شود.",
+        "queen_limit": "ملکه سهم توکن امروزش را تمام کرد، پس کار تازه‌ای شروع نمی‌شود.",
+        "limit_resets": "سقف در {at} دوباره باز می‌شود و کندو بعد از آن خودش ادامه می‌دهد.",
+        "limit_checks_again": "کندو ساعت {at} دوباره نگاه می‌کند.",
+        "project_limit": "{project} به سقف روزانه‌ی توکن رسید. تسک‌های تازه‌اش از فردا دوباره شروع می‌شوند.",
         "claude_login": "کندو نمی‌تواند مصرف Claude را بخواند و شاید ورود از کار افتاده باشد. هیچ عاملی شروع نمی‌شود.",
         "task_failed": "{task} با خطا متوقف شد. جزئیات در داشبورد است.",
         "deploy_failed": "{task} ادغام شد ولی deploy شکست خورد. چیزی برگردانده نشد.",
@@ -152,6 +170,10 @@ MESSAGES = {
         "blocker_rewritten": "تسک تازه‌ی {task} منتظر {old} بود. {old} شکسته شده، پس به جایش منتظر آخرین تکه‌اش، "
                              "{new}، می‌ماند.",
         "backup_failed": "پشتیبان روزانه‌ی کندو شکست خورد. نسخه‌های قبلی دست نخورده‌اند. جزئیات در داشبورد است.",
+        "upstream_behind": "شاخه‌ی main کندو حالا {behind} کامیت از {theirs} عقب و {ahead} کامیت جلو است. برای آوردن "
+                           "به‌روزرسانی‌ها، در داشبورد «آوردن به‌روزرسانی‌ها» را بزن.",
+        "upstream_counts": "شاخه‌ی main کندو حالا {behind} کامیت از {theirs} عقب و {ahead} کامیت جلو است.",
+        "upstream_failed": "کندو نتوانست بررسی کند شاخه‌ی main آن چقدر با {theirs} فاصله دارد. جزئیات در داشبورد است.",
         "tg_approve": "✅ تأیید ادغام",
         "tg_sure": "✅ بله، {head} ادغام شود",
         "tg_cancel": "انصراف",
@@ -185,14 +207,15 @@ class Message:
     wait: dict | None = None  # what the task waits on from the user, where and the next step (waits.py)
 
 
-def _sleep_message(reason):
-    """A sleep is a state, so each kept state has one key."""
+def _sleep_message(reason, resets=None, next_wake=None):
+    """A sleep is a state, so each kept state has one key. At a limit the user hears which one, and when it ends."""
     if QUEEN_TROUBLE in reason or reason.startswith(BOARDS_UNREADABLE):
         return Message("failure", "cycle_trouble", "sleep:trouble", True)
     if reason.startswith(QUIET_SLEEPS):
         return None
-    if reason.startswith(LIMIT_SLEEPS):
-        return Message("usage_limit", "usage_limit", "sleep:limit", True)
+    for start, text in LIMIT_TEXTS.items():
+        if reason.startswith(start):
+            return Message("usage_limit", text, f"sleep:{text}", True, values={"resets": resets, "wakes": next_wake})
     if reason.startswith(USAGE_UNKNOWN):
         return Message("claude_login", "claude_login", "sleep:login", True)
     return Message("supervisor_stopped", "stopped", "sleep:stopped", True)
@@ -240,7 +263,7 @@ def message_for(event, queen=False):
         return Message("needs_decision", "loop_stopped", f"loop_stopped:{event['task']}:{event['ts']}",
                        values={"task": event["task"]}, wait=waits.decision())
     if kind == "supervisor_slept":
-        return _sleep_message(event["reason"])
+        return _sleep_message(event["reason"], event.get("resets"), event.get("next_wake"))
     if kind == "task_finished":
         if event["outcome"] in FAILED_OUTCOMES:
             return _task_message("failure", FAILED_OUTCOMES[event["outcome"]], event)
@@ -296,6 +319,8 @@ def _render(message, language):
     level = LEVELS.get(message.text, STUCK)
     values = message.values | ({"what": _check_problems(message.values, words)} if message.text == "check_failed" else {})
     text = f"{MARKS[level]} {words[level]}\n" + words[message.text].format(**values)
+    if message.text in LIMIT_TEXTS.values():
+        text += _limit_ends(message.values, words, language)
     if message.wait:  # what it waits on, where and the next step
         text += "".join(f"\n{line}" for line in waits.lines(message.wait, language))
     task = message.values.get("task")
@@ -305,6 +330,31 @@ def _render(message, language):
         return text + "".join(f"\nhttps://github.com/{repo}/commits" for repo in message.values.get("failing", ()))
     repo, number = task.split("#")
     return f"{text}\nhttps://github.com/{repo}/issues/{number}"
+
+
+def _limit_ends(values, words, language):
+    """When the limit resets, in the local time and the user's words; when `/usage` did not say, when Kandu looks again."""
+    if values.get("resets"):
+        return "\n" + words["limit_resets"].format(at=_when(values["resets"], language))
+    if values.get("wakes"):
+        return "\n" + words["limit_checks_again"].format(at=_digits(_local(values["wakes"]).strftime("%H:%M"), language))
+    return ""
+
+
+def _local(at):
+    return datetime.fromisoformat(at).astimezone()
+
+
+def _when(at, language):
+    """A day and a time, read the same way in both languages: "Wed 25 Nov, 22:59"."""
+    at = _local(at)
+    if language != "fa":
+        return f"{at:%a} {at.day} {at:%b}, {at:%H:%M}"
+    return _digits(f"{FA_DAYS[at.weekday()]} {at.day} {FA_MONTHS[at.month - 1]}، ساعت {at:%H:%M}", language)
+
+
+def _digits(text, language):
+    return text.translate(FA_DIGITS) if language == "fa" else text
 
 
 class Telegram:

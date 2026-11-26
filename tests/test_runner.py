@@ -13,7 +13,7 @@ from unittest import mock
 from kandu import ghmeter
 from kandu.config import Config, Machine, Project, Setup
 from kandu.runner import (KEPT_CHECKED_OUT, KEPT_NOT_WORKTREE, KEPT_UNCOMMITTED, KEPT_UNPUSHED, REMOVED, Host, LocalWork, Runner,
-                          RunnerError, SCOPE_PROBE, Unreachable, child_env, repo_path)
+                          RunnerError, SCOPE_PROBE, Unreachable, child_env, holder_mark, repo_path, scope_name)
 
 import tempfile as _tempfile
 from kandu import ghmeter as _ghmeter
@@ -490,6 +490,29 @@ class RunnerTest(GitCase):
         self.assertEqual((Path(worktree) / "same.txt").read_text(), "ours\n")
         self.assertEqual(len(cleaned), 1)
 
+    def test_a_merge_left_open_whose_staged_file_changed_since_is_still_cleared_before_the_next_run(self):
+        # A worker resolves the conflict and stages it, then a build rewrites a staged file and it stops without a
+        # commit. `git merge --abort` refuses that folder ("not uptodate"), and once stopped every run on the task.
+        worktree = self.merging()
+        self.push_commit("main", "same.txt", "theirs\n")
+        self.push_commit("main", "built.html", "from main\n")
+        self.merge(worktree)
+        (Path(worktree) / "same.txt").write_text("ours\ntheirs\n")
+        (Path(worktree) / "built.html").write_text("rebuilt once\n")
+        git("add", "same.txt", "built.html", cwd=worktree)
+        (Path(worktree) / "built.html").write_text("rebuilt twice\n")
+        refused = subprocess.run(["git", "merge", "--abort"], cwd=worktree, capture_output=True, text=True)
+        self.assertNotEqual(refused.returncode, 0)  # the folder git refuses, as on the machine
+        cleaned = []
+        self.runner.prepare_worktree(self.project(), "o/site", "kandu/1-a", "main", cleaned=cleaned.append)
+        self.assertEqual(git("status", "--short", cwd=worktree), "")
+        self.assertEqual(git("branch", "--show-current", cwd=worktree), "kandu/1-a")
+        self.assertEqual(git("rev-parse", "HEAD", cwd=worktree), git("rev-parse", "origin/kandu/1-a", cwd=worktree))
+        self.assertEqual((Path(worktree) / "same.txt").read_text(), "ours\n")
+        self.assertFalse((Path(worktree) / "built.html").exists())
+        self.assertEqual(len(cleaned), 1)
+        self.assertIn("refused", cleaned[0])
+
     def test_work_left_uncommitted_does_not_stop_the_merge(self):
         worktree = self.merging()
         (Path(worktree) / "new.txt").write_text("half done\n")
@@ -616,7 +639,7 @@ class RunnerTest(GitCase):
 
     def left_behind(self, marker):
         """The pids of processes still running whose command line holds `marker`."""
-        found = subprocess.run(["pgrep", "-f", marker], capture_output=True, text=True).stdout.split()
+        found = subprocess.run(["pgrep", "-f", f"^{marker}"], capture_output=True, text=True).stdout.split()
         return [pid for pid in found if int(pid) != os.getpid()]
 
     @unittest.skipUnless(subprocess.run(["sh", "-c", SCOPE_PROBE]).returncode == 0, "needs a user systemd")
@@ -647,6 +670,67 @@ class RunnerTest(GitCase):
         result = subprocess.run(Host.scoped(["echo", "ran"], "kandu-t"), capture_output=True, text=True,
                                 env={"PATH": str(bare), "HOME": str(self.home)})
         self.assertEqual(result.stdout.strip(), "ran")
+
+    def without_systemd(self):
+        """This machine as one with no user systemd, such as a Windows one through Git Bash."""
+        install(self.home / ".local" / "bin" / "systemctl", "#!/bin/sh\nexit 1\n")
+
+    def start_left_run(self, holder, marker):
+        """A run of `holder` still going, as a cycle that died leaves one: it and the child it started."""
+        host = self.runner.hosts["box"]
+        command = ["sh", "-c", f'{marker} & {marker}', "sh"]
+        process = subprocess.Popen(host.argv(Host.scoped(command, scope_name("r-old", holder))),
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   env=child_env())
+        self.addCleanup(process.wait)
+        self.addCleanup(lambda: subprocess.run(["pkill", "-KILL", "-f", f"^{marker}"]))
+        for _ in range(50):
+            if len(self.left_behind(marker)) == 2:
+                return
+            time.sleep(0.1)
+        self.fail("the left run did not start")
+
+    def test_with_no_user_systemd_a_stopped_agent_ends_with_all_it_started(self):
+        self.without_systemd()
+        marker = f"sleep 300.{os.getpid()}3"
+        install(self.home / ".local" / "bin" / "claude", f"#!/bin/sh\n{marker} &\n{marker}\n")
+        with mock.patch("kandu.runner.STOP_GRACE_SECONDS", 0.5):
+            result = self.agent(should_stop=lambda: bool(self.left_behind(marker)))
+        self.assertTrue(result.stopped)
+        self.assertEqual(self.left_behind(marker), [])
+
+    def test_with_no_user_systemd_a_run_ends_what_an_earlier_run_of_its_holder_left_running(self):
+        self.without_systemd()
+        self.check_earlier_runs_end("5")
+
+    @unittest.skipUnless(subprocess.run(["sh", "-c", SCOPE_PROBE]).returncode == 0, "needs a user systemd")
+    def test_a_run_ends_the_scope_an_earlier_run_of_its_holder_left_running(self):
+        self.check_earlier_runs_end("6")
+
+    def check_earlier_runs_end(self, tag):
+        mine, other = f"sleep 300.{os.getpid()}{tag}1", f"sleep 300.{os.getpid()}{tag}2"
+        self.start_left_run("o/site#1", mine)
+        self.start_left_run("o/site#2", other)
+        result = self.runner.run_agent("box", str(self.home), "p", ["Read"], [], "r-new", lambda: False,
+                                       holder="o/site#1")
+        self.assertFalse(result.is_error)
+        self.assertEqual(len(result.ended_earlier), 1)
+        self.assertEqual(self.left_behind(mine), [])
+        self.assertEqual(len(self.left_behind(other)), 2)  # another task's run is not this one's to end
+        self.assertEqual(self.runner.run_agent("box", str(self.home), "p", ["Read"], [], "r-next", lambda: False,
+                                               holder="o/site#1").ended_earlier, [])
+
+    def test_a_holder_s_runs_share_a_mark_no_other_holder_s_run_has(self):
+        unit = scope_name("r-1", "o/site#1")
+        self.assertTrue(unit.startswith(holder_mark("o/site#1")))
+        self.assertFalse(unit.startswith(holder_mark("o/site#10")))
+        self.assertFalse(scope_name("r-1").startswith(holder_mark("o/site#1")))
+        self.assertRegex(unit, r"^[A-Za-z0-9_.-]+$")
+
+    def test_a_scoped_command_stays_short_enough_for_a_windows_ssh_command(self):
+        # cmd.exe, which Windows OpenSSH runs the command under, cuts it at 8191 characters
+        scoped = Host.scoped(["claude", "-p"], scope_name("r-1", "o/site#1"))
+        self.assertLess(len(Host(Machine("a", "ssh box", False)).argv(scoped, "/w")[-1]), 2500)
 
     def test_kandu_secrets_stay_out_of_every_child(self):
         with mock.patch.dict(os.environ, {"KANDU_DASHBOARD_TOKEN": "hidden", "OTHER": "shown"}):

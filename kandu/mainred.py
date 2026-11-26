@@ -1,4 +1,4 @@
-"""A project whose `main` is red (DESIGN §5): its tests fail on its default branch.
+"""A project whose `main` is red (DESIGN §5): its tests fail on its base branch.
 
 Kandu tests `main` only when a PR's tests fail in the merge gate, and only on a project that turned `watch_main` on.
 A result is kept for each `main` commit, so one commit is tested at most twice, and `main` is red only when both runs

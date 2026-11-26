@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
-from kandu import dashboard, upstream
-from kandu.config import ConfigError, load_config
+from kandu import dashboard, notify, upstream
+from kandu.config import ConfigError, load_config, set_notify_events
 from kandu.dashboard import Api, dispatch
 from kandu.github import GitHubError
 from kandu.state import StateStore
@@ -28,6 +28,16 @@ def commit(cwd, name):
     (Path(cwd) / name).write_text(name, encoding="utf-8")
     git(cwd, "add", name)
     git(cwd, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", name)
+
+
+def remove(cwd, *names):
+    """A commit that takes `names` out again."""
+    git(cwd, "rm", "-q", *names)
+    git(cwd, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", f"remove {' '.join(names)}")
+
+
+def merge(cwd, ref):
+    git(cwd, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit", ref)
 
 
 class Base(unittest.TestCase):
@@ -136,6 +146,192 @@ class CountTest(Base):
     def test_the_check_costs_github_nothing(self):
         self.check()
         self.assertEqual(self.github.method_calls, [])
+
+
+class OwnChangesTest(Base):
+    """"Ahead" counts only the install's own changes that `main` still holds."""
+
+    def setUp(self):
+        super().setUp()
+        self.turn_on()
+
+    def counts(self):
+        self.check()
+        shown = self.state()["upstream"]
+        return shown["behind"], shown["ahead"]
+
+    def test_files_that_came_back_to_upstreams_leave_only_the_commits_after_them(self):
+        commit(self.install, "mine-1")
+        commit(self.install, "mine-2")
+        remove(self.install, "mine-1", "mine-2")  # main's files are upstream's again
+        commit(self.install, "mine-3")
+        self.assertEqual(self.counts(), (0, 1))
+
+    def test_main_with_upstreams_files_is_not_ahead(self):
+        commit(self.install, "mine-1")
+        commit(self.install, "mine-2")
+        remove(self.install, "mine-1", "mine-2")
+        self.assertEqual(self.counts(), (0, 0))
+
+    def test_a_merge_commit_is_not_counted(self):
+        commit(self.public, "a")
+        commit(self.install, "mine")
+        git(self.install, "fetch", "-q", "upstream")
+        merge(self.install, "upstream/main")
+        self.assertEqual(self.counts(), (0, 1))
+
+    def test_a_merge_of_upstream_after_the_files_came_back_still_leaves_only_the_commits_after_them(self):
+        commit(self.install, "mine-1")
+        commit(self.install, "mine-2")
+        remove(self.install, "mine-1", "mine-2")  # main's files are upstream's again
+        commit(self.install, "mine-3")
+        commit(self.public, "a")
+        git(self.install, "fetch", "-q", "upstream")
+        merge(self.install, "upstream/main")
+        self.assertEqual(self.counts(), (0, 1))
+
+    def test_commits_before_files_equal_to_an_older_upstream_commit_are_not_counted(self):
+        commit(self.install, "mine-1")
+        remove(self.install, "mine-1")  # the files of upstream's first commit
+        commit(self.install, "mine-2")
+        commit(self.public, "a")
+        self.assertEqual(self.counts(), (1, 1))
+
+    def test_bring_in_states_this_count(self):
+        commit(self.install, "mine-1")
+        commit(self.install, "mine-2")
+        remove(self.install, "mine-1", "mine-2")
+        commit(self.install, "mine-3")
+        commit(self.public, "a")
+        self.check()
+        status, body = self.post("/upstream/bring-in")
+        self.assertEqual(status, 200, body)
+        text = self.github.create_issue.call_args.args[2]
+        self.assertIn("holds 1 commit of its own", text)
+
+
+class NotifyTest(Base):
+    """A check tells the user on Telegram when its counts changed, and once when it starts failing."""
+
+    def setUp(self):
+        super().setUp()
+        self.sent = []
+        patcher = mock.patch.object(notify.Telegram, "send", autospec=True,
+                                    side_effect=lambda adapter, text, buttons=None: self.sent.append(text))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.turn_on()
+
+    def set_language(self, language):
+        path = self.local / "kandu.yaml"
+        text = re.sub(r"^(  language:) en\b", rf"\1 {language}", path.read_text(encoding="utf-8"), count=1,
+                      flags=re.MULTILINE)
+        path.write_text(text, encoding="utf-8")
+        self.make_api()
+
+    def break_remote(self):
+        git(self.install, "remote", "set-url", "upstream", str(self.root / "gone"))
+
+    def heal(self):
+        git(self.install, "remote", "set-url", "upstream", str(self.public))
+
+    def test_the_first_check_ever_sends_nothing(self):
+        commit(self.public, "a")
+        self.check()
+        self.assertEqual(self.sent, [])
+
+    def test_a_first_check_that_fails_sends_nothing(self):
+        self.break_remote()
+        self.check()
+        self.assertEqual(self.sent, [])
+
+    def test_a_changed_count_sends_both_counts_and_the_button_to_press(self):
+        self.check()
+        commit(self.public, "a")
+        commit(self.public, "b")
+        commit(self.install, "mine")
+        self.check()
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("2 behind", self.sent[0])
+        self.assertIn("1 ahead", self.sent[0])
+        self.assertIn("«Bring in updates»", self.sent[0])
+        self.assertIn("dashboard", self.sent[0])
+
+    def test_a_changed_ahead_alone_names_no_button(self):
+        self.check()
+        commit(self.install, "mine")
+        self.check()
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("0 behind", self.sent[0])
+        self.assertIn("1 ahead", self.sent[0])
+        self.assertNotIn("Bring in updates", self.sent[0])
+
+    def test_an_unchanged_count_sends_nothing(self):
+        commit(self.public, "a")
+        self.check()
+        self.check()
+        self.assertEqual(self.sent, [])
+
+    def test_a_failure_is_sent_once_until_a_check_succeeds(self):
+        self.check()
+        self.break_remote()
+        self.check()
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("could not check", self.sent[0].lower())
+        self.check()
+        self.assertEqual(len(self.sent), 1)  # the second failure in a row sends nothing
+        self.heal()
+        self.check()
+        self.assertEqual(len(self.sent), 1)  # back, with the counts of the last good check
+        self.break_remote()
+        self.check()
+        self.assertEqual(len(self.sent), 2)  # failing again after a success is news again
+
+    def test_a_success_after_a_failure_sends_a_changed_count(self):
+        self.check()
+        self.break_remote()
+        self.check()
+        self.heal()
+        commit(self.public, "a")
+        self.check()
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn("1 behind", self.sent[1])
+
+    def test_the_scheduled_check_sends_too(self):
+        now = datetime.now().astimezone()
+        self.api.upstream_tick(now)
+        commit(self.public, "a")
+        self.api.upstream_tick(now + timedelta(hours=5))
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("1 behind", self.sent[0])
+
+    def test_nothing_is_sent_while_the_kind_is_off(self):
+        kinds = [kind for kind in load_config(self.local).settings.notify.events if kind != "upstream"]
+        set_notify_events(kinds, self.local)
+        self.make_api()
+        self.check()
+        commit(self.public, "a")
+        self.check()
+        self.break_remote()
+        self.check()
+        self.assertEqual(self.sent, [])
+
+    def test_it_is_said_in_the_notifications_language(self):
+        self.set_language("fa")
+        self.check()
+        commit(self.public, "a")
+        self.check()
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn(notify.MESSAGES["fa"]["upstream_behind"].split("{")[0].strip(), self.sent[0])
+        self.assertIn("آوردن به‌روزرسانی‌ها", self.sent[0])
+        self.assertNotIn("behind", self.sent[0])
+
+    def test_it_is_on_by_default_without_a_list_of_events(self):
+        path = self.local / "kandu.yaml"
+        text = re.sub(r"^  events:.*?(?=^  \S|^\S)", "", path.read_text(encoding="utf-8"), count=1,
+                      flags=re.MULTILINE | re.DOTALL)
+        path.write_text(text, encoding="utf-8")
+        self.assertIn("upstream", load_config(self.local).settings.notify.events)
 
 
 class FailedCheckTest(Base):
@@ -361,8 +557,24 @@ class ConfigTest(unittest.TestCase):
 class SetupTest(unittest.TestCase):
     def test_kandu_setup_asks_about_it(self):
         setup = (ROOT / ".claude" / "commands" / "kandu-setup.md").read_text(encoding="utf-8")
-        self.assertIn("`upstream`", setup)
-        self.assertIn("off by default", setup.split("`upstream`")[1].split("\n")[0])
+        self.assertIn("(`upstream`, off by default)", setup)
+
+    def test_kandu_setup_offers_its_notification_kind(self):
+        setup = (ROOT / ".claude" / "commands" / "kandu-setup.md").read_text(encoding="utf-8")
+        question = next(l for l in setup.splitlines() if "`notify.events`" in l)
+        self.assertIn("`upstream`", question)
+
+
+class NotificationKindDocsTest(unittest.TestCase):
+    def test_the_config_example_lists_it(self):
+        text = (ROOT / "config.example" / "kandu.example.yaml").read_text(encoding="utf-8")
+        events = re.search(r"^  events:.*?(?=^\S)", text, re.MULTILINE | re.DOTALL).group(0)
+        self.assertRegex(events, r"\n    - upstream +#")
+
+    def test_design_describes_it(self):
+        design = (ROOT / "DESIGN.md").read_text(encoding="utf-8")
+        kinds = next(l for l in design.splitlines() if l.startswith("- `notify.events` lists"))
+        self.assertIn("`upstream`", kinds)
 
 
 class PageTest(unittest.TestCase):

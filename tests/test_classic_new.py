@@ -2,11 +2,10 @@
 import json
 import re
 import subprocess
-import tempfile
 import unittest
 
 from kandu import dashboard
-from tests.test_looks import NODE, ROOT, Served, browser, function, line, read, run_js, words
+from tests.test_looks import NODE, ROOT, Served, browser, function, line, profile_folder, read, run_js, words
 
 PAGE = read(dashboard.CLASSIC_NEW_PAGE)
 TEXT = words(PAGE)
@@ -160,7 +159,7 @@ class ClassicNewBrowserTest(Served):
     def test_the_header_is_one_row_at_every_width_and_explains_its_buttons(self):
         cases = [{"lang": lang, "width": w, "height": h, "mobile": False} for w, h in self.WIDTHS for lang in ("en", "fa")]
         cases += [{"lang": lang, "width": 390, "height": 844, "mobile": True} for lang in ("en", "fa")]
-        with tempfile.TemporaryDirectory() as profile:
+        with profile_folder() as profile:
             done = subprocess.run([NODE, str(ROOT / "tests" / "drive_classic_new.js"), browser(), self.base, profile, json.dumps(cases)],
                                   capture_output=True, text=True, timeout=180)
         self.assertEqual(done.returncode, 0, done.stderr[-3000:])

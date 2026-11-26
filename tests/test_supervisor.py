@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from kandu import agents, merge, notify, queen, questions, review, split, supervisor, tasks
+from kandu import agents, dashboard, merge, notify, queen, questions, review, split, supervisor, tasks
 from kandu.config import Rules, load_config
 from kandu.flights import Flights, task_key
 from kandu.notify import Notifier
@@ -152,6 +152,7 @@ class FakeGitHub:
 
     def open_pr(self, repo, issue, head=SHA1, state="OPEN"):
         pr = {"number": 7, "state": state, "headRefOid": head, "headRefName": f"kandu/{issue}-task", "labels": [],
+              "baseRefName": self.default_branch(repo),
               "comments": [], "body": "", "files": [{"path": "a.py"}], "url": "u", "isDraft": False, "mergeable": "MERGEABLE", "statusCheckRollup": []}
         self.prs[(repo, issue)] = pr
         return pr
@@ -165,7 +166,7 @@ class FakeGitHub:
             raise GitHubError("Head ref must be a branch")
         self.opened.append((repo, head, base, title, body))
         pr = self.open_pr(repo, issue, self.pushed[(repo, issue)])
-        pr["body"] = body
+        pr["body"], pr["baseRefName"] = body, base
         return pr["number"]
 
     def edit_pr_body(self, repo, number, body):
@@ -281,13 +282,13 @@ class FakeRunner:
         return 1 if command in self.failing else 0
 
     def run_agent(self, machine, cwd, prompt, allowed, denied, run_id, should_stop, model=None, tokens=None,
-                  schema=None, resume=None):
+                  schema=None, resume=None, holder=None):
         with self.lock:
             self.running += 1
             self.most_running = max(self.most_running, self.running)
             step = self.steps.pop(0)
         self.runs.append(SimpleNamespace(machine=machine, cwd=cwd, prompt=prompt, allowed=allowed, denied=denied,
-                                         model=model, tokens=tokens, schema=schema, resume=resume))
+                                         model=model, tokens=tokens, schema=schema, resume=resume, holder=holder))
         result = step() if callable(step) else step
         with self.lock:
             self.running -= 1
@@ -394,6 +395,96 @@ class QueenStepsTest(Base):
         self.assertIn(SHA2, self.runner.runs[2].prompt)
         done = self.events("queen_step_done")[0]
         self.assertEqual((done["action"], done["result"], done["head_sha"]), ("rework", "pushed", SHA2))
+
+    def test_a_rework_that_fails_in_kandus_own_error_until_the_tries_run_out_is_not_taken_again(self):
+        # Seen once: the task's folder could not be cleared, so each cycle took her pending rework again, it failed
+        # within seconds, and she asked the user the same question each time the task stopped.
+        self.github.open_pr(REPO, 1, SHA1)
+        self.sup._carry_out([self.step("rework", note="Rename the helper.")], [])
+        self.runner.prepare_worktree = mock.Mock(side_effect=RunnerError("merge --abort refused"))
+        for _ in range(supervisor.INTERNAL_TRIES):
+            self.runner.steps = [self.reply_none()]
+            self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(self.runner.prepare_worktree.call_count, supervisor.INTERNAL_TRIES)
+        done = self.events("queen_step_done")
+        self.assertEqual([(e["action"], e["result"]) for e in done], [("rework", "failed")])
+        self.assertIn("merge --abort refused", done[0]["summary"])
+        self.assertIsNone(queen.pending_step(queen.all_events(self.store), KEY))
+        self.runner.steps = [self.reply_none(), self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.runner.prepare_worktree.call_count, supervisor.INTERNAL_TRIES)
+        self.assertEqual(self.github.status(1), "Blocked")
+
+    def test_a_rework_that_fails_in_kandus_own_error_once_stays_pending_for_the_next_try(self):
+        self.github.open_pr(REPO, 1, SHA1)
+        self.sup._carry_out([self.step("rework")], [])
+        self.runner.prepare_worktree = mock.Mock(side_effect=RunnerError("a hiccup"))
+        self.runner.steps = [self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.events("queen_step_done"), [])
+        self.assertIsNotNone(queen.pending_step(queen.all_events(self.store), KEY))
+
+    def resolves_and_pushes(self):
+        def step():
+            self.github.prs[(REPO, 1)] |= {"headRefOid": SHA2, "mergeable": "MERGEABLE"}
+            return PR_OPENED
+        return step
+
+    def test_a_rework_on_a_pr_with_no_conflict_merges_nothing(self):
+        self.github.open_pr(REPO, 1, SHA1)
+        self.sup._carry_out([self.step("rework", note="Rename the helper.")], [])
+        self.runner.steps = [self.reply_none(), self.worker_pushes(SHA2), report(SHA2), self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.runner.merged, [])
+        self.assertNotIn("Kandu began merging", self.runner.runs[1].prompt)
+
+    def test_a_rework_on_a_conflicting_pr_leaves_the_merge_open_and_the_worker_resolves_it_and_does_her_order(self):
+        # A worker never runs `git merge`, and an update round already stopped on this head is not run again: her
+        # rework is the only way the base comes in, so Kandu starts that merge for her.
+        self.github.open_pr(REPO, 1, SHA1)["mergeable"] = "CONFLICTING"
+        self.marked(review.update_comment(SHA1))
+        self.runner.conflicts = ["a.py"]
+        self.sup._carry_out([self.step("rework", note="Make the title check read each language's title.")], [])
+        self.runner.steps = [self.reply_none(), self.resolves_and_pushes(), report(SHA2), self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.runner.merged, [("/worktree", "main")])
+        self.assertRegex(self.runner.merge_message, r"^Merge main into kandu/1-task\n\nKandu-Run: \S+$")
+        worker = self.runner.runs[1]
+        self.assertEqual(worker.cwd, "/worktree")
+        self.assertIn("stopped at conflicts in `a.py`", worker.prompt)
+        self.assertIn("Then, in the same round, do this", worker.prompt)
+        self.assertIn("Make the title check read each language's title.", worker.prompt)
+        self.assertNotIn("Change nothing else.", worker.prompt)
+        self.assertIn(SHA2, self.runner.runs[2].prompt)
+        done = self.events("queen_step_done")[0]
+        self.assertEqual((done["result"], done["head_sha"]), ("pushed", SHA2))
+
+    def test_a_rework_on_a_pr_whose_base_merges_cleanly_pushes_the_merge_first(self):
+        self.github.open_pr(REPO, 1, SHA1)["mergeable"] = "CONFLICTING"
+        pushed = []
+        self.runner.on_push = lambda: pushed.append(True)
+        self.sup._carry_out([self.step("rework", note="Rename the helper.")], [])
+        self.runner.steps = [self.reply_none(), self.resolves_and_pushes(), report(SHA2), self.reply_none()]
+        self.cycle()
+        self.assertEqual((self.runner.merged, pushed), ([("/worktree", "main")], [True]))
+        self.assertIn("base_merged", [e["decision"] for e in self.events("decision")])
+        self.assertNotIn("Kandu began merging", self.runner.runs[1].prompt)
+        self.assertIn("Rename the helper.", self.runner.runs[1].prompt)
+
+    def test_a_rework_that_leaves_conflict_markers_blocks_the_task(self):
+        self.github.open_pr(REPO, 1, SHA1)["mergeable"] = "CONFLICTING"
+        self.runner.conflicts = ["a.py"]
+        self.runner.markers = ["a.py"]
+        self.sup._carry_out([self.step("rework")], [])
+        self.runner.steps = [self.reply_none(), self.resolves_and_pushes(), self.reply_none(), self.reply_none()]
+        self.cycle()
+        self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(self.events("queen_step_done")[0]["result"], "markers_left")
+        self.assertEqual(len([r for r in self.runner.runs if r.schema == agents.WORKER_SCHEMA]), 1)
+
+    def marked(self, comment):
+        self.github.prs[(REPO, 1)]["comments"].append({"author": {"login": ACCOUNT}, "body": comment})
 
     def test_a_rework_needs_an_open_pr(self):
         refused, _ = self.sup._carry_out([self.step("rework")], [])
@@ -523,6 +614,36 @@ class QueenStepsTest(Base):
         self.assertEqual(message.text, "loop_stopped")
         self.store.record("task_picked", task=KEY, project="website")
         self.assertIsNone(queen.why_no_step(queen.all_events(self.store), KEY, "rework", 1))
+
+    def loop_stopped(self):
+        self.sized(KEY)
+        self.github.open_pr(REPO, 1, SHA1)
+        self.sup._carry_out([self.step("verify")], queen.all_events(self.store))
+        self.store.record("queen_step_done", task=KEY, project="website", action="verify", decided="t",
+                          result="unclear", summary="s", head_sha=SHA1, run_id="r")
+        self.sup._carry_out([self.step("verify")], queen.all_events(self.store))
+        self.assertEqual((len(self.events("loop_stopped")), self.github.status(1)), (1, "Blocked"))
+        self.config.settings.supervisor.queen = False  # her look is not what this is about
+
+    def test_a_task_stopped_for_going_round_and_moved_by_hand_is_the_users_again(self):
+        self.loop_stopped()
+        self.github.statuses[self.github.items[0].url] = "Backlog"
+        self.cycle()
+        self.cycle()
+        events = queen.all_events(self.store)
+        self.assertEqual([e["to"] for e in self.events("user_resumed")], ["Backlog"])
+        self.assertFalse(queen.waits_after_loop(events, KEY))
+        self.assertIsNone(queen.why_no_step(events, KEY, "rework", 1))
+        self.assertEqual(dashboard.task_statuses(events)[KEY]["state"], "fine")
+
+    def test_a_task_stopped_for_going_round_and_moved_by_hand_to_ready_is_picked_again(self):
+        self.loop_stopped()
+        self.github.statuses[self.github.items[0].url] = "Ready"
+        self.runner.steps = [report(SHA1)]
+        self.cycle()
+        self.assertEqual([e["to"] for e in self.events("user_resumed")], ["Ready"])
+        self.assertEqual(len(self.events("task_picked")), 1)
+        self.assertEqual(self.events("review_finished")[0]["head_sha"], SHA1)
 
     def test_what_she_did_reaches_her_next_look(self):
         self.sup._carry_out([self.step("verify", note="Run the tests.")], [])
@@ -1496,6 +1617,8 @@ class QueenPacesTest(Base):
         self.cycle()
         self.assertEqual(self.runner.runs, [])
         self.assertIn("her daily token limit", self.events("supervisor_slept")[0]["reason"])
+        midnight = (NOW.astimezone() + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        self.assertEqual(self.events("supervisor_slept")[0]["resets"], midnight.isoformat(timespec="seconds"))
 
     def test_she_sees_the_same_backlog_only_once(self):
         self.github.add(1, "Backlog")
@@ -1651,8 +1774,18 @@ class GateTest(Base):
         self.github.items.clear()
         self.cycle()
         self.assertEqual(self.events("supervisor_slept")[0]["reason"], "nothing ready")
+        self.assertIsNone(self.events("supervisor_slept")[0]["resets"])
         self.assertEqual(self.store.read_current()["next_wake"], "2026-10-30T13:00:00+00:00")
         self.assertEqual(self.store.read_current()["usage"], {"session": 10, "week": 10, "session_resets": None, "week_resets": None})
+
+    def test_a_sleep_at_a_usage_limit_says_when_that_limit_resets(self):
+        self.github.items.clear()
+        for usage, resets in ((Usage(99, 10, "2026-10-30T18:20:00+01:00", "2026-11-05T20:00:00+01:00"), "2026-10-30T18:20:00+01:00"),
+                              (Usage(10, 100, "2026-10-30T18:20:00+01:00", "2026-11-05T20:00:00+01:00"), "2026-11-05T20:00:00+01:00"),
+                              (Usage(10, 100), None)):
+            self.usage = usage
+            self.cycle()
+            self.assertEqual(self.events("supervisor_slept")[-1]["resets"], resets)
 
     def test_the_snapshot_says_when_each_limit_resets(self):
         self.github.items.clear()
@@ -1850,6 +1983,20 @@ class FirstRunTest(Base):
         self.cycle()
         settles = [e for e in self.events("decision") if e["decision"] == "worktree_settled"]
         self.assertEqual([e["reason"] for e in settles], ["Kandu merged GitHub's head abc into the folder's def"])
+        self.assertEqual(self.github.status(1), "In review")
+
+    def test_an_earlier_run_of_the_task_still_going_is_ended_and_logged(self):
+        worker = self.worker_makes_pr()
+        def left_one():
+            result = ok(worker())
+            result.ended_earlier = ["kandu-h0123-r-old-1a2b3c4d"]
+            return result
+        self.runner.steps = [left_one, report(SHA1)]
+        self.cycle()
+        self.assertEqual(self.runner.runs[0].holder, f"{REPO}#1")
+        ended = [e for e in self.events("decision") if e["decision"] == "earlier_run_ended"]
+        self.assertEqual(len(ended), 1)
+        self.assertIn("kandu-h0123-r-old-1a2b3c4d", ended[0]["reason"])
         self.assertEqual(self.github.status(1), "In review")
 
     def test_unpushed_work_in_the_folder_stops_the_task_with_a_plain_message(self):
@@ -2065,22 +2212,29 @@ class ReviewRoundsTest(Base):
         found = [e["reason"] for e in self.events("decision") if e["decision"] == "round_no_commit"]
         self.assertEqual(found[:1], ["fix round 1: the API key is missing"])
 
-    def stuck_then_sent_back(self):
-        """A fix round pushes nothing and blocks the task; then the user presses «Back to work»."""
+    def stuck_then_sent_back(self, by_hand=False):
+        """A fix round pushes nothing and blocks the task; then the user presses «Back to work», or moves its card
+        out of `Blocked` by hand, which the next board read takes as the same resume."""
         self.runner.steps = [self.worker_makes_pr(), report(SHA1, [BLOCKER]),
                              lambda: '{"status": "blocked", "reason": "waits for another PR"}']
         self.cycle()
         self.assertEqual(self.github.status(1), "Blocked")
         self.github.statuses[self.github.items[0].url] = "Ready"
-        self.store.record("user_resumed", task=f"{REPO}#1", project="website", to="Ready")
+        if not by_hand:
+            self.store.record("user_resumed", task=f"{REPO}#1", project="website", to="Ready")
 
     def test_back_to_work_after_a_round_that_pushed_nothing_runs_one_more_fix_round(self):
-        self.stuck_then_sent_back()
-        self.runner.steps = [self.worker_pushes(SHA2), report(SHA2, earlier=[{"n": 1, "result": "fixed", "body": "ok"}])]
-        self.cycle()
-        self.assertIn("This breaks.", self.runner.runs[3].prompt)
-        self.assertEqual([e["head_sha"] for e in self.events("review_finished")], [SHA1, SHA2])
-        self.assertNotEqual(self.github.status(1), "Blocked")
+        for by_hand in (False, True):
+            with self.subTest(by_hand=by_hand):
+                self.setUp()
+                self.stuck_then_sent_back(by_hand)
+                self.runner.steps = [self.worker_pushes(SHA2),
+                                     report(SHA2, earlier=[{"n": 1, "result": "fixed", "body": "ok"}])]
+                self.cycle()
+                self.assertIn("This breaks.", self.runner.runs[3].prompt)
+                self.assertEqual([e["head_sha"] for e in self.events("review_finished")], [SHA1, SHA2])
+                self.assertNotEqual(self.github.status(1), "Blocked")
+                self.assertEqual(len(self.events("user_resumed")), 1)
 
     def test_that_round_pushing_nothing_again_blocks_the_task_until_the_next_back_to_work(self):
         self.stuck_then_sent_back()
@@ -2088,10 +2242,19 @@ class ReviewRoundsTest(Base):
         self.cycle()
         self.assertEqual(len(self.runner.runs), 4)
         self.assertEqual(self.github.status(1), "Blocked")
+        # Kandu's own move out of `Blocked` is no resume: no worker runs again on that head.
         self.github.statuses[self.github.items[0].url] = "Ready"
+        self.store.record("queen_decided", task=f"{REPO}#1", project="website", action="retry", note="Again.")
         self.cycle()
-        self.assertEqual(len(self.runner.runs), 4)  # no resume since: no worker runs again on that head
+        self.assertEqual(len(self.runner.runs), 4)
         self.assertEqual(self.github.status(1), "Blocked")
+        self.assertEqual(len(self.events("user_resumed")), 1)
+        # A hand move is the next «Back to work»: one more fix round.
+        self.github.statuses[self.github.items[0].url] = "Ready"
+        self.runner.steps = [lambda: '{"status": "blocked", "reason": "still waits"}']
+        self.cycle()
+        self.assertEqual(len(self.runner.runs), 5)
+        self.assertEqual(len(self.events("user_resumed")), 2)
 
     def test_a_fix_round_may_replace_the_description(self):
         def fixes_the_text():
@@ -3521,6 +3684,186 @@ class MergedInAnyColumnTest(Base):
         self.card("Ready", issue_open=False)
         self.cycle()
         self.assertEqual(self.events("card_stuck"), [])
+
+
+class HandMoveTest(Base):
+    """A stopped task's card moved out of `Blocked` or `Needs info` outside Kandu is the user's resume, as Send back."""
+
+    def stopped(self, outcome="blocked", column="Blocked"):
+        self.github.add(1, status=column)
+        self.sized(KEY)
+        self.store.record("task_finished", task=KEY, project="website", outcome=outcome)
+
+    def move(self, column):
+        self.github.statuses[self.github.items[0].url] = column
+
+    def resumes(self):
+        return [e["to"] for e in self.events("user_resumed")]
+
+    def test_a_card_moved_by_hand_to_backlog_is_the_users_resume_once_and_the_dashboard_shows_it_not_stuck(self):
+        for outcome, column in (("blocked", "Blocked"), ("needs_info", "Needs info")):
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                self.stopped(outcome, column)
+                self.assertEqual(dashboard.task_statuses(queen.all_events(self.store))[KEY]["state"], "stuck")
+                self.move("Backlog")
+                self.cycle()
+                self.cycle()  # a later board read of the same move records nothing again
+                self.assertEqual(self.resumes(), ["Backlog"])
+                events = queen.all_events(self.store)
+                self.assertEqual(dashboard.task_statuses(events)[KEY]["state"], "fine")
+                self.assertFalse(dashboard.flower_marks(self.store)[KEY]["yours"])
+
+    def test_a_card_moved_by_hand_to_ready_or_in_progress_is_resumed_with_that_column_and_worked(self):
+        for column in ("Ready", "In progress"):
+            with self.subTest(column=column):
+                self.setUp()
+                self.stopped()
+                self.move(column)
+                self.runner.steps = [GAVE_UP]
+                self.cycle()
+                self.assertEqual(self.resumes(), [column])
+                self.assertEqual(len(self.events("task_picked")), 1)
+                self.cycle()  # stopped again, by Kandu: its own move back to `Blocked` is no resume
+                self.assertEqual(self.resumes(), [column])
+
+    def test_a_card_still_stopped_moved_to_done_or_whose_issue_is_closed_records_nothing(self):
+        for column, open_issue in (("Blocked", True), ("Done", True), ("Ready", False), ("Backlog", False)):
+            with self.subTest(column=column, open_issue=open_issue):
+                self.setUp()
+                self.stopped()
+                self.move(column)
+                if not open_issue:
+                    self.github.open_issues.discard((REPO, 1))
+                self.cycle()
+                self.assertEqual(self.resumes(), [])
+                self.assertEqual(self.runner.runs, [])
+
+    def test_a_card_of_a_task_that_is_not_stopped_records_nothing(self):
+        for outcome in (None, "stopped_by_user"):
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                self.github.add(1, status="Backlog")
+                if outcome is not None:
+                    self.store.record("task_finished", task=KEY, project="website", outcome=outcome)
+                self.cycle()
+                self.assertEqual(self.resumes(), [])
+
+    def test_send_back_is_recorded_once_and_the_board_read_after_it_adds_nothing(self):
+        self.stopped()
+        self.move("Ready")  # the dashboard's Send back: the card moves and the resume is recorded
+        self.store.record("user_resumed", task=KEY, project="website", to="Ready")
+        self.runner.steps = [GAVE_UP]
+        self.cycle()
+        self.assertEqual(self.resumes(), ["Ready"])
+
+    def test_the_queens_own_move_out_of_blocked_is_no_hand_move(self):
+        self.config.settings.supervisor.queen = True
+        self.stopped()
+        refused, _ = self.sup._carry_out([{"task": KEY, "action": "retry", "note": "Try again."}],
+                                         queen.all_events(self.store))
+        self.assertEqual((refused, self.github.status(1)), ([], "Ready"))
+        self.config.settings.supervisor.queen = False
+        self.runner.steps = [GAVE_UP]
+        self.cycle()
+        self.assertEqual(self.resumes(), [])
+
+    def test_the_queens_own_rework_not_yet_picked_is_no_hand_move(self):
+        self.config.settings.supervisor.queen = True
+        self.stopped()
+        self.github.open_pr(REPO, 1, SHA1)
+        refused, _ = self.sup._carry_out([{"task": KEY, "action": "rework", "note": "Rename the helper."}],
+                                         queen.all_events(self.store))
+        self.assertEqual((refused, self.github.status(1)), ([], "In progress"))
+        self.config.settings.supervisor.queen = False
+        self.runner.down.add("server")  # no worker picks the task in this cycle: the next board read sees her move
+        self.assertEqual(self.cycle(), "waiting for a machine")
+        self.assertEqual(self.runner.runs, [])
+        self.assertEqual(self.resumes(), [])
+
+    # Every stopped task Send back resumes: also one that failed, whose sizing failed or whose PR was closed.
+    ENDS = (("failed", "Blocked"), ("sizing_failed", "Needs info"), ("pr_closed", "Blocked"))
+
+    def ended(self, outcome, column):
+        """A task Kandu stopped with this outcome, its card in `column`; one whose sizing failed has no size."""
+        self.github.add(1, status=column)
+        if outcome != "sizing_failed":
+            self.sized(KEY)
+        if outcome == "pr_closed":
+            self.github.open_pr(REPO, 1, SHA1)
+            self.github.prs[(REPO, 1)]["state"] = "CLOSED"
+        self.store.record("task_finished", task=KEY, project="website", outcome=outcome)
+
+    def test_a_task_that_failed_or_whose_sizing_failed_or_pr_closed_moved_by_hand_is_resumed_once(self):
+        for outcome, column in self.ENDS:
+            for to in ("Backlog", "Ready", "In progress"):
+                with self.subTest(outcome=outcome, to=to):
+                    self.setUp()
+                    self.ended(outcome, column)
+                    self.move(to)
+                    self.runner.down.add("server")  # no agent runs: this is about the board read alone
+                    self.cycle()
+                    self.cycle()  # a later board read of the same move records nothing again
+                    self.assertEqual(self.resumes(), [to])
+                    events = queen.all_events(self.store)
+                    self.assertEqual(dashboard.task_statuses(events)[KEY]["state"], "fine")
+                    self.assertFalse(dashboard.flower_marks(self.store)[KEY]["yours"])
+
+    def test_a_task_that_failed_or_whose_sizing_failed_or_pr_closed_records_nothing_where_send_back_would_not(self):
+        for outcome, column in self.ENDS:
+            for to, open_issue in ((column, True), ("Done", True), ("Ready", False), ("Backlog", False)):
+                with self.subTest(outcome=outcome, to=to, open_issue=open_issue):
+                    self.setUp()
+                    self.ended(outcome, column)
+                    self.move(to)
+                    if not open_issue:
+                        self.github.open_issues.discard((REPO, 1))
+                    self.cycle()
+                    self.cycle()
+                    self.assertEqual(self.resumes(), [])
+                    self.assertEqual(self.runner.runs, [])
+
+    def test_a_task_that_failed_or_whose_pr_closed_moved_by_hand_to_ready_is_worked_again(self):
+        for outcome in ("failed", "pr_closed"):
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                self.ended(outcome, "Blocked")
+                self.move("Ready")
+                self.runner.steps = [GAVE_UP]
+                self.cycle()
+                self.assertEqual(self.resumes(), ["Ready"])
+                # driven again: a worker gives up, or the PR is still closed; either way Kandu stops it once more
+                self.assertEqual([e["outcome"] for e in self.events("task_finished")][1:], ["blocked" if outcome ==
+                                                                                           "failed" else "pr_closed"])
+                self.assertEqual(self.github.status(1), "Blocked")
+                self.cycle()  # Kandu's own move back to `Blocked` is no resume
+                self.assertEqual(self.resumes(), ["Ready"])
+
+    def test_a_task_whose_sizing_failed_moved_by_hand_to_backlog_is_sized_again(self):
+        self.ended("sizing_failed", "Needs info")
+        self.move("Backlog")
+        self.runner.steps = [ok(json.dumps({"size": "Small", "files": 1, "door": "two-way", "reason": "r",
+                                            "slices": [], "forbidden": []}))]
+        self.cycle()
+        self.assertEqual(self.resumes(), ["Backlog"])
+        self.assertEqual([e["role"] for e in self.events("run_finished")], ["splitter"])
+        self.assertEqual([e["size"] for e in self.events("task_sized")], ["Small"])
+        self.assertEqual(dashboard.task_statuses(queen.all_events(self.store))[KEY]["state"], "fine")
+
+    def test_the_queens_retry_of_a_task_that_failed_or_whose_sizing_failed_is_no_hand_move(self):
+        for outcome, column in self.ENDS[:2]:  # a closed PR is no retry of hers: Kandu's own move back is tested above
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                self.config.settings.supervisor.queen = True
+                self.ended(outcome, column)
+                refused, _ = self.sup._carry_out([{"task": KEY, "action": "retry", "note": "Try again."}],
+                                                 queen.all_events(self.store))
+                self.assertEqual(refused, [])
+                self.assertIn(self.github.status(1), ("Backlog", "Ready"))
+                self.config.settings.supervisor.queen = False
+                self.runner.down.add("server")  # no worker picks it in this cycle: the next board read sees her move
+                self.cycle()
+                self.assertEqual(self.resumes(), [])
 
 
 class IssueClosedTest(Base):

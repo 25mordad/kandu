@@ -33,11 +33,15 @@ BOARD_FIELDS = {"Priority": ("High", "Medium", "Low"), "Kind": ("Bug", "Feature"
                 "Size": ("Small", "Medium", "Large")}
 DEADLINE_FIELD = "Deadline"
 NOTIFY_EVENTS = ("supervisor_stopped", "failure", "needs_decision", "pr_ready", "task_done", "usage_limit", "claude_login",
-                 "machine_unreachable")
+                 "machine_unreachable", "upstream")
 NOTIFY_LANGUAGES = ("en", "fa")
 # A run temporary folder's parent: absolute or under ~, with no `..` and no space, and never the root or ~ itself.
 RUN_TMP_DIR = re.compile(r"(/|~/)[\w.@+/-]*[\w@+-][\w.@+/-]*")
 LOOKS = ("classic", "classic-new", "clean")  # the dashboard's looks: Classic, Classic new and Kandu Clean
+# The refining way (GLOSSARY): how a request becomes tasks in this install. `rounds` is `/kandu-task`'s own rounds;
+# `grilling` is `/kandu-grill-with-docs`, then `/kandu-to-issue`.
+ROUNDS, GRILLING = "rounds", "grilling"
+REFINING_WAYS = (ROUNDS, GRILLING)
 
 
 class ConfigError(Exception):
@@ -164,6 +168,13 @@ class Upstream:
 
 
 @dataclass
+class Refining:
+    """The install's refining way (DESIGN §13): one for every project, read by Didban, `/kandu-task` and the
+    terminal, and held in code by `kandu.tasks`."""
+    way: str = ROUNDS
+
+
+@dataclass
 class Rules:
     allow: list[str] = field(default_factory=list)
     deny: list[str] = field(default_factory=list)
@@ -238,7 +249,9 @@ class Project:
     max_parallel_workers: int
     paused: bool
     daily_token_limit: int
+    max_open_prs: int | None = None  # this many open PRs by `github.account` on its repos hold its new work; none: no limit
     description: str = ""
+    base_branch: str = ""            # the branch Kandu works on and merges into; empty: the repo's default branch
     board: Board | None = None
     run_local: str | None = None
     setup: Setup | None = None       # run before Kandu runs `test` in a checkout of its own, when that needs it
@@ -256,6 +269,9 @@ class Project:
     watch_main: bool = False         # test `main` when a PR's tests fail; two failures on one commit hold the project
     multi_user: bool = False         # several people share the board, each with a Kandu of their own: this install
                                      # sees only the cards assigned to its `github.account`; off, assignees do not matter
+    # A team repo's own rule on PRs (DESIGN §4): the heading of a PR body section Kandu fills with the tail of its own run of `test` on the pushed branch, such as
+    # "Local test output"; the worker's own text there is replaced. Empty: none.
+    pr_test_output: str = ""
     allowed_tools: list[str] = field(default_factory=list)   # added to the worker's and live check's rules, if they have any
     reports: list[str] = field(default_factory=list)   # files on its machine that `kandu.brief show` reads, read-only
     models: dict[str, str] = field(default_factory=dict)   # role -> model for this project; a role not named here
@@ -277,6 +293,7 @@ class Settings:
     bazras: BazrasSettings = field(default_factory=BazrasSettings)
     backup: Backup = field(default_factory=Backup)
     upstream: Upstream = field(default_factory=Upstream)
+    refining: Refining = field(default_factory=Refining)
 
 
 @dataclass
@@ -445,6 +462,7 @@ def _check_settings(s, problems):
     if not 1 <= s.dashboard.port <= 65535:
         problems.append(f"dashboard.port: must be between 1 and 65535, got {s.dashboard.port}")
     _check_one_of(s.dashboard.look, LOOKS, "dashboard.look", problems)
+    _check_one_of(s.refining.way, REFINING_WAYS, "refining.way", problems)
 
 
 def _check_run_tmp(enabled, folder, where, problems):
@@ -497,7 +515,12 @@ def _check_projects(projects, s, problems):
                                 "so they must all be multi_user or none")
         elif p.multi_user:
             problems.append(f"{where}.multi_user: needs a board")
+        if p.pr_test_output != p.pr_test_output.strip() or "\n" in p.pr_test_output or p.pr_test_output.startswith("#"):
+            problems.append(f"{where}.pr_test_output: must be a heading's words on one line, without '#', "
+                            f"got {p.pr_test_output!r}")
         _check_one_of(p.run, RUN_MODES, f"{where}.run", problems)
+        if p.base_branch and not GIT_NAME.fullmatch(p.base_branch):
+            problems.append(f"{where}.base_branch: not a branch name: {p.base_branch!r}")
         if p.machine not in machines:
             problems.append(f"{where}.machine: unknown machine {p.machine!r}")
         if p.run == "clone" and p.machine != s.brain.machine:
@@ -540,6 +563,8 @@ def _check_projects(projects, s, problems):
         _check_positive(p.priority, f"{where}.priority", problems)
         _check_positive(p.max_parallel_workers, f"{where}.max_parallel_workers", problems)
         _check_positive(p.daily_token_limit, f"{where}.daily_token_limit", problems)
+        if type(p.max_open_prs) is int:  # another kind is refused when the entry is read
+            _check_positive(p.max_open_prs, f"{where}.max_open_prs", problems)
 
 
 def _check_upstream(s, projects, problems):
@@ -865,6 +890,20 @@ def set_default_look(look, local_dir=DEFAULT_LOCAL_DIR):
     _replace_file(path, text)
 
 
+def set_refining_way(way, local_dir=DEFAULT_LOCAL_DIR):
+    """Sets the install's refining way in `kandu.yaml`'s `refining` block, line by line. Nothing is written if it is
+    not one of REFINING_WAYS."""
+    problems = []
+    _check_one_of(way, REFINING_WAYS, "refining.way", problems)
+    if problems:
+        raise ConfigError(problems)
+    path = Path(local_dir) / "kandu.yaml"
+    text = _set_top_block(path.read_text(encoding="utf-8"), "refining", {"way": way})
+    if ((yaml.safe_load(text) or {}).get("refining") or {}).get("way") != way:
+        raise ConfigError(["refining.way: could not be written; change it in kandu.yaml by hand"])
+    _replace_file(path, text)
+
+
 # What the dashboard's settings tab changes in a project's entry, and the kind of each value. The next cycle uses them.
 REGISTRY_SETTINGS = {"priority": int, "daily_token_limit": int, "auto_merge": bool, "frozen": bool, "multi_user": bool}
 # The supervisor's pace in `kandu.yaml`. A new wake interval reaches the timer on "Restart Kandu".
@@ -1088,6 +1127,8 @@ def load_didban(local_dir=DEFAULT_LOCAL_DIR):
 def main():
     parser = argparse.ArgumentParser(description="Validate Kandu's config.")
     parser.add_argument("--local", default=DEFAULT_LOCAL_DIR, help="config directory (default: local/)")
+    parser.add_argument("--refining-way", action="store_true",
+                        help="print the install's refining way, rounds or grilling, and nothing else")
     args = parser.parse_args()
     try:
         config = load_config(args.local)
@@ -1096,6 +1137,9 @@ def main():
         for problem in e.problems:
             print(f"  - {problem}", file=sys.stderr)
         return 1
+    if args.refining_way:
+        print(config.settings.refining.way)
+        return 0
     print(f"config ok: {len(config.settings.machines)} machine(s), {len(config.projects)} project(s)")
     return 0
 

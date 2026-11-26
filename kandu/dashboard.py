@@ -18,10 +18,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import (add, backup, bazras, clean, flights, ghlimit, ghmeter, mainred, merge, queen, questions, remove, rename, review, sessions, split,
-               tasks, timer, tries, upstream, version, waits)
+from . import (add, backup, base, bazras, clean, flights, ghlimit, ghmeter, mainred, merge, notify, openprs, queen, questions, remove,
+               rename, review, sessions, split, tasks, timer, tries, upstream, version, waits)
 from .config import (DEFAULT_LOCAL_DIR, NOTIFY_EVENTS, PACE_SETTINGS, PROJECT_MODEL_ROLES, REGISTRY_SETTINGS,
-                     TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_reference_copy, set_run_tmp, set_inspect, set_limits, set_pace,
+                     TECHNICAL_DEBT, ConfigError, Inspect, MODEL, load_config, set_project_model, set_backup, set_clean_merged, set_drop_blockers, set_reference_copy, set_refining_way, set_run_tmp, set_inspect, set_limits, set_pace,
                      set_default_look, set_notify_events, set_parallel, set_project_values, set_show_requests,
                      set_telegram_buttons)
 from .github import AGENT_LABEL, GitHubError, task_blockers
@@ -232,6 +232,8 @@ def flower_marks(store):
         elif kind == "decision" and event["decision"] == "merge_waits":
             reasons = event["reason"].split(REASONS_APART)
             mark |= {"pr": "held" if held_by_blockers(reasons) else "waits", "waited": reasons}
+            if merge.WRONG_BASE in reasons:
+                mark["yours"] = True  # only the user can point the PR at the base branch, or close it
         elif kind == "decision" and waits.user_decides(event["reason"]):
             holds = event["reason"].split(REASONS_APART)[1:]  # what holds the merge whatever the user says
             mark |= {"pr": "held" if held_by_blockers(holds) else "waits", "yours": True, "waited": holds}
@@ -370,6 +372,8 @@ class Api:
             "parallel": self._parallel(),
             "pace": self._pace(),
             "main_red": self._main_red(),
+            "base_missing": self._base_missing(),
+            "open_prs_held": self._open_prs_held(),
             "over_limit": {name: spent for name, spent in tokens.items() if spent["today"] >= spent["limit"]},
             "project_tokens": tokens,
             "queen": self._queen_report(),
@@ -382,6 +386,7 @@ class Api:
             "notify": self._notify(),
             "show_requests": self.config.settings.dashboard.show_requests,
             "default_look": self.config.settings.dashboard.look,
+            "refining_way": self.config.settings.refining.way,
             "looks": list(LOOKS),
             "clean_merged": self.config.settings.supervisor.clean_merged,
             "reference_copy": self.config.settings.supervisor.reference_copy,
@@ -421,7 +426,7 @@ class Api:
 
     def check_upstream(self, query):
         """Fetches the upstream branch and counts, now. A failure is shown, not raised: the page keeps working."""
-        self.upstream.check(self.store, self._upstream_on())
+        self.upstream.check(self.store, self._upstream_on(), tell=self._tell)
         return self._upstream()
 
     def upstream_tick(self, now=None):
@@ -433,7 +438,14 @@ class Api:
             self.releases.tick(self.store, self.github, settings, now)
         except Exception:  # A failed read is logged by the tick; anything else must not stop the count.
             pass
-        return self.upstream.tick(self.store, settings, now)
+        return self.upstream.tick(self.store, settings, now, tell=self._tell)
+
+    def _tell(self, message):
+        """Sends a notification the dashboard's own work found, with the config's notifier as it is now; nothing
+        while notifications are off or its kind is."""
+        notifier = notify.notifier_for(self.config.settings, self.store)
+        if notifier is not None:
+            notifier.tell(message)
 
     def bring_in_updates(self, query):
         """Creates one task on the board of Kandu's own project to bring the commits in through a PR.
@@ -778,6 +790,17 @@ class Api:
         self.config.settings.dashboard.look = look
         return {"default_look": look}
 
+    def change_refining_way(self, query):
+        """The install's refining way, rounds or grilling, in the config (DESIGN §13)."""
+        way = query.get("way", [""])[0]
+        try:
+            set_refining_way(way, self.local_dir)
+        except ConfigError as e:
+            raise ApiError(400, e.problems[0]) from None
+        self.config.settings.refining.way = way
+        self.store.record("refining_way_changed", way=way)
+        return {"refining_way": way}
+
     def list_flights(self, query):
         return self.flights.list()
 
@@ -1016,15 +1039,13 @@ class Api:
             self.github.refresh_repo(item.repo)
         except GitHubError as e:
             raise ApiError(503, f"GitHub could not be read: {e}")
-        if not self.github.issue_is_open(item.repo, item.number):
-            raise ApiError(409, "its issue is closed")
-        pr = self.github.find_pr(item.repo, item.number)
-        if pr is not None and pr["state"] == "MERGED":
-            raise ApiError(409, "its PR is already merged")
+        why = queen.why_no_resume(self.github, item)
+        if why is not None:
+            raise ApiError(409, why)
         events = queen.all_events(self.store)
         to = split.BACKLOG if queen.last_outcome(events, key) == "sizing_failed" else "Ready"
         self.github.set_status(project.board, item.url, to)
-        self.store.record("user_resumed", task=key, project=project.name, to=to)
+        queen.resume(self.store, key, project.name, to)
         self._queue_time = None
         return {"task": key, "to": to, "cycle_started": self.start_cycle()}
 
@@ -1395,6 +1416,19 @@ class Api:
             self.store.record("project_resumed", project=project.name)
         return {"paused": False}
 
+    def _base_missing(self):
+        """Each project whose base branch the supervisor last found missing on GitHub: the branch and the repos
+        that lack it. Read from the local log."""
+        return {p.name: {"branch": event["branch"], "repos": event["repos"], "why": base.why(event)}
+                for p in self.config.projects if p.base_branch and (event := base.missing(self.store, p)) is not None}
+
+    def _open_prs_held(self):
+        """Each project at its open-PR limit: the limit and the open PRs that hold it. Read from the copy, as the
+        supervisor reads it, so it costs GitHub nothing."""
+        account = self.config.settings.github.account
+        return {p.name: {"limit": p.max_open_prs, "prs": prs} for p in self.config.projects
+                if (prs := openprs.at_limit(self.github, p, account)) is not None}
+
     def _main_red(self):
         """Each project that watches `main` and whose `main` is red, until it passes: the repo, the commit, the
         failing tests and the task that fixes it. Read from the local log."""
@@ -1417,7 +1451,7 @@ class Api:
         the dashboard may change, from Kandu's state or the registry."""
         paused = self._paused()
         return [{"name": p.name, "paused": p.name in paused, "paused_in_config": p.paused,
-                 "max_parallel_workers": p.max_parallel_workers}
+                 "max_parallel_workers": p.max_parallel_workers, "base_branch": p.base_branch}
                 | {setting: self.store.project_setting(p, setting) for setting in PROJECT_SETTINGS}
                 | {setting: self._registry_value(p, setting) for setting in REGISTRY_SETTINGS}
                 | {f"model_{role}": p.models.get(role, "") for role in PROJECT_MODEL_ROLES}
@@ -1564,6 +1598,7 @@ ROUTES = [
     ("GET", "/requests", Api.requests),
     ("POST", "/requests", Api.change_show_requests),
     ("POST", "/default-look", Api.change_default_look),
+    ("POST", "/refining-way", Api.change_refining_way),
     ("GET", "/bazras", Api.bazras_reports),
     ("GET", "/flights", Api.list_flights),
     ("POST", "/flights/didban", Api.open_didban),

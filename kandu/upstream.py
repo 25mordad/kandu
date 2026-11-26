@@ -14,6 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from . import tasks
 from .github import GitHubError
+from .notify import Message
 
 INSTALL_DIR = Path(__file__).resolve().parent.parent
 MAIN = "main"  # the install's own branch, the one the user runs
@@ -53,8 +54,24 @@ def count(repo, remote, branch):
     tracking = f"refs/remotes/{remote}/{branch}"
     _git(repo, "fetch", "--quiet", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", remote,
          f"+refs/heads/{branch}:{tracking}")
-    ahead, behind = _git(repo, "rev-list", "--left-right", "--count", f"refs/heads/{MAIN}...{tracking}").split()
-    return int(behind), int(ahead)
+    behind = _git(repo, "rev-list", "--count", f"refs/heads/{MAIN}..{tracking}")
+    return int(behind), ahead(repo, tracking)
+
+
+def ahead(repo, tracking):
+    """The install's own changes that `main` still holds, counted in commits. The one count of "ahead": the check
+    logs it, and the dashboard and «Bring in updates» read it from there.
+
+    Not counted: merge commits, and every commit from before `main`'s last own commit whose files were exactly those
+    of a commit of `tracking`, as a change undone or brought back to upstream's. So `main` with upstream's files is 0.
+    Only commits `tracking` lacks are searched: an upstream commit that `main` merged has upstream's files by nature.
+    """
+    theirs = set(_git(repo, "log", "--format=%T", tracking).split())
+    log = _git(repo, "log", "--topo-order", "--format=%H %T", f"refs/heads/{MAIN}", f"^{tracking}")
+    mine = (line.split() for line in log.splitlines())
+    base = next((sha for sha, tree in mine if tree in theirs), None)  # newest first
+    return int(_git(repo, "rev-list", "--count", "--no-merges", f"refs/heads/{MAIN}", f"^{tracking}",
+                    *([f"^{base}"] if base else [])))
 
 
 def public_url(repo, remote):
@@ -69,15 +86,43 @@ def public_url(repo, remote):
     return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))  # host and port as written, or none
 
 
-def check(store, settings, repo=INSTALL_DIR, now=None):
-    """Counts once and logs the answer: `upstream_checked`, or `upstream_check_failed` with git's reason."""
+def check(store, settings, repo=INSTALL_DIR, now=None, tell=None):
+    """Counts once and logs the answer: `upstream_checked`, or `upstream_check_failed` with git's reason.
+
+    `tell` gets what the user must hear of it (`news`), if anything.
+    """
+    before, good = last_try(store), store.last_event("upstream_checked")
     try:
-        behind, ahead = count(repo, settings.remote, settings.branch)
+        behind, own = count(repo, settings.remote, settings.branch)
     except CheckError as e:
-        return store.record("upstream_check_failed", now=now, remote=settings.remote, branch=settings.branch,
-                            reason=str(e))
-    return store.record("upstream_checked", now=now, remote=settings.remote, branch=settings.branch,
-                        behind=behind, ahead=ahead)
+        event = store.record("upstream_check_failed", now=now, remote=settings.remote, branch=settings.branch,
+                             reason=str(e))
+    else:
+        event = store.record("upstream_checked", now=now, remote=settings.remote, branch=settings.branch,
+                             behind=behind, ahead=own)
+    message = news(event, before, good)
+    if message is not None and tell is not None:
+        tell(message)
+    return event
+
+
+def news(event, before, good):
+    """What the user hears of a check, the `upstream` kind of notification, or None. `before` is the check before
+    it, good or failed, and `good` the last good one before it; both are read from the log, so a restart forgets
+    nothing.
+
+    The first check ever is not news, nor are counts the last good check had too. A failure is told once: not again
+    until a check succeeds. Git's reason stays on the dashboard.
+    """
+    if before is None:
+        return None
+    values = {"theirs": f"{event['remote']}/{event['branch']}"}
+    if event["type"] == "upstream_check_failed":
+        return None if before["type"] == "upstream_check_failed" else Message("upstream", "upstream_failed", values=values)
+    if good is None or (good["behind"], good["ahead"]) == (event["behind"], event["ahead"]):
+        return None
+    text = "upstream_behind" if event["behind"] else "upstream_counts"
+    return Message("upstream", text, values=values | {"behind": event["behind"], "ahead": event["ahead"]})
 
 
 def last_try(store):
@@ -165,17 +210,17 @@ class Upstream:
         self._check_lock = threading.Lock()
         self._task_lock = threading.Lock()
 
-    def check(self, store, settings, now=None):
+    def check(self, store, settings, now=None, tell=None):
         with self._check_lock:
-            return check(store, settings, self.repo, now)
+            return check(store, settings, self.repo, now, tell)
 
-    def tick(self, store, settings, now=None):
+    def tick(self, store, settings, now=None, tell=None):
         """Checks when due. Returns True when it checked."""
         now = now or datetime.now().astimezone()
         with self._check_lock:
             if not settings.enabled or not due(store, settings.every_hours, now):
                 return False
-            check(store, settings, self.repo, now)
+            check(store, settings, self.repo, now, tell)
             return True
 
     def bring_in(self, config, github, store, local_dir):

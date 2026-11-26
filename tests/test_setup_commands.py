@@ -537,7 +537,7 @@ class DoctorTest(unittest.TestCase):
         if github_error:
             github.board_columns.side_effect = GitHubError("x")
         item = mock.Mock(path="~/p", repos=["o/r"], run=run, machine="m", test="npm test", board=Board("o", 1),
-                         secrets_from="~/p/.env", task_tokens=task_tokens)
+                         secrets_from="~/p/.env", task_tokens=task_tokens, base_branch="")
         item.name = "site"
         return doctor.check_project(item, runner, github)
 
@@ -579,9 +579,10 @@ class CommandsTest(unittest.TestCase):
     def test_setup_and_add_ask_every_question_of_the_design(self):
         setup = (COMMANDS / "kandu-setup.md").read_text(encoding="utf-8")
         add = (COMMANDS / "kandu-add.md").read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"^   \d+\. ", setup, re.MULTILINE)), 17)
-        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 22)
+        self.assertEqual(len(re.findall(r"^   \d+\. ", setup, re.MULTILINE)), 18)
+        self.assertEqual(len(re.findall(r"^   \d+\. ", add, re.MULTILINE)), 24)
         self.assertIn("own model for any role (`models`)", add)
+        self.assertIn("(`max_open_prs`, `--set max_open_prs=N`)", add)
 
     def test_add_never_creates_a_board_unasked(self):
         self.assertIn("only if the user said yes", (COMMANDS / "kandu-add.md").read_text(encoding="utf-8"))

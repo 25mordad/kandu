@@ -328,6 +328,8 @@ def _entry(fields, board):
              "repos": [fields["repo"]], "board": {"owner": board.owner, "number": board.number,
                                                   **({"columns": dict(board.columns)} if board.columns else {})},
              "run": fields["run"], "machine": fields["machine"], "path": fields["path"], "test": fields["test"]}
+    if fields.get("base_branch"):  # none: the repo's default branch, as GitHub names it
+        entry["base_branch"] = fields["base_branch"]
     if fields.get("setup"):
         entry["setup"] = {"command": fields["setup"], "inputs": _items(fields.get("setup_inputs"))}
     if fields.get("run_local"):
@@ -347,6 +349,11 @@ def _entry(fields, board):
     entry.update({"forbidden": forbidden, "repo_rules": fields.get("repo_rules", ""),
                   "auto_merge": bool(fields.get("auto_merge", DEFAULTS["auto_merge"])), "frozen": False,
                   **numbers, "paused": False})
+    if fields.get("max_open_prs"):  # none: no limit on the project's open PRs
+        try:
+            entry["max_open_prs"] = int(fields["max_open_prs"])
+        except (TypeError, ValueError):
+            raise AddError("max_open_prs is a whole number") from None
     return entry
 
 

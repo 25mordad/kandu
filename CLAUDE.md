@@ -20,5 +20,8 @@ Kandu runs from its own `.venv`, never the system Python: `.venv/bin/python -m k
 - **The public repo** receives only the private copy's `main`, pushed after the change is live in the install, so the owner sees it first. An install that runs Kandu as its own project lets its deploy do this push (DESIGN §12); any other push to the public repo needs the owner's explicit permission for that push.
 - The private guard checks every pushed commit against the private terms, including those code takes from `local/` (DESIGN §12). Never push past it, and never weaken it without the owner's yes.
 
+## Requests become tasks one way
+Turn a request into tasks only with `/kandu-task`, never by hand: it follows the install's refining way.
+
 ## Keep it usable by others
 Anyone must be able to clone this and reach the same setup by conversation. A new option needs a generic example in `config.example/` and a question in `/kandu-setup` or `/kandu-add`.

@@ -15,6 +15,8 @@ WEEK = re.compile(r"Current week \(all models\):\s*(\d+)% used(.*)")
 RESETS = re.compile(r"resets\s+(?:([A-Z][a-z]{2})\s+(\d{1,2}),\s*)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)(?:\s*\(([^)]+)\))?", re.I)
 MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 TIMEOUT_SECONDS = 60
+# How a reason to sleep begins at each limit; notify.py tells the user which one it was.
+SESSION_LIMIT, WEEK_LIMIT, QUEEN_LIMIT = "5-hour usage", "weekly usage", "the queen reached her daily token limit"
 
 
 class UsageError(Exception):
@@ -89,7 +91,7 @@ def read_usage():
 def over_limit(usage, limits):
     """Returns why usage is over a limit, or None if it is under both."""
     if usage.session >= limits.session_5h_percent:
-        return f"5-hour usage at {usage.session}%, limit {limits.session_5h_percent}%"
+        return f"{SESSION_LIMIT} at {usage.session}%, limit {limits.session_5h_percent}%"
     if usage.week >= limits.weekly_percent:
-        return f"weekly usage at {usage.week}%, limit {limits.weekly_percent}%"
+        return f"{WEEK_LIMIT} at {usage.week}%, limit {limits.weekly_percent}%"
     return None

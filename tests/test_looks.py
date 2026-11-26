@@ -1,11 +1,14 @@
 """The dashboard's looks, Kandu Clean, Classic and Classic new, and the switch between them (#53)."""
+import contextlib
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -59,6 +62,46 @@ def browser():
             return shutil.which(name)
     kept = sorted(Path.home().glob(".cache/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell"))
     return str(kept[-1]) if kept else None
+
+
+@contextlib.contextmanager
+def profile_folder():
+    """An empty folder for a headless browser's profile (#117). A driver kills its Chromium and exits at once, so the
+    browser may still be writing here when the test goes on. On the way out this waits, for a few seconds at most, until no
+    process has the folder as its `--user-data-dir`, then removes it, trying again briefly while it is still being written.
+    A folder that cannot be removed even then stays for the system to clean, and never fails the test."""
+    folder = tempfile.mkdtemp(prefix="kandu-browser-")
+    try:
+        yield folder
+    finally:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and _browser_using(folder):
+            time.sleep(0.05)
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                shutil.rmtree(folder)
+                break
+            except FileNotFoundError:
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    shutil.rmtree(folder, ignore_errors=True)
+                    break
+                time.sleep(0.1)
+
+
+def _browser_using(folder):
+    """Whether a running process has `folder` as its profile, as far as /proc shows; with no /proc, no. Chromium rewrites
+    its command line into one string with the flags joined by spaces, so the flag is looked for anywhere in it."""
+    flag = f"--user-data-dir={folder}".encode()
+    for cmdline in Path("/proc").glob("[0-9]*/cmdline"):
+        try:
+            if flag in cmdline.read_bytes():
+                return True
+        except OSError:
+            continue
+    return False
 
 
 class Served(Base):
@@ -406,6 +449,35 @@ class DesignTest(unittest.TestCase):
             self.assertIn(part, question, part)
         self.assertIn("`dashboard.look`", config)
         self.assertIn("Classic, Classic new or Kandu Clean", config)
+
+
+class ProfileFolderTest(unittest.TestCase):
+    """The browser's profile folder (#117): the drivers kill Chromium and exit at once, so it may still write there."""
+    # Stands in for the browser. Its command line is one string, flags joined by spaces, as Chromium rewrites its own.
+    # For half a second it keeps writing into the profile, then goes quiet, then writes once more on its way out, making
+    # the folder again if it is gone, as Chromium does when it is killed.
+    WRITER = ("import pathlib, sys, time\n"
+              "folder = pathlib.Path(sys.argv[1].split('--user-data-dir=')[1].split()[0]) / 'Default'\n"
+              "end, n = time.monotonic() + 0.5, 0\n"
+              "while time.monotonic() < end:\n"
+              "    try:\n"
+              "        folder.mkdir(exist_ok=True)\n"
+              "        (folder / f'f{n}').write_text('x')\n"
+              "        n += 1\n"
+              "    except OSError:\n"
+              "        pass\n"
+              "time.sleep(1)\n"
+              "folder.mkdir(parents=True, exist_ok=True)\n"
+              "(folder / 'last').write_text('x')\n")
+
+    def test_a_browser_still_writing_when_the_test_goes_on_neither_errors_nor_leaves_the_folder(self):
+        with profile_folder() as profile:
+            writer = subprocess.Popen([sys.executable, "-c", self.WRITER, f"--headless --user-data-dir={profile} about:blank"])
+            self.addCleanup(writer.kill)
+            while not (Path(profile) / "Default" / "f100").exists():
+                time.sleep(0.01)
+        writer.wait(timeout=10)
+        self.assertFalse(Path(profile).exists())
 
 
 @unittest.skipUnless(NODE and browser(), "needs node and a Chromium to open the pages")

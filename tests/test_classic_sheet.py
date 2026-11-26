@@ -1,6 +1,6 @@
 """The Classic look opens a task in the Kandu Clean look's task sheet, over the page the user is on, wherever the task
-shows. The sheet keeps what the Classic look's task window showed and Kandu Clean's sheet does not show yet: those
-are drawn by `classicSheetExtras`, parked as technical debt for the Kandu Clean sheet."""
+shows. The sheet is Kandu Clean's as it is, and it shows what the Classic look's task window showed (#64): the PR's
+state, the "waits for you" badge, the slices' English text, a done task's whole issue and cost, and a free flight."""
 import json
 import re
 import subprocess
@@ -9,12 +9,13 @@ import unittest
 
 from kandu import dashboard
 from tests.test_dashboard import REPO
-from tests.test_looks import NODE, ROOT, Served, browser, function, line, read, run_js, words
+from tests.test_looks import NODE, ROOT, Served, browser, function, line, read, words
 
 CLEAN = read(dashboard.PAGE)
 # The Kandu Clean sheet's own code, which the Classic look takes as it is.
 SAME = ("taskPhases", "stepOf", "sheetView", "sheetBody", "sheetFoot", "waitItems", "taskMarks", "statusText", "splitAccept", "showRun",
-        "waitLines", "heldLines", "keptLines", "roundBox", "byHandBox", "approval", "testsView", "sendBack", "flightControls", "queued")
+        "waitLines", "heldLines", "keptLines", "roundBox", "byHandBox", "approval", "testsView", "sendBack", "flightControls", "queued",
+        "doneBox", "showTask")
 
 
 class ClassicSheetTest(unittest.TestCase):
@@ -42,48 +43,19 @@ class ClassicSheetTest(unittest.TestCase):
             self.assertEqual(function(self.page, name), function(CLEAN, name), name)
         for start in ("const PHASES = ", "const QUIET_STEPS = ", "const WAIT_ORDER = "):
             self.assertEqual(line(self.page, start), line(CLEAN, start), start)
-        # The Classic look's showTask is Kandu Clean's, with the extras drawn in after.
-        clean = [each for each in function(CLEAN, "showTask").splitlines()]
-        classic = [each for each in function(self.page, "showTask").splitlines() if "extra" not in each]
-        self.assertEqual(classic, clean)
+        self.assertNotIn("classicSheetExtras", self.page)
+        self.assertNotIn("classicSheetExtras", read(dashboard.CLASSIC_NEW_PAGE))
+        for name in SAME:
+            self.assertEqual(function(read(dashboard.CLASSIC_NEW_PAGE), name), function(CLEAN, name), f"classic-new: {name}")
 
     def test_every_word_it_uses_is_in_both_languages(self):
-        code = "".join(function(self.page, name) for name in (*SAME, "classicSheetExtras", "showTask", "doneBox"))
+        code = "".join(function(self.page, name) for name in SAME)
         keys = set(re.findall(r'\b(?:t|fillIn)\("([a-z_]+)"', code)) | {"task_sheet", "mark_question", "kind_check", "kind_blocker"}
         for lang in ("en", "fa"):
             for key in keys:
                 self.assertIn(key, self.text[lang], f"{lang}: {key}")
         for phase in ("sizing", "implement", "review", "merge", "deploy", "live check"):
             self.assertIn(phase, self.text["values_fa"], phase)
-
-    @unittest.skipUnless(NODE, "needs node to run the page's script")
-    def test_it_keeps_what_the_classic_look_showed(self):
-        prelude = (f"const TEXT = {json.dumps(self.text)};\nlet lang = \"en\"; let lastState = {{flowers: {{}}}};\n"
-                   "let flights = {open: [], flown: []}, confirming = false, sendingBack = false;\n"
-                   + "".join(line(self.page, start) for start in ("const esc = ", "const t = ", "const locale = ", "const num = ",
-                                                                  "const fillIn = ", "const yoursChip = "))
-                   + "".join(function(self.page, name) for name in ("tr", "doneBox", "flightControls", "classicSheetExtras")))
-        seen = run_js(prelude + """
-const info = {issue: {body: "## Goal\\nThe whole issue, not only its goal."}, outcome: "merged",
-              cost: {total: {total: 1500, cache_read: 500}, roles: {builder: {runs: 2, duration_ms: 600000, tokens: {total: 1200, cache_read: 200}}}}};
-const proposal = {reason: "big", user_text: {reason: "بزرگ", slices: [{title: "یک", body: "متن"}]}, slices: [{title: "One", body: "English body"}]};
-const merged = classicSheetExtras({task: "a/b#1", item: {column: "Done", yours: false}, review: {pr: {state: "MERGED"}}, info, proposal: null, language: "en"});
-const none = classicSheetExtras({task: "a/b#2", item: {column: "Blocked", yours: true}, review: {pr: null}, info: null, proposal, language: "de"});
-console.log(JSON.stringify({merged, none}));""")
-        merged, none = seen["merged"], seen["none"]
-        self.assertIn('<span class="chip">MERGED</span>', merged["state"])
-        self.assertNotIn(self.text["en"]["waits_for_you"], merged["state"])
-        for part in ("The whole issue, not only its goal.", self.text["en"]["task_full_issue"], self.text["en"]["cost_cached"],
-                     self.text["en"]["cost_role"], "builder"):
-            self.assertIn(part, merged["body"], part)
-        self.assertIn(self.text["en"]["no_pr"], none["state"])
-        self.assertIn(self.text["en"]["waits_for_you"], none["state"])
-        self.assertIn(self.text["en"]["english_text"], none["body"])
-        self.assertIn("English body", none["body"])
-        self.assertNotIn(self.text["en"]["task_full_issue"], none["body"])
-        for extras in (merged, none):
-            self.assertIn('<span id="taskflight" class="flightbox">', extras["flight"])
-            self.assertIn("data-fly=", extras["flight"])
 
 
 @unittest.skipUnless(NODE and browser(), "needs node and a Chromium to open the pages")

@@ -278,16 +278,19 @@ def _tail(path, lines=DETAIL_LINES):
         return ""
 
 
-def _default_branch(host, copy):
+def _base_branch(project, host, copy):
+    """The project's base branch; without one named, the copy's record of GitHub's default branch."""
+    if project.base_branch:
+        return project.base_branch
     found = host.run(["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=copy)
     return found.stdout.strip().removeprefix("origin/") if found.returncode == 0 and found.stdout.strip() else "main"
 
 
 def look_at_repo(runner, project, repo, now, logs_dir, run_id):
-    """Returns (findings, Kandu's commits, the checkout) for one repo, on its default branch."""
+    """Returns (findings, Kandu's commits, the checkout) for one repo, on the project's base branch."""
     host = runner.hosts[project.machine]
     copy = host.absolute(repo_path(project, repo))
-    base = _default_branch(host, copy)
+    base = _base_branch(project, host, copy)
     cwd = runner.prepare_review(project, repo, BRANCH, f"origin/{base}")
     refs = [f"origin/{base}"]
     if host.succeeds(["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{base}"], cwd=copy):
@@ -371,7 +374,8 @@ def judge_prompt(project, result, merged, local_dir, today):
     project_brief = Path(local_dir) / "brief" / f"{project.name}.md"
     parts = [(agents.PROMPTS_DIR / "bazras.md").read_text(encoding="utf-8"), "## This look",
              f"- Project: {project.name}", f"- Repos: {', '.join(project.repos)}", f"- Today: {today}",
-             "- Your checkout is the default branch of the first repo",
+             f"- Your checkout is the base branch `{project.base_branch}` of the first repo" if project.base_branch
+             else "- Your checkout is the default branch of the first repo",
              "## Kandu's commits in the last 24 hours", *(f"- {c}" for c in result.kandu_commits or ["none"]),
              "## Kandu's tasks merged in the last week", *(f"- {t}" for t in merged or ["none"])]
     if project_brief.exists():

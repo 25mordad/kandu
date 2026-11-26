@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from kandu import tries
+from kandu import queen, tries
 from kandu.config import load_config
 from kandu.dashboard import USER_DECIDES, Api, dispatch, task_statuses
 from kandu.github import BoardItem
@@ -126,6 +126,15 @@ class ToQueenTest(unittest.TestCase):
         self.assertEqual(self.github.set_status.call_args.args[1:], ("u", "Blocked"))
         flowers = dispatch(self.api, "GET", "/api/v1/state")[1]["flowers"]
         self.assertEqual(flowers[TASK]["status"]["state"], "stuck")
+
+    def test_it_ends_her_pending_step_so_no_cycle_takes_it_again(self):
+        self.store.record("queen_decided", task=TASK, project="website", action="rework", note="Rename the helper.")
+        self.error()
+        self.assertEqual(self.post()[0], 200)
+        done = self.store.last_event("queen_step_done")
+        self.assertEqual((done["action"], done["result"]), ("rework", "failed"))
+        self.assertIn("boom", done["summary"])
+        self.assertIsNone(queen.pending_step(queen.all_events(self.store), TASK))
 
     def test_a_task_never_sized_stops_as_a_sizing_that_failed(self):
         self.error(sized=False)

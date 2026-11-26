@@ -22,7 +22,7 @@ TIMEOUT_SECONDS = 60
 LOOK_AGAIN_SECONDS = 5  # after a lost answer to a create, before looking whether the issue was made
 BOARD_ITEM_LIMIT = 500
 PR_SEARCH_LIMIT = 200
-PR_FIELDS = "number,title,state,url,body,changedFiles,files,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,mergedAt,statusCheckRollup"
+PR_FIELDS = "number,title,state,url,author,body,changedFiles,files,baseRefName,headRefName,headRefOid,isDraft,isCrossRepository,labels,comments,mergeable,mergedAt,statusCheckRollup"
 BLOCKED_BY = re.compile(r"^## Blocked by\s*$(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 ISSUE_REFERENCE = re.compile(r"(?:(?<![\w.-])([\w.-]+/[\w.-]+))?#(\d+)")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -43,6 +43,8 @@ THREADS_QUERY = costed("""query($owner: String!, $name: String!, $number: Int!) 
 # GitHub's own "blocked by" relationships of an issue: `task_blockers` joins them with `## Blocked by`.
 BLOCKED_BY_NODE = "blockedBy(first: 50) { nodes { number repository { nameWithOwner } } }"
 SELECT_VALUE = "... on ProjectV2ItemFieldSingleSelectValue { name }"
+# A card's field on the board, with when it last changed: a queued change older than a move on GitHub is not sent.
+CARD_VALUE = "... on ProjectV2ItemFieldSingleSelectValue { name updatedAt }"
 # `fieldValueByName` is what keeps this at one point a page: `gh project item-list` costs 100.
 BOARD_QUERY = costed(f"""query($owner: String!, $number: Int!, $after: String) {{
   repositoryOwner(login: $owner) {{ ... on ProjectV2Owner {{ projectV2(number: $number) {{
@@ -52,11 +54,11 @@ BOARD_QUERY = costed(f"""query($owner: String!, $number: Int!, $after: String) {
     pageInfo {{ hasNextPage endCursor }}
     nodes {{
       id
-      status: fieldValueByName(name: "Status") {{ {SELECT_VALUE} }}
-      priority: fieldValueByName(name: "Priority") {{ {SELECT_VALUE} }}
-      kind: fieldValueByName(name: "Kind") {{ {SELECT_VALUE} }}
-      size: fieldValueByName(name: "Size") {{ {SELECT_VALUE} }}
-      deadline: fieldValueByName(name: "{DEADLINE_FIELD}") {{ ... on ProjectV2ItemFieldDateValue {{ date }} }}
+      status: fieldValueByName(name: "Status") {{ {CARD_VALUE} }}
+      priority: fieldValueByName(name: "Priority") {{ {CARD_VALUE} }}
+      kind: fieldValueByName(name: "Kind") {{ {CARD_VALUE} }}
+      size: fieldValueByName(name: "Size") {{ {CARD_VALUE} }}
+      deadline: fieldValueByName(name: "{DEADLINE_FIELD}") {{ ... on ProjectV2ItemFieldDateValue {{ date updatedAt }} }}
       content {{ ... on Issue {{ number title url body closedAt repository {{ nameWithOwner }} labels(first: 50) {{ nodes {{ name }} }} assignees(first: 20) {{ nodes {{ login }} }} {BLOCKED_BY_NODE} }} }}
     }}
   }} }} }} }}
@@ -70,8 +72,8 @@ CLOSER = ("timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on Cl
           "... on Commit { oid repository { nameWithOwner } } } } } }")
 ISSUE_NODE = (f"number title body url state stateReason closedAt updatedAt labels(first: 30) {{ nodes {{ name }} }} "
               f"{COMMENTS} {BLOCKED_BY_NODE} {CLOSER}")
-PR_NODE = ("number title state url body changedFiles headRefName headRefOid isDraft isCrossRepository mergeable mergedAt "
-           "updatedAt "
+PR_NODE = ("number title state url author { login } body changedFiles baseRefName headRefName headRefOid isDraft isCrossRepository "
+           "mergeable mergedAt updatedAt "
            f"labels(first: 30) {{ nodes {{ name }} }} {COMMENTS}")
 # Only an open PR needs these. Checks and threads change without touching `updatedAt`, so open PRs are read whole each time.
 PR_DEEP = """files(first: 100) { nodes { path additions deletions } }
@@ -106,6 +108,7 @@ CHANGE_QUERY = costed(f"""query($owner: String!, $name: String!, $number: Int!) 
       projectItems(first: 10) {{ nodes {{ kind: fieldValueByName(name: "Kind") {{ {SELECT_VALUE} }} }} }} }} }}
   }} }}
 }}""")
+CARD_ATTRIBUTES = ("status", "priority", "kind", "size", "deadline")  # as the board query names them
 REPO_ISSUE_LIMIT = 500
 OPEN_PR_LIMIT = 100
 CONTENT_QUERY = costed("query($url: URI!) { resource(url: $url) { ... on Issue { id } ... on PullRequest { id } } }")
@@ -143,6 +146,7 @@ class BoardItem:
     item_id: str = ""              # the card's own id on the board, which a write needs
     blocked_by: list = field(default_factory=list)  # GitHub's "blocked by" relationships: [{"repo", "number"}]
     assignees: list = field(default_factory=list)   # the GitHub logins the issue is assigned to
+    changed_at: dict = field(default_factory=dict)  # when GitHub last changed each field: {"status": ISO time, ...}
 
     @property
     def by_hand(self):
@@ -166,9 +170,10 @@ def transient(error):
 
 def _pr(node, deep):
     """A PR as `gh pr view --json` shows it, so every reader keeps working on the same fields."""
-    pr = {key: node.get(key) for key in ("number", "title", "state", "url", "body", "changedFiles", "headRefName",
-                                          "headRefOid", "isDraft", "isCrossRepository", "mergeable", "mergedAt",
+    pr = {key: node.get(key) for key in ("number", "title", "state", "url", "body", "changedFiles", "baseRefName",
+                                          "headRefName", "headRefOid", "isDraft", "isCrossRepository", "mergeable", "mergedAt",
                                           "updatedAt")}
+    pr["author"] = node.get("author") or {}  # {} for a deleted account
     pr["labels"] = [label for label in node["labels"]["nodes"]]
     pr["comments"] = _comments(node)
     pr["files"], pr["statusCheckRollup"], pr["reviewThreads"] = [], [], []
@@ -352,7 +357,9 @@ class GitHub:
                                        size=value("size"), deadline=value("deadline", "date"),
                                        closed_at=content.get("closedAt") or "", item_id=node.get("id", ""),
                                        blocked_by=_blocked_by(content),
-                                       assignees=[a["login"] for a in (content.get("assignees") or {}).get("nodes", [])]))
+                                       assignees=[a["login"] for a in (content.get("assignees") or {}).get("nodes", [])],
+                                       changed_at={name: node[name]["updatedAt"] for name in CARD_ATTRIBUTES
+                                                   if (node.get(name) or {}).get("updatedAt")}))
             if not page["pageInfo"]["hasNextPage"] or len(items) >= BOARD_ITEM_LIMIT:
                 return items, meta
             after = ["-f", f"after={page['pageInfo']['endCursor']}"]
@@ -556,12 +563,13 @@ class GitHub:
     def repo_is_public(self, repo):
         return self._json(["repo", "view", repo, "--json", "visibility"])["visibility"] == "PUBLIC"
 
-    def offer_file_pr(self, repo, branch, path, content, title, body):
-        """Opens a PR that adds one file on a branch of its own, made on GitHub: no copy of the repo is touched.
+    def offer_file_pr(self, repo, branch, path, content, title, body, base=None):
+        """Opens a PR into `base`, by default the repo's default branch, that adds one file on a branch of its own,
+        made on GitHub: no copy of the repo is touched.
 
         Run again, it reuses the branch, replaces the file and keeps the open PR. Returns the PR's URL.
         """
-        base = self.default_branch(repo)
+        base = base or self.default_branch(repo)
         head = self._json(["api", f"repos/{repo}/git/ref/heads/{base}"])["object"]["sha"]
         try:
             self._run(["api", f"repos/{repo}/git/refs", "-X", "POST", "-f", f"ref=refs/heads/{branch}",

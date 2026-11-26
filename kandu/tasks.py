@@ -11,7 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from . import sizing
-from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR, DEADLINE_FIELD, ConfigError, load_config
+from .config import BOARD_FIELDS, DEFAULT_LOCAL_DIR, DEADLINE_FIELD, GRILLING, ConfigError, load_config
 from .github import (BLOCKED_BY, BY_HAND_DESCRIPTION, BY_HAND_LABEL, HTML_COMMENT, ISSUE_REFERENCE, GitHubError,
                      blockers_in)
 from .mirror import open_github
@@ -254,11 +254,43 @@ def with_spec(github, store, project, repo, body, reference):
     return f"Spec: {named}\n\n{with_section(body, OUT_OF_SCOPE, out_of_scope)}", key
 
 
-def create_spec(config, github, project_name, repo, title, body, local_dir, store):
+def grilling(config):
+    """Whether the install's refining way is grilling (DESIGN §2): then a spec needs its finished interview, and a task
+    from refining its spec."""
+    return config.settings.refining.way == GRILLING
+
+
+def check_interview(store, request_id, project):
+    """Refuses a spec whose request is not saved, belongs to another project, or has an interview that is not
+    finished: its map must hold at least one ✅ and no ❓ or ⏳ (DESIGN §2)."""
+    request = next((r for r in store.requests() if r["id"] == request_id), None)
+    if request is None:
+        raise TaskError(f"no saved request {request_id}: interview on it with /kandu-grill-with-docs first")
+    if request.get("project") and request["project"] != project.name:
+        raise TaskError(f"the request {request_id} belongs to {request['project']}, not {project.name}")
+    decision_map = request.get("map") or {}
+    asked, later = len(decision_map.get("asked") or []), len(decision_map.get("later") or [])
+    if asked or later:
+        raise TaskError(f"the interview of request {request_id} is not finished: its map holds {asked} ❓ and "
+                        f"{later} ⏳; finish it with /kandu-grill-with-docs")
+    if not decision_map.get("decided"):
+        raise TaskError(f"the request {request_id} has no saved interview: its map holds no ✅ decision; "
+                        "interview on it with /kandu-grill-with-docs")
+
+
+def create_spec(config, github, project_name, repo, title, body, local_dir, store, request=None):
     """Creates a spec issue and returns its URL. It holds a request of several tasks and is never work itself:
     it has no `agent` label, no fields and no card, so it is never sized and never reaches the queen.
+
+    `request` is the id of the saved request it comes from, whose interview must be finished; under the grilling
+    refining way a spec needs one.
     """
     project, repo = find_project(config, project_name, repo)
+    if request is None and grilling(config):
+        raise TaskError("under the grilling refining way a spec names the saved request it comes from: "
+                        "make it with /kandu-to-issue, which passes --request ID")
+    if request is not None:
+        check_interview(store, request, project)
     check_spec_body(body)
     check_text(github, repo, title, body, local_dir)
     url = github.create_issue(repo, title, body, by_hand=True, spec=True)
@@ -399,6 +431,8 @@ def main():
     parser.add_argument("--place", metavar="URL", help="put an existing issue on the board, with these fields")
     parser.add_argument("--spec-issue", action="store_true",
                         help="make the spec issue of a request of several tasks: no fields, no card")
+    parser.add_argument("--request", metavar="ID",
+                        help="with --spec-issue: the saved request the spec comes from, whose interview is finished")
     parser.add_argument("--spec", metavar="ISSUE", help="the spec issue this task belongs to, as #12 or owner/repo#12")
     parser.add_argument("--priority", choices=BOARD_FIELDS["Priority"])
     parser.add_argument("--kind", choices=BOARD_FIELDS["Kind"])
@@ -426,12 +460,17 @@ def main():
                   file=sys.stderr)
             return 1
         return make_spec(args)
+    if args.request:
+        parser.error("--request goes with --spec-issue: a task names its spec with --spec")
     missing = [name for name in ("priority", "kind", "size") if getattr(args, name) is None]
     if missing:
         parser.error(f"a task needs --{', --'.join(missing)}")
     created = []
     try:
         config = load_config(args.local)
+        if not args.place and args.spec is None and not args.by_hand and grilling(config):
+            raise TaskError("under the grilling refining way a task from refining names its spec: make them with "
+                            "/kandu-to-issue, which passes --spec #N; a task the user does themselves takes --by-hand")
         github = open_github(config, refresh=True)
         if args.place:
             url = place_existing(config, github, args.project, args.place, args.priority, args.kind, args.size,
@@ -464,7 +503,8 @@ def make_spec(args):
         config = load_config(args.local)
         github = open_github(config, refresh=True)
         body = Path(args.body_file).read_text(encoding="utf-8")
-        url = create_spec(config, github, args.project, args.repo, args.title, body, args.local, StateStore())
+        url = create_spec(config, github, args.project, args.repo, args.title, body, args.local, StateStore(),
+                          request=args.request)
     except ConfigError as e:
         print(f"tasks: {len(e.problems)} problem(s) in config; run: python -m kandu.config", file=sys.stderr)
         return 1

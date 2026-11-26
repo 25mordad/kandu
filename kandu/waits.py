@@ -5,7 +5,7 @@ reasons Kandu records for a held merge (`merge.merge_waits` and the supervisor),
 """
 import re
 
-from .merge import FAILED
+from .merge import FAILED, WRONG_BASE
 
 YES, CHECK, BLOCKER, DECISION, UNKNOWN = "yes", "check", "blocker", "decision", "unknown"
 CI_FAILING = "CI is failing"
@@ -17,7 +17,7 @@ REASONS_APART = "; "  # how Kandu joins the reasons of one decision
 MERGE_PROBLEMS = ("this head has no review in the local log", "a blocker is open", "an acceptance criterion is not met",
                   "the PR is a draft", "the PR has conflicts", CI_FAILING, "a review thread is open",
                   "a thread was resolved by someone other than its author", "the tests fail on this head",
-                  "main's tests fail",
+                  "main's tests fail", WRONG_BASE,
                   "the tests failed twice on this head: they run again on a new commit or a recorded "
                   "\"test again\" request")
 MERGE_PENDING = re.compile(r"(CI is running|another merge test of this project is running|the project is frozen|companion .+ is open and unreviewed|"
