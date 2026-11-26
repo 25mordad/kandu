@@ -3740,10 +3740,14 @@ class HandMoveTest(Base):
                 self.assertEqual(self.runner.runs, [])
 
     def test_a_card_of_a_task_that_is_not_stopped_records_nothing(self):
-        self.github.add(1, status="Backlog")
-        self.store.record("task_finished", task=KEY, project="website", outcome="sizing_failed")
-        self.cycle()
-        self.assertEqual(self.resumes(), [])
+        for outcome in (None, "stopped_by_user"):
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                self.github.add(1, status="Backlog")
+                if outcome is not None:
+                    self.store.record("task_finished", task=KEY, project="website", outcome=outcome)
+                self.cycle()
+                self.assertEqual(self.resumes(), [])
 
     def test_send_back_is_recorded_once_and_the_board_read_after_it_adds_nothing(self):
         self.stopped()
@@ -3776,6 +3780,90 @@ class HandMoveTest(Base):
         self.assertEqual(self.cycle(), "waiting for a machine")
         self.assertEqual(self.runner.runs, [])
         self.assertEqual(self.resumes(), [])
+
+    # Every stopped task Send back resumes: also one that failed, whose sizing failed or whose PR was closed.
+    ENDS = (("failed", "Blocked"), ("sizing_failed", "Needs info"), ("pr_closed", "Blocked"))
+
+    def ended(self, outcome, column):
+        """A task Kandu stopped with this outcome, its card in `column`; one whose sizing failed has no size."""
+        self.github.add(1, status=column)
+        if outcome != "sizing_failed":
+            self.sized(KEY)
+        if outcome == "pr_closed":
+            self.github.open_pr(REPO, 1, SHA1)
+            self.github.prs[(REPO, 1)]["state"] = "CLOSED"
+        self.store.record("task_finished", task=KEY, project="website", outcome=outcome)
+
+    def test_a_task_that_failed_or_whose_sizing_failed_or_pr_closed_moved_by_hand_is_resumed_once(self):
+        for outcome, column in self.ENDS:
+            for to in ("Backlog", "Ready", "In progress"):
+                with self.subTest(outcome=outcome, to=to):
+                    self.setUp()
+                    self.ended(outcome, column)
+                    self.move(to)
+                    self.runner.down.add("server")  # no agent runs: this is about the board read alone
+                    self.cycle()
+                    self.cycle()  # a later board read of the same move records nothing again
+                    self.assertEqual(self.resumes(), [to])
+                    events = queen.all_events(self.store)
+                    self.assertEqual(dashboard.task_statuses(events)[KEY]["state"], "fine")
+                    self.assertFalse(dashboard.flower_marks(self.store)[KEY]["yours"])
+
+    def test_a_task_that_failed_or_whose_sizing_failed_or_pr_closed_records_nothing_where_send_back_would_not(self):
+        for outcome, column in self.ENDS:
+            for to, open_issue in ((column, True), ("Done", True), ("Ready", False), ("Backlog", False)):
+                with self.subTest(outcome=outcome, to=to, open_issue=open_issue):
+                    self.setUp()
+                    self.ended(outcome, column)
+                    self.move(to)
+                    if not open_issue:
+                        self.github.open_issues.discard((REPO, 1))
+                    self.cycle()
+                    self.cycle()
+                    self.assertEqual(self.resumes(), [])
+                    self.assertEqual(self.runner.runs, [])
+
+    def test_a_task_that_failed_or_whose_pr_closed_moved_by_hand_to_ready_is_worked_again(self):
+        for outcome in ("failed", "pr_closed"):
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                self.ended(outcome, "Blocked")
+                self.move("Ready")
+                self.runner.steps = [GAVE_UP]
+                self.cycle()
+                self.assertEqual(self.resumes(), ["Ready"])
+                # driven again: a worker gives up, or the PR is still closed; either way Kandu stops it once more
+                self.assertEqual([e["outcome"] for e in self.events("task_finished")][1:], ["blocked" if outcome ==
+                                                                                           "failed" else "pr_closed"])
+                self.assertEqual(self.github.status(1), "Blocked")
+                self.cycle()  # Kandu's own move back to `Blocked` is no resume
+                self.assertEqual(self.resumes(), ["Ready"])
+
+    def test_a_task_whose_sizing_failed_moved_by_hand_to_backlog_is_sized_again(self):
+        self.ended("sizing_failed", "Needs info")
+        self.move("Backlog")
+        self.runner.steps = [ok(json.dumps({"size": "Small", "files": 1, "door": "two-way", "reason": "r",
+                                            "slices": [], "forbidden": []}))]
+        self.cycle()
+        self.assertEqual(self.resumes(), ["Backlog"])
+        self.assertEqual([e["role"] for e in self.events("run_finished")], ["splitter"])
+        self.assertEqual([e["size"] for e in self.events("task_sized")], ["Small"])
+        self.assertEqual(dashboard.task_statuses(queen.all_events(self.store))[KEY]["state"], "fine")
+
+    def test_the_queens_retry_of_a_task_that_failed_or_whose_sizing_failed_is_no_hand_move(self):
+        for outcome, column in self.ENDS[:2]:  # a closed PR is no retry of hers: Kandu's own move back is tested above
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                self.config.settings.supervisor.queen = True
+                self.ended(outcome, column)
+                refused, _ = self.sup._carry_out([{"task": KEY, "action": "retry", "note": "Try again."}],
+                                                 queen.all_events(self.store))
+                self.assertEqual(refused, [])
+                self.assertIn(self.github.status(1), ("Backlog", "Ready"))
+                self.config.settings.supervisor.queen = False
+                self.runner.down.add("server")  # no worker picks it in this cycle: the next board read sees her move
+                self.cycle()
+                self.assertEqual(self.resumes(), [])
 
 
 class IssueClosedTest(Base):

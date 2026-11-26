@@ -24,7 +24,8 @@ RETRYABLE = ("failed", "blocked", "needs_info", "sizing_failed")
 LIMITED = ("retry", "rework", "verify", "new_task", "block_on")  # each one this often per task
 SENT_ON = ("rework", "verify")  # code carries these out when it next drives the task
 CARD_MOVES = ("retry", "rework")  # her steps that move a stopped task's card out of `Blocked` themselves
-WAITS_FOR_RESUME = ("blocked", "needs_info")  # the ends a hand move out of `Blocked` or `Needs info` resumes
+# The ends a hand move out of `Blocked` or `Needs info` resumes: every stop Send back resumes.
+WAITS_FOR_RESUME = ("blocked", "needs_info", "failed", "sizing_failed", "pr_closed")
 LARGE = "Large"
 HIGH = "High"
 # Not `issue_closed`: no step of hers can reopen an issue, so the user hears of it at once.
@@ -134,7 +135,7 @@ def waits_after_loop(events, task):
 
 
 def waits_for_resume(events, task):
-    """True while the task's last stop is the last word on it: it ended `blocked` or `needs_info`, or code stopped
+    """True while the task's last stop is the last word on it: it ended in one of `WAITS_FOR_RESUME`, or code stopped
     it for a loop, and since then no resume, no pick and none of her steps that move its card (`CARD_MOVES`).
 
     A card such a task has outside `Blocked` and `Needs info` was moved there by hand: Kandu's own moves record
