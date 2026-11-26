@@ -223,7 +223,7 @@ class TodayTest(unittest.TestCase, Page):
         self.assertEqual((first["project"], first["title"], first["tone"]), ("website", "Store the delivery window", "amber"))
         self.assertEqual(first["line"], "The review passed; the merge waits for your approval.")
         self.assertEqual([(a["label"], a["attrs"]) for a in first["actions"]],
-                         [("Approve and merge", f'data-approve-open="{REPO}#8"'), ("Open", f'data-review="{REPO}#8"')])
+                         [("Approve and merge", f'data-approve-open="{REPO}#8"'), ("More information", f'data-review="{REPO}#8"')])
         asks = items[1]
         self.assertEqual(asks["line"], "Should gift cards expire?")
         self.assertEqual(asks["actions"][0]["attrs"], 'data-fly="didban" data-focus="website"')

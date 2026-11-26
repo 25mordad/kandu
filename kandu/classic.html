@@ -753,7 +753,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "project_added_msg": "Project {name} added, on board #{board}.",
   "test_task_made": "The task that writes the checks script",
   "deploy_task_made": "The task that writes the deploy script",
-  "open": "Open",
+  "more_info": "More information",
   "cancel": "Cancel",
   "didban_sessions": "Didban sessions",
   "no_didban_sessions": "No Didban session reported yet",
@@ -1272,7 +1272,7 @@ dialog.sheet[open] { display:flex; flex-direction:column; }
   "project_added_msg": "پروژه‌ی {name} اضافه شد، روی برد #{board}.",
   "test_task_made": "تسکی که اسکریپت checks را می‌نویسد",
   "deploy_task_made": "تسکی که اسکریپت deploy را می‌نویسد",
-  "open": "باز کردن",
+  "more_info": "توضیحات",
   "cancel": "انصراف",
   "didban_sessions": "جلسه‌های دیدبان",
   "no_didban_sessions": "هنوز جلسه‌ای از دیدبان گزارش نشده",
@@ -2611,11 +2611,11 @@ function renderQueen(s) {
     <div dir="auto" class="brief${long && !briefOpen ? " clamp" : ""}">${esc(s.queen.brief)}</div>
     ${long ? `<button class="btn plain small" data-brief>${t(briefOpen ? "show_less" : "show_more")}</button>` : ""}`;
   $("asks").innerHTML = s.queen.questions.map(q => `<div class="ask"><div class="ask-text"><div class="ask-who">${t("queen_asks")} · ${bdi(repoOf(q.task))} ${numberOf(q.task)}</div><div dir="auto">${esc(q.question)}</div></div>
-    <button class="btn small" data-review="${esc(q.task)}">${t("open")}</button></div>`).join("")
+    <button class="btn small" data-review="${esc(q.task)}">${t("more_info")}</button></div>`).join("")
     + (s.queen.drops || []).map(d => `<div class="ask"><div class="ask-text"><div class="ask-who">${t("queen_asks")} · ${bdi(repoOf(d.task))} ${numberOf(d.task)}</div>
     <div>${esc(t("drop_ask").replace("{blocker}", d.blocker))}</div><div dir="auto">${esc(d.reason)}</div></div>
     <button class="btn small primary" data-drop="${esc(d.task)}" data-blocker="${esc(d.blocker)}">${t("drop_yes")}</button>
-    <button class="btn small" data-review="${esc(d.task)}">${t("open")}</button></div>`).join("");
+    <button class="btn small" data-review="${esc(d.task)}">${t("more_info")}</button></div>`).join("");
 }
 
 // Each machine that does not answer: since when, and the tasks that wait for it, to be sized or worked.
@@ -3489,7 +3489,7 @@ function waitItems(s, queue) {
     if (items.has(task)) return;
     const project = open[task]?.project || repoOf(task);
     items.set(task, {task, project, title: open[task]?.title || "", kind: label, tone, line, stuck: kind === "stuck",
-                     order: WAIT_ORDER.indexOf(kind), rank: order(project), actions: [...actions, button(t("open"), `data-review="${esc(task)}"`)]});
+                     order: WAIT_ORDER.indexOf(kind), rank: order(project), actions: [...actions, button(t("more_info"), `data-review="${esc(task)}"`)]});
   };
   const marks = Object.entries(s.flowers || {});
   for (const d of s.queen?.drops || [])
