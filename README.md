@@ -217,4 +217,6 @@ Kandu's practices for merge danger, task slicing, PR bodies, debugging, testing 
 
 ## License
 
-[MIT](LICENSE)
+Kandu is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE): free for noncommercial use. Commercial use needs a separate commercial license; send inquiries to https://github.com/25mordad.
+
+Versions released before this change remain under the MIT License.

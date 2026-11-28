@@ -76,7 +76,7 @@ Kandu is not for you if:
 
 ## What it costs
 
-Kandu itself is free and open source (MIT). It runs on your Claude subscription or API key and your GitHub account. Everything that needs no judgment runs as plain code and costs no tokens, so a quiet hour costs nothing. You set the usage limits and a daily token limit per project, and the dashboard shows what each task cost.
+Kandu itself is source-available and free for noncommercial use. It runs on your Claude subscription or API key and your GitHub account. Everything that needs no judgment runs as plain code and costs no tokens, so a quiet hour costs nothing. You set the usage limits and a daily token limit per project, and the dashboard shows what each task cost.
 
 ## Status
 
